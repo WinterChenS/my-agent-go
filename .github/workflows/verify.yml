@@ -9,10 +9,13 @@
 
 name: verify
 
+# 触发策略（成本控制）：
+#   - 只有 main 分支的 push 自动构建。日常开发走 feature 分支，推送不消耗 CI 分钟。
+#   - 去掉 pull_request 触发：每次 PR 同步都会跑满六个目标，代价远高于收益。
+#   - 需要验证 feature 分支时手动 Run workflow（workflow_dispatch 可选分支）。
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
