@@ -1,0 +1,9 @@
+=== npm config ===
+registry=https://registry.npmmirror.com
+=== global npmrc ===
+no global npmrc at D:\Program Files\nodejs\..\etc\npmrc
+=== user npmrc ===
+user: registry=https://registry.npmmirror.com
+=== frontend state ===
+node_modules EXISTS
+package-lock ABSENT

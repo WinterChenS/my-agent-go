@@ -1,0 +1,24 @@
+# 本地工具链（F00：wails3 CLI 装在项目内，不进版本库）
+/.tools/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# 运行时产物
+/dist/
+/build/bin/
+artifacts/
+*.exe
+*.dll
+
+# 构建日志（证据日志例外：docs/evidence/raw/** 必须入库）
+/build/*.log
+!/docs/evidence/raw/*.log
+
+# OS / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+.idea/

@@ -1,0 +1,1 @@
+{"Version":"v1.61.1","Time":"2026-10-31T10:08:39Z","Origin":{"VCS":"git","URL":"https://gitlab.com/cznic/sqlite","Hash":"014351f110f66c8f485cff948fea608d7dcfafb1","Ref":"refs/tags/v1.61.1"}}

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-11-03",
+  "defaultChannel": "internal",
+  "host": {
+    "os": "windows",
+    "arch": "amd64",
+    "osVersion": "Windows 10 Pro 22H2 (Build 19045)",
+    "note": "基线最低验收系统为 Windows 11 24H2；本机为 Windows 10，属偏差，记录但不影响工具链冻结。"
+  },
+  "targets": [
+    {
+      "targetId": "win-x64",
+      "goos": "windows",
+      "goarch": "amd64",
+      "package": "NSIS .exe",
+      "status": "READY_HOST",
+      "limitations": "可开发/构建；打包工具(NSIS/MakeAppx/SignTool/MSIX)未安装，最终安装包暂不可产；OS 版本低于基线最低验收。"
+    },
+    {
+      "targetId": "win-arm64",
+      "goos": "windows",
+      "goarch": "arm64",
+      "package": "NSIS .exe",
+      "status": "BLOCKED",
+      "reason": "无 Windows ARM64 运行环境，无法验证构建、WebView2 与原生打包。"
+    },
+    {
+      "targetId": "mac-x64",
+      "goos": "darwin",
+      "goarch": "amd64",
+      "package": ".dmg / .app",
+      "status": "BLOCKED",
+      "reason": "无 macOS Intel 运行环境，无法验证 WKWebView、签名与公证。"
+    },
+    {
+      "targetId": "mac-arm64",
+      "goos": "darwin",
+      "goarch": "arm64",
+      "package": ".dmg / .app",
+      "status": "BLOCKED",
+      "reason": "无 macOS Apple Silicon 运行环境，无法验证 WKWebView、签名与公证。"
+    },
+    {
+      "targetId": "linux-x64",
+      "goos": "linux",
+      "goarch": "amd64",
+      "package": ".deb + AppImage",
+      "status": "BLOCKED",
+      "reason": "无 Linux amd64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。"
+    },
+    {
+      "targetId": "linux-arm64",
+      "goos": "linux",
+      "goarch": "arm64",
+      "package": ".deb + AppImage",
+      "status": "BLOCKED",
+      "reason": "无 Linux ARM64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。"
+    }
+  ]
+}

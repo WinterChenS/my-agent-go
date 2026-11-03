@@ -1,0 +1,33 @@
+GOPATH=C:\Users\Administrator\go
+--- go.sum h1 lines for pinned modules ---
+modernc.org/sqlite v1.61.1 h1:TBEE49wz7VlxS+qXRXMQiPUZYOXHJ4ku83daYv1fe04=
+github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
+github.com/wailsapp/wails/v3 v3.0.0 h1:lBe89kFu23bVz1dc1H9v0srkHQgWsy7BAKpH4sLQuDw=
+--- LICENSE files in module cache ---
+DIR: C:\Users\Administrator\go\pkg\mod\modernc.org\sqlite@v1.61.1
+  LIC: LICENSE (1489 B)
+    > Copyright (c) 2017 The Sqlite Authors. All rights reserved.
+    > 
+    > Redistribution and use in source and binary forms, with or without
+  LIC: LICENSE-3RD-PARTY.md (74323 B)
+    > # Third-Party Licenses
+    > 
+    > `modernc.org/sqlite` is BSD-3-Clause; that license is in [LICENSE](LICENSE) and it is
+  LIC: LICENSE-SQLITE (1506 B)
+    > SQLite Is Public Domain
+    > 
+    > All of the code and documentation in SQLite has been dedicated to the public
+  LIC: LICENSE-SQLITE_VEC (1068 B)
+    > MIT License
+    > 
+    > Copyright (c) 2024 Alex Garcia
+DIR: C:\Users\Administrator\go\pkg\mod\github.com\modelcontextprotocol\go-sdk@v1.8.0
+  LIC: LICENSE (12223 B)
+    > The MCP project is undergoing a licensing transition from the MIT License to the Apache License, Version 2.0 ("Apache-2.0"). All new code and specification contributions to the project are licensed under Apache-2.0. Documentation contributions (excluding specifications) are licensed under CC-BY-4.0.
+    > 
+    > Contributions for which relicensing consent has been obtained are licensed under Apache-2.0. Contributions made by authors who originally licensed their work under the MIT License and who have not yet granted explicit permission to relicense remain licensed under the MIT License.
+DIR: C:\Users\Administrator\go\pkg\mod\github.com\wailsapp\wails\v3@v3.0.0
+  LIC: LICENSE (1076 B)
+    > MIT License
+    > 
+    > Copyright (c) 2018-Present Lea Anthony

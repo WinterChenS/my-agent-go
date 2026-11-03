@@ -1,0 +1,12 @@
+
+Name      PSIsContainer
+----      -------------
+.git               True
+.tools             True
+build              True
+docs               True
+AGENTS.md         False
+LICENSE           False
+
+
+

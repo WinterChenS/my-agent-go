@@ -1,0 +1,7 @@
+=== frontend state ===
+node_modules: EXISTS (Microsoft.PowerShell.Commands.GenericMeasureInfo.Count entries)
+package-lock.json: ABSENT
+=== install2 log exists? ===
+YES
+=== dist? ===
+dist ABSENT

@@ -1,0 +1,3 @@
+﻿START 11/03/2026 13:20:40
+npm warn tarball tarball data for lightningcss-win32-x64-msvc@https://registry.npmmirror.com/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.33.0.tgz (sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA==) seems to be corrupted. Trying again.
+npm warn tarball tarball data for lightningcss@https://registry.npmmirror.com/lightningcss/-/lightningcss-1.33.0.tgz (sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==) seems to be corrupted. Trying again.

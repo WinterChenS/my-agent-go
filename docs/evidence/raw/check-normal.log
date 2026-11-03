@@ -1,0 +1,15 @@
+﻿===== NORMAL_ENV =====
+node  -> D:\Program Files\nodejs\node.exe
+npm  -> D:\Program Files\nodejs\npm.ps1
+go   -> D:\Program Files\Go\bin\go.exe
+wails3 -> D:\project\my-agent-go\.tools\bin\wails3.exe
+=== F00 toolchain check (2026-11-03 13:28:26) ===
+OK:   go: d:\program files\go\bin\go.exe -> go version go1.27.3 windows/amd64
+OK:   node: d:\program files\nodejs\node.exe -> v24.16.0
+OK:   npm: d:\program files\nodejs\npm.cmd -> 11.13.0
+OK:   wails3: d:\project\my-agent-go\.tools\bin\wails3.exe -> v3.0.0
+INFO: CGO_ENABLED=0
+INFO: WebView2 runtime present under EdgeWebView/Application: True
+INFO: gcc on PATH: ABSENT
+--- summary: 0 failure(s), 0 warning(s) ---
+EXIT=0

@@ -1,0 +1,4 @@
+=== PROBE4 2026-11-03 13:13:00 ===
+PI version (from package.json): 1.4.0
+PI name: @earendil-works/pi-coding-agent
+=== DONE4 ===

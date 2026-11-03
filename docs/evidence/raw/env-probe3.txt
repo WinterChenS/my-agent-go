@@ -1,0 +1,86 @@
+=== PROBE3 2026-11-03 13:12:30 ===
+--- pi-node current dir ---
+ENTRY: node_modules  DIR
+ENTRY: agent-desktop  431B
+ENTRY: agent-desktop.cmd  151B
+ENTRY: agent-desktop.ps1  143B
+ENTRY: CHANGELOG.md  54,591B
+ENTRY: codegraph  439B
+ENTRY: codegraph.cmd  350B
+ENTRY: codegraph.ps1  905B
+ENTRY: codex  421B
+ENTRY: codex.cmd  341B
+ENTRY: codex.ps1  869B
+ENTRY: comet  421B
+ENTRY: comet.cmd  341B
+ENTRY: comet.ps1  869B
+ENTRY: corepack  334B
+ENTRY: corepack.cmd  218B
+ENTRY: dsh  423B
+ENTRY: dsh.cmd  342B
+ENTRY: dsh.ps1  873B
+ENTRY: gitnexus  421B
+ENTRY: gitnexus.cmd  341B
+ENTRY: gitnexus.ps1  869B
+ENTRY: install_tools.bat  3,094B
+ENTRY: lark-cli  427B
+ENTRY: lark-cli.cmd  344B
+ENTRY: lark-cli.ps1  881B
+ENTRY: LICENSE  148,217B
+ENTRY: node.exe  86,997,320B
+ENTRY: nodevars.bat  702B
+ENTRY: npm  2,073B
+ENTRY: npm.cmd  538B
+ENTRY: npm.ps1  1,700B
+ENTRY: npx  2,073B
+ENTRY: npx.cmd  538B
+ENTRY: npx.ps1  1,700B
+ENTRY: opencli  439B
+ENTRY: opencli.cmd  350B
+ENTRY: opencli.ps1  905B
+ENTRY: opencode  296B
+ENTRY: opencode.cmd  148B
+ENTRY: opencode.ps1  496B
+ENTRY: openspec  441B
+ENTRY: openspec.cmd  351B
+ENTRY: openspec.ps1  909B
+ENTRY: pi  469B
+ENTRY: pi.cmd  365B
+ENTRY: pi.ps1  965B
+ENTRY: README.md  43,378B
+ENTRY: tds  425B
+ENTRY: tds.cmd  343B
+ENTRY: tds.ps1  877B
+ENTRY: zcode  421B
+ENTRY: zcode.cmd  341B
+ENTRY: zcode.ps1  869B
+--- search pi.exe ---
+--- pi.ps1 head ---
+PS1> #!/usr/bin/env pwsh
+PS1> $basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
+PS1> 
+PS1> $exe=""
+PS1> if ($PSVersionTable.PSVersion -lt "6.0" -or $IsWindows) {
+PS1>   # Fix case when both the Windows and Linux builds of Node
+PS1>   # are installed in the same directory
+PS1>   $exe=".exe"
+PS1> }
+PS1> $ret=0
+PS1> if (Test-Path "$basedir/node$exe") {
+PS1>   # Support pipeline input
+PS1>   if ($MyInvocation.ExpectingInput) {
+PS1>     $input | & "$basedir/node$exe"  "$basedir/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" $args
+PS1>   } else {
+PS1>     & "$basedir/node$exe"  "$basedir/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" $args
+PS1>   }
+PS1>   $ret=$LASTEXITCODE
+PS1> } else {
+PS1>   # Support pipeline input
+--- WebView2 runtime registry HKLM/WebView2 ---
+NOT found: HKLM:\SOFTWARE\Microsoft\WebView2\Runtime
+--- WebView2 dir ---
+WVDIR: 156.0.4314.50
+WVDIR: 156.0.4314.58
+WVDIR: SetupMetrics
+--- Edge/WebView2 via Get-ItemProperty broad ---
+=== DONE3 ===

@@ -1,0 +1,70 @@
+﻿START 11/03/2026 13:15:32
+go: downloading modernc.org/sqlite v1.61.1
+go: downloading github.com/modelcontextprotocol/go-sdk v1.8.0
+go: my-agent-go/tools imports
+	github.com/modelcontextprotocol/go-sdk/mcp: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying module: github.com/modelcontextprotocol/go-sdk@v1.8.0: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	modernc.org/sqlite: modernc.org/sqlite@v1.61.1: Get "https://storage.googleapis.com/proxy-golang-org-prod/b7859b2b7dab07f5-modernc.org:sqlite-v1.61.1.zip?Expires=1793761921&GoogleAccessId=gcs-urlsigner-prod%40golang-modproxy.iam.gserviceaccount.com&Signature=l2yoAUGxF%2BATUVqtl5SEdpyWjGVk4bE85arqEQfLO7sTVkbNQlwpi3KMwhdKmRHsRaf98twonklp7egiTu%2BVQzlnIOQsLPP58duMb0q4i47SX%2BdtUcflnGCFfSNfiyOuu16ZWczK8LgxoIgAvJNyx6IXvrMho%2B56kzSU%2BUL34F8BmR%2BdNh4pwHcd2%2B%2BcTU8Ma8%2FmE0Siv0dI%2F8jlFhc0TGNUlQcGkAIAVRmkBStmQyffpTcqnm1NM7Yvt9iCrPMNuS2DHe2S2VCKzKM1klJUaI1TNcfhqVaHTRa991ZvCN8oOx3BESTRN02N9OLDsFnE92dHhPO5Q6ZJw%2BA7Jaax5g%3D%3D": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/adrg/xdg: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/coder/websocket: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/coder/websocket/wsjson: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/godbus/dbus/v5: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/godbus/dbus/v5/introspect: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/godbus/dbus/v5/prop: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/mattn/go-colorable: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/mattn/go-isatty: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	golang.org/x/sys/windows: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	golang.org/x/sys/windows/registry: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/wailsapp/wails/v3/internal/go-common-file-dialog/cfd imports
+	github.com/go-ole/go-ole: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application tested by
+	github.com/wailsapp/wails/v3/pkg/application.test imports
+	github.com/go-json-experiment/json: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application tested by
+	github.com/wailsapp/wails/v3/pkg/application.test imports
+	github.com/matryer/is: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/wailsapp/wails/v3/internal/assetserver tested by
+	github.com/wailsapp/wails/v3/internal/assetserver.test imports
+	github.com/google/go-cmp/cmp: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/wailsapp/wails/v3/internal/assetserver/webview tested by
+	github.com/wailsapp/wails/v3/internal/assetserver/webview.test imports
+	golang.org/x/sys/unix: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/wailsapp/wails/v3/internal/webview2/pkg/edge tested by
+	github.com/wailsapp/wails/v3/internal/webview2/pkg/edge.test imports
+	github.com/stretchr/testify/assert: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+go: my-agent-go/tools imports
+	github.com/wailsapp/wails/v3/pkg/application imports
+	github.com/wailsapp/wails/v3/internal/webview2/pkg/edge tested by
+	github.com/wailsapp/wails/v3/internal/webview2/pkg/edge.test imports
+	github.com/stretchr/testify/require: github.com/modelcontextprotocol/go-sdk@v1.8.0: verifying go.mod: github.com/modelcontextprotocol/go-sdk@v1.8.0/go.mod: Get "https://sum.golang.org/tile/8/1/964": unexpected EOF
+EXIT=1 END 11/03/2026 13:15:43

@@ -1,0 +1,77 @@
+# AGENTS.md — 现场作业规则（MyAgent V1）
+
+本文件是执行 Agent 的现场契约。动手前必读，与本文件冲突的临时便利一律让步。
+
+## 1. 权威顺序
+
+用户明确指令 > `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`（执行基线）
+> 分模块计划 `docs/superpowers/plans/*.md` > 验收矩阵 `docs/acceptance/v1-gates.md`
+> 历史方案（`docs/agent-client-proposal.md`、`docs/technical-decisions.md`、
+> `docs/wails-browser-design.md`、`docs/gooeypi-browser-review.md`）。
+
+历史方案里的时间估算、候选方案、"后续可选"不是任务。调研结论不是实现完成证据。
+
+## 2. 仓库现状（2026-11-03 实测）
+
+- Git 仓库已存在，仅 `Initial commit`；产品代码为零，`docs/` 是唯一既有内容。
+- 不存在 `.codegraph`。若后续出现，按 CodeGraph 方式索引后再改代码。
+- 本文件此前缺失，由执行阶段补建；它不是对产品的承诺。
+
+## 3. 技术选型（不可自行更换）
+
+Go 1.27.3（Harness 主体）+ Wails v3.0.0（桌面宿主）+ React/TS/Vite/Tailwind/shadcn（前端）
++ SQLite（`modernc.org/sqlite`，需 FTS5 trigram）+ 宿主 Pi v1.5.0（agent loop 由 Pi 负责）。
+六目标：win-x64、win-arm64、mac-x64、mac-arm64、linux-x64、linux-arm64。
+
+换桌面壳、换浏览器承载方式、把 Pi/Node/Chromium 塞进基础包、删平台、迁移用户旧凭证、
+放宽门禁阈值、增加后置功能 —— 一律先写 ADR，不静默执行。
+
+## 4. 本机环境事实（踩过的坑，别再踩）
+
+| 事实 | 后果 | 做法 |
+|---|---|---|
+| Bash 工具链残缺（`dirname`/`head` 缺失） | `Bash` 工具执行即报错 | 一律用 `PowerShell` 工具 |
+| PATH 首个 node 是 v22.22.2（WorkBuddy 托管运行时） | 不符合基线 Node 24.16.0 | 显式用 `D:\Program Files\nodejs\node.exe`（v24.16.0） |
+| `微信web开发者工具\node.exe` 也在 PATH | 抢解析，正是 `ToolchainRejectsWechatNode` 要拦的场景 | 脚本必须校验实际路径，不能只 `node -v` |
+| `npm.ps1` 被执行策略禁止 | `npm -v` 报脚本无法运行 | 用 `D:\Program Files\nodejs\npm.cmd` |
+| 无 gcc/cc/clang/mingw | cgo 相关构建可能不可用 | 需要 cgo 时先探测再决定，不假设 |
+| WebView2 运行时 156.0.4314.58 已装 | Windows WebView 可用 | 记录进环境证据 |
+| PATH 上 Pi 为 1.4.0，基线认证 1.5.0 | 版本不匹配即 unverified | 不把 1.4.0 当通过 |
+| PowerShell 标准输出有时不回显 | 误判"命令没跑" | 结果写文件再 `Read` 读回 |
+| `wmic` 被安全策略拉黑 | 取进程信息失败 | 用 `Get-CimInstance Win32_Process` |
+
+## 5. 统一命令契约（F01 完成后才可用）
+
+```text
+go run ./cmd/devtools verify --suite=static
+go run ./cmd/devtools verify --suite=unit
+go run ./cmd/devtools verify --suite=integration --target=<targetId>
+go run ./cmd/devtools verify --suite=native --target=<targetId> --display=<session>
+go run ./cmd/devtools verify --suite=e2e --target=<targetId>
+go run ./cmd/devtools package --target=<targetId> --channel=internal
+go run ./cmd/devtools verify --suite=package --target=<targetId> --artifact=<path>
+go run ./cmd/devtools gate --id=G0 --evidence=<abs-evidence-root>
+```
+
+退出码：0 通过；1 断言失败；2 配置/索引/目标/门禁缺失或未知。
+不允许 `|| true`、不允许写 `passed.json` 冒充执行、不允许空 suite 判成功。
+
+## 6. 单任务纪律
+
+每个任务：**失败用例 → 最小实现 → focused 验证 → 原始证据 → 可独立审查的提交**。
+提交前在提交信息里写明 Task ID。状态只有 TODO/DOING/REVIEW/PASS/FAIL/BLOCKED；
+PASS 由证据确定，不由"看起来能用"确定。缺机器/凭证/签名/网络就写 BLOCKED，
+保留修复步骤，不删目标、不改口径、不伪造证据。
+
+所有测试在隔离 appData / Pi agentDir / 临时 workspace 中跑，不碰用户真实配置与登录。
+
+## 7. 目录所有权
+
+- `internal/contracts`、`schemas/`、`cmd/devtools` 的门禁判定：**串行维护**，同一时间只能有一个写者。
+- 其余包按模块计划表的 Task 归属，跨包改动先在对应用户计划任务里登记。
+- 产品代码不得引用 `docs/` 里的示例当作已实现契约。
+
+## 8. 报告口径
+
+逐 Task/目标给 PASS/FAIL/BLOCKED/NOT_RUN、实际命令与退出码、产物路径/hash、限制。
+未过 G4 不称 V1 可交付；未过 G5 不称正式发行完成。

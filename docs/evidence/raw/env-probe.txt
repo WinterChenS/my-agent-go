@@ -1,0 +1,28 @@
+=== ENV PROBE 2026-11-03 13:11:34 ===
+--- go version ---
+go version go1.27.3 windows/amd64
+--- go env GOROOT GOPROXY CGO_ENABLED ---
+D:\Program Files\Go
+https://proxy.golang.org,direct
+0
+go1.27.3
+--- node v22 (PATH first) ---
+v22.22.2
+--- node v22 path ---
+C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe
+--- baseline node v24 ---
+v24.16.0
+--- npm.cmd v24 ---
+11.13.0
+--- wails3.exe exists? ---
+MISSING: D:\project\my-agent-go\.tools\bin\wails3.exe
+--- native compilers ---
+gcc MISSING
+cc MISSING
+clang MISSING
+mingw32-make MISSING
+--- Pi on PATH ---
+pi path: C:\Users\Administrator\AppData\Local\pi-node\current\pi.ps1
+--- D drive free ---
+D free GB: 47.9
+=== DONE ===

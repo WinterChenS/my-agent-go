@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-11-03",
+  "generatedBy": "F00 toolchain freeze (MyAgent V1)",
+  "go": "1.27.3",
+  "node": "24.16.0",
+  "npm": "11.13.0",
+  "wails": "v3.0.0",
+  "piValidated": {
+    "required": "1.5.0",
+    "onPath": "1.4.0",
+    "status": "MISMATCH",
+    "note": "PATH Pi is 1.4.0 (C:\\Users\\Administrator\\AppData\\Local\\pi-node\\current, package @earendil-works/pi-coding-agent@1.4.0). Baseline certifies exact version 1.5.0. Mismatch -> recorded as unverified / Not Ready; never marked Ready."
+  },
+  "directDependencies": [
+    {
+      "name": "modernc.org/sqlite",
+      "version": "v1.61.1",
+      "source": "https://proxy.golang.org/modernc.org/sqlite/@v/v1.61.1.zip",
+      "hash": "h1:TBEE49wz7VlxS+qXRXMQiPUZYOXHJ4ku83daYv1fe04=",
+      "license": "BSD-3-Clause",
+      "purpose": "SQLite with FTS5 trigram; pure Go, no cgo"
+    },
+    {
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "version": "v1.8.0",
+      "source": "https://proxy.golang.org/github.com/modelcontextprotocol/go-sdk/@v/v1.8.0.zip",
+      "hash": "h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=",
+      "license": "Apache-2.0 (relicensing from MIT in progress; see module LICENSE)",
+      "purpose": "Official Go MCP client SDK (stable)"
+    },
+    {
+      "name": "github.com/wailsapp/wails/v3",
+      "version": "v3.0.0",
+      "source": "https://proxy.golang.org/github.com/wailsapp/wails/v3/@v/v3.0.0.zip",
+      "hash": "h1:lBe89kFu23bVz1dc1H9v0srkHQgWsy7BAKpH4sLQuDw=",
+      "license": "MIT",
+      "purpose": "Desktop host (Windows WebView2 / macOS WKWebView / Linux WebKitGTK)"
+    }
+  ],
+  "nativeToolchains": {
+    "cgo": "disabled (CGO_ENABLED=0)",
+    "compilers": {
+      "gcc": "ABSENT",
+      "cc": "ABSENT",
+      "clang": "ABSENT",
+      "mingw": "ABSENT"
+    },
+    "webview2": {
+      "runtimeVersion": "156.0.4314.58",
+      "location": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application",
+      "status": "PRESENT",
+      "goWebView2Loader": true
+    },
+    "windowsPackagingTooling": {
+      "NSIS": "Not Installed",
+      "MakeAppx/WindowsSDK": "Not Installed",
+      "SignTool": "Not Installed",
+      "MSIXPackagingTool": "Not Installed"
+    }
+  },
+  "targetMatrix": [
+    {
+      "targetId": "win-x64",
+      "goos": "windows",
+      "goarch": "amd64",
+      "status": "READY_HOST",
+      "hostEvidence": "This machine: Windows 10 Pro 22H2 (Build 19045) / amd64 / Intel N100; wails3 doctor usable; go build passes",
+      "limitations": "Host is Windows 10 Pro 22H2 while baseline minimum acceptance is Windows 11 24H2; packaging tools (NSIS/MakeAppx/SignTool/MSIX) not installed, so final installer cannot be produced yet."
+    },
+    {
+      "targetId": "win-arm64",
+      "goos": "windows",
+      "goarch": "arm64",
+      "status": "BLOCKED",
+      "hostEvidence": "none",
+      "limitations": "Only a Windows/amd64 machine is available; no Windows ARM64 runtime to verify build, WebView2, or native packaging."
+    },
+    {
+      "targetId": "mac-x64",
+      "goos": "darwin",
+      "goarch": "amd64",
+      "status": "BLOCKED",
+      "hostEvidence": "none",
+      "limitations": "No macOS Intel runtime to verify darwin/amd64 build and WKWebView."
+    },
+    {
+      "targetId": "mac-arm64",
+      "goos": "darwin",
+      "goarch": "arm64",
+      "status": "BLOCKED",
+      "hostEvidence": "none",
+      "limitations": "No macOS Apple Silicon runtime to verify signing / notarization / Gatekeeper."
+    },
+    {
+      "targetId": "linux-x64",
+      "goos": "linux",
+      "goarch": "amd64",
+      "status": "BLOCKED",
+      "hostEvidence": "none",
+      "limitations": "No Linux runtime to verify WebKitGTK under X11/Wayland."
+    },
+    {
+      "targetId": "linux-arm64",
+      "goos": "linux",
+      "goarch": "arm64",
+      "status": "BLOCKED",
+      "hostEvidence": "none",
+      "limitations": "No Linux ARM64 runtime to verify WebKitGTK under X11/Wayland."
+    }
+  ],
+  "expectedPaths": {
+    "go": "D:\\Program Files\\Go\\bin\\go.exe",
+    "node": "D:\\Program Files\\nodejs\\node.exe",
+    "npm": "D:\\Program Files\\nodejs\\npm.cmd",
+    "wails": "D:\\project\\my-agent-go\\.tools\\bin\\wails3.exe"
+  },
+  "sumDbNote": "Initial `go mod tidy` hit 'unexpected EOF' from sum.golang.org and ran with GOSUMDB=off. Review re-probe returned 200; re-running `go mod tidy` with the default GOSUMDB produced a byte-identical go.sum, so the hashes match the public sumdb and no unverified dependency was introduced."
+}
