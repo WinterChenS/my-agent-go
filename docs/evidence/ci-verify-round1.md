@@ -38,3 +38,21 @@
 
 - Unix 侧测试的**执行**结果只能由 CI runner 或 Linux/macOS 机器给出；本地仅完成编译级验证（`go vet`）。
 - `TestProbePs1NotDirectlyExecutable` 在组策略强制放开的组织环境里会以 `t.Fatalf` 显式失败而非跳过——这是有意的：那种环境下该断言不可信，必须暴露出来。
+
+## 最终结果（run `41625214560`，commit `750fa8f`）
+
+六个目标 + 前端全部通过：
+
+| Job | Runner | test | race | 交叉编译 | 耗时 |
+|---|---|---|---|---|---|
+| win-x64 | windows-2025 | PASS | PASS | PASS | 5m24s |
+| win-arm64 | windows-11-arm | PASS | **BLOCKED**（Go 工具链不支持 `-race` on windows/arm64） | PASS | 4m43s |
+| mac-x64 | macos-15-intel | PASS | PASS | PASS | 8m16s |
+| mac-arm64 | macos-15 | PASS | PASS | PASS | 3m43s |
+| linux-x64 | ubuntu-24.04 | PASS | PASS | PASS | 3m49s |
+| linux-arm64 | ubuntu-24.04-arm | PASS | PASS | PASS | 2m38s |
+| frontend | ubuntu-24.04 | typecheck + build PASS | — | — | 15s |
+
+RPC05 的 Unix 进程组路径、`process_unix.go` 首次在真实 Linux/macOS 上被 `go test` 执行并通过。
+win-arm64 的竞态验证是**目标级 BLOCKED**（工具链能力边界），不是通过——不得在任何报告里写成"六目标 race 全通过"。
+
