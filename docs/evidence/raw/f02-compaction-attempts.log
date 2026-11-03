@@ -1,0 +1,31 @@
+exit=0 size=1149265
+=== RUN   TestCaptureRealPiProtocol
+=== RUN   TestCaptureRealPiProtocol/compaction
+    protocol_capture_test.go:424: 鍦烘櫙 compaction锛?31 鏉¤褰曪紝閫€鍑虹爜 0
+--- PASS: TestCaptureRealPiProtocol (18.96s)
+    --- PASS: TestCaptureRealPiProtocol/compaction (18.95s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	19.218s
+
+=== trace ===
+1  response cmd=prompt ok=True
+2  agent_start
+3  turn_start
+42  turn_end
+43  agent_end
+44  agent_settled
+45  response cmd=prompt ok=True
+46  agent_start
+47  turn_start
+84  turn_end
+85  agent_end
+86  agent_settled
+87  response cmd=prompt ok=True
+88  agent_start
+89  turn_start
+126  turn_end
+127  agent_end
+128  agent_settled
+129  compaction_start
+130  compaction_end
+131  response cmd=compact ok=False err=Nothing to compact (session too small)

@@ -1,0 +1,7 @@
+buildOk=True
+bin=C:\Users\ADMINI~1\AppData\Local\Temp\mcpprobe-8b919267\fixture-mcp.exe
+agentDir=C:\Users\ADMINI~1\AppData\Local\Temp\mcpprobe-8b919267\agent
+=== mcp list ===
+fixture: connected, 1 tool (direct, global)
+  C:\Users\ADMINI~1\AppData\Local\Temp\mcpprobe-8b919267\fixture-mcp.exe
+  tools: fixture_echo

@@ -1,0 +1,11 @@
+exit=1
+=== RUN   TestCaptureRealPiProtocol
+=== RUN   TestCaptureRealPiProtocol/mcp
+    protocol_capture_test.go:480: 鍦烘櫙 mcp锛?6 鏉¤褰曪紝閫€鍑虹爜 0
+    protocol_capture_test.go:525: provider 璇锋眰鐨?tools 鏁扮粍閲屾病鏈?"mcp__fixture__fixture_echo"锛涘疄闄呭伐鍏凤細[read bash edit write]
+        璇锋眰鎽樿锛?        request-001.json bytes=30563 keys=[max_completion_tokens messages model store stream stream_options tools]
+--- FAIL: TestCaptureRealPiProtocol (9.44s)
+    --- FAIL: TestCaptureRealPiProtocol/mcp (9.43s)
+FAIL
+FAIL	my-agent-go/internal/runtime/pi	9.724s
+FAIL

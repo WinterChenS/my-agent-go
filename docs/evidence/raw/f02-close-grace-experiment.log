@@ -1,0 +1,28 @@
+### grace=0s  (exit=0)
+   protocol_capture_test.go:380: 鍦烘櫙 tool锛?2 鏉¤褰曪紝閫€鍑虹爜 3221226505
+   protocol_capture_test.go:380: 鍦烘櫙 long锛?4 鏉¤褰曪紝閫€鍑虹爜 3221226505
+   --- PASS: TestCaptureRealPiProtocol (8.52s)
+   --- PASS: TestCaptureRealPiProtocol/tool (4.23s)
+   --- PASS: TestCaptureRealPiProtocol/long (4.26s)
+   protocol_capture_test.go:380: 鍦烘櫙 tool锛?2 鏉¤褰曪紝閫€鍑虹爜 3221226505
+   protocol_capture_test.go:380: 鍦烘櫙 long锛?4 鏉¤褰曪紝閫€鍑虹爜 3221226505
+   --- PASS: TestCaptureRealPiProtocol (7.65s)
+   --- PASS: TestCaptureRealPiProtocol/tool (3.99s)
+   --- PASS: TestCaptureRealPiProtocol/long (3.66s)
+   PASS
+### grace=800ms  (exit=0)
+   --- PASS: TestCaptureRealPiProtocol (7.49s)
+   --- PASS: TestCaptureRealPiProtocol/tool (4.00s)
+   --- PASS: TestCaptureRealPiProtocol/long (3.48s)
+   --- PASS: TestCaptureRealPiProtocol (7.61s)
+   --- PASS: TestCaptureRealPiProtocol/tool (3.86s)
+   --- PASS: TestCaptureRealPiProtocol/long (3.75s)
+   PASS
+### grace=3000ms  (exit=0)
+   --- PASS: TestCaptureRealPiProtocol (12.03s)
+   --- PASS: TestCaptureRealPiProtocol/tool (6.70s)
+   --- PASS: TestCaptureRealPiProtocol/long (5.31s)
+   --- PASS: TestCaptureRealPiProtocol (10.58s)
+   --- PASS: TestCaptureRealPiProtocol/tool (5.55s)
+   --- PASS: TestCaptureRealPiProtocol/long (5.03s)
+   PASS
