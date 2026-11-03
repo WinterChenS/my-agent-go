@@ -72,6 +72,21 @@ jobs:
             exit 2
           fi
 
+      - name: 准备前端产物占位（仅为让 go build ./... 通过）
+        # cmd/myagent 用 //go:embed 把 frontend/dist 打进二进制，go:embed 要求目录非空。
+        # 这里只放一个占位 index.html，目的是让六目标的编译/vet 跑得起来——
+        # **它不代表前端产物被验证过**：真实构建与类型检查由独立的 frontend job 负责，
+        # 打包产物的验收（PKG01–PKG07）在 G4 之后才做。
+        shell: bash
+        run: |
+          if [ ! -f frontend/dist/index.html ]; then
+            mkdir -p frontend/dist
+            printf '<!doctype html><title>placeholder</title>\n' > frontend/dist/index.html
+            echo "已写入占位 dist（CI 不验证前端产物）"
+          else
+            echo "frontend/dist 已存在"
+          fi
+
       - name: build
         run: go build ./...
 
