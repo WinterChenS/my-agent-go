@@ -53,6 +53,11 @@
 | linux-arm64 | ubuntu-24.04-arm | PASS | PASS | PASS | 2m38s |
 | frontend | ubuntu-24.04 | typecheck + build PASS | — | — | 15s |
 
-RPC05 的 Unix 进程组路径、`process_unix.go` 首次在真实 Linux/macOS 上被 `go test` 执行并通过。
+> **更正（2026-11-03 晚）**：本段原写"RPC05 的 Unix 进程组路径、`process_unix.go` 首次在真实
+> Linux/macOS 上被 `go test` 执行并通过"，这是**错的**。`TestWorkerTerminatesGrandchild`
+> 当时在非 Windows 上 `t.Skip`，真实 Pi 的 worker 集成又是 opt-in 环境变量、
+> CI 从未设置——`process_unix.go` 的进程组回收在这些 run 里一次都没执行过。
+> 该"全绿"对 Unix 路径是假覆盖。已补 `process_tree_test.go` 跨平台直测并在
+> `raw/ci-round3/` 留下真实执行记录，详见 `ci-verify-round3.md`。
 win-arm64 的竞态验证是**目标级 BLOCKED**（工具链能力边界），不是通过——不得在任何报告里写成"六目标 race 全通过"。
 

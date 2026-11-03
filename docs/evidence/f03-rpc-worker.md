@@ -1,6 +1,6 @@
 # F03 — RPC 分帧与 worker 进程监督
 
-日期：2026-11-03。状态：**RPC01–RPC04 PASS（Windows/amd64 宿主实测）；RPC05 PARTIAL**（Windows 实测通过并验证了测试区分力，Unix 进程组路径未实机验证）。
+日期：2026-11-03。状态：**RPC01–RPC05 PASS（六目标真实 runner 实测）**。
 
 一句话结论：LF 分帧、按 id 归属、背压隔离、进程树回收四条路径都在真实进程上跑通了；
 剩下的不确定性集中在平台覆盖面（只有 Windows）与工具缺口（本机无法跑 `-race`）。
@@ -52,7 +52,7 @@ CRLF 的尾部 CR 在返回前剥离。
 | RPC02 | 并发乱序响应按 id 归属；重复 id 不误投；取消/超时后无悬挂 Call | **PASS** | `raw/f03-worker-unit.log` |
 | RPC03 | stdout 4 MiB 洪泛期间命令可达；stderr 8 MiB 洪泛不阻塞 stdout；缓冲不超过 1 MiB 且标记截断 | **PASS** | `raw/f03-worker-unit.log` |
 | RPC04 | 畸形 JSON / 缺 type / 未知 type / 无主 response 均有诊断且不崩溃；未知完成语义不判 completed | **PASS** | `raw/f03-worker-unit.log` |
-| RPC05 | Close 后 owned 孙进程被回收，无关同类进程仍存活 | **PARTIAL** | `raw/f03-worker-unit.log`、`raw/f03-jobobject-discrimination.log` |
+| RPC05 | Close 后 owned 孙进程被回收，无关同类进程仍存活 | **PASS（六目标）** | `raw/f03-worker-unit.log`、`raw/f03-jobobject-discrimination.log`、`raw/ci-round3/` |
 | 真实 Pi 端到端 | 真实 Pi 1.5.0 + fixture provider：`get_state` → `prompt` → `agent_settled` → Close exit 0 | **PASS** | `raw/f03-realpi-worker.log` |
 
 实际命令与退出码：
@@ -93,10 +93,30 @@ worker_test.go:399: owned 孙进程在 Close 后仍存活（心跳 20 → 77 字
 
 ## 5. 限制与未验证项（不要在报告里省略）
 
-1. **只有 Windows/amd64。** `process_unix.go` 未经实机运行；`TestWorkerTerminatesGrandchild` 在非 Windows 上直接 skip。
-   RPC05 的 scope 是 ALL，因此只给 PARTIAL，不给 PASS。
-2. **`-race` 未执行。** 本机无 gcc/mingw，`go test -race` 报 `requires cgo`（`raw/f03-race-unavailable.log`）。
-   并发正确性靠设计与用例保证，**不能声称"已排除数据竞争"**。
+1. **~~只有 Windows/amd64~~（已解除）。** 原先 `TestWorkerTerminatesGrandchild` 在非 Windows 上直接 skip，
+   而真实 Pi 的 worker 集成又是 opt-in（`MYAGENT_PI_WORKER_INTEGRATION=1`），
+   CI workflow 并没有设这个变量——也就是说 **`process_unix.go` 在 CI 六目标上从未被执行过**，
+   "六目标全绿"对 Unix 进程组回收而言是假覆盖。此前报告里"Unix 路径首次在真实 Linux/macOS 上
+   执行并通过"的说法是错的，此处更正。
+
+   现在两层都有覆盖：
+   - `process_tree_test.go`（跨平台、始终执行）：不经 Worker 状态机，直接对 `processTree` 断言
+     "强杀只带走自己树内的孙进程，树外同形态进程仍存活"，另测 `activeCount` 从 >=1 收敛到 0。
+   - `TestWorkerTerminatesGrandchild` 去掉非 Windows 的 skip，两套实现都跑。
+
+   实测暴露的两个 Unix 缺陷（都是实现问题，改的是代码不是断言）：
+   - **僵尸被算成存活**：`kill(-pgid, 0)` 对僵尸同样返回成功，于是已被 SIGKILL、
+     只等 reap 的成员被永久计为"仍然活着"，`Close` 会把"已清干净"误报成 `CLEANUP_FAILED`。
+     改为 kill 探针只作快路径，再由平台实现剔除僵尸（Linux 读 `/proc/<pid>/stat` 的 state 与 pgrp；
+     macOS 用 `/bin/ps -A -o pgid=,stat=`）。
+   - **调用方必须先 reap 自己的直接子进程**：`activeCount` 数的是"活着的进程"，不负责收尸。
+     真实调用方 `Worker.supervise` 在 `Close` 前必然 `cmd.Wait()`，测试也按这个顺序来。
+
+2. **`-race` 已在五个目标执行**（win-x64 / mac-x64 / mac-arm64 / linux-x64 / linux-arm64）。
+   **win-arm64 仍是目标级 BLOCKED**：Go 工具链不支持 `windows/arm64` 的 race detector，
+   这是外部能力边界，无法通过改代码消除。该目标改用 `-d=checkptr=2` 作为**补充**证据
+   （覆盖 `process_windows.go` 里 `unsafe.Pointer` 的误用），并明确标注不替代竞态检测。
+   任何报告都不得写成"六目标 race 全通过"。
 3. **Job Object assign 存在窄窗口。** 进程 `Start` 之后、`AssignProcessToJobObject` 之前，理论上可抢先派生逃逸子孙。
    Pi 启动要先读配置与扩展才会拉起 MCP，窗口远小于启动耗时；但这是"概率低"而非"不可能"。
    若 assign 失败（例如宿主本身在不允许嵌套的 Job 里），`Limitations()` 会带出说明，`Close` 不会宣称清理成功。

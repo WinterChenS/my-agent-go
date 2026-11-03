@@ -1,7 +1,8 @@
 # F07：配置 CAS、SQLite 与凭证存储（实现证据）
 
 - 代码：`internal/config/{store,merge,compile}.go`、`internal/storage/{db,migrate}.go`、
-  `internal/storage/migrations/001_initial.sql`、`internal/credentials/{store,native_windows,native_other}.go`
+  `internal/storage/migrations/001_initial.sql`、
+  `internal/credentials/{store,backend_cli,native_windows,native_darwin,native_linux,native_other}.go`
 - 契约：`internal/contracts/config.go` 新增 `EffectiveConfig`（唯一类型源）
 - 测试：`internal/config/config_test.go`、`internal/storage/migration_test.go`、`internal/credentials/credentials_test.go`
 
@@ -16,9 +17,45 @@
 | DB01 | 初建/迁移重跑/事务失败无半迁移 | PASS（单测） | `TestMigrateCreatesSchemaAndIsIdempotent`、`TestMigrateFailureLeavesNoHalfState` |
 | DB02 | 锁定驱动真实支持 FTS5 trigram；锁/权限错误可诊断；不偷换内存库 | PASS（单测） | `TestFTS5TrigramRealSupport`、`TestOpenRejectsMemoryDB` |
 | DB03 | JSON/DB/transcript 职责不冲突；重建索引不改其它权威数据 | PASS（单测） | `TestRebuildIndexDoesNotTouchConfigOrTranscript` |
-| SEC07 | OS 库真实读写；失效不落明文；sentinel 命中 0 | PARTIAL / BLOCKED | Windows DPAPI 分支 PASS（`TestNativeStoreRoundTripAndNoPlaintext`）；macOS Keychain 与 Linux Secret Service **未实现**，`NewNativeStore` 返回 `CREDENTIAL_STORE_UNAVAILABLE` |
+| SEC07 | OS 库真实读写；失效不落明文；sentinel 命中 0 | **PASS（六目标实测）** | 见下节「三套后端」，CI run `41647730697` 六个 job 全绿 |
 
 "PASS（单测）"只代表该断言在测试层面成立；G2 门禁还需要六目标的真实 target 证据，本轮没有声称已过 G2。
+
+### SEC07 为什么现在能判 PASS
+
+原先 BLOCKED 的原因是 macOS / Linux 两套后端**没有实现**，`NewNativeStore` 直接返回
+`CREDENTIAL_STORE_UNAVAILABLE`——那不是"环境缺失"，是功能缺失。
+
+现在三个平台各有真实后端，且都在真实 runner 上跑通了完整读写：
+
+| 平台 | 后端 | 机制 |
+|---|---|---|
+| Windows x64 / arm64 | DPAPI | `CryptProtectData`（用户作用域）加密后落盘，密钥由 OS 按当前用户派生 |
+| macOS x64 / arm64 | Keychain | `/usr/bin/security add-generic-password -U` / `find-generic-password` / `delete-generic-password` |
+| Linux x64 / arm64 | Secret Service | `secret-tool store` / `lookup` / `clear`（libsecret → D-Bus） |
+
+两条纪律在三个后端上一致，并且都有断言兜住：
+
+1. **明文不落盘**：Windows 落密文文件；mac/linux **完全不落文件**（测试断言凭证根目录必须为空，
+   一旦有人在"后端不可用"时偷偷写明文缓存，这条立刻红）。
+2. **失败即降级为内存**：后端不可用返回 `CREDENTIAL_STORE_UNAVAILABLE`，不写任何字节。
+
+传参纪律：mac/linux 都把密码走 **stdin**，不进 argv。argv 在进程存活期间对同机任何用户可见（`ps`），
+是完全可以避免的泄漏面。密码先 base64 再交给文本型 CLI——这些 CLI 以"行"返回密码，
+原始字节里的换行、NUL、非 UTF-8 会被截断。
+
+不引入 CGO 绑定（Security.framework / libsecret）：全平台构建是 `CGO_ENABLED=0`，
+用 CGO 等于让凭证存储绑架整个交叉编译矩阵。
+
+CI 编排：`scripts/ci/with-keyring.sh` 在 Linux 上开 D-Bus session + 解锁 keyring，
+`test`/`race`/`checkptr` 三条命令统一经由它执行；job 级 `MYAGENT_REQUIRE_NATIVE_CREDSTORE=1`
+使"后端不可用"直接判红，不允许 skip 成绿。
+
+实测暴露并修掉的两个缺陷（不是改测试）：
+
+- `secret-tool clear` 对不存在的条目返回 **1**（原实现当故障处理，Delete 幂等断言直接红）。
+- 三个后端对 `ref` 的校验不一致：Windows 只查空串，CLI 后端还查空白与换行
+  （`TestNativeStoreRejectsBadRef` 用 `"   "` 抓到）。`validateRef` 已提到公共文件作为唯一入口。
 
 ## 关键设计
 
@@ -64,8 +101,9 @@ GOOS/GOARCH ∈ {linux/amd64, darwin/arm64, windows/arm64} go vet ./...   OK
 
 - **跨进程并发未覆盖**：CAS 的互斥是进程内 per-key mutex。跨进程同时写同一 key 需要 OS 文件锁
   （LockFileEx / flock），本轮未实现，也未声称已覆盖。
-- **SEC07 的 mac/linux 分支**：Keychain / Secret Service 未接入。这三个目标的凭证持久化记
-  BLOCKED，而不是"用内存先用着"。
+- **SEC07 六目标已实测**（Windows DPAPI / macOS Keychain / Linux Secret Service）。
+  仍未覆盖：Keychain 被锁定、Secret Service 无 keyring daemon 这两类**运行时故障**下的行为，
+  只有"构造时探测到不可用 → 返回 CREDENTIAL_STORE_UNAVAILABLE"这条路径有断言。
 - **DB02 的锁/权限诊断**只覆盖"打开失败带路径的错误信息"，没有构造真实文件锁竞争。
 - 迁移目前只有 `001_initial`，**没有升级迁移的实测**（DB01 的"升级 schema"部分只验证了
   重复运行幂等与失败回滚，未验证 v1→v2 升级路径）。

@@ -58,7 +58,7 @@
 
 > 构建/测试一栏的依据是 GitHub Actions 六个真实 runner（各自断言 `go env GOOS/GOARCH`
 > 与矩阵一致，不一致直接 exit 2），逐目标的 `build → vet → test → race` 结果见
-> `docs/evidence/ci-verify-round1.md` 与每次 run 的 job summary。
+> `docs/evidence/ci-verify-round1.md`、`ci-verify-round3.md` 与每次 run 的 job summary。
 > **这不是"本地编译过"**：测试真的在该架构上执行，包括 Unix 进程组回收、
 > Keychain / Secret Service 读写等平台特有分支。
 >

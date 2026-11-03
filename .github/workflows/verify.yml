@@ -4,8 +4,9 @@
 # 分帧、worker 关闭时序里的 Unix 分支在本地一次都跑不到。用真实 runner 跑，
 # 才算真的验证过，而不是"没有机器所以跳过"。
 #
-# 每个 target 跑：build → vet → test → race。
-# -race 在 CI 上可用（runner 自带 gcc/clang），本机缺编译器时由这里补上竞态验证。
+# 每个 target 跑：build → vet → test → race → checkptr → 交叉编译。
+# -race 在 CI 上可用（runner 自带 gcc/clang），本机缺编译器时由这里补上竞态验证；
+# win-arm64 的工具链不支持 -race，改用 checkptr 作补充证据（明确不替代竞态检测）。
 
 name: verify
 

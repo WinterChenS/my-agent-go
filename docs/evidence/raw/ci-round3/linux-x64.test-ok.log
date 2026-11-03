@@ -1,0 +1,572 @@
+﻿2026-11-03T13:49:06.9133918Z Current runner version: '2.338.2'
+2026-11-03T13:49:06.9154226Z ##[group]Runner Image Provisioner
+2026-11-03T13:49:06.9154889Z Hosted Compute Agent
+2026-11-03T13:49:06.9155287Z Version: 20261028.624
+2026-11-03T13:49:06.9155700Z Commit: 54898b74c23fde5556c9b3c3a2290865feef0dfe
+2026-11-03T13:49:06.9156432Z Build Date: 2026-10-28T21:51:42Z
+2026-11-03T13:49:06.9156903Z Worker ID: {d580788f-cdd9-413e-a7ae-40ad2f7a7a3f}
+2026-11-03T13:49:06.9157708Z Region: southcentralus
+2026-11-03T13:49:06.9158131Z Cloud: Azure
+2026-11-03T13:49:06.9158567Z ##[endgroup]
+2026-11-03T13:49:06.9159552Z ##[group]Operating System
+2026-11-03T13:49:06.9159995Z Ubuntu
+2026-11-03T13:49:06.9160326Z 24.04.5
+2026-11-03T13:49:06.9160712Z LTS
+2026-11-03T13:49:06.9161052Z ##[endgroup]
+2026-11-03T13:49:06.9161429Z ##[group]Runner Image
+2026-11-03T13:49:06.9161865Z Image: ubuntu-24.04
+2026-11-03T13:49:06.9162230Z Version: 20261101.360.1
+2026-11-03T13:49:06.9163134Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261101.360/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-03T13:49:06.9164076Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261101.360
+2026-11-03T13:49:06.9164704Z ##[endgroup]
+2026-11-03T13:49:06.9165453Z ##[group]GITHUB_TOKEN Permissions
+2026-11-03T13:49:06.9167064Z Contents: read
+2026-11-03T13:49:06.9167451Z Metadata: read
+2026-11-03T13:49:06.9167925Z ##[endgroup]
+2026-11-03T13:49:06.9169474Z Secret source: Actions
+2026-11-03T13:49:06.9170090Z Cache mode: write
+2026-11-03T13:49:06.9170559Z Prepare workflow directory
+2026-11-03T13:49:06.9457111Z Prepare all required actions
+2026-11-03T13:49:06.9491821Z Getting action download info
+2026-11-03T13:49:07.1988238Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-03T13:49:07.2747402Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+2026-11-03T13:49:07.8048770Z Complete job name: go / linux-x64
+2026-11-03T13:49:07.8609868Z ##[group]Run actions/checkout@v4
+2026-11-03T13:49:07.8610316Z with:
+2026-11-03T13:49:07.8610572Z   repository: WinterChenS/my-agent-go
+2026-11-03T13:49:07.8612689Z   token: ***
+2026-11-03T13:49:07.8612929Z   ssh-strict: true
+2026-11-03T13:49:07.8613171Z   ssh-user: git
+2026-11-03T13:49:07.8613426Z   persist-credentials: true
+2026-11-03T13:49:07.8613696Z   clean: true
+2026-11-03T13:49:07.8613948Z   sparse-checkout-cone-mode: true
+2026-11-03T13:49:07.8614238Z   fetch-depth: 1
+2026-11-03T13:49:07.8614480Z   fetch-tags: false
+2026-11-03T13:49:07.8614727Z   show-progress: true
+2026-11-03T13:49:07.8614978Z   lfs: false
+2026-11-03T13:49:07.8615206Z   submodules: false
+2026-11-03T13:49:07.8615461Z   set-safe-directory: true
+2026-11-03T13:49:07.8615737Z   allow-unsafe-pr-checkout: false
+2026-11-03T13:49:07.8616206Z env:
+2026-11-03T13:49:07.8616426Z   CGO_ENABLED: 1
+2026-11-03T13:49:07.8616676Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:07.8616967Z ##[endgroup]
+2026-11-03T13:49:08.0549220Z Syncing repository: WinterChenS/my-agent-go
+2026-11-03T13:49:08.0550748Z ##[group]Getting Git version info
+2026-11-03T13:49:08.0551194Z Working directory is '/home/runner/work/my-agent-go/my-agent-go'
+2026-11-03T13:49:08.0551769Z [command]/usr/bin/git version
+2026-11-03T13:49:08.0626882Z git version 2.56.0
+2026-11-03T13:49:08.0640089Z ##[endgroup]
+2026-11-03T13:49:08.0652954Z Temporarily overriding HOME='/home/runner/work/_temp/de764adb-cd66-4c1e-b925-9459c01dff9b' before making global git config changes
+2026-11-03T13:49:08.0654431Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T13:49:08.0657737Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/my-agent-go/my-agent-go
+2026-11-03T13:49:08.0708922Z Deleting the contents of '/home/runner/work/my-agent-go/my-agent-go'
+2026-11-03T13:49:08.0716787Z ##[group]Initializing the repository
+2026-11-03T13:49:08.0745713Z [command]/usr/bin/git init /home/runner/work/my-agent-go/my-agent-go
+2026-11-03T13:49:08.0833496Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-03T13:49:08.0834897Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-03T13:49:08.0835839Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-03T13:49:08.0836659Z hint: call:
+2026-11-03T13:49:08.0837059Z hint:
+2026-11-03T13:49:08.0837571Z hint: 	git config --global init.defaultBranch <name>
+2026-11-03T13:49:08.0838151Z hint:
+2026-11-03T13:49:08.0838728Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-03T13:49:08.0839627Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-03T13:49:08.0840328Z hint:
+2026-11-03T13:49:08.0840743Z hint: 	git branch -m <name>
+2026-11-03T13:49:08.0841216Z hint:
+2026-11-03T13:49:08.0842015Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-03T13:49:08.0843228Z Initialized empty Git repository in /home/runner/work/my-agent-go/my-agent-go/.git/
+2026-11-03T13:49:08.0852298Z [command]/usr/bin/git remote add origin https://github.com/WinterChenS/my-agent-go
+2026-11-03T13:49:08.0896538Z ##[endgroup]
+2026-11-03T13:49:08.0897281Z ##[group]Disabling automatic garbage collection
+2026-11-03T13:49:08.0900053Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-03T13:49:08.0933515Z ##[endgroup]
+2026-11-03T13:49:08.0934407Z ##[group]Setting up auth
+2026-11-03T13:49:08.0939570Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T13:49:08.0977827Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-03T13:49:08.1306278Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T13:49:08.1345739Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-03T13:49:08.1551733Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T13:49:08.1593937Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-03T13:49:08.1805874Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-03T13:49:08.1851675Z ##[endgroup]
+2026-11-03T13:49:08.1852252Z ##[group]Fetching the repository
+2026-11-03T13:49:08.1861160Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9e316059250f252564fcedb6a7b0d2fdf665a129:refs/remotes/origin/main
+2026-11-03T13:49:08.6931989Z From https://github.com/WinterChenS/my-agent-go
+2026-11-03T13:49:08.6933688Z  * [new ref]         9e316059250f252564fcedb6a7b0d2fdf665a129 -> origin/main
+2026-11-03T13:49:08.6937619Z ##[endgroup]
+2026-11-03T13:49:08.6938973Z ##[group]Determining the checkout info
+2026-11-03T13:49:08.6940431Z ##[endgroup]
+2026-11-03T13:49:08.6942424Z [command]/usr/bin/git sparse-checkout disable
+2026-11-03T13:49:08.6997771Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-03T13:49:08.7037559Z ##[group]Checking out the ref
+2026-11-03T13:49:08.7040768Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-03T13:49:08.7208124Z Switched to a new branch 'main'
+2026-11-03T13:49:08.7213564Z branch 'main' set up to track 'origin/main'.
+2026-11-03T13:49:08.7218076Z ##[endgroup]
+2026-11-03T13:49:08.7266316Z [command]/usr/bin/git log -1 --format=%H
+2026-11-03T13:49:08.7298566Z 9e316059250f252564fcedb6a7b0d2fdf665a129
+2026-11-03T13:49:08.7574359Z ##[group]Run actions/setup-go@v5
+2026-11-03T13:49:08.7575191Z with:
+2026-11-03T13:49:08.7575784Z   go-version-file: go.mod
+2026-11-03T13:49:08.7576583Z   cache: true
+2026-11-03T13:49:08.7577169Z   check-latest: false
+2026-11-03T13:49:08.7583417Z   token: ***
+2026-11-03T13:49:08.7583985Z env:
+2026-11-03T13:49:08.7584521Z   CGO_ENABLED: 1
+2026-11-03T13:49:08.7585151Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:08.7585913Z ##[endgroup]
+2026-11-03T13:49:08.8517689Z Setup go version spec 1.27.3
+2026-11-03T13:49:08.8528058Z Attempting to download 1.27.3...
+2026-11-03T13:49:08.8638222Z (node:2120) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-03T13:49:08.8640297Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-03T13:49:09.6693605Z matching 1.27.3...
+2026-11-03T13:49:09.6710230Z Acquiring 1.27.3 from https://github.com/actions/go-versions/releases/download/1.27.3-39437817176/go-1.27.3-linux-x64.tar.gz
+2026-11-03T13:49:10.1810369Z Extracting Go...
+2026-11-03T13:49:10.1928735Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/defe2e24-7560-4c34-931d-8ca0097e68ec -f /home/runner/work/_temp/8caccf1e-3d78-4987-8d86-7bed78a47fa4
+2026-11-03T13:49:11.5503059Z Successfully extracted go to /home/runner/work/_temp/defe2e24-7560-4c34-931d-8ca0097e68ec
+2026-11-03T13:49:11.5503574Z Adding to the cache ...
+2026-11-03T13:49:15.1629908Z Successfully cached go to /opt/hostedtoolcache/go/1.27.3/x64
+2026-11-03T13:49:15.1631207Z Added go to the path
+2026-11-03T13:49:15.1656880Z Successfully set up Go version 1.27.3
+2026-11-03T13:49:15.1880740Z [command]/opt/hostedtoolcache/go/1.27.3/x64/bin/go env GOMODCACHE
+2026-11-03T13:49:15.1934472Z [command]/opt/hostedtoolcache/go/1.27.3/x64/bin/go env GOCACHE
+2026-11-03T13:49:15.1990258Z /home/runner/go/pkg/mod
+2026-11-03T13:49:15.2008217Z /home/runner/.cache/go-build
+2026-11-03T13:49:15.3829185Z Cache hit for: setup-go-Linux-x64-ubuntu24-go-1.27.3-aec496dffb545057d234b5e2a8ff42d5c253940b14c2fd8c08c403b0677137de
+2026-11-03T13:49:15.3861175Z (node:2120) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-03T13:49:16.5391658Z Received 88080384 of 333435817 (26.4%), 84.0 MBs/sec
+2026-11-03T13:49:17.5397515Z Received 255852544 of 333435817 (76.7%), 121.9 MBs/sec
+2026-11-03T13:49:18.1354758Z Received 333435817 of 333435817 (100.0%), 122.4 MBs/sec
+2026-11-03T13:49:18.1396720Z Cache Size: ~318 MB (333435817 B)
+2026-11-03T13:49:18.1464226Z [command]/usr/bin/tar -xf /home/runner/work/_temp/a4cd6f51-3845-42eb-bae6-7d2b980dbd10/cache.tzst -P -C /home/runner/work/my-agent-go/my-agent-go --use-compress-program unzstd
+2026-11-03T13:49:20.0208731Z Cache restored successfully
+2026-11-03T13:49:20.0358022Z Cache restored from key: setup-go-Linux-x64-ubuntu24-go-1.27.3-aec496dffb545057d234b5e2a8ff42d5c253940b14c2fd8c08c403b0677137de
+2026-11-03T13:49:20.0378750Z go version go1.27.3 linux/amd64
+2026-11-03T13:49:20.0378942Z 
+2026-11-03T13:49:20.0379232Z ##[group]go env
+2026-11-03T13:49:20.0522725Z AR='ar'
+2026-11-03T13:49:20.0523049Z CC='gcc'
+2026-11-03T13:49:20.0523326Z CGO_CFLAGS='-O2 -g'
+2026-11-03T13:49:20.0523559Z CGO_CPPFLAGS=''
+2026-11-03T13:49:20.0523757Z CGO_CXXFLAGS='-O2 -g'
+2026-11-03T13:49:20.0524001Z CGO_ENABLED='1'
+2026-11-03T13:49:20.0524222Z CGO_FFLAGS='-O2 -g'
+2026-11-03T13:49:20.0524447Z CGO_LDFLAGS='-O2 -g'
+2026-11-03T13:49:20.0524675Z CXX='g++'
+2026-11-03T13:49:20.0524852Z GCCGO='gccgo'
+2026-11-03T13:49:20.0525036Z GO111MODULE=''
+2026-11-03T13:49:20.0525211Z GOAMD64='v1'
+2026-11-03T13:49:20.0525401Z GOARCH='amd64'
+2026-11-03T13:49:20.0525576Z GOAUTH='netrc'
+2026-11-03T13:49:20.0525777Z GOBIN='/home/runner/go/bin'
+2026-11-03T13:49:20.0526177Z GOCACHE='/home/runner/.cache/go-build'
+2026-11-03T13:49:20.0526424Z GOCACHEPROG=''
+2026-11-03T13:49:20.0527043Z GODEBUG=''
+2026-11-03T13:49:20.0527267Z GOENV='/home/runner/.config/go/env'
+2026-11-03T13:49:20.0527504Z GOEXE=''
+2026-11-03T13:49:20.0527680Z GOEXPERIMENT=''
+2026-11-03T13:49:20.0527881Z GOFIPS140='off'
+2026-11-03T13:49:20.0528064Z GOFLAGS=''
+2026-11-03T13:49:20.0528808Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build2433006303=/tmp/go-build -gno-record-gcc-switches'
+2026-11-03T13:49:20.0529380Z GOHOSTARCH='amd64'
+2026-11-03T13:49:20.0529572Z GOHOSTOS='linux'
+2026-11-03T13:49:20.0529760Z GOINSECURE=''
+2026-11-03T13:49:20.0530014Z GOMOD='/home/runner/work/my-agent-go/my-agent-go/go.mod'
+2026-11-03T13:49:20.0530329Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-11-03T13:49:20.0530560Z GONOPROXY=''
+2026-11-03T13:49:20.0530737Z GONOSUMDB=''
+2026-11-03T13:49:20.0530914Z GOOS='linux'
+2026-11-03T13:49:20.0531097Z GOPACKAGESDRIVER=''
+2026-11-03T13:49:20.0531304Z GOPATH='/home/runner/go'
+2026-11-03T13:49:20.0531509Z GOPRIVATE=''
+2026-11-03T13:49:20.0531759Z GOPROXY='https://proxy.golang.org,direct'
+2026-11-03T13:49:20.0532057Z GOROOT='/opt/hostedtoolcache/go/1.27.3/x64'
+2026-11-03T13:49:20.0532322Z GOSUMDB='sum.golang.org'
+2026-11-03T13:49:20.0532530Z GOTELEMETRY='local'
+2026-11-03T13:49:20.0532770Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-11-03T13:49:20.0533050Z GOTMPDIR=''
+2026-11-03T13:49:20.0533233Z GOTOOLCHAIN='auto'
+2026-11-03T13:49:20.0533522Z GOTOOLDIR='/opt/hostedtoolcache/go/1.27.3/x64/pkg/tool/linux_amd64'
+2026-11-03T13:49:20.0533838Z GOVCS=''
+2026-11-03T13:49:20.0534021Z GOVERSION='go1.27.3'
+2026-11-03T13:49:20.0534214Z GOWORK=''
+2026-11-03T13:49:20.0534400Z PKG_CONFIG='pkg-config'
+2026-11-03T13:49:20.0534538Z 
+2026-11-03T13:49:20.0534869Z ##[endgroup]
+2026-11-03T13:49:20.0773048Z ##[group]Run echo "go      = $(go version)"
+2026-11-03T13:49:20.0773316Z [36;1mecho "go      = $(go version)"[0m
+2026-11-03T13:49:20.0773501Z [36;1mecho "GOOS    = $(go env GOOS)"[0m
+2026-11-03T13:49:20.0773674Z [36;1mecho "GOARCH  = $(go env GOARCH)"[0m
+2026-11-03T13:49:20.0773844Z [36;1mecho "CC      = $(go env CC)"[0m
+2026-11-03T13:49:20.0774003Z [36;1mecho "os      = ubuntu-24.04"[0m
+2026-11-03T13:49:20.0795452Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:49:20.0795694Z env:
+2026-11-03T13:49:20.0795839Z   CGO_ENABLED: 1
+2026-11-03T13:49:20.0796154Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:20.0796344Z ##[endgroup]
+2026-11-03T13:49:20.1101362Z go      = go version go1.27.3 linux/amd64
+2026-11-03T13:49:20.1129056Z GOOS    = linux
+2026-11-03T13:49:20.1156429Z GOARCH  = amd64
+2026-11-03T13:49:20.1183393Z CC      = gcc
+2026-11-03T13:49:20.1183636Z os      = ubuntu-24.04
+2026-11-03T13:49:20.1477040Z ##[group]Run got="$(go env GOOS)/$(go env GOARCH)"
+2026-11-03T13:49:20.1478493Z [36;1mgot="$(go env GOOS)/$(go env GOARCH)"[0m
+2026-11-03T13:49:20.1479052Z [36;1mwant="linux/amd64"[0m
+2026-11-03T13:49:20.1479999Z [36;1mif [ "$got" != "$want" ]; then[0m
+2026-11-03T13:49:20.1480375Z [36;1m  echo "::error::runner 实际架构 $got 与目标 $want 不一致，该结果不可用作 linux-x64 证据"[0m
+2026-11-03T13:49:20.1480714Z [36;1m  exit 2[0m
+2026-11-03T13:49:20.1480896Z [36;1mfi[0m
+2026-11-03T13:49:20.1520977Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:49:20.1522180Z env:
+2026-11-03T13:49:20.1522409Z   CGO_ENABLED: 1
+2026-11-03T13:49:20.1523002Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:20.1523718Z ##[endgroup]
+2026-11-03T13:49:20.1761784Z ##[group]Run go build ./...
+2026-11-03T13:49:20.1761988Z [36;1mgo build ./...[0m
+2026-11-03T13:49:20.1814779Z shell: /usr/bin/bash -e {0}
+2026-11-03T13:49:20.1814943Z env:
+2026-11-03T13:49:20.1815066Z   CGO_ENABLED: 1
+2026-11-03T13:49:20.1815207Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:20.1815373Z ##[endgroup]
+2026-11-03T13:49:21.0451184Z ##[group]Run go vet ./...
+2026-11-03T13:49:21.0451480Z [36;1mgo vet ./...[0m
+2026-11-03T13:49:21.0470322Z shell: /usr/bin/bash -e {0}
+2026-11-03T13:49:21.0470483Z env:
+2026-11-03T13:49:21.0470601Z   CGO_ENABLED: 1
+2026-11-03T13:49:21.0470736Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:21.0470895Z ##[endgroup]
+2026-11-03T13:49:21.5242744Z ##[group]Run set -euo pipefail
+2026-11-03T13:49:21.5242965Z [36;1mset -euo pipefail[0m
+2026-11-03T13:49:21.5243119Z [36;1msudo apt-get update -qq[0m
+2026-11-03T13:49:21.5243484Z [36;1msudo apt-get install -y -qq gnome-keyring libsecret-tools dbus-x11[0m
+2026-11-03T13:49:21.5243719Z [36;1mcommand -v secret-tool[0m
+2026-11-03T13:49:21.5272099Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:49:21.5272299Z env:
+2026-11-03T13:49:21.5272415Z   CGO_ENABLED: 1
+2026-11-03T13:49:21.5272550Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:21.5272706Z ##[endgroup]
+2026-11-03T13:49:27.6824340Z Selecting previously unselected package dbus-x11.
+2026-11-03T13:49:27.7032666Z (Reading database ... 
+2026-11-03T13:49:27.7033150Z (Reading database ... 5%
+2026-11-03T13:49:27.7033401Z (Reading database ... 10%
+2026-11-03T13:49:27.7033610Z (Reading database ... 15%
+2026-11-03T13:49:27.7033814Z (Reading database ... 20%
+2026-11-03T13:49:27.7034119Z (Reading database ... 25%
+2026-11-03T13:49:27.7034318Z (Reading database ... 30%
+2026-11-03T13:49:27.7034522Z (Reading database ... 35%
+2026-11-03T13:49:27.7034732Z (Reading database ... 40%
+2026-11-03T13:49:27.7035076Z (Reading database ... 45%
+2026-11-03T13:49:27.7035342Z (Reading database ... 50%
+2026-11-03T13:49:27.7075865Z (Reading database ... 55%
+2026-11-03T13:49:27.8745304Z (Reading database ... 60%
+2026-11-03T13:49:28.0367383Z (Reading database ... 65%
+2026-11-03T13:49:28.2705080Z (Reading database ... 70%
+2026-11-03T13:49:28.4458751Z (Reading database ... 75%
+2026-11-03T13:49:28.5837920Z (Reading database ... 80%
+2026-11-03T13:49:28.7739706Z (Reading database ... 85%
+2026-11-03T13:49:28.9800925Z (Reading database ... 90%
+2026-11-03T13:49:29.1314081Z (Reading database ... 95%
+2026-11-03T13:49:29.1314413Z (Reading database ... 100%
+2026-11-03T13:49:29.1314747Z (Reading database ... 215960 files and directories currently installed.)
+2026-11-03T13:49:29.1352910Z Preparing to unpack .../00-dbus-x11_1.14.10-4ubuntu4.1_amd64.deb ...
+2026-11-03T13:49:29.2139893Z Unpacking dbus-x11 (1.14.10-4ubuntu4.1) ...
+2026-11-03T13:49:29.8842323Z Selecting previously unselected package libgck-2-2:amd64.
+2026-11-03T13:49:29.8962513Z Preparing to unpack .../01-libgck-2-2_4.2.0-5_amd64.deb ...
+2026-11-03T13:49:30.0541738Z Unpacking libgck-2-2:amd64 (4.2.0-5) ...
+2026-11-03T13:49:30.7045831Z Selecting previously unselected package libgcr-4-4:amd64.
+2026-11-03T13:49:30.7160486Z Preparing to unpack .../02-libgcr-4-4_4.2.0-5_amd64.deb ...
+2026-11-03T13:49:30.8546943Z Unpacking libgcr-4-4:amd64 (4.2.0-5) ...
+2026-11-03T13:49:31.5654652Z Selecting previously unselected package libcairo-script-interpreter2:amd64.
+2026-11-03T13:49:31.5766292Z Preparing to unpack .../03-libcairo-script-interpreter2_1.18.0-3build1_amd64.deb ...
+2026-11-03T13:49:31.5773780Z Unpacking libcairo-script-interpreter2:amd64 (1.18.0-3build1) ...
+2026-11-03T13:49:31.5989180Z Selecting previously unselected package libgraphene-1.0-0:amd64.
+2026-11-03T13:49:31.6098620Z Preparing to unpack .../04-libgraphene-1.0-0_1.10.8-3build2_amd64.deb ...
+2026-11-03T13:49:31.6104710Z Unpacking libgraphene-1.0-0:amd64 (1.10.8-3build2) ...
+2026-11-03T13:49:31.6309028Z Selecting previously unselected package libgles2:amd64.
+2026-11-03T13:49:31.6416571Z Preparing to unpack .../05-libgles2_1.7.0-1build1_amd64.deb ...
+2026-11-03T13:49:31.6422170Z Unpacking libgles2:amd64 (1.7.0-1build1) ...
+2026-11-03T13:49:31.6618532Z Selecting previously unselected package libgtk-4-common.
+2026-11-03T13:49:31.6726414Z Preparing to unpack .../06-libgtk-4-common_4.14.5+ds-0ubuntu0.10_all.deb ...
+2026-11-03T13:49:31.6730882Z Unpacking libgtk-4-common (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:31.7244127Z Selecting previously unselected package libgtk-4-1:amd64.
+2026-11-03T13:49:31.7355397Z Preparing to unpack .../07-libgtk-4-1_4.14.5+ds-0ubuntu0.10_amd64.deb ...
+2026-11-03T13:49:31.7361336Z Unpacking libgtk-4-1:amd64 (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:31.8334734Z Selecting previously unselected package libsecret-common.
+2026-11-03T13:49:31.8449660Z Preparing to unpack .../08-libsecret-common_0.21.4-1build3_all.deb ...
+2026-11-03T13:49:31.8455154Z Unpacking libsecret-common (0.21.4-1build3) ...
+2026-11-03T13:49:31.8646892Z Selecting previously unselected package libsecret-1-0:amd64.
+2026-11-03T13:49:31.8754624Z Preparing to unpack .../09-libsecret-1-0_0.21.4-1build3_amd64.deb ...
+2026-11-03T13:49:31.8760526Z Unpacking libsecret-1-0:amd64 (0.21.4-1build3) ...
+2026-11-03T13:49:31.8969100Z Selecting previously unselected package gcr4.
+2026-11-03T13:49:31.9078717Z Preparing to unpack .../10-gcr4_4.2.0-5_amd64.deb ...
+2026-11-03T13:49:31.9084259Z Unpacking gcr4 (4.2.0-5) ...
+2026-11-03T13:49:31.9291274Z Selecting previously unselected package libgck-1-0:amd64.
+2026-11-03T13:49:31.9403023Z Preparing to unpack .../11-libgck-1-0_3.41.2-1build3_amd64.deb ...
+2026-11-03T13:49:31.9563070Z Unpacking libgck-1-0:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:31.9785578Z Selecting previously unselected package libgcr-base-3-1:amd64.
+2026-11-03T13:49:31.9897284Z Preparing to unpack .../12-libgcr-base-3-1_3.41.2-1build3_amd64.deb ...
+2026-11-03T13:49:31.9903215Z Unpacking libgcr-base-3-1:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:32.0129150Z Selecting previously unselected package libgcr-ui-3-1:amd64.
+2026-11-03T13:49:32.0238997Z Preparing to unpack .../13-libgcr-ui-3-1_3.41.2-1build3_amd64.deb ...
+2026-11-03T13:49:32.0244476Z Unpacking libgcr-ui-3-1:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:32.0447982Z Selecting previously unselected package gcr.
+2026-11-03T13:49:32.0556409Z Preparing to unpack .../14-gcr_3.41.2-1build3_amd64.deb ...
+2026-11-03T13:49:32.0563511Z Unpacking gcr (3.41.2-1build3) ...
+2026-11-03T13:49:32.1053388Z Selecting previously unselected package pinentry-gnome3.
+2026-11-03T13:49:32.1163133Z Preparing to unpack .../15-pinentry-gnome3_1.2.1-3ubuntu5_amd64.deb ...
+2026-11-03T13:49:32.1169042Z Unpacking pinentry-gnome3 (1.2.1-3ubuntu5) ...
+2026-11-03T13:49:32.1378192Z Selecting previously unselected package gnome-keyring.
+2026-11-03T13:49:32.1505324Z Preparing to unpack .../16-gnome-keyring_46.1-2ubuntu0.2_amd64.deb ...
+2026-11-03T13:49:32.1559548Z Unpacking gnome-keyring (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:32.1954999Z Selecting previously unselected package gnome-keyring-pkcs11:amd64.
+2026-11-03T13:49:32.2068133Z Preparing to unpack .../17-gnome-keyring-pkcs11_46.1-2ubuntu0.2_amd64.deb ...
+2026-11-03T13:49:32.2074471Z Unpacking gnome-keyring-pkcs11:amd64 (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:32.2483945Z Selecting previously unselected package libegl-mesa0:amd64.
+2026-11-03T13:49:32.2594464Z Preparing to unpack .../18-libegl-mesa0_25.2.8-0ubuntu0.24.04.4_amd64.deb ...
+2026-11-03T13:49:32.2601379Z Unpacking libegl-mesa0:amd64 (25.2.8-0ubuntu0.24.04.4) ...
+2026-11-03T13:49:32.2829331Z Selecting previously unselected package libegl1:amd64.
+2026-11-03T13:49:32.2983766Z Preparing to unpack .../19-libegl1_1.7.0-1build1_amd64.deb ...
+2026-11-03T13:49:32.2990838Z Unpacking libegl1:amd64 (1.7.0-1build1) ...
+2026-11-03T13:49:32.3246989Z Selecting previously unselected package liborc-0.4-0t64:amd64.
+2026-11-03T13:49:32.3360639Z Preparing to unpack .../20-liborc-0.4-0t64_1%3a0.4.38-1ubuntu0.1_amd64.deb ...
+2026-11-03T13:49:32.3367871Z Unpacking liborc-0.4-0t64:amd64 (1:0.4.38-1ubuntu0.1) ...
+2026-11-03T13:49:32.3738088Z Selecting previously unselected package libgstreamer-plugins-base1.0-0:amd64.
+2026-11-03T13:49:32.3853698Z Preparing to unpack .../21-libgstreamer-plugins-base1.0-0_1.24.2-1ubuntu0.5_amd64.deb ...
+2026-11-03T13:49:32.3860821Z Unpacking libgstreamer-plugins-base1.0-0:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:32.4216294Z Selecting previously unselected package libgstreamer-gl1.0-0:amd64.
+2026-11-03T13:49:32.4331111Z Preparing to unpack .../22-libgstreamer-gl1.0-0_1.24.2-1ubuntu0.5_amd64.deb ...
+2026-11-03T13:49:32.4338268Z Unpacking libgstreamer-gl1.0-0:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:32.4570630Z Selecting previously unselected package gstreamer1.0-gl:amd64.
+2026-11-03T13:49:32.4686448Z Preparing to unpack .../23-gstreamer1.0-gl_1.24.2-1ubuntu0.5_amd64.deb ...
+2026-11-03T13:49:32.4692439Z Unpacking gstreamer1.0-gl:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:32.4915478Z Selecting previously unselected package libcdparanoia0:amd64.
+2026-11-03T13:49:32.5028333Z Preparing to unpack .../24-libcdparanoia0_3.10.2+debian-14build3_amd64.deb ...
+2026-11-03T13:49:32.5034442Z Unpacking libcdparanoia0:amd64 (3.10.2+debian-14build3) ...
+2026-11-03T13:49:32.5250499Z Selecting previously unselected package libopus0:amd64.
+2026-11-03T13:49:32.5366811Z Preparing to unpack .../25-libopus0_1.4-1build1_amd64.deb ...
+2026-11-03T13:49:32.5373799Z Unpacking libopus0:amd64 (1.4-1build1) ...
+2026-11-03T13:49:32.5716377Z Selecting previously unselected package libtheora0:amd64.
+2026-11-03T13:49:32.5831939Z Preparing to unpack .../26-libtheora0_1.1.1+dfsg.1-16.1build3_amd64.deb ...
+2026-11-03T13:49:32.5840016Z Unpacking libtheora0:amd64 (1.1.1+dfsg.1-16.1build3) ...
+2026-11-03T13:49:32.6075332Z Selecting previously unselected package libvisual-0.4-0:amd64.
+2026-11-03T13:49:32.6189194Z Preparing to unpack .../27-libvisual-0.4-0_0.4.2-2build1_amd64.deb ...
+2026-11-03T13:49:32.6195534Z Unpacking libvisual-0.4-0:amd64 (0.4.2-2build1) ...
+2026-11-03T13:49:32.6440829Z Selecting previously unselected package libvorbisenc2:amd64.
+2026-11-03T13:49:32.6553102Z Preparing to unpack .../28-libvorbisenc2_1.3.7-1build3_amd64.deb ...
+2026-11-03T13:49:32.6560773Z Unpacking libvorbisenc2:amd64 (1.3.7-1build3) ...
+2026-11-03T13:49:32.6800124Z Selecting previously unselected package gstreamer1.0-plugins-base:amd64.
+2026-11-03T13:49:32.6915257Z Preparing to unpack .../29-gstreamer1.0-plugins-base_1.24.2-1ubuntu0.5_amd64.deb ...
+2026-11-03T13:49:32.6922986Z Unpacking gstreamer1.0-plugins-base:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:32.7231054Z Selecting previously unselected package libgtk-4-bin.
+2026-11-03T13:49:32.7341235Z Preparing to unpack .../30-libgtk-4-bin_4.14.5+ds-0ubuntu0.10_amd64.deb ...
+2026-11-03T13:49:32.7347321Z Unpacking libgtk-4-bin (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:32.8389860Z Selecting previously unselected package libgtk-4-media-gstreamer.
+2026-11-03T13:49:32.8509789Z Preparing to unpack .../31-libgtk-4-media-gstreamer_4.14.5+ds-0ubuntu0.10_amd64.deb ...
+2026-11-03T13:49:32.8516578Z Unpacking libgtk-4-media-gstreamer (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:32.8726267Z Selecting previously unselected package libpam-gnome-keyring:amd64.
+2026-11-03T13:49:32.8837961Z Preparing to unpack .../32-libpam-gnome-keyring_46.1-2ubuntu0.2_amd64.deb ...
+2026-11-03T13:49:32.8843869Z Unpacking libpam-gnome-keyring:amd64 (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:32.9059775Z Selecting previously unselected package librsvg2-2:amd64.
+2026-11-03T13:49:32.9169988Z Preparing to unpack .../33-librsvg2-2_2.58.0+dfsg-1ubuntu0.1_amd64.deb ...
+2026-11-03T13:49:32.9176725Z Unpacking librsvg2-2:amd64 (2.58.0+dfsg-1ubuntu0.1) ...
+2026-11-03T13:49:33.0026531Z Selecting previously unselected package librsvg2-common:amd64.
+2026-11-03T13:49:33.0139478Z Preparing to unpack .../34-librsvg2-common_2.58.0+dfsg-1ubuntu0.1_amd64.deb ...
+2026-11-03T13:49:33.0145755Z Unpacking librsvg2-common:amd64 (2.58.0+dfsg-1ubuntu0.1) ...
+2026-11-03T13:49:33.0435167Z Selecting previously unselected package libsecret-tools.
+2026-11-03T13:49:33.0546824Z Preparing to unpack .../35-libsecret-tools_0.21.4-1build3_amd64.deb ...
+2026-11-03T13:49:33.0553679Z Unpacking libsecret-tools (0.21.4-1build3) ...
+2026-11-03T13:49:33.1055265Z Setting up libcairo-script-interpreter2:amd64 (1.18.0-3build1) ...
+2026-11-03T13:49:33.1073737Z Setting up libcdparanoia0:amd64 (3.10.2+debian-14build3) ...
+2026-11-03T13:49:33.1086633Z Setting up libgck-2-2:amd64 (4.2.0-5) ...
+2026-11-03T13:49:33.1100496Z Setting up libgcr-4-4:amd64 (4.2.0-5) ...
+2026-11-03T13:49:33.1114458Z Setting up libvisual-0.4-0:amd64 (0.4.2-2build1) ...
+2026-11-03T13:49:33.1127871Z Setting up liborc-0.4-0t64:amd64 (1:0.4.38-1ubuntu0.1) ...
+2026-11-03T13:49:33.1141169Z Setting up librsvg2-2:amd64 (2.58.0+dfsg-1ubuntu0.1) ...
+2026-11-03T13:49:33.1154729Z Setting up libegl-mesa0:amd64 (25.2.8-0ubuntu0.24.04.4) ...
+2026-11-03T13:49:33.1168320Z Setting up libgles2:amd64 (1.7.0-1build1) ...
+2026-11-03T13:49:33.1182192Z Setting up libopus0:amd64 (1.4-1build1) ...
+2026-11-03T13:49:33.1196882Z Setting up librsvg2-common:amd64 (2.58.0+dfsg-1ubuntu0.1) ...
+2026-11-03T13:49:33.1243666Z Setting up gnome-keyring-pkcs11:amd64 (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:33.1256643Z Setting up dbus-x11 (1.14.10-4ubuntu4.1) ...
+2026-11-03T13:49:33.1279146Z Setting up libtheora0:amd64 (1.1.1+dfsg.1-16.1build3) ...
+2026-11-03T13:49:33.1292648Z Setting up libegl1:amd64 (1.7.0-1build1) ...
+2026-11-03T13:49:33.1307201Z Setting up libgtk-4-common (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:33.1321293Z Setting up libgck-1-0:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:33.1337453Z Setting up libgcr-base-3-1:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:33.1351369Z Setting up libpam-gnome-keyring:amd64 (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:33.3184241Z Setting up libsecret-common (0.21.4-1build3) ...
+2026-11-03T13:49:33.3196935Z Setting up libgraphene-1.0-0:amd64 (1.10.8-3build2) ...
+2026-11-03T13:49:33.3210389Z Setting up libvorbisenc2:amd64 (1.3.7-1build3) ...
+2026-11-03T13:49:33.3223999Z Setting up libgcr-ui-3-1:amd64 (3.41.2-1build3) ...
+2026-11-03T13:49:33.3238859Z Setting up libgstreamer-plugins-base1.0-0:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:33.4049777Z Setting up libsecret-1-0:amd64 (0.21.4-1build3) ...
+2026-11-03T13:49:33.4062284Z Setting up libgstreamer-gl1.0-0:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:33.4075865Z Setting up gstreamer1.0-plugins-base:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:33.4088723Z Setting up libsecret-tools (0.21.4-1build3) ...
+2026-11-03T13:49:33.4102137Z Setting up gstreamer1.0-gl:amd64 (1.24.2-1ubuntu0.5) ...
+2026-11-03T13:49:33.4593347Z Setting up gcr (3.41.2-1build3) ...
+2026-11-03T13:49:33.4681287Z Processing triggers for libglib2.0-0t64:amd64 (2.80.0-6ubuntu3.10) ...
+2026-11-03T13:49:33.4958790Z Setting up pinentry-gnome3 (1.2.1-3ubuntu5) ...
+2026-11-03T13:49:33.5062613Z Processing triggers for shared-mime-info (2.4-4) ...
+2026-11-03T13:49:34.6589443Z Setting up libgtk-4-1:amd64 (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:34.8798341Z Setting up libgtk-4-bin (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:34.8817521Z Processing triggers for libgdk-pixbuf-2.0-0:amd64 (2.42.10+dfsg-3ubuntu3.3) ...
+2026-11-03T13:49:34.9246268Z Processing triggers for hicolor-icon-theme (0.17-2) ...
+2026-11-03T13:49:35.3605401Z Setting up gnome-keyring (46.1-2ubuntu0.2) ...
+2026-11-03T13:49:35.4481721Z Created symlink /etc/systemd/user/graphical-session-pre.target.wants/gnome-keyring-daemon.service → /usr/lib/systemd/user/gnome-keyring-daemon.service.
+2026-11-03T13:49:35.4482104Z 
+2026-11-03T13:49:35.4482423Z Created symlink /etc/systemd/user/sockets.target.wants/gnome-keyring-daemon.socket → /usr/lib/systemd/user/gnome-keyring-daemon.socket.
+2026-11-03T13:49:35.4482734Z 
+2026-11-03T13:49:35.5256711Z Setting up gcr4 (4.2.0-5) ...
+2026-11-03T13:49:35.5953491Z Created symlink /etc/systemd/user/graphical-session-pre.target.wants/gcr-ssh-agent.service → /usr/lib/systemd/user/gcr-ssh-agent.service.
+2026-11-03T13:49:35.5954027Z 
+2026-11-03T13:49:35.5954467Z Created symlink /etc/systemd/user/sockets.target.wants/gcr-ssh-agent.socket → /usr/lib/systemd/user/gcr-ssh-agent.socket.
+2026-11-03T13:49:35.5954861Z 
+2026-11-03T13:49:35.6703642Z Processing triggers for libc-bin (2.39-0ubuntu8.9) ...
+2026-11-03T13:49:36.9076813Z Processing triggers for man-db (2.12.0-4build2) ...
+2026-11-03T13:49:36.9096449Z Not building database; man-db/auto-update is not 'true'.
+2026-11-03T13:49:36.9114390Z Setting up libgtk-4-media-gstreamer (4.14.5+ds-0ubuntu0.10) ...
+2026-11-03T13:49:37.3986393Z 
+2026-11-03T13:49:37.3986927Z Running kernel seems to be up-to-date.
+2026-11-03T13:49:37.3987198Z 
+2026-11-03T13:49:37.3987309Z No services need to be restarted.
+2026-11-03T13:49:37.3987463Z 
+2026-11-03T13:49:37.3987565Z No containers need to be restarted.
+2026-11-03T13:49:37.3988076Z 
+2026-11-03T13:49:37.3988200Z No user sessions are running outdated binaries.
+2026-11-03T13:49:37.3988382Z 
+2026-11-03T13:49:37.3988567Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+2026-11-03T13:49:38.1830202Z /usr/bin/secret-tool
+2026-11-03T13:49:38.1858298Z ##[group]Run bash scripts/ci/with-keyring.sh go test ./... -count=1 -timeout 600s
+2026-11-03T13:49:38.1858635Z [36;1mbash scripts/ci/with-keyring.sh go test ./... -count=1 -timeout 600s[0m
+2026-11-03T13:49:38.1875041Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:49:38.1875230Z env:
+2026-11-03T13:49:38.1875344Z   CGO_ENABLED: 1
+2026-11-03T13:49:38.1875477Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:38.1875627Z ##[endgroup]
+2026-11-03T13:49:38.2079191Z dbus-daemon[3211]: [session uid=1001 pid=3211] Activating service name='org.freedesktop.secrets' requested by ':1.1' (uid=1001 pid=3221 comm="secret-tool lookup service cn.myagent.credentials" label="unconfined")
+2026-11-03T13:49:38.2081451Z dbus-daemon[3211]: [session uid=1001 pid=3211] Successfully activated service 'org.freedesktop.secrets'
+2026-11-03T13:49:38.2769882Z ?   	my-agent-go/cmd/devtools	[no test files]
+2026-11-03T13:49:38.4457340Z ok  	my-agent-go/internal/config	0.017s
+2026-11-03T13:49:38.4458274Z ok  	my-agent-go/internal/contracts	0.009s
+2026-11-03T13:49:38.7077236Z ok  	my-agent-go/internal/credentials	0.204s
+2026-11-03T13:49:38.7079008Z ok  	my-agent-go/internal/devtools	0.093s
+2026-11-03T13:49:38.7079933Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T13:49:38.8201613Z ok  	my-agent-go/internal/policy	0.009s
+2026-11-03T13:49:40.2960701Z ok  	my-agent-go/internal/policybridge	1.117s
+2026-11-03T13:49:51.6955946Z ok  	my-agent-go/internal/runtime/pi	12.340s
+2026-11-03T13:49:51.6956689Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T13:49:51.6957024Z ok  	my-agent-go/internal/storage	0.058s
+2026-11-03T13:49:51.6957243Z ok  	my-agent-go/tests/fixtures/mcp	0.359s
+2026-11-03T13:49:51.6957437Z ?   	my-agent-go/tests/fixtures/provider	[no test files]
+2026-11-03T13:49:51.7116792Z ##[group]Run pair="$(go env GOOS)/$(go env GOARCH)"
+2026-11-03T13:49:51.7117083Z [36;1mpair="$(go env GOOS)/$(go env GOARCH)"[0m
+2026-11-03T13:49:51.7117256Z [36;1mrace_supported=""[0m
+2026-11-03T13:49:51.7117395Z [36;1mcase "$pair" in[0m
+2026-11-03T13:49:51.7117690Z [36;1m  linux/amd64|linux/arm64|linux/arm|linux/386|linux/ppc64le|linux/s390x|linux/riscv64|linux/loong64) race_supported=1 ;;[0m
+2026-11-03T13:49:51.7118020Z [36;1m  darwin/amd64|darwin/arm64) race_supported=1 ;;[0m
+2026-11-03T13:49:51.7118213Z [36;1m  windows/amd64) race_supported=1 ;;[0m
+2026-11-03T13:49:51.7118439Z [36;1m  freebsd/amd64|freebsd/arm64|netbsd/amd64|netbsd/arm64) race_supported=1 ;;[0m
+2026-11-03T13:49:51.7118659Z [36;1mesac[0m
+2026-11-03T13:49:51.7118787Z [36;1mif [ -z "$race_supported" ]; then[0m
+2026-11-03T13:49:51.7118985Z [36;1m  # 工具链不支持 -race 的目标：跑 checkptr 作为**补充**证据。[0m
+2026-11-03T13:49:51.7119253Z [36;1m  # checkptr 能抓出 unsafe.Pointer 误用（process_windows.go 正是靠 unsafe 调[0m
+2026-11-03T13:49:51.7119490Z [36;1m  # Job Object API），但**不能**替代数据竞争检测——两者查的是不同的东西。[0m
+2026-11-03T13:49:51.7119805Z [36;1m  bash scripts/ci/with-keyring.sh go test -gcflags=all=-d=checkptr=2 ./internal/... -count=1 -timeout 900s[0m
+2026-11-03T13:49:51.7120173Z [36;1m  echo "::warning title=-race 不支持该目标::Go 工具链不支持 $pair 的 -race；linux-x64 竞态验证记为 BLOCKED"[0m
+2026-11-03T13:49:51.7120397Z [36;1m  {[0m
+2026-11-03T13:49:51.7120518Z [36;1m    echo "### linux-x64"[0m
+2026-11-03T13:49:51.7120659Z [36;1m    echo ""[0m
+2026-11-03T13:49:51.7120792Z [36;1m    echo "| 检查 | 结果 | 说明 |"[0m
+2026-11-03T13:49:51.7120937Z [36;1m    echo "|---|---|---|"[0m
+2026-11-03T13:49:51.7121151Z [36;1m    echo "| -race | **BLOCKED** | Go 工具链不支持 \`$pair\` 的 -race；该目标不得声明已过竞态验证 |"[0m
+2026-11-03T13:49:51.7121439Z [36;1m    echo "| checkptr | **PASS** | \`-d=checkptr=2\`，覆盖 unsafe.Pointer 误用；不替代竞态检测 |"[0m
+2026-11-03T13:49:51.7121667Z [36;1m  } >> "$GITHUB_STEP_SUMMARY"[0m
+2026-11-03T13:49:51.7121832Z [36;1m  exit 0[0m
+2026-11-03T13:49:51.7121958Z [36;1mfi[0m
+2026-11-03T13:49:51.7122089Z [36;1mcc="$(go env CC | awk '{print $1}')"[0m
+2026-11-03T13:49:51.7122412Z [36;1mif ! command -v "$cc" >/dev/null 2>&1; then[0m
+2026-11-03T13:49:51.7122658Z [36;1m  echo "::error::runner 无 C 编译器（CC=$cc），-race 无法执行；linux-x64 不得声明已过竞态验证"[0m
+2026-11-03T13:49:51.7122870Z [36;1m  exit 2[0m
+2026-11-03T13:49:51.7122983Z [36;1mfi[0m
+2026-11-03T13:49:51.7123191Z [36;1mbash scripts/ci/with-keyring.sh go test -race ./internal/... -count=1 -timeout 900s[0m
+2026-11-03T13:49:51.7123546Z [36;1mbash scripts/ci/with-keyring.sh go test -gcflags=all=-d=checkptr=2 ./internal/... -count=1 -timeout 900s[0m
+2026-11-03T13:49:51.7123813Z [36;1m{[0m
+2026-11-03T13:49:51.7123931Z [36;1m  echo "### linux-x64"[0m
+2026-11-03T13:49:51.7124071Z [36;1m  echo ""[0m
+2026-11-03T13:49:51.7124197Z [36;1m  echo "| 检查 | 结果 | 说明 |"[0m
+2026-11-03T13:49:51.7124344Z [36;1m  echo "|---|---|---|"[0m
+2026-11-03T13:49:51.7124519Z [36;1m  echo "| -race | **PASS** | \`$pair\`，CC=$cc |"[0m
+2026-11-03T13:49:51.7124750Z [36;1m  echo "| checkptr | **PASS** | \`-d=checkptr=2\`，覆盖 unsafe.Pointer 误用 |"[0m
+2026-11-03T13:49:51.7124973Z [36;1m} >> "$GITHUB_STEP_SUMMARY"[0m
+2026-11-03T13:49:51.7141474Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:49:51.7141661Z env:
+2026-11-03T13:49:51.7141772Z   CGO_ENABLED: 1
+2026-11-03T13:49:51.7141902Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:49:51.7142055Z ##[endgroup]
+2026-11-03T13:49:53.9154200Z ok  	my-agent-go/internal/config	1.612s
+2026-11-03T13:49:53.9154493Z ok  	my-agent-go/internal/contracts	1.013s
+2026-11-03T13:49:53.9154799Z ok  	my-agent-go/internal/credentials	1.539s
+2026-11-03T13:49:55.4423071Z ok  	my-agent-go/internal/devtools	3.128s
+2026-11-03T13:49:55.4423673Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T13:49:55.4424161Z ok  	my-agent-go/internal/policy	1.021s
+2026-11-03T13:49:56.5512832Z ok  	my-agent-go/internal/policybridge	2.147s
+2026-11-03T13:50:10.8248842Z ok  	my-agent-go/internal/runtime/pi	15.859s
+2026-11-03T13:50:10.8249310Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T13:50:10.8249655Z ok  	my-agent-go/internal/storage	2.200s
+2026-11-03T13:50:17.4875779Z ok  	my-agent-go/internal/config	0.254s
+2026-11-03T13:50:17.4897768Z ok  	my-agent-go/internal/contracts	0.006s
+2026-11-03T13:50:17.6417608Z ok  	my-agent-go/internal/credentials	0.162s
+2026-11-03T13:50:17.6446678Z ok  	my-agent-go/internal/devtools	0.069s
+2026-11-03T13:50:24.1537809Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T13:50:24.4226366Z ok  	my-agent-go/internal/policy	0.008s
+2026-11-03T13:50:25.5787061Z ok  	my-agent-go/internal/policybridge	1.142s
+2026-11-03T13:50:38.1228483Z ok  	my-agent-go/internal/runtime/pi	12.901s
+2026-11-03T13:50:38.1228793Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T13:50:38.1229024Z ok  	my-agent-go/internal/storage	0.142s
+2026-11-03T13:50:38.1978029Z ##[group]Run set -e
+2026-11-03T13:50:38.1978211Z [36;1mset -e[0m
+2026-11-03T13:50:38.1978432Z [36;1mfor t in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do[0m
+2026-11-03T13:50:38.1978707Z [36;1m  os="${t%%/*}"; arch="${t##*/}"[0m
+2026-11-03T13:50:38.1978898Z [36;1m  if [ "$os/$arch" = "linux/amd64" ]; then continue; fi[0m
+2026-11-03T13:50:38.1979098Z [36;1m  echo "--- cross build $os/$arch ---"[0m
+2026-11-03T13:50:38.1979294Z [36;1m  # 不能带 -o：./... 是多包，-o 只接受单个包或目录，会报[0m
+2026-11-03T13:50:38.1979496Z [36;1m  # "cannot write multiple packages to non-directory"。[0m
+2026-11-03T13:50:38.1979719Z [36;1m  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build ./...[0m
+2026-11-03T13:50:38.1979900Z [36;1mdone[0m
+2026-11-03T13:50:38.1996282Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T13:50:38.1996475Z env:
+2026-11-03T13:50:38.1996594Z   CGO_ENABLED: 1
+2026-11-03T13:50:38.1996751Z   MYAGENT_REQUIRE_NATIVE_CREDSTORE: 1
+2026-11-03T13:50:38.1996931Z ##[endgroup]
+2026-11-03T13:50:38.2030166Z --- cross build windows/amd64 ---
+2026-11-03T13:50:38.8481912Z --- cross build windows/arm64 ---
+2026-11-03T13:50:39.4996842Z --- cross build darwin/amd64 ---
+2026-11-03T13:50:40.1370458Z --- cross build darwin/arm64 ---
+2026-11-03T13:50:40.8098511Z --- cross build linux/arm64 ---
+2026-11-03T13:50:41.4005849Z Post job cleanup.
+2026-11-03T13:50:41.4832024Z (node:8223) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-03T13:50:41.4832467Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-03T13:50:41.4874908Z [command]/opt/hostedtoolcache/go/1.27.3/x64/bin/go env GOMODCACHE
+2026-11-03T13:50:41.4912285Z [command]/opt/hostedtoolcache/go/1.27.3/x64/bin/go env GOCACHE
+2026-11-03T13:50:41.4941321Z /home/runner/go/pkg/mod
+2026-11-03T13:50:41.4963561Z /home/runner/.cache/go-build
+2026-11-03T13:50:41.4969936Z Cache hit occurred on the primary key setup-go-Linux-x64-ubuntu24-go-1.27.3-aec496dffb545057d234b5e2a8ff42d5c253940b14c2fd8c08c403b0677137de, not saving cache.
+2026-11-03T13:50:41.5159528Z Post job cleanup.
+2026-11-03T13:50:41.5759110Z [command]/usr/bin/git version
+2026-11-03T13:50:41.5797582Z git version 2.56.0
+2026-11-03T13:50:41.5824577Z Temporarily overriding HOME='/home/runner/work/_temp/503b85fb-d9b4-4165-b6b3-79fecd412128' before making global git config changes
+2026-11-03T13:50:41.5825320Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T13:50:41.5828750Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/my-agent-go/my-agent-go
+2026-11-03T13:50:41.5867041Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T13:50:41.5903711Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-03T13:50:41.6120945Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T13:50:41.6152103Z http.https://github.com/.extraheader
+2026-11-03T13:50:41.6160855Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-03T13:50:41.6193521Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-03T13:50:41.6408501Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T13:50:41.6456467Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-03T13:50:41.6838285Z Cleaning up orphan processes
+2026-11-03T13:50:41.7084062Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
