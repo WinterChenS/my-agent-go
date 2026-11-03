@@ -1,0 +1,36 @@
+{
+  "agentsMdLeaked": false,
+  "allow": {
+    "exitCode": 0,
+    "pendingApprovals": 1,
+    "records": 30,
+    "toolRan": true
+  },
+  "deny": {
+    "exitCode": 0,
+    "pendingApprovals": 1,
+    "records": 29,
+    "toolRan": false
+  },
+  "isolationFlags": [
+    "-na",
+    "-nc",
+    "-ne",
+    "-ns",
+    "-np",
+    "--no-themes"
+  ],
+  "mcp": {
+    "allow": {
+      "handlerReached": true,
+      "pendingApprovals": 1
+    },
+    "deny": {
+      "handlerReached": false,
+      "pendingApprovals": 1
+    }
+  },
+  "policyExtension": "pi-extensions/harness-policy.ts",
+  "projectExtensionLoaded": false,
+  "projectSettingsApplied": false
+}

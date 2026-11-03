@@ -313,6 +313,27 @@ func BuildScenario(name string, hasTools bool) Scenario {
 			ToolArgs: []string{`{"command":"echo fixture-tool-ran"`, `,"timeout":10000}`},
 			Finish:   "tool_calls",
 		}
+	case "tool-file":
+		// 与 "tool" 的区别：命令带真实的文件副作用。
+		// 上一条用 echo 输出做断言时，"被拦住了"和"跑过了"在记录里都出现同一个字符串
+		// （工具参数里就含它），根本无法区分——所以断言必须落在操作系统层面。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"执行一个会产生文件的命令。"},
+			ToolName: "bash",
+			ToolArgs: []string{`{"command":"echo ran > tool-ran.txt"}`},
+			Finish:   "tool_calls",
+		}
+	case "tool-mcp":
+		// 调用受控 MCP server 的工具。用于验证"外部 MCP 通道同样在执行前被拦"：
+		// fixture MCP 会把收到的每条请求写进日志，因此"是否到达 handler"可判定。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"调用 MCP 工具。"},
+			ToolName: "mcp__fixture__fixture_echo",
+			ToolArgs: []string{`{"text":"mcp-call"}`},
+			Finish:   "tool_calls",
+		}
 	case "empty":
 		return Scenario{Name: name, Finish: "stop"}
 	case "error500":
