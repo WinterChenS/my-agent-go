@@ -1,0 +1,22 @@
+﻿=== RUN   TestLocateWindowsShimWithSpaces
+=== RUN   TestLocateWindowsShimWithSpaces/ChineseAndSpaceDir
+=== RUN   TestLocateWindowsShimWithSpaces/NpmCmdAndPs1Shims
+=== RUN   TestLocateWindowsShimWithSpaces/MultipleVersionsNoSilentSwitch
+=== RUN   TestLocateWindowsShimWithSpaces/PreferredTakesPriority
+=== RUN   TestLocateWindowsShimWithSpaces/NoPiAtAll
+=== RUN   TestLocateWindowsShimWithSpaces/BrokenSavedPath
+=== RUN   TestLocateWindowsShimWithSpaces/BrokenSavedPathIgnoredWhenPathHasPi
+--- PASS: TestLocateWindowsShimWithSpaces (0.28s)
+    --- PASS: TestLocateWindowsShimWithSpaces/ChineseAndSpaceDir (0.04s)
+    --- PASS: TestLocateWindowsShimWithSpaces/NpmCmdAndPs1Shims (0.06s)
+    --- PASS: TestLocateWindowsShimWithSpaces/MultipleVersionsNoSilentSwitch (0.06s)
+    --- PASS: TestLocateWindowsShimWithSpaces/PreferredTakesPriority (0.03s)
+    --- PASS: TestLocateWindowsShimWithSpaces/NoPiAtAll (0.03s)
+    --- PASS: TestLocateWindowsShimWithSpaces/BrokenSavedPath (0.03s)
+    --- PASS: TestLocateWindowsShimWithSpaces/BrokenSavedPathIgnoredWhenPathHasPi (0.03s)
+=== RUN   TestProbeHasNoUserConfigSideEffects
+--- PASS: TestProbeHasNoUserConfigSideEffects (0.22s)
+=== RUN   TestProbePs1NotDirectlyExecutable
+--- PASS: TestProbePs1NotDirectlyExecutable (0.64s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	1.274s

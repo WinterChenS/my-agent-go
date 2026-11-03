@@ -1,0 +1,26 @@
+﻿=== RUN   TestLocateWindowsShimWithSpaces
+=== RUN   TestLocateWindowsShimWithSpaces/ChineseAndSpaceDir
+=== RUN   TestLocateWindowsShimWithSpaces/NpmCmdAndPs1Shims
+=== RUN   TestLocateWindowsShimWithSpaces/MultipleVersionsNoSilentSwitch
+=== RUN   TestLocateWindowsShimWithSpaces/PreferredTakesPriority
+    locator_test.go:189: 绮剧‘璺緞浼樺厛锛氬簲鍙繑鍥炵敤鎴锋寚瀹氳矾寰勶紱got=[{ID:user:C:\Users\ADMINI~1\AppData\Local\Temp\TestLocateWindowsShimWithSpacesPreferredTakesPriority423218328\001\pref\pi.cmd Executable:C:\Users\ADMINI~1\AppData\Local\Temp\TestLocateWindowsShimWithSpacesPreferredTakesPriority423218328\001\pref\pi.cmd Args:[] Version: Origin:external Architecture:unknown} {ID:path:C:\Users\ADMINI~1\AppData\Local\Temp\TestLocateWindowsShimWithSpacesPreferredTakesPriority423218328\001\other\pi.cmd Executable:C:\Users\ADMINI~1\AppData\Local\Temp\TestLocateWindowsShimWithSpacesPreferredTakesPriority423218328\001\other\pi.cmd Args:[] Version: Origin:external Architecture:unknown}]
+=== RUN   TestLocateWindowsShimWithSpaces/NoPiAtAll
+=== RUN   TestLocateWindowsShimWithSpaces/BrokenSavedPath
+=== RUN   TestLocateWindowsShimWithSpaces/BrokenSavedPathIgnoredWhenPathHasPi
+--- FAIL: TestLocateWindowsShimWithSpaces (0.29s)
+    --- PASS: TestLocateWindowsShimWithSpaces/ChineseAndSpaceDir (0.04s)
+    --- PASS: TestLocateWindowsShimWithSpaces/NpmCmdAndPs1Shims (0.06s)
+    --- PASS: TestLocateWindowsShimWithSpaces/MultipleVersionsNoSilentSwitch (0.06s)
+    --- FAIL: TestLocateWindowsShimWithSpaces/PreferredTakesPriority (0.04s)
+    --- PASS: TestLocateWindowsShimWithSpaces/NoPiAtAll (0.03s)
+    --- PASS: TestLocateWindowsShimWithSpaces/BrokenSavedPath (0.03s)
+    --- PASS: TestLocateWindowsShimWithSpaces/BrokenSavedPathIgnoredWhenPathHasPi (0.03s)
+=== RUN   TestProbeHasNoUserConfigSideEffects
+    probe_integration_test.go:89: 璁よ瘉鐗堟湰 1.5.0 fixture 搴?Ready锛屽疄闄?state= diag=[]
+--- FAIL: TestProbeHasNoUserConfigSideEffects (0.06s)
+=== RUN   TestProbePs1NotDirectlyExecutable
+    probe_integration_test.go:145: 鎵ц绛栫暐绂佹搴斿垽 ProbeFailed锛屽疄闄?state= err=<nil>
+--- FAIL: TestProbePs1NotDirectlyExecutable (0.01s)
+FAIL
+FAIL	my-agent-go/internal/runtime/pi	0.494s
+FAIL

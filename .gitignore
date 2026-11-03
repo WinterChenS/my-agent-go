@@ -22,3 +22,9 @@ artifacts/
 Thumbs.db
 *.swp
 .idea/
+
+# 项目内部工作数据（会话记忆等），不进产品版本库
+/.workbuddy/
+
+# 证据目录里的临时草稿
+/docs/evidence/raw/_*.tmp.txt

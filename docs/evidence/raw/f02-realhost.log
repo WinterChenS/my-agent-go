@@ -1,0 +1,6 @@
+=== RUN   TestRealHostPiLocateAndProbe
+    realhost_test.go:30: 鍙戠幇 Pi: version="1.4.0" origin=external source=path arch=any runnable=true path=C:\Users\Administrator\AppData\Local\pi-node\current\pi.cmd note=""
+    realhost_test.go:40: 鎺㈡祴 C:\Users\Administrator\AppData\Local\pi-node\current\pi.cmd => state=UnsupportedVersion version="1.4.0" diagnostics=[鐗堟湰 1.4.0 鏈粡璁よ瘉锛堝熀绾夸粎璁よ瘉 [1.5.0]锛夛紱鏍?unverified锛屼笉鑷姩杩愯]
+--- PASS: TestRealHostPiLocateAndProbe (2.45s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	2.580s
