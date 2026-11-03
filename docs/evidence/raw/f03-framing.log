@@ -1,0 +1,19 @@
+exit=0
+=== RUN   TestLFFramingUnicodeAndLargeRecord
+=== RUN   TestLFFramingUnicodeAndLargeRecord/随机分块还原多字节与U+2028
+=== RUN   TestLFFramingUnicodeAndLargeRecord/CRLF_剥离尾部CR
+=== RUN   TestLFFramingUnicodeAndLargeRecord/128KiB记录完整
+=== RUN   TestLFFramingUnicodeAndLargeRecord/恰好16MiB允许
+=== RUN   TestLFFramingUnicodeAndLargeRecord/超过16MiB一字节报ProtocolRecordTooLarge
+=== RUN   TestLFFramingUnicodeAndLargeRecord/未以LF收尾不返回半条记录
+=== RUN   TestLFFramingUnicodeAndLargeRecord/空行返回空记录且不报错
+--- PASS: TestLFFramingUnicodeAndLargeRecord (0.13s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/随机分块还原多字节与U+2028 (0.00s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/CRLF_剥离尾部CR (0.00s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/128KiB记录完整 (0.00s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/恰好16MiB允许 (0.08s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/超过16MiB一字节报ProtocolRecordTooLarge (0.05s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/未以LF收尾不返回半条记录 (0.00s)
+    --- PASS: TestLFFramingUnicodeAndLargeRecord/空行返回空记录且不报错 (0.00s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	0.328s

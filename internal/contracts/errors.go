@@ -29,6 +29,18 @@ const (
 	CodeAllSkipped                 = "ALL_SKIPPED"
 	CodeRunnerMissing              = "RUNNER_MISSING"
 	CodeDependencyMissing          = "DEPENDENCY_MISSING"
+
+	// RPC / worker 相关（F03）。
+	// 语义约定：这些错误都不可自动重放。命令是否已在 Pi 侧生效未知，
+	// 自动重试会造成重复执行副作用（基线 §6「不自动重放未知结果调用」）。
+	CodeRpcTimeout       = "RPC_TIMEOUT"
+	CodeRpcCancelled     = "RPC_CANCELLED"
+	CodeRpcWriteFailed   = "RPC_WRITE_FAILED"
+	CodeRpcWorkerExited  = "RPC_WORKER_EXITED"
+	CodeRpcInvalidCall   = "RPC_INVALID_CALL"
+	CodeRpcCommandFailed = "RPC_COMMAND_FAILED"
+	CodeWorkerClosed     = "WORKER_CLOSED"
+	CodeWorkerStartFail  = "WORKER_START_FAILED"
 )
 
 // AppError 是统一的错误结构。Code 机器可解析，Retryable 指示是否可重试。

@@ -1,0 +1,8 @@
+exit=1
+=== RUN   TestWorkerTerminatesGrandchild
+    worker_test.go:399: owned 孙进程在 Close 后仍存活（心跳 20 → 77 字节）
+    testing.go:1619: TempDir RemoveAll cleanup: unlinkat C:\Users\ADMINI~1\AppData\Local\Temp\TestWorkerTerminatesGrandchild2028435753\001\grandchild.hb: The process cannot access the file because it is being used by another process.
+--- FAIL: TestWorkerTerminatesGrandchild (9.20s)
+FAIL
+FAIL	my-agent-go/internal/runtime/pi	9.428s
+FAIL

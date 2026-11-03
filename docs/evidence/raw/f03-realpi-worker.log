@@ -1,0 +1,7 @@
+vet=
+exit=0
+=== RUN   TestWorkerWithRealPi
+    worker_integration_test.go:163: 事件 15 条，退出码 0，ClosGrace 默认 800ms，限制：[]
+--- PASS: TestWorkerWithRealPi (3.09s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	3.328s

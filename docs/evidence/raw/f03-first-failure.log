@@ -1,0 +1,27 @@
+exit=1
+=== RUN   TestLFFramingUnicodeAndLargeRecord
+=== RUN   TestLFFramingUnicodeAndLargeRecord/随机分块还原多字节与U+2028
+    framing_test.go:78: 分帧失败: framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/CRLF_剥离尾部CR
+    framing_test.go:88: 分帧失败: framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/128KiB记录完整
+    framing_test.go:105: 分帧失败: framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/恰好16MiB允许
+    framing_test.go:122: 恰好 16 MiB 应被允许，实际报错: framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/超过16MiB一字节报ProtocolRecordTooLarge
+    framing_test.go:145: 错误码应为 PROTOCOL_RECORD_TOO_LARGE，实际 framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/未以LF收尾不返回半条记录
+    framing_test.go:153: 第一条应正常返回，实际 "" / framing: 尚未实现
+=== RUN   TestLFFramingUnicodeAndLargeRecord/空行返回空记录且不报错
+    framing_test.go:171: 分帧失败: framing: 尚未实现
+--- FAIL: TestLFFramingUnicodeAndLargeRecord (0.03s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/随机分块还原多字节与U+2028 (0.00s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/CRLF_剥离尾部CR (0.00s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/128KiB记录完整 (0.00s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/恰好16MiB允许 (0.02s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/超过16MiB一字节报ProtocolRecordTooLarge (0.01s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/未以LF收尾不返回半条记录 (0.00s)
+    --- FAIL: TestLFFramingUnicodeAndLargeRecord/空行返回空记录且不报错 (0.00s)
+FAIL
+FAIL	my-agent-go/internal/runtime/pi	0.227s
+FAIL

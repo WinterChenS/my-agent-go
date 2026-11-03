@@ -1,0 +1,12 @@
+gofmt=[]
+vet exit=0
+
+=== go test exit=0 ===
+?   	my-agent-go/cmd/devtools	[no test files]
+ok  	my-agent-go/internal/contracts	0.314s
+ok  	my-agent-go/internal/devtools	8.326s
+?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+ok  	my-agent-go/internal/runtime/pi	28.068s
+?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+ok  	my-agent-go/tests/fixtures/mcp	19.331s
+?   	my-agent-go/tests/fixtures/provider	[no test files]

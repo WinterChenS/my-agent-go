@@ -1,0 +1,21 @@
+exit=0
+=== RUN   TestOutOfOrderResponsesMatchByID
+--- PASS: TestOutOfOrderResponsesMatchByID (5.71s)
+=== RUN   TestDuplicateResponseNotMisattributed
+--- PASS: TestDuplicateResponseNotMisattributed (0.31s)
+=== RUN   TestCancelledCallDoesNotBlockSubsequentCalls
+--- PASS: TestCancelledCallDoesNotBlockSubsequentCalls (1.05s)
+=== RUN   TestStdoutBackpressureDoesNotDeadlock
+--- PASS: TestStdoutBackpressureDoesNotDeadlock (1.04s)
+=== RUN   TestStderrFloodDoesNotBlockStdout
+--- PASS: TestStderrFloodDoesNotBlockStdout (0.46s)
+=== RUN   TestUnknownAndMalformedRecordsHaveDiagnostics
+--- PASS: TestUnknownAndMalformedRecordsHaveDiagnostics (0.17s)
+=== RUN   TestWorkerTerminatesGrandchild
+--- PASS: TestWorkerTerminatesGrandchild (7.57s)
+=== RUN   TestCloseRejectsNewCalls
+--- PASS: TestCloseRejectsNewCalls (0.16s)
+=== RUN   TestCallRejectsNonObjectCommand
+--- PASS: TestCallRejectsNonObjectCommand (0.17s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	16.828s

@@ -1,0 +1,9 @@
+exit=2
+go.exe : go: -race requires cgo; enable cgo by setting CGO_ENABLED=1
+所在位置 行:450 字符: 7
++ $r = (& go test -race ./internal/runtime/pi -run 'TestDuplicateRespon ...
++       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (go: -race requi...g CGO_ENABLED=1 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
