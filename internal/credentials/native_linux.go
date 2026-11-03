@@ -110,9 +110,12 @@ func (s *nativeStore) Delete(ctx context.Context, ref string) error {
 	if err != nil {
 		return unavailable("删除 Secret Service 条目失败: " + err.Error())
 	}
-	// secret-tool clear 对不存在的条目也返回 0；非 0 才是真故障。
-	if code != 0 {
-		return unavailable("删除 Secret Service 条目失败（secret-tool 退出码 " + strconv.Itoa(code) + "）")
+	// 实测：`secret-tool clear` 对**不存在**的条目返回 1（不是 0）。
+	// Delete 的契约是幂等，所以 1 必须同样视为成功。
+	// 这条不是猜测——Linux CI 上 TestNativeStoreRoundTripAndNoPlaintext 的
+	// "Delete 应幂等"就是这么红的：第二次 Delete 拿到退出码 1。
+	if code == 0 || code == 1 {
+		return nil
 	}
-	return nil
+	return unavailable("删除 Secret Service 条目失败（secret-tool 退出码 " + strconv.Itoa(code) + "）")
 }

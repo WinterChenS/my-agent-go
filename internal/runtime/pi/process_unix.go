@@ -46,22 +46,28 @@ func (p *processTree) kill() error {
 	return syscall.Kill(-p.pid, syscall.SIGKILL)
 }
 
-// activeCount 用 kill(-pgid, 0) 探测进程组是否还有成员。
-// 返回 1 表示"可能仍有进程"（保守），0 表示确认清空。
+// activeCount 统计进程组内仍然**活着**的成员数。
+//
+// 只用 kill(-pgid, 0) 是不够的：僵尸进程仍留在进程表里，探针对它返回成功，
+// 于是一个早已被杀死、只等父进程 reap 的进程会一直被算成"仍然存活"。
+// 后果是 Close 把"已经清干净"误报成 CLEANUP_FAILED。
+// 这不是理论问题——macOS CI 上 TestProcessTreeActiveCountTracksOwned 就是这么红的。
+//
+// 因此分两步：先用 kill 探针走快路径（组已空直接返回 0），
+// 再让平台实现剔除僵尸（Linux 读 /proc，macOS 读 ps）。
 func (p *processTree) activeCount() (int, bool) {
 	if p.pid == 0 {
 		return 0, false
 	}
 	err := syscall.Kill(-p.pid, 0)
 	switch {
-	case err == nil:
-		return 1, true
 	case errors.Is(err, syscall.ESRCH):
 		return 0, true
-	default:
+	case err != nil:
 		// EPERM 等：进程存在但无权限探测，按"仍存在"处理，不能宣称清理成功。
 		return 1, true
 	}
+	return liveCountInGroup(p.pid)
 }
 
 func (p *processTree) close() error {

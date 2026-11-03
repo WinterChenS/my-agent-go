@@ -44,16 +44,27 @@
 
 ## 3. 平台矩阵（build/platforms.json）
 
-| targetId | goos/goarch | 状态 | 说明 |
-|---|---|---|---|
-| win-x64 | windows/amd64 | READY_HOST | 本机即此环境，wails3 doctor 可用、go build 通过；但 OS 为 Win10（基线最低 Win11 24H2），且打包工具未安装 |
-| win-arm64 | windows/arm64 | **BLOCKED** | 无 Windows ARM64 运行环境 |
-| mac-x64 | darwin/amd64 | **BLOCKED** | 无 macOS 运行环境 |
-| mac-arm64 | darwin/arm64 | **BLOCKED** | 无 macOS Apple Silicon 运行环境 |
-| linux-x64 | linux/amd64 | **BLOCKED** | 无 Linux 运行环境 |
-| linux-arm64 | linux/arm64 | **BLOCKED** | 无 Linux ARM64 运行环境 |
+状态分两栏，因为"能在该目标上跑 Go 代码"和"能在该目标上跑 GUI"是两件事，
+混成一个 PASS 会把 GUI 的未知说成已知。
 
-> 五项目标无运行环境 → 状态 `BLOCKED`，未删除任何目标，也未把 Windows/amd64 的结论当作跨平台通过。
+| targetId | goos/goarch | 构建/测试/竞态 | GUI 运行 | 说明 |
+|---|---|---|---|---|
+| win-x64 | windows/amd64 | **PASS** | BLOCKED | 本机即此环境 + CI `windows-2025`；OS 为 Win10（基线最低 Win11 24H2），打包工具未安装 |
+| win-arm64 | windows/arm64 | **PASS**（race 目标级 BLOCKED） | BLOCKED | CI `windows-11-arm`；Go 工具链不支持 `windows/arm64` 的 `-race` |
+| mac-x64 | darwin/amd64 | **PASS** | BLOCKED | CI `macos-15-intel`（`macos-13` 已退役） |
+| mac-arm64 | darwin/arm64 | **PASS** | BLOCKED | CI `macos-15` |
+| linux-x64 | linux/amd64 | **PASS** | BLOCKED | CI `ubuntu-24.04`；无 display server |
+| linux-arm64 | linux/arm64 | **PASS** | BLOCKED | CI `ubuntu-24.04-arm`；无 display server |
+
+> 构建/测试一栏的依据是 GitHub Actions 六个真实 runner（各自断言 `go env GOOS/GOARCH`
+> 与矩阵一致，不一致直接 exit 2），逐目标的 `build → vet → test → race` 结果见
+> `docs/evidence/ci-verify-round1.md` 与每次 run 的 job summary。
+> **这不是"本地编译过"**：测试真的在该架构上执行，包括 Unix 进程组回收、
+> Keychain / Secret Service 读写等平台特有分支。
+>
+> GUI 一栏仍 `BLOCKED`：runner 没有 display（Linux 无 X11/Wayland，macOS/Windows 无交互桌面），
+> WebView2 / WKWebView / WebKitGTK 的真实窗口行为无法在 CI 上验证，
+> 且本机 Win10 低于基线要求的 Win11 24H2。这一栏要等 C01（应用壳）落地后单独立项。
 
 ## 4. 验证命令与真实退出码
 
@@ -127,7 +138,8 @@ FAIL: npm: resolved to '…\nvm\v24.16.0\npm.cmd' but expected it under '…\nod
    结论以 `docs/evidence/pi-compatibility.md` 的最新实测为准，不缓存旧结论。
 3. **npm 默认源损坏**：用户级 `.npmrc` 把 registry 指向 `registry.npmmirror.com`，首次安装出现 lightningcss tarball “corrupted”。已改用官方 `https://registry.npmjs.org` 重装（无损坏告警）。
 4. **宿主机 OS 偏差**：本机 Windows 10 Pro 22H2，基线最低验收系统为 Windows 11 24H2；打包工具（NSIS / MakeAppx / SignTool / MSIX）均未安装，最终安装包暂不可产。
-5. **五项目标无运行环境**：mac/linux/win-arm64 无机器，跨平台构建与 WebView/WKWebView/WebKitGTK 行为均 BLOCKED，不伪造通过。
+5. **GUI 层仍无运行环境**：构建与测试已由 CI 六目标真实 runner 覆盖（见 §3），
+   但 runner 无 display，WebView2 / WKWebView / WebKitGTK 的真实窗口行为仍 BLOCKED，不伪造通过。
 6. **原生编译器缺失**：无 gcc/cc/clang/mingw；本轮以 `CGO_ENABLED=0` 完成纯 Go + WebView2 宿主编译验证，未做 cgo 路径验证（当前不需要）。
 7. **"Wails shell 可编译"只证到库级，未证到应用壳**：本任务实际验证的是 `go build github.com/wailsapp/wails/v3/pkg/application`（库包编译通过）+ `wails3 doctor`，**没有**构建一个真实的 Wails v3 应用壳（`application.New` + 嵌入前端资源）。ENV01 的"支持该目标构建"因此只到库级，应用壳编译需在 C01 落地时补证。
 
