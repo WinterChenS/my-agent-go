@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"my-agent-go/internal/contracts"
@@ -216,7 +217,12 @@ func TestGateRejectsMissingReviewer(t *testing.T) {
 
 func TestCommandFailureReturnsAssertionCode(t *testing.T) {
 	// 命令故意退出 1，必须原样返回 1（断言失败），不得被日志成功覆盖。
-	code, _, _, _ := RunExternal("cmd", "/c", "exit 1")
+	// 用各平台自带的 shell 构造：写死 cmd 会让 Unix runner 变成"二进制缺失 → 2"的假失败。
+	name, args := "cmd", []string{"/c", "exit 1"}
+	if runtime.GOOS != "windows" {
+		name, args = "sh", []string{"-c", "exit 1"}
+	}
+	code, _, _, _ := RunExternal(name, args...)
 	if code != 1 {
 		t.Fatalf("命令失败应返回 1，实际 %d", code)
 	}

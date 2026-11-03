@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -22,14 +24,24 @@ func hashFile(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// makeVersionShim 创建一个只响应 --version 的 .cmd fixture（不触碰模型/MCP）。
+// makeVersionShim 创建一个只响应 --version 的 fixture（不触碰模型/MCP）。
+//
+// 形态必须跟着平台走：BuildLaunch 按扩展名推导启动包装（.cmd → cmd /c，.ps1 → powershell -File，
+// 其余按可执行文件直接启动）。若在任何平台都生成 .cmd，Unix 上测到的是"缺 cmd.exe"这条依赖分支，
+// 而不是 probe 的隔离/版本策略逻辑——CI 上正是这样红的（DependencyMissing: cmd.exe not found）。
 func makeVersionShim(t *testing.T, dir, version string) PiInstallation {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	p := filepath.Join(dir, "pi.cmd")
-	content := "@echo off\r\nif \"%1\"==\"--version\" echo " + version + "\r\n"
+	var p, content string
+	if runtime.GOOS == "windows" {
+		p = filepath.Join(dir, "pi.cmd")
+		content = "@echo off\r\nif \"%1\"==\"--version\" echo " + version + "\r\n"
+	} else {
+		p = filepath.Join(dir, "pi")
+		content = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo " + version + "; fi\n"
+	}
 	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
 		t.Fatalf("write shim: %v", err)
 	}
@@ -119,7 +131,15 @@ func TestProbeHasNoUserConfigSideEffects(t *testing.T) {
 
 // TestProbePs1NotDirectlyExecutable 验证：.ps1 在执行策略禁止（不带 -ExecutionPolicy Bypass）
 // 时，Probe 返回“不可直接执行”的明确诊断，而不是假装可用。
+//
+// 前置条件由用例自建，不消费宿主机策略：Process 作用域经 PSExecutionPolicyPreference 环境变量
+// 传给子进程 powershell，优先级高于 CurrentUser/LocalMachine（只被组策略覆盖）。
+// 不这样做，本用例的成败就取决于跑测试的机器——本机策略 Restricted 时假绿，CI runner 策略放开时
+// 变红，而产品行为没有变化（这正是 2026-11-03 CI 首轮全红的三个根因之一）。
 func TestProbePs1NotDirectlyExecutable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 专项：PowerShell 执行策略只存在于 Windows")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "pi.ps1")
 	// 一个正常内容；重点在于执行策略禁止时它无法运行。
@@ -128,6 +148,16 @@ func TestProbePs1NotDirectlyExecutable(t *testing.T) {
 		t.Fatalf("write ps1: %v", err)
 	}
 	inst := PiInstallation{ID: "fixture:" + p, Executable: p, Origin: OriginExternal}
+
+	// 自建受限前提（Process 作用域）。
+	t.Setenv("PSExecutionPolicyPreference", "Restricted")
+
+	// 前置自检：确认受限确实生效。组策略（MachinePolicy/UserPolicy）能盖过 Process 作用域，
+	// 那种环境下测不到目标分支，必须显式报错，而不是"恰好通过"。
+	if out, ok := ps1RunsWithoutBypass(t, p); ok {
+		t.Fatalf("无法构造执行策略受限场景：.ps1 在 PSExecutionPolicyPreference=Restricted 下仍执行成功（stdout=%q）；"+
+			"该断言在当前环境不可信，请确认无组策略覆盖", out)
+	}
 
 	oldBypass := PSBypassPolicy
 	PSBypassPolicy = false // 模拟执行策略禁止（不带 Bypass）
@@ -155,4 +185,14 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// ps1RunsWithoutBypass 直接以 powershell -File 跑一次脚本（不带 -ExecutionPolicy Bypass），
+// 用于自证“当前环境确实禁止 .ps1”这一前置条件，而不是假定它成立。
+func ps1RunsWithoutBypass(t *testing.T, script string) (string, bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-File", script, "--version").CombinedOutput()
+	return string(out), err == nil
 }

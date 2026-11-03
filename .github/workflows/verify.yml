@@ -22,18 +22,19 @@ jobs:
   go-matrix:
     name: go / ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    # windows-11-arm 为公开预览 runner，失败不阻塞主流程，但结果要单独记录。
-    continue-on-error: ${{ matrix.experimental || false }}
+    # 失败即红：runner 已全部为可用的真实机器，不再用 continue-on-error 掩盖真实失败。
+    # （2026-11-03 首轮曾把 win-arm64 / mac-x64 设为 experimental，结果是"红也不算数"，
+    #   与"PASS 由证据确定"的口径冲突。）
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-2025,    target: win-x64,     goos: windows, goarch: amd64 }
-          - { os: windows-11-arm,  target: win-arm64,   goos: windows, goarch: arm64, experimental: true }
-          - { os: macos-13,        target: mac-x64,     goos: darwin,  goarch: amd64, experimental: true }
-          - { os: macos-14,        target: mac-arm64,   goos: darwin,  goarch: arm64 }
-          - { os: ubuntu-24.04,    target: linux-x64,   goos: linux,   goarch: amd64 }
-          - { os: ubuntu-24.04-arm, target: linux-arm64, goos: linux,  goarch: arm64 }
+          - { os: windows-2025,     target: win-x64,     goos: windows, goarch: amd64 }
+          - { os: windows-11-arm,   target: win-arm64,   goos: windows, goarch: arm64 }
+          - { os: macos-15-intel,   target: mac-x64,     goos: darwin,  goarch: amd64 }
+          - { os: macos-15,         target: mac-arm64,   goos: darwin,  goarch: arm64 }
+          - { os: ubuntu-24.04,     target: linux-x64,   goos: linux,   goarch: amd64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, goos: linux,   goarch: arm64 }
     env:
       # 与 go.mod / versions.lock.json 保持一致；setup-go 直接读 go.mod。
       CGO_ENABLED: "1"
@@ -74,8 +75,15 @@ jobs:
         run: go test ./... -count=1 -timeout 600s
 
       - name: race
-        # 竞态验证。CI runner 自带编译器，这里的结果才是"-race 已通过"的依据。
-        run: go test -race ./internal/... -count=1 -timeout 900s
+        # 竞态验证。缺 C 编译器时明确判红，不静默跳过（跳过不是通过）。
+        shell: bash
+        run: |
+          cc="$(go env CC | awk '{print $1}')"
+          if ! command -v "$cc" >/dev/null 2>&1; then
+            echo "::error::runner 无 C 编译器（CC=$cc），-race 无法执行；${{ matrix.target }} 不得声明已过竞态验证"
+            exit 2
+          fi
+          go test -race ./internal/... -count=1 -timeout 900s
 
       - name: 交叉编译到其余目标（只验证可编译，不冒充运行验证）
         shell: bash

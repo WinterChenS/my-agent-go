@@ -1,0 +1,266 @@
+﻿2026-11-03T09:09:19.2401180Z Current runner version: '2.338.2'
+2026-11-03T09:09:19.2412130Z ##[group]Runner Image Provisioner
+2026-11-03T09:09:19.2412580Z Hosted Compute Agent
+2026-11-03T09:09:19.2412890Z Version: 20260828.587
+2026-11-03T09:09:19.2413240Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-11-03T09:09:19.2413630Z Build Date: 2026-08-28T16:44:25Z
+2026-11-03T09:09:19.2414000Z Worker ID: {bf55218f-00d9-4ed0-af7c-e2e61071f223}
+2026-11-03T09:09:19.2414380Z Azure Region: westus
+2026-11-03T09:09:19.2414720Z ##[endgroup]
+2026-11-03T09:09:19.2415360Z ##[group]Operating System
+2026-11-03T09:09:19.2415680Z macOS
+2026-11-03T09:09:19.2415940Z 14.8.9
+2026-11-03T09:09:19.2416200Z 23J631
+2026-11-03T09:09:19.2416480Z ##[endgroup]
+2026-11-03T09:09:19.2416770Z ##[group]Runner Image
+2026-11-03T09:09:19.2417090Z Image: macos-14-arm64
+2026-11-03T09:09:19.2417410Z Version: 20260831.0302.1
+2026-11-03T09:09:19.2418090Z Included Software: https://github.com/actions/runner-images/blob/macos-14-arm64/20260831.0302/images/macos/macos-14-arm64-Readme.md
+2026-11-03T09:09:19.2418960Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-14-arm64%2F20260831.0302
+2026-11-03T09:09:19.2419520Z ##[endgroup]
+2026-11-03T09:09:19.2420110Z ##[group]GITHUB_TOKEN Permissions
+2026-11-03T09:09:19.2420840Z Contents: read
+2026-11-03T09:09:19.2421150Z Metadata: read
+2026-11-03T09:09:19.2421440Z ##[endgroup]
+2026-11-03T09:09:19.2422460Z Secret source: Actions
+2026-11-03T09:09:19.2422940Z Cache mode: write
+2026-11-03T09:09:19.2423300Z Prepare workflow directory
+2026-11-03T09:09:19.2638220Z Prepare all required actions
+2026-11-03T09:09:19.2669720Z Getting action download info
+2026-11-03T09:09:19.5034740Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-03T09:09:19.8821190Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+2026-11-03T09:09:20.6080050Z Complete job name: go / mac-arm64
+2026-11-03T09:09:20.6730320Z ##[group]Run actions/checkout@v4
+2026-11-03T09:09:20.6731200Z with:
+2026-11-03T09:09:20.6731780Z   repository: WinterChenS/my-agent-go
+2026-11-03T09:09:20.6738260Z   token: ***
+2026-11-03T09:09:20.6738860Z   ssh-strict: true
+2026-11-03T09:09:20.6739430Z   ssh-user: git
+2026-11-03T09:09:20.6740000Z   persist-credentials: true
+2026-11-03T09:09:20.6740880Z   clean: true
+2026-11-03T09:09:20.6741540Z   sparse-checkout-cone-mode: true
+2026-11-03T09:09:20.6742230Z   fetch-depth: 1
+2026-11-03T09:09:20.6742820Z   fetch-tags: false
+2026-11-03T09:09:20.6743420Z   show-progress: true
+2026-11-03T09:09:20.6743990Z   lfs: false
+2026-11-03T09:09:20.6744540Z   submodules: false
+2026-11-03T09:09:20.6745140Z   set-safe-directory: true
+2026-11-03T09:09:20.6745810Z   allow-unsafe-pr-checkout: false
+2026-11-03T09:09:20.6746660Z env:
+2026-11-03T09:09:20.6747170Z   CGO_ENABLED: 1
+2026-11-03T09:09:20.6747720Z ##[endgroup]
+2026-11-03T09:09:20.8242890Z Syncing repository: WinterChenS/my-agent-go
+2026-11-03T09:09:20.8247190Z ##[group]Getting Git version info
+2026-11-03T09:09:20.8249380Z Working directory is '/Users/runner/work/my-agent-go/my-agent-go'
+2026-11-03T09:09:20.8251320Z [command]/opt/homebrew/bin/git version
+2026-11-03T09:09:20.8597940Z git version 2.55.0
+2026-11-03T09:09:20.8613620Z ##[endgroup]
+2026-11-03T09:09:20.8626610Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/77354406-c4b5-42e5-9fa0-da31d2e99f0f/.gitconfig'
+2026-11-03T09:09:20.8630490Z Temporarily overriding HOME='/Users/runner/work/_temp/77354406-c4b5-42e5-9fa0-da31d2e99f0f' before making global git config changes
+2026-11-03T09:09:20.8633090Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T09:09:20.8634970Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/my-agent-go/my-agent-go
+2026-11-03T09:09:20.8745070Z Deleting the contents of '/Users/runner/work/my-agent-go/my-agent-go'
+2026-11-03T09:09:20.8748290Z ##[group]Initializing the repository
+2026-11-03T09:09:20.8752150Z [command]/opt/homebrew/bin/git init /Users/runner/work/my-agent-go/my-agent-go
+2026-11-03T09:09:20.9324050Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-03T09:09:20.9325650Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-03T09:09:20.9326870Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-03T09:09:20.9327910Z hint: call:
+2026-11-03T09:09:20.9328560Z hint:
+2026-11-03T09:09:20.9329210Z hint: 	git config --global init.defaultBranch <name>
+2026-11-03T09:09:20.9329940Z hint:
+2026-11-03T09:09:20.9330640Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-03T09:09:20.9331840Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-03T09:09:20.9332750Z hint:
+2026-11-03T09:09:20.9333280Z hint: 	git branch -m <name>
+2026-11-03T09:09:20.9333860Z hint:
+2026-11-03T09:09:20.9334680Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-03T09:09:20.9336040Z Initialized empty Git repository in /Users/runner/work/my-agent-go/my-agent-go/.git/
+2026-11-03T09:09:20.9338430Z [command]/opt/homebrew/bin/git remote add origin https://github.com/WinterChenS/my-agent-go
+2026-11-03T09:09:20.9382730Z ##[endgroup]
+2026-11-03T09:09:20.9383870Z ##[group]Disabling automatic garbage collection
+2026-11-03T09:09:20.9384960Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-11-03T09:09:20.9425640Z ##[endgroup]
+2026-11-03T09:09:20.9426710Z ##[group]Setting up auth
+2026-11-03T09:09:20.9429290Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T09:09:20.9464570Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-03T09:09:21.0028550Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T09:09:21.0062460Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-03T09:09:21.0495680Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T09:09:21.0524190Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-03T09:09:21.0969010Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-03T09:09:21.1009350Z ##[endgroup]
+2026-11-03T09:09:21.1010180Z ##[group]Fetching the repository
+2026-11-03T09:09:21.1015240Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9c9cf66f5494774f11693a7ba20e78c975746e7f:refs/remotes/origin/main
+2026-11-03T09:09:21.7273820Z From https://github.com/WinterChenS/my-agent-go
+2026-11-03T09:09:21.7274930Z  * [new ref]         9c9cf66f5494774f11693a7ba20e78c975746e7f -> origin/main
+2026-11-03T09:09:21.7278480Z ##[endgroup]
+2026-11-03T09:09:21.7279340Z ##[group]Determining the checkout info
+2026-11-03T09:09:21.7280300Z ##[endgroup]
+2026-11-03T09:09:21.7282580Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-11-03T09:09:21.7337100Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-03T09:09:21.7380520Z ##[group]Checking out the ref
+2026-11-03T09:09:21.7383700Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-03T09:09:21.7730550Z Switched to a new branch 'main'
+2026-11-03T09:09:21.7830260Z branch 'main' set up to track 'origin/main'.
+2026-11-03T09:09:21.8023130Z ##[endgroup]
+2026-11-03T09:09:21.8105960Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-11-03T09:09:21.8124230Z 9c9cf66f5494774f11693a7ba20e78c975746e7f
+2026-11-03T09:09:21.8325300Z ##[group]Run actions/setup-go@v5
+2026-11-03T09:09:21.8326160Z with:
+2026-11-03T09:09:21.8326660Z   go-version-file: go.mod
+2026-11-03T09:09:21.8327250Z   cache: true
+2026-11-03T09:09:21.8327780Z   check-latest: false
+2026-11-03T09:09:21.8333420Z   token: ***
+2026-11-03T09:09:21.8333960Z env:
+2026-11-03T09:09:21.8334470Z   CGO_ENABLED: 1
+2026-11-03T09:09:21.8335030Z ##[endgroup]
+2026-11-03T09:09:21.9369870Z Setup go version spec 1.27.3
+2026-11-03T09:09:21.9384880Z Attempting to download 1.27.3...
+2026-11-03T09:09:21.9508920Z (node:3300) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-03T09:09:21.9510600Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-03T09:09:22.9707840Z matching 1.27.3...
+2026-11-03T09:09:22.9732840Z Acquiring 1.27.3 from https://github.com/actions/go-versions/releases/download/1.27.3-39437817176/go-1.27.3-darwin-arm64.tar.gz
+2026-11-03T09:09:23.7987200Z Extracting Go...
+2026-11-03T09:09:23.8093330Z [command]/usr/bin/tar xz -C /Users/runner/work/_temp/96adcd14-fd91-40cb-87ad-6c5a0be6fd8a -f /Users/runner/work/_temp/f2598074-df4a-4a89-81d5-0fb419248910
+2026-11-03T09:09:25.7693810Z Successfully extracted go to /Users/runner/work/_temp/96adcd14-fd91-40cb-87ad-6c5a0be6fd8a
+2026-11-03T09:09:25.7694480Z Adding to the cache ...
+2026-11-03T09:09:30.5432560Z Successfully cached go to /Users/runner/hostedtoolcache/go/1.27.3/arm64
+2026-11-03T09:09:30.5433580Z Added go to the path
+2026-11-03T09:09:30.5435510Z Successfully set up Go version 1.27.3
+2026-11-03T09:09:30.5850200Z [command]/Users/runner/hostedtoolcache/go/1.27.3/arm64/bin/go env GOCACHE
+2026-11-03T09:09:30.5856390Z [command]/Users/runner/hostedtoolcache/go/1.27.3/arm64/bin/go env GOMODCACHE
+2026-11-03T09:09:30.5922680Z /Users/runner/Library/Caches/go-build
+2026-11-03T09:09:30.5925410Z /Users/runner/go/pkg/mod
+2026-11-03T09:09:30.7559460Z Cache is not found
+2026-11-03T09:09:30.7578700Z go version go1.27.3 darwin/arm64
+2026-11-03T09:09:30.7578970Z 
+2026-11-03T09:09:30.7579340Z ##[group]go env
+2026-11-03T09:09:32.1630310Z AR='ar'
+2026-11-03T09:09:32.1630800Z CC='clang'
+2026-11-03T09:09:32.1631110Z CGO_CFLAGS='-O2 -g'
+2026-11-03T09:09:32.1631400Z CGO_CPPFLAGS=''
+2026-11-03T09:09:32.1631640Z CGO_CXXFLAGS='-O2 -g'
+2026-11-03T09:09:32.1631810Z CGO_ENABLED='1'
+2026-11-03T09:09:32.1632040Z CGO_FFLAGS='-O2 -g'
+2026-11-03T09:09:32.1632300Z CGO_LDFLAGS='-O2 -g'
+2026-11-03T09:09:32.1632550Z CXX='clang++'
+2026-11-03T09:09:32.1632720Z GCCGO='gccgo'
+2026-11-03T09:09:32.1644570Z GO111MODULE=''
+2026-11-03T09:09:32.1644790Z GOARCH='arm64'
+2026-11-03T09:09:32.1644990Z GOARM64='v8.0'
+2026-11-03T09:09:32.1645130Z GOAUTH='netrc'
+2026-11-03T09:09:32.1645300Z GOBIN='/Users/runner/go/bin'
+2026-11-03T09:09:32.1645530Z GOCACHE='/Users/runner/Library/Caches/go-build'
+2026-11-03T09:09:32.1645730Z GOCACHEPROG=''
+2026-11-03T09:09:32.1645860Z GODEBUG=''
+2026-11-03T09:09:32.1646060Z GOENV='/Users/runner/Library/Application Support/go/env'
+2026-11-03T09:09:32.1646290Z GOEXE=''
+2026-11-03T09:09:32.1646420Z GOEXPERIMENT=''
+2026-11-03T09:09:32.1646550Z GOFIPS140='off'
+2026-11-03T09:09:32.1646700Z GOFLAGS=''
+2026-11-03T09:09:32.1647460Z GOGCCFLAGS='-fPIC -arch arm64 -pthread -fno-caret-diagnostics -Qunused-arguments -fmessage-length=0 -ffile-prefix-map=/var/folders/s6/5hzmn6lx4dz5nxs7k_0slzph0000gn/T/go-build3083458080=/tmp/go-build -gno-record-gcc-switches -fno-common'
+2026-11-03T09:09:32.1648210Z GOHOSTARCH='arm64'
+2026-11-03T09:09:32.1648340Z GOHOSTOS='darwin'
+2026-11-03T09:09:32.1648470Z GOINSECURE=''
+2026-11-03T09:09:32.1648690Z GOMOD='/Users/runner/work/my-agent-go/my-agent-go/go.mod'
+2026-11-03T09:09:32.1648940Z GOMODCACHE='/Users/runner/go/pkg/mod'
+2026-11-03T09:09:32.1649120Z GONOPROXY=''
+2026-11-03T09:09:32.1649240Z GONOSUMDB=''
+2026-11-03T09:09:32.1649360Z GOOS='darwin'
+2026-11-03T09:09:32.1649490Z GOPACKAGESDRIVER=''
+2026-11-03T09:09:32.1649640Z GOPATH='/Users/runner/go'
+2026-11-03T09:09:32.1649780Z GOPRIVATE=''
+2026-11-03T09:09:32.1650980Z GOPROXY='https://proxy.golang.org,direct'
+2026-11-03T09:09:32.1651510Z GOROOT='/Users/runner/hostedtoolcache/go/1.27.3/arm64'
+2026-11-03T09:09:32.1651760Z GOSUMDB='sum.golang.org'
+2026-11-03T09:09:32.1651910Z GOTELEMETRY='local'
+2026-11-03T09:09:32.1652140Z GOTELEMETRYDIR='/Users/runner/Library/Application Support/go/telemetry'
+2026-11-03T09:09:32.1652400Z GOTMPDIR=''
+2026-11-03T09:09:32.1652520Z GOTOOLCHAIN='auto'
+2026-11-03T09:09:32.1652800Z GOTOOLDIR='/Users/runner/hostedtoolcache/go/1.27.3/arm64/pkg/tool/darwin_arm64'
+2026-11-03T09:09:32.1653070Z GOVCS=''
+2026-11-03T09:09:32.1653190Z GOVERSION='go1.27.3'
+2026-11-03T09:09:32.1653320Z GOWORK=''
+2026-11-03T09:09:32.1653460Z PKG_CONFIG='pkg-config'
+2026-11-03T09:09:32.1653550Z 
+2026-11-03T09:09:32.1653930Z ##[endgroup]
+2026-11-03T09:09:32.1746130Z ##[group]Run echo "go      = $(go version)"
+2026-11-03T09:09:32.1746360Z [36;1mecho "go      = $(go version)"[0m
+2026-11-03T09:09:32.1746540Z [36;1mecho "GOOS    = $(go env GOOS)"[0m
+2026-11-03T09:09:32.1746710Z [36;1mecho "GOARCH  = $(go env GOARCH)"[0m
+2026-11-03T09:09:32.1746890Z [36;1mecho "CC      = $(go env CC)"[0m
+2026-11-03T09:09:32.1747110Z [36;1mecho "os      = macos-14"[0m
+2026-11-03T09:09:32.1832260Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T09:09:32.1832490Z env:
+2026-11-03T09:09:32.1832610Z   CGO_ENABLED: 1
+2026-11-03T09:09:32.1832740Z ##[endgroup]
+2026-11-03T09:09:32.2415060Z go      = go version go1.27.3 darwin/arm64
+2026-11-03T09:09:32.2480220Z GOOS    = darwin
+2026-11-03T09:09:32.2546790Z GOARCH  = arm64
+2026-11-03T09:09:32.2605000Z CC      = clang
+2026-11-03T09:09:32.2606770Z os      = macos-14
+2026-11-03T09:09:32.2641890Z ##[group]Run got="$(go env GOOS)/$(go env GOARCH)"
+2026-11-03T09:09:32.2642170Z [36;1mgot="$(go env GOOS)/$(go env GOARCH)"[0m
+2026-11-03T09:09:32.2651240Z [36;1mwant="darwin/arm64"[0m
+2026-11-03T09:09:32.2651530Z [36;1mif [ "$got" != "$want" ]; then[0m
+2026-11-03T09:09:32.2651800Z [36;1m  echo "::error::runner 实际架构 $got 与目标 $want 不一致，该结果不可用作 mac-arm64 证据"[0m
+2026-11-03T09:09:32.2652110Z [36;1m  exit 2[0m
+2026-11-03T09:09:32.2652230Z [36;1mfi[0m
+2026-11-03T09:09:32.2707110Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-03T09:09:32.2707400Z env:
+2026-11-03T09:09:32.2707520Z   CGO_ENABLED: 1
+2026-11-03T09:09:32.2707650Z ##[endgroup]
+2026-11-03T09:09:32.3080960Z ##[group]Run go build ./...
+2026-11-03T09:09:32.3081240Z [36;1mgo build ./...[0m
+2026-11-03T09:09:32.3132340Z shell: /bin/bash -e {0}
+2026-11-03T09:09:32.3132540Z env:
+2026-11-03T09:09:32.3132690Z   CGO_ENABLED: 1
+2026-11-03T09:09:32.3132840Z ##[endgroup]
+2026-11-03T09:09:38.1387290Z ##[group]Run go vet ./...
+2026-11-03T09:09:38.1387540Z [36;1mgo vet ./...[0m
+2026-11-03T09:09:38.1453020Z shell: /bin/bash -e {0}
+2026-11-03T09:09:38.1453240Z env:
+2026-11-03T09:09:38.1453390Z   CGO_ENABLED: 1
+2026-11-03T09:09:38.1453540Z ##[endgroup]
+2026-11-03T09:09:39.7725360Z ##[group]Run go test ./... -count=1 -timeout 600s
+2026-11-03T09:09:39.7725680Z [36;1mgo test ./... -count=1 -timeout 600s[0m
+2026-11-03T09:09:39.7785760Z shell: /bin/bash -e {0}
+2026-11-03T09:09:39.7786000Z env:
+2026-11-03T09:09:39.7786150Z   CGO_ENABLED: 1
+2026-11-03T09:09:39.7786310Z ##[endgroup]
+2026-11-03T09:09:40.8001480Z ?   	my-agent-go/cmd/devtools	[no test files]
+2026-11-03T09:09:40.8604730Z ok  	my-agent-go/internal/contracts	0.007s
+2026-11-03T09:09:40.9733310Z --- FAIL: TestCommandFailureReturnsAssertionCode (0.00s)
+2026-11-03T09:09:40.9837860Z     gate_test.go:221: 命令失败应返回 1，实际 2
+2026-11-03T09:09:40.9945060Z 未知 suite: bogus（已知: static,unit,integration,native,e2e,package）
+2026-11-03T09:09:41.0044800Z verify 必须指定 --suite 参数
+2026-11-03T09:09:41.0144600Z FAIL
+2026-11-03T09:09:41.0245560Z FAIL	my-agent-go/internal/devtools	0.072s
+2026-11-03T09:09:41.4667340Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T09:09:44.0875010Z --- FAIL: TestProbeHasNoUserConfigSideEffects (0.00s)
+2026-11-03T09:09:44.0876790Z     probe_integration_test.go:89: 认证版本 1.5.0 fixture 应 Ready，实际 state=DependencyMissing diag=[依赖缺失或无法启动: exec: "cmd.exe": executable file not found in $PATH]
+2026-11-03T09:09:44.0877980Z FAIL
+2026-11-03T09:09:44.0878220Z FAIL	my-agent-go/internal/runtime/pi	2.582s
+2026-11-03T09:09:44.0878590Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T09:09:44.0878950Z ok  	my-agent-go/tests/fixtures/mcp	0.347s
+2026-11-03T09:09:44.0879220Z ?   	my-agent-go/tests/fixtures/provider	[no test files]
+2026-11-03T09:09:44.0879500Z FAIL
+2026-11-03T09:09:44.1170810Z ##[error]Process completed with exit code 1.
+2026-11-03T09:09:44.1271550Z Post job cleanup.
+2026-11-03T09:09:44.1914350Z [command]/opt/homebrew/bin/git version
+2026-11-03T09:09:44.1952700Z git version 2.55.0
+2026-11-03T09:09:44.1967630Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/02442138-9fd8-4e54-a8fd-23aed13b0dec/.gitconfig'
+2026-11-03T09:09:44.1974200Z Temporarily overriding HOME='/Users/runner/work/_temp/02442138-9fd8-4e54-a8fd-23aed13b0dec' before making global git config changes
+2026-11-03T09:09:44.1974820Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T09:09:44.1978150Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/my-agent-go/my-agent-go
+2026-11-03T09:09:44.2014120Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T09:09:44.2052790Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-03T09:09:44.2493360Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T09:09:44.2522230Z http.https://github.com/.extraheader
+2026-11-03T09:09:44.2527600Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-03T09:09:44.2561820Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-03T09:09:44.2980690Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T09:09:44.3015270Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-03T09:09:44.3508560Z Cleaning up orphan processes
+2026-11-03T09:09:44.6200990Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
