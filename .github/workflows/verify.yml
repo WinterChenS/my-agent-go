@@ -38,6 +38,9 @@ jobs:
     env:
       # 与 go.mod / versions.lock.json 保持一致；setup-go 直接读 go.mod。
       CGO_ENABLED: "1"
+      # 六个目标都必须真正跑通"OS 保护存储读写"（SEC07），
+      # 后端不可用即判红——装了后端还不可用说明是配置或实现问题，不许 skip 成绿。
+      MYAGENT_REQUIRE_NATIVE_CREDSTORE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,8 +74,44 @@ jobs:
       - name: vet
         run: go vet ./...
 
+      - name: 准备 Secret Service（Linux）
+        # SEC07 在 Linux 上走 libsecret/Secret Service。runner 默认没有 keyring daemon，
+        # 必须自己起一个：不装就等于"这一目标没有凭证后端"，SEC07 只能 BLOCKED。
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring libsecret-tools dbus-x11
+          command -v secret-tool
+
       - name: test
-        run: go test ./... -count=1 -timeout 600s
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # D-Bus session 与 keyring daemon 必须活在**同一个** session 里，
+            # 否则 secret-tool 连不上 org.freedesktop.secrets。
+            # gnome-keyring-daemon --unlock 从 stdin 读密码；login keyring 不存在时
+            # 会用这个密码创建它，因此不需要预置任何状态。
+            dbus-run-session -- bash -euxo pipefail -c '
+              printf "%s" "myagent-ci" | gnome-keyring-daemon --unlock --components=secrets --daemonize
+              sleep 1
+              # 探测：exit 1 = 查不到（服务活着），其它非 0 = 服务不可用。
+              set +e
+              secret-tool lookup service cn.myagent.credentials account __probe__
+              probe=$?
+              set -e
+              if [ "$probe" -ne 1 ]; then
+                echo "::error::Secret Service 不可用（secret-tool 探测退出码 $probe）"
+                ps -ef | grep -i keyring || true
+                exit 2
+              fi
+              go test ./... -count=1 -timeout 600s
+            '
+          else
+            go test ./... -count=1 -timeout 600s
+          fi
 
       - name: race
         # 竞态验证。两类"不通过"要分开处理，不能混成一种绿色：

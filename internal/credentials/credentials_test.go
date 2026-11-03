@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"my-agent-go/internal/contracts"
 )
@@ -27,27 +29,38 @@ func requireCode(t *testing.T, err error, code string) {
 	}
 }
 
-// TestNativeStoreRoundTripAndNoPlaintext 覆盖 SEC07：OS 保护存储真实读写成功，
-// 且落盘字节里检索不到明文哨兵。
+// TestNativeStoreRoundTripAndNoPlaintext 覆盖 SEC07：
+// OS 保护存储真实读写成功，且明文哨兵不出现在任何落盘字节里。
+//
+// 三个平台三套后端：Windows DPAPI / macOS Keychain / Linux Secret Service。
+// 后端不可用（例如容器里没有 keyring daemon）是**合法的环境状态**，但：
+//   - 必须报 CREDENTIAL_STORE_UNAVAILABLE，且不留任何明文；
+//   - 若环境通过 MYAGENT_REQUIRE_NATIVE_CREDSTORE=1 声明"必须支持"，则不可用即判失败。
+//
+// 后者是 CI 用的开关：装了后端还不可用就是实现或环境配置错了，不许悄悄 skip。
 func TestNativeStoreRoundTripAndNoPlaintext(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		store, err := NewNativeStore(t.TempDir())
-		if store != nil {
-			t.Fatalf("非 Windows 平台不应返回可用的原生凭证库")
-		}
-		requireCode(t, err, contracts.CodeCredentialStoreUnavailable)
-		// 必须明确不落明文：不可用时连目录都不该被当成凭证库使用。
-		return
-	}
-
 	ctx := context.Background()
 	root := t.TempDir()
+
 	store, err := NewNativeStore(root)
 	if err != nil {
-		t.Fatalf("NewNativeStore: %v", err)
+		requireCode(t, err, contracts.CodeCredentialStoreUnavailable)
+		// 不可用时绝不能有任何东西落盘——这是"降级为内存"与"偷偷写明文"的分界。
+		if leaked := scanForSecret(t, root, sentinelSecret); len(leaked) > 0 {
+			t.Fatalf("后端不可用时仍写入了明文: %v", leaked)
+		}
+		if os.Getenv(requireNativeEnv) == "1" {
+			t.Fatalf("环境声明必须支持原生凭证库（%s=1），但 NewNativeStore 不可用: %v", requireNativeEnv, err)
+		}
+		t.Skipf("本机无可用 OS 保护存储: %v", err)
 	}
 
-	if err := store.Put(ctx, "user:openai", sentinelSecret); err != nil {
+	// ref 里带随机串：Keychain / Secret Service 是**全局命名空间**，
+	// 固定 ref 会让并发跑的两个 CI job 互相覆盖（并让结果变得不可复现）。
+	ref := "test:roundtrip:" + t.Name() + ":" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	t.Cleanup(func() { _ = store.Delete(context.Background(), ref) })
+
+	if err := store.Put(ctx, ref, sentinelSecret); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	// oracle 1：落盘立即扫描。必须在 Get 之前——先证明磁盘上没有明文，
@@ -55,16 +68,25 @@ func TestNativeStoreRoundTripAndNoPlaintext(t *testing.T) {
 	if leaked := scanForSecret(t, root, sentinelSecret); len(leaked) > 0 {
 		t.Fatalf("落盘文件出现明文凭证: %v", leaked)
 	}
-	got, err := store.Get(ctx, "user:openai")
+	if runtime.GOOS != "windows" {
+		// Keychain / Secret Service 不落文件。root 下出现任何文件，
+		// 说明有人在"后端不可用"时偷偷写了明文缓存。
+		if entries, err := os.ReadDir(root); err == nil && len(entries) > 0 {
+			t.Fatalf("非 Windows 后端不应在凭证根目录留下文件，实际有 %d 个", len(entries))
+		}
+	}
+
+	got, err := store.Get(ctx, ref)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if !bytes.Equal(got, sentinelSecret) {
-		t.Fatalf("读写不一致")
+		t.Fatalf("读写不一致：得到 %q", got)
 	}
 
 	// oracle 2：ref 不同不得互相读取。
-	if _, err := store.Get(ctx, "user:other"); err == nil {
+	missing := ref + ":absent"
+	if _, err := store.Get(ctx, missing); err == nil {
 		t.Fatalf("不存在的 ref 应返回 NOT_FOUND")
 	} else {
 		requireCode(t, err, contracts.CodeNotFound)
@@ -72,31 +94,45 @@ func TestNativeStoreRoundTripAndNoPlaintext(t *testing.T) {
 
 	// 覆盖写：同 ref 再次 Put 覆盖旧值。
 	rotated := []byte("sk-rotated-2nd-value")
-	if err := store.Put(ctx, "user:openai", rotated); err != nil {
+	if err := store.Put(ctx, ref, rotated); err != nil {
 		t.Fatalf("覆盖 Put: %v", err)
 	}
-	got, err = store.Get(ctx, "user:openai")
+	got, err = store.Get(ctx, ref)
 	if err != nil {
 		t.Fatalf("覆盖后 Get: %v", err)
 	}
 	if !bytes.Equal(got, rotated) {
-		t.Fatalf("覆盖后应为新值")
+		t.Fatalf("覆盖后应为新值，实际 %q", got)
 	}
 	if leaked := scanForSecret(t, root, sentinelSecret); len(leaked) > 0 {
 		t.Fatalf("旧凭证轮换后仍留明文残片: %v", leaked)
 	}
 
 	// 删除幂等。
-	if err := store.Delete(ctx, "user:openai"); err != nil {
+	if err := store.Delete(ctx, ref); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if err := store.Delete(ctx, "user:openai"); err != nil {
+	if err := store.Delete(ctx, ref); err != nil {
 		t.Fatalf("Delete 应幂等: %v", err)
 	}
-	if _, err := store.Get(ctx, "user:openai"); err == nil {
+	if _, err := store.Get(ctx, ref); err == nil {
 		t.Fatalf("删除后应返回 NOT_FOUND")
 	} else {
 		requireCode(t, err, contracts.CodeNotFound)
+	}
+}
+
+// TestNativeStoreRejectsBadRef 校验入参约束在两个 CLI 后端上都生效。
+// ref 里的换行会破坏"以行为单位"的 CLI 语义，必须在进入外部命令前就拒绝。
+func TestNativeStoreRejectsBadRef(t *testing.T) {
+	store, err := NewNativeStore(t.TempDir())
+	if err != nil {
+		t.Skipf("本机无可用 OS 保护存储: %v", err)
+	}
+	for _, bad := range []string{"", "   ", "a\nb", "a\x00b"} {
+		if err := store.Put(context.Background(), bad, []byte("x")); err == nil {
+			t.Fatalf("ref %q 应被拒绝", bad)
+		}
 	}
 }
 

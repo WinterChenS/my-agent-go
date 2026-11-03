@@ -54,8 +54,8 @@ func (s *nativeStore) Put(ctx context.Context, ref string, secret []byte) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if ref == "" {
-		return contracts.NewAppError(contracts.CodeUnsupported, "凭证 ref 为空", false)
+	if err := validateRef(ref); err != nil {
+		return err
 	}
 	if len(secret) == 0 {
 		return contracts.NewAppError(contracts.CodeUnsupported, "凭证内容为空", false)

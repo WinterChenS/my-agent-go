@@ -352,13 +352,13 @@ func TestUnknownAndMalformedRecordsHaveDiagnostics(t *testing.T) {
 	}
 }
 
-// TestWorkerTerminatesGrandchild 对应 RPC05：
+// TestWorkerTerminatesGrandchild 对应 RPC05 的集成面：
 // Close 后本 worker 拥有的孙进程必须被回收，而系统上无关的同类进程必须仍然存活。
+//
+// 此前这条用例在非 Windows 上直接 skip，导致 process_unix.go 的进程组回收
+// **从未被执行过**，CI 六目标全绿属于假覆盖。现在两套实现都跑：
+// 底层机制另有 process_tree_test.go 做跨平台直测，两者互为证据。
 func TestWorkerTerminatesGrandchild(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("进程树回收当前只在 Windows Job Object 上验证过；Unix 路径未实机验证")
-	}
-
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "grandchild.hb")
 	unrelatedMarker := filepath.Join(dir, "unrelated.hb")

@@ -8,10 +8,17 @@ package credentials
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"my-agent-go/internal/contracts"
 )
+
+// requireNativeEnv 是"本环境必须支持原生保护存储"的开关，仅测试使用。
+//
+// CI 在六个目标上都装好对应后端并设置它：此时后端不可用就是 FAIL，
+// 不允许悄悄 skip（跳过不是通过）。本地没装 secret-tool 时靠 skip 避免误报。
+const requireNativeEnv = "MYAGENT_REQUIRE_NATIVE_CREDSTORE"
 
 // Store 是凭证读写接口。
 //
@@ -20,6 +27,23 @@ type Store interface {
 	Put(ctx context.Context, ref string, secret []byte) error
 	Get(ctx context.Context, ref string) ([]byte, error)
 	Delete(ctx context.Context, ref string) error
+}
+
+// validateRef 是所有后端共同的入参校验。
+//
+// 必须在进入任何后端之前统一执行：三个平台各自实现校验的话，
+// 迟早会出现"Windows 允许、Keychain 拒绝"这种平台间语义漂移
+// （实测就发生过：Windows 只查空串，CLI 后端还查空白与换行）。
+func validateRef(ref string) error {
+	if strings.TrimSpace(ref) == "" {
+		return contracts.NewAppError(contracts.CodeUnsupported, "凭证 ref 为空", false)
+	}
+	// 换行 / NUL 会破坏以"行"或"argv"为单位的文本接口，
+	// 且没有任何合法 ref 需要它们。
+	if strings.ContainsAny(ref, "\r\n\x00") {
+		return contracts.NewAppError(contracts.CodeUnsupported, "凭证 ref 不得包含换行或 NUL", false)
+	}
+	return nil
 }
 
 // MemStore 是仅当前会话有效的内存凭证存储。
