@@ -1,0 +1,5 @@
+SHA256SUMS bytes=822
+zip bytes=61890147
+actual sha256=12d58a70e80b16ba9f764950b7a42bdeb07959495c0db68396cf2988c0b71af3
+sums entry=12d58a70e80b16ba9f764950b7a42bdeb07959495c0db68396cf2988c0b71af3  pi-windows-x64.zip
+match=True

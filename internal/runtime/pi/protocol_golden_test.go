@@ -20,7 +20,7 @@ import (
 // 断言值来自实测，不是从文档抄来的期望值。
 func TestProtocolGolden(t *testing.T) {
 	t.Run("所有记录都是合法 JSON", func(t *testing.T) {
-		for _, name := range []string{"text", "unicode", "tool", "empty", "provider-error", "long", "mcp", "extension", "compaction"} {
+		for _, name := range []string{"text", "unicode", "tool", "empty", "provider-error", "long", "mcp", "extension", "compaction", "standalone-rpc"} {
 			recs := loadRecords(t, name)
 			if len(recs) == 0 {
 				t.Fatalf("%s.jsonl 为空", name)
@@ -46,6 +46,30 @@ func TestProtocolGolden(t *testing.T) {
 		got := filterOut(eventTypes(recs), "message_start", "message_end")
 		if err := containsSubsequence(got, want); err != nil {
 			t.Fatalf("事件序列不符合预期：%v\n实际：%v", err, got)
+		}
+	})
+
+	// 官方独立包（pi.exe 单文件、不依赖宿主 Node）与 npm 形式（node + cli.js）
+	// 必须产出同一套事件骨架；否则"两种发行形式行为一致"只是声称，没有证据。
+	t.Run("独立包与 npm 形式事件骨架一致", func(t *testing.T) {
+		npm := eventCounts(loadRecords(t, "text"))
+		solo := eventCounts(loadRecords(t, "standalone-rpc"))
+		for _, k := range []string{
+			"agent_start",
+			"turn_start",
+			"message_update/text_start",
+			"message_update/text_delta",
+			"message_update/text_end",
+			"turn_end",
+			"agent_end",
+			"agent_settled",
+		} {
+			if npm[k] == 0 {
+				t.Fatalf("npm 形式缺少事件 %s", k)
+			}
+			if solo[k] == 0 {
+				t.Fatalf("独立包缺少事件 %s", k)
+			}
 		}
 	})
 

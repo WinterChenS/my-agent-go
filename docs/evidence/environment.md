@@ -83,12 +83,48 @@
 - **伪造 v16 环境**（PATH 首位置 `build/fake-node`，node 解析到伪 v16）：脚本拒绝并打印实际路径：
   `FAIL: node: resolved to '…\build\fake-node\node.cmd' (version 'v16.0.0'), expected v24.16.0` → **EXIT=2**。证据 raw/check-fakev16.log。
 
+### 5.1 用 nvm 的真实多版本 node 复验（比伪造 shim 更强）
+
+本机装有 nvm，`D:\Program Files\nvm` 下有 v13.13.0 / v16.20.0 / v18.0.0 / v22.0.0 / v24.0.0 / v24.16.0。
+直接把某个版本的目录前置到 PATH，就能让脚本解析到**真实**的该版本 node，无需伪造：
+
+| PATH 首位 | 实测 node / npm | 退出码 | 输出 |
+|---|---|---|---|
+| `nvm\v16.20.0` | v16.20.0 / 8.19.4 | **2** | `FAIL: node: resolved to 'd:\program files\nvm\v16.20.0\node.exe' (version 'v16.20.0'), expected v24.16.0` |
+| `nvm\v22.0.0` | v22.0.0 / 10.5.1 | **2** | 同上形式，打印真实路径与版本 |
+| `nvm\v24.16.0` | v24.16.0 / 11.13.0 | **0** | `OK: node … -> v24.16.0`、`OK: npm … -> 11.13.0` |
+| 默认 PATH（首个 node 是 WorkBuddy v22.22.2） | v22.22.2 | **2** | 拒绝并打印 `…\.workbuddy\binaries\node\versions\22.22.2-3\node.exe` |
+
+复现命令（不改系统 PATH，只在子进程环境里换 PATH）：
+
+```powershell
+$env:PATH = "D:\Program Files\nvm\v16.20.0;D:\project\my-agent-go\.tools\bin;" + $env:PATH
+powershell -ExecutionPolicy Bypass -File scripts\check-toolchain.ps1   # → exit 2
+```
+
+### 5.2 复核中发现并修复的误判（真实缺陷）
+
+首轮用 nvm 复验时，`nvm\v24.16.0` 也被判失败：
+
+```text
+FAIL: node: resolved to 'd:\program files\nvm\v24.16.0\node.exe' but expected baseline 'd:\program files\nodejs\node.exe'
+FAIL: npm: resolved to '…\nvm\v24.16.0\npm.cmd' but expected it under '…\nodejs' (wrong node/npm pairing)
+```
+
+原因是 `D:\Program Files\nodejs` 是 nvm 管的符号链接，指向 `nvm\v24.16.0`；脚本原先只做
+`GetFullPath` 字符串比较，同一个文件的两条路径被判成不同。这是**对合法环境的误拒**。
+
+修复：新增 `Resolve-RealPath`，对路径的**每一段**解析符号链接/目录联接后再比较。
+修复后上表的 v24.16.0 → exit 0，而 v16/v22 仍被版本检查拒绝（判定力没有被削弱）。
+
 > 注意：默认开发者 PATH 下 node 实际解析到 WorkBuddy v22.22.2（npm 10.9.7），该脚本同样会判失败——这正是正确的门禁行为，提醒需把基线 node24 前置。
 
 ## 6. 未解决项与限制
 
 1. **sumdb 校验已闭环，但过程有波折**：首次 `go mod tidy` 时 sum.golang.org 请求返回 `unexpected EOF`，遂以 `GOSUMDB=off` 生成 `go.sum`。复核阶段重新探测 sumdb 返回 200，恢复默认 `GOSUMDB` 重跑 `go mod tidy`，`go.sum` **零差异**——即原哈希与公共 sumdb 一致，`GOSUMDB=off` 未引入未经验证的依赖。阻断性解除；`versions.lock.json` 的 `sumDbNote` 已同步更正。
-2. **Pi 1.4.0 ≠ 基线 1.5.0**：PATH 上 Pi 为 1.4.0，基线认证精确版本 1.5.0。不匹配，记为未验证 / Not Ready，不标 Ready。
+2. **Pi 版本会变，必须每次重测**：F00 记录时 PATH 上 Pi 为 1.4.0（≠ 基线 1.5.0，判 Not Ready）；
+   同日 14:50 该安装被用户升级到 1.5.0（目录自带 `node.exe` v22.23.2）。
+   结论以 `docs/evidence/pi-compatibility.md` 的最新实测为准，不缓存旧结论。
 3. **npm 默认源损坏**：用户级 `.npmrc` 把 registry 指向 `registry.npmmirror.com`，首次安装出现 lightningcss tarball “corrupted”。已改用官方 `https://registry.npmjs.org` 重装（无损坏告警）。
 4. **宿主机 OS 偏差**：本机 Windows 10 Pro 22H2，基线最低验收系统为 Windows 11 24H2；打包工具（NSIS / MakeAppx / SignTool / MSIX）均未安装，最终安装包暂不可产。
 5. **五项目标无运行环境**：mac/linux/win-arm64 无机器，跨平台构建与 WebView/WKWebView/WebKitGTK 行为均 BLOCKED，不伪造通过。

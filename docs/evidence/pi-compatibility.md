@@ -1,8 +1,9 @@
 # F02 证据：Pi 定位、探测与真实协议基线
 
-日期：2026-11-03。状态：**PI01 / PI02 PASS（宿主范围）；PI03 PARTIAL；PI04 BLOCKED**。
+日期：2026-11-03。状态：**PI01 / PI02 PASS（宿主范围）；PI03 PARTIAL；PI04 PASS（模拟无 Node 环境）**。
 
 一句话结论：真实 Pi **1.5.0** 已完成 RPC / MCP / extension 三项探测，原始流全部可追溯；
+**官方独立包在无 Node 环境下同样通过探测**，并能加载本项目的薄 extension 与 MCP；
 但**成功的上下文压缩未能诱发**，且实测发现三处与官方文档不一致的行为（见 §4），
 因此 PI03 不标 PASS。
 
@@ -15,7 +16,9 @@
 | `internal/runtime/pi/probe.go` | `Probe`：隔离 `HOME/USERPROFILE/APPDATA/PI_CODING_AGENT_DIR` 后只跑 `--version`，不进 agent loop、不请求模型、不启动用户 MCP |
 | `internal/runtime/pi/protocol_capture_test.go` | 真实 Pi 捕获装置（`MYAGENT_PI_CAPTURE=1` 才跑）：9 个场景、分批下发、关闭宽限期 |
 | `internal/runtime/pi/protocol_golden_test.go` | 只读 testdata 的结构与序列断言，**不依赖本机装 Pi** |
-| `internal/runtime/pi/testdata/v1.5.0/*.jsonl` | 9 份真实捕获记录（265 条，共 1567 KB） |
+| `internal/runtime/pi/standalone_test.go` | PI04：官方独立包在无 Node 环境下的定位/探测，以及 MCP + extension 加载回归（`MYAGENT_PI_STANDALONE=1` 才跑） |
+| `internal/runtime/pi/testdata/v1.5.0/*.jsonl` | 10 份真实捕获记录（9 个 npm 形式场景 + 1 份独立包对照） |
+| `internal/runtime/pi/testdata/v1.5.0/standalone-rpc.jsonl` | 官方独立包 `pi.exe` 的真实 RPC 记录，用于与 npm 形式比对事件骨架 |
 | `internal/fixtures/openaisse/` | 受控 OpenAI 兼容 SSE 端点（可复用：CLI 与测试共用） |
 | `tests/fixtures/provider/main.go` | 上述端点的命令行壳 |
 | `tests/fixtures/mcp/main.go` | 受控 MCP server（stdio，JSON-RPC；initialize / tools/list / tools/call） |
@@ -37,8 +40,19 @@ exit=0
         diagnostics=[版本 1.4.0 未经认证（基线仅认证 [1.5.0]）；标 unverified，不自动运行]
 ```
 
-宿主 PATH 上的 Pi 是 **1.4.0**（npm `.cmd` shim），探测成功但**判为未认证**，
+宿主 PATH 上的 Pi 当时是 **1.4.0**（npm `.cmd` shim），探测成功但**判为未认证**，
 符合基线 §3「未知版本 unverified，不静默承诺可用」。没有把它标 Ready。
+
+**同日 14:50 该安装被升级到 1.5.0**，因此上面的数字已过时，必须按新状态记录：
+
+| 观测时刻 | `pi-node/current` 版本 | 自带 Node | 探测结论 |
+|---|---|---|---|
+| F02 首次实测（当日早于 14:50） | 1.4.0 | v22.23.2 | `UnsupportedVersion`（unverified） |
+| 复核时（14:50 之后） | **1.5.0** | v22.23.2（目录内 `node.exe`） | `Ready` |
+
+这条变化本身就是一个用例素材：**外部安装会在用户操作下静默变更版本**，
+因此 `Locate`/`Probe` 的结果必须每次重新测量，不能缓存后当作长期事实；
+也印证了基线「多版本显示来源、禁止静默切换」的必要性。
 
 PI02 的 oracle 是 marker 文件哈希：隔离 agentDir 下 probe 前后用户配置哈希不变，
 且不生成 `mcp.json`/`auth.json` 之类副作用文件。
@@ -193,14 +207,80 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
 必须先等 stdout 静默（宽限期），否则会把"正常完成"误判为"异常退出"。
 这条必须写进 RPC 退出语义的用例里，否则 G0 的门禁会被一个假故障反复卡住。
 
-## 5. PI04：BLOCKED
+## 5. PI04：官方独立包 + 两种发行形式（PASS，模拟无 Node 环境）
 
-| 项 | 缺什么 |
+### 5.1 先纠正一个错误结论
+
+**上一版本文档把 PI04 标成 BLOCKED，理由是"本机没有无 Node 环境、也未获取官方独立包"。
+前半句是判断错误，后半句是没查。** 事实：
+
+- 官方 release 确实提供独立发行包，v1.5.0 资产清单里有
+  `pi-windows-x64.zip`（另有 darwin-arm64/x64、linux-arm64/x64、windows-arm64）。
+- 下载后 SHA256 与官方 `SHA256SUMS` 逐字节一致：
+  `12d58a70e80b16ba9f764950b7a42bdeb07959495c0db68396cf2988c0b71af3`（61,890,147 字节）。
+- 解包后是单个 `pi.exe`（**122.91 MB**），目录内**没有 `node.exe`、没有 `cli.js`**，
+  只有一个 `native\win32\prebuilds\win32-x64\win32-platform.node`。
+  说明它是内置运行时的单文件发行包（Node SEA 类），不依赖宿主 Node。
+- 而 npm 形式的 `package.json`：`bin = {"pi": "dist/bundle/cli.js"}`，
+  `engines.node = ">=22.19.0"`，**没有任何平台二进制的 optionalDependencies**
+  —— 必须依赖宿主 Node。
+
+所以"两种发行形式"是真实存在的差异，PI04 要求分别记录，不是同一件事的两种说法。
+
+### 5.2 无 Node 环境怎么构造（明确边界）
+
+本机是开发机，系统 Node 不能卸载或改名（破坏性，且会打断其它任务）。因此：
+
+- 把**被测子进程**的 `PATH` 收窄到只剩 `%SystemRoot%\System32`；
+- 在启动前**断言**该 `PATH` 上解析不到 `node`（`exec.LookPath("node")` 必须失败），
+  并逐目录检查不存在 `node.exe/.cmd/.bat`；
+- 再运行独立包。
+
+这是**模拟的**无 Node 环境，只对被测进程成立；报告里不冒充"一台真正的干净机器"。
+真机干净环境验证仍需要一台物理干净的目标机（属于六目标矩阵里的 BLOCKED 项）。
+
+### 5.3 实测结果
+
+```text
+MYAGENT_PI_STANDALONE=1 go test ./internal/runtime/pi -run TestStandalone -count=1 -v
+exit=0
+```
+
+| 断言 | 结果 |
 |---|---|
-| 无 Node 环境的官方独立 Pi 包 | 本机只有 Windows x64 一台机器，没有"无 Node 目标环境"可验证；也未获取官方独立发行包 |
-| npm 安装形式 | 已记录（`.tools/pi/v1.5.0` 即 npm 形式，`pi.cmd` shim 实测可执行） |
+| 独立包内无 `node.exe` / 无 `cli.js`，`pi.exe` ≥ 50 MB | 通过 |
+| 收窄后 PATH 上解析不到 node | 通过 |
+| `Locate(ctx, pi.exe)` | 1 个安装件，`version=1.5.0`、`source=user-specified`、`arch=amd64`、`runnable=true` |
+| `Probe` | **`state=Ready`**、`version=1.5.0`、诊断为空 |
+| Probe 隔离目录副作用 | 0 个条目（未触碰用户真实配置） |
+| RPC 链路 | 17 条记录、退出码 0、`agent_settled` 已出现 |
+| 薄 extension | `get_commands` 里出现 `fixture-ext` |
+| MCP 工具暴露 | 请求 `tools` 数组含 `mcp__fixture__fixture_echo` |
 
-独立包能否加载本项目薄 extension 与 MCP，**没有验证**，不标 Ready。
+实测工具清单（独立包，`nodeOnPath=false`）：
+
+```text
+["read","bash","edit","write","mcp__fixture__fixture_echo"]
+```
+
+同时把独立包的记录落盘为 `testdata/v1.5.0/standalone-rpc.jsonl`，
+并在 `protocol_golden_test.go` 增加一条跨发行形式断言：
+**独立包与 npm 形式必须产出同一套事件骨架**（`agent_start` → `turn_start` →
+`text_start/text_delta/text_end` → `turn_end` → `agent_end` → `agent_settled`）。
+两种发行形式"行为一致"由此从声称变成证据。
+
+### 5.4 npm 形式单独记录（PI04 第三项要求）
+
+| 项 | 实测 |
+|---|---|
+| 包名 / 版本 | `@earendil-works/pi-coding-agent` 1.5.0 |
+| 入口 | `dist/bundle/cli.js`（`bin.pi`） |
+| 运行时要求 | `engines.node >= 22.19.0`；无平台二进制依赖 |
+| 本机两份 npm 形式 | `.tools/pi/v1.5.0`（隔离副本，用基线 node 24.16.0 启动）；`%LOCALAPPDATA%\pi-node\current`（用户安装，目录内自带 `node.exe` v22.23.2） |
+| 结论 | npm 形式**永远需要宿主或自带 Node**，因此不能作为"无 Node 目标机"的交付形态 |
+
+对产品的直接含义：**分发给最终用户时应优先选官方独立包**，
+不要把"用户机器上有 Node"当作前提；npm 形式只适合开发机与 CI。
 
 ## 6. 执行过程与纪律（如实记录）
 

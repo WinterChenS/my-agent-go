@@ -1,0 +1,8 @@
+=== nvm v16.20.0 (node.exe --version => v16.20.0) exit=2 ===
+    FAIL: node: resolved to 'd:\program files\nvm\v16.20.0\node.exe' (version 'v16.20.0'), expected v24.16.0 |   FAIL: node: resolved to 'd:\program files\nvm\v16.20.0\node.exe' (version 'v16.20.0'), expected v24.16.0
+=== nvm v18.0.0 (node.exe --version => v18.0.0) exit=2 ===
+    FAIL: node: resolved to 'd:\program files\nvm\v18.0.0\node.exe' (version 'v18.0.0'), expected v24.16.0 |   FAIL: node: resolved to 'd:\program files\nvm\v18.0.0\node.exe' (version 'v18.0.0'), expected v24.16.0
+=== nvm v22.0.0 (node.exe --version => v22.0.0) exit=2 ===
+    FAIL: node: resolved to 'd:\program files\nvm\v22.0.0\node.exe' (version 'v22.0.0'), expected v24.16.0 |   FAIL: node: resolved to 'd:\program files\nvm\v22.0.0\node.exe' (version 'v22.0.0'), expected v24.16.0
+=== nvm v24.16.0 (node.exe --version => v24.16.0) exit=2 ===
+    FAIL: node: resolved to 'd:\program files\nvm\v24.16.0\node.exe' but expected baseline 'd:\program files\nodejs\node.exe' | FAIL: npm: resolved to 'd:\program files\nvm\v24.16.0\npm.cmd' but expected it under 'd:\program files\nodejs' (wrong node/npm pairing) |   FAIL: node: resolved to 'd:\program files\nvm\v24.16.0\node.exe' but expected baseline 'd:\program files\nodejs\node.exe'

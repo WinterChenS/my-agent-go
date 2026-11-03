@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   F00 toolchain gate. Validates that the *actually resolved* executables on PATH
   match the frozen baseline in build/versions.lock.json.
@@ -10,6 +10,11 @@
   The script NEVER invokes npm/node to "fix" anything; it only inspects the
   resolved command path and its version, and prints the actual path so a wrong
   (e.g. WeChat-devtools-grabbing) node is visibly rejected.
+
+  Path comparison canonicalizes symlinks/junctions, so an nvm-managed baseline
+  ('D:\Program Files\nvm\v24.16.0') and the baseline symlink
+  ('D:\Program Files\nodejs') are recognised as the same install, while a real
+  different-version node is still rejected by the version check.
 #>
 param(
   [string]$LockFile = "",
@@ -41,9 +46,40 @@ function Resolve-Actual {
   }
 }
 
+function Resolve-RealPath {
+  # Resolve symlinks/junctions in *any* path segment to the real target.
+  # Needed because the baseline node lives at 'D:\Program Files\nodejs\node.exe',
+  # which is itself a symlink managed by nvm. A correctly pinned nvm install
+  # ('D:\Program Files\nvm\v24.16.0\node.exe') is the SAME file, so comparing raw
+  # paths would produce a false rejection of a valid baseline environment.
+  param([string]$p)
+  if (-not $p) { return $null }
+  $full = [System.IO.Path]::GetFullPath($p)
+  $root = [System.IO.Path]::GetPathRoot($full)
+  $cur = $root
+  foreach ($seg in $full.Substring($root.Length).Split('\')) {
+    if (-not $seg) { continue }
+    $cur = Join-Path $cur $seg
+    for ($i = 0; $i -lt 12; $i++) {
+      $item = $null
+      try { $item = Get-Item -LiteralPath $cur -Force -ErrorAction Stop } catch { break }
+      if (-not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { break }
+      $t = $null
+      try { $t = $item.Target } catch { $t = $null }
+      if (-not $t) { break }
+      if ($t -is [array]) { $t = $t[0] }
+      if (-not [System.IO.Path]::IsPathRooted($t)) { $t = Join-Path (Split-Path -Parent $cur) $t }
+      $cur = [System.IO.Path]::GetFullPath($t)
+    }
+  }
+  return $cur.TrimEnd('\')
+}
+
 function Normalize($p) {
   if (-not $p) { return $null }
-  return [System.IO.Path]::GetFullPath($p).TrimEnd('\').ToLowerInvariant()
+  $real = Resolve-RealPath $p
+  if (-not $real) { $real = $p }
+  return $real.TrimEnd('\').ToLowerInvariant()
 }
 
 function Get-Version {

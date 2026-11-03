@@ -1,0 +1,16 @@
+{
+  "executable": "D:\\project\\my-agent-go\\.tools\\pi\\standalone\\v1.5.0-win-x64\\pi.exe",
+  "exitCode": 0,
+  "extension": true,
+  "mcpTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "mcp__fixture__fixture_echo"
+  ],
+  "nodeOnPath": false,
+  "recordedTools": true,
+  "records": 17,
+  "settled": true
+}

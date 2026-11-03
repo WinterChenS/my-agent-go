@@ -1,0 +1,10 @@
+exit=0
+=== RUN   TestStandaloneNodeFreeProbe
+    standalone_test.go:140: 发现项[0]: version=1.5.0 source=user-specified origin=external runnable=true path=D:\project\my-agent-go\.tools\pi\standalone\v1.5.0-win-x64\pi.exe
+    standalone_test.go:140: 发现项[1]: version=1.5.0 source=common-location origin=external runnable=true path=C:\Users\Administrator\AppData\Local\pi-node\current\pi.cmd
+    standalone_test.go:147: 定位结果: version=1.5.0 origin=external source=user-specified arch=amd64 runnable=true
+    standalone_test.go:168: 探测结果: state=Ready version=1.5.0 diag=[]
+    standalone_test.go:177: 隔离 agentDir 条目数=0（Probe 只应写入运行时必要文件，不接触用户真实配置）
+--- PASS: TestStandaloneNodeFreeProbe (2.75s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	2.923s

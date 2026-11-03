@@ -124,15 +124,36 @@ type record struct {
 	Line    string          `json:"-"`
 }
 
+// piLaunch 描述如何启动 Pi：可执行体 + 前置参数 + 附加环境变量。
+//
+// 存在两种官方形式，启动方式完全不同：
+//   - npm 形式：node.exe + dist/bundle/cli.js（需要宿主 Node）
+//   - 官方独立包：pi.exe 单文件（内置运行时，不依赖宿主 Node）
+//
+// 二者的 RPC 协议应当一致，因此捕获装置必须能对两者复用同一套流程。
+type piLaunch struct {
+	// exe 是要启动的程序。
+	exe string
+	// prefix 是通用参数之前的前置参数（npm 形式需要 cli.js 路径）。
+	prefix []string
+	// env 是附加环境变量，形如 KEY=VALUE；重复键以切片中靠后的为准。
+	env []string
+}
+
+// nodeLaunch 返回 npm 形式的启动器（node + cli.js）。
+func nodeLaunch(nodePath, cliPath string) piLaunch {
+	return piLaunch{exe: nodePath, prefix: []string{cliPath}}
+}
+
 // runPiRPC 启动真实 Pi 的 RPC 模式，按批次下发命令，收集所有 stdout 记录。
 //
 // batches 的语义：第 0 批在启动窗口后立即发送，之后每观察到一次 agent_settled
 // 就发送下一批。这样需要"上一轮结束后才允许下发"的命令（如 compact）不会与之竞争。
-func runPiRPC(t *testing.T, nodePath, cliPath, workDir, agentDir string, batches [][]string, settleCount int, allowExtensions bool, extraArgs []string, linger, timeout time.Duration) ([]record, string, int) {
+func runPiRPC(t *testing.T, launch piLaunch, workDir, agentDir string, batches [][]string, settleCount int, allowExtensions bool, extraArgs []string, linger, timeout time.Duration) ([]record, string, int) {
 	t.Helper()
 
-	args := []string{
-		cliPath,
+	args := append([]string{}, launch.prefix...)
+	args = append(args,
 		"--mode", "rpc",
 		// 用隔离的临时 session-dir 而不是 --no-session：
 		// --no-session 下没有可压缩的持久化条目，compact 一律返回
@@ -140,7 +161,8 @@ func runPiRPC(t *testing.T, nodePath, cliPath, workDir, agentDir string, batches
 		"--session-dir", filepath.Join(workDir, "sessions"),
 		"--provider", "fixture",
 		"--model", "fixture-model",
-	}
+	)
+
 	// 默认禁用扩展发现以保证可复现。
 	// 注意：实测 --no-extensions 会连带不加载 MCP server（文档只提到扩展与内置扩展），
 	// 因此需要验证 MCP 的场景必须放开这个开关。
@@ -148,9 +170,10 @@ func runPiRPC(t *testing.T, nodePath, cliPath, workDir, agentDir string, batches
 		args = append(args, "--no-extensions")
 	}
 	args = append(args, extraArgs...)
-	cmd := exec.Command(nodePath, args...)
+	cmd := exec.Command(launch.exe, args...)
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(os.Environ(), launch.env...)
+	cmd.Env = append(cmd.Env,
 		"PI_CODING_AGENT_DIR="+agentDir,
 		"PI_OFFLINE=1",
 	)
@@ -387,6 +410,7 @@ func TestCaptureRealPiProtocol(t *testing.T) {
 	root := repoRoot(t)
 	nodePath := captureNodePath(t)
 	cliPath := piCLIPath(t, root)
+	launch := nodeLaunch(nodePath, cliPath)
 
 	outDir := filepath.Join(root, "internal", "runtime", "pi", "testdata", "v1.5.0")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -500,7 +524,7 @@ func TestCaptureRealPiProtocol(t *testing.T) {
 				writeFixtureMCP(t, root, agentDir)
 			}
 
-			recs, stderr, code := runPiRPC(t, nodePath, cliPath, work, agentDir,
+			recs, stderr, code := runPiRPC(t, launch, work, agentDir,
 				tc.batches, tc.settles, tc.withMCP, tc.extraArgs, tc.linger, tc.timeout)
 
 			t.Logf("场景 %s：%d 条记录，退出码 %d", tc.name, len(recs), code)

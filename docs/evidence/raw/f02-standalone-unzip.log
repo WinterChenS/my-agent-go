@@ -1,0 +1,16 @@
+=== 解包内容（顶层） ===
+d-----  assets  0MB
+d-----  docs  0MB
+d-----  examples  0MB
+d-----  export-html  0MB
+d-----  native  0MB
+d-----  theme  0MB
+-a----  CHANGELOG.md  0.65MB
+-a----  package.json  0MB
+-a----  photon_rs_bg.wasm  1.79MB
+-a----  pi.exe  122.91MB
+-a----  README.md  0MB
+=== 递归文件数/总大小 ===
+files=208 totalMB=130
+=== 是否有 node.exe ===
+native\win32\prebuilds\win32-x64\win32-platform.node

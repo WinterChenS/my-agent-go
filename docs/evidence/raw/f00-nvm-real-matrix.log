@@ -1,0 +1,20 @@
+=== PATH 首位 = v16.20.0  exit=2 ===
+FAIL: node: resolved to 'd:\program files\nvm\v16.20.0\node.exe' (version 'v16.20.0'), expected v24.16.0
+FAIL: npm: resolved to 'd:\program files\nvm\v16.20.0\npm.cmd' (version '8.19.4'), expected 11.13.0
+--- summary: 2 failure(s), 0 warning(s) ---
+  FAIL: node: resolved to 'd:\program files\nvm\v16.20.0\node.exe' (version 'v16.20.0'), expected v24.16.0
+  FAIL: npm: resolved to 'd:\program files\nvm\v16.20.0\npm.cmd' (version '8.19.4'), expected 11.13.0
+=== PATH 首位 = v22.0.0  exit=2 ===
+FAIL: node: resolved to 'd:\program files\nvm\v22.0.0\node.exe' (version 'v22.0.0'), expected v24.16.0
+FAIL: npm: resolved to 'd:\program files\nvm\v22.0.0\npm.cmd' (version '10.5.1'), expected 11.13.0
+--- summary: 2 failure(s), 0 warning(s) ---
+  FAIL: node: resolved to 'd:\program files\nvm\v22.0.0\node.exe' (version 'v22.0.0'), expected v24.16.0
+  FAIL: npm: resolved to 'd:\program files\nvm\v22.0.0\npm.cmd' (version '10.5.1'), expected 11.13.0
+=== PATH 首位 = v24.16.0  exit=0 ===
+OK:   node: d:\program files\nvm\v24.16.0\node.exe -> v24.16.0
+OK:   npm: d:\program files\nvm\v24.16.0\npm.cmd -> 11.13.0
+--- summary: 0 failure(s), 0 warning(s) ---
+=== 默认 PATH exit=2 ===
+FAIL: node: resolved to 'c:\users\administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe' (version 'v22.22.2'), expected v24.16.0
+--- summary: 3 failure(s), 0 warning(s) ---
+  FAIL: node: resolved to 'c:\users\administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe' (version 'v22.22.2'), expected v24.16.0

@@ -1,0 +1,23 @@
+exit=0
+=== RUN   TestStandaloneLoadsMCPAndExtension
+    standalone_test.go:218: 独立包 RPC：17 条记录，退出码 0
+    standalone_test.go:256: 独立包证据摘要：
+        {
+          "executable": "D:\\project\\my-agent-go\\.tools\\pi\\standalone\\v1.5.0-win-x64\\pi.exe",
+          "exitCode": 0,
+          "extension": true,
+          "mcpTools": [
+            "read",
+            "bash",
+            "edit",
+            "write",
+            "mcp__fixture__fixture_echo"
+          ],
+          "nodeOnPath": false,
+          "recordedTools": true,
+          "records": 17,
+          "settled": true
+        }
+--- PASS: TestStandaloneLoadsMCPAndExtension (10.42s)
+PASS
+ok  	my-agent-go/internal/runtime/pi	10.654s
