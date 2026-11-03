@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -23,7 +25,7 @@ import (
 // 两个断言合起来才有意义：只查第 1 条的话，一个"杀掉系统上所有 fakeworker"的实现也能过。
 
 // startOwnedTree 启动一个会产生孙进程的 fakeworker，并把它交给进程树管理。
-func startOwnedTree(t *testing.T, exe, marker string) (*processTree, io.WriteCloser, func()) {
+func startOwnedTree(t *testing.T, exe, marker string) (*processTree, io.WriteCloser, *exec.Cmd, func()) {
 	t.Helper()
 
 	tree, err := newProcessTree()
@@ -50,9 +52,10 @@ func startOwnedTree(t *testing.T, exe, marker string) (*processTree, io.WriteClo
 		t.Fatalf("把进程加入进程树失败: %v", err)
 	}
 
-	return tree, stdin, func() {
+	return tree, stdin, cmd, func() {
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
+		// 已经被 Wait 过时这里会返回 "os: process already finished"，忽略即可。
 		_, _ = cmd.Process.Wait()
 		_ = tree.close()
 	}
@@ -78,7 +81,7 @@ func TestProcessTreeKillsOwnedOnly(t *testing.T) {
 	})
 	waitFor(t, 10*time.Second, "树外进程开始写心跳", func() bool { return fileSize(outsideMarker) > 0 })
 
-	tree, stdin, stop := startOwnedTree(t, exe, ownedMarker)
+	tree, stdin, _, stop := startOwnedTree(t, exe, ownedMarker)
 	defer stop()
 
 	// 触发孙进程：协议格式与真实 worker 一致（一行一条 JSON）。
@@ -126,7 +129,7 @@ func TestProcessTreeActiveCountTracksOwned(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "owned.hb")
 
-	tree, stdin, stop := startOwnedTree(t, exe, marker)
+	tree, stdin, cmd, stop := startOwnedTree(t, exe, marker)
 	defer stop()
 
 	if _, err := io.WriteString(stdin, `{"id":"1","type":"spawn"}`+"\n"); err != nil {
@@ -146,6 +149,12 @@ func TestProcessTreeActiveCountTracksOwned(t *testing.T) {
 		t.Fatalf("强杀进程树失败: %v", err)
 	}
 
+	// reap 自己的直接子进程。这不是"为了让测试变绿"的补丁：
+	// 真实调用方 Worker.supervise 在 Close 之前一定会 cmd.Wait()，
+	// 而 activeCount 的职责是数"活着的进程"，不负责回收尸体。
+	// 不 Wait 的话主进程会一直是僵尸留在进程组里（必须靠平台实现剔除）。
+	_, _ = cmd.Process.Wait()
+
 	// 轮询收敛。Unix 上被杀进程可能短暂处于僵尸态，仍在进程表里，
 	// 因此这里给到 5s；超时仍非 0 就是真实的"清理未完成"，必须判失败。
 	deadline := time.Now().Add(5 * time.Second)
@@ -161,8 +170,35 @@ func TestProcessTreeActiveCountTracksOwned(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("强杀进程树 5s 后仍有 %d 个 owned 进程（可判定=%v，limitation=%q，GOOS=%s）",
-		last, lastOK, tree.limitation(), runtime.GOOS)
+	t.Fatalf("强杀进程树 5s 后仍有 %d 个 owned 进程（可判定=%v，limitation=%q，GOOS=%s）\n进程组快照：\n%s",
+		last, lastOK, tree.limitation(), runtime.GOOS, groupSnapshot(tree.pid))
+}
+
+// groupSnapshot 打印指定进程组内的成员，用于失败时定位"到底是谁还活着"。
+// 跨平台差异大，因此按 GOOS 选 ps 或 /proc；取不到就返回原因而不是空串——
+// 空快照会让失败信息看起来像"没有进程但计数非 0"，反而更难查。
+func groupSnapshot(pgid int) string {
+	bin := "/bin/ps"
+	args := []string{"-A", "-o", "pid=,pgid=,stat=,comm="}
+	if runtime.GOOS == "windows" {
+		return "(windows 走 Job Object，无进程组概念)"
+	}
+	out, err := exec.Command(bin, args...).Output()
+	if err != nil {
+		return "ps 执行失败: " + err.Error()
+	}
+	want := strconv.Itoa(pgid)
+	var b strings.Builder
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[1] == want {
+			b.WriteString("  " + strings.Join(f, " ") + "\n")
+		}
+	}
+	if b.Len() == 0 {
+		return "  (ps 未列出该进程组任何成员)\n"
+	}
+	return b.String()
 }
 
 // TestProcessTreeRejectsUnattachedKill 未绑定进程时 kill 必须报错，
