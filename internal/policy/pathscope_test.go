@@ -57,12 +57,19 @@ func mustGuard(t *testing.T, roots ...string) *PathGuard {
 // TestPathGuardAcceptsInsideRoot 覆盖"根内的正常路径与不存在的新文件都应通过"。
 // 不存在的新文件必须可用：写新文件是最常见的写操作，不能因为目标还没建就拒绝。
 //
-// 断言用 os.SameFile（OS 层面的身份判定）而不是字符串比较：
-// t.TempDir() 在 Windows 上常给出 8.3 短名（ADMINI~1），与解析后的长名文本不同
-// 但指向同一文件，字符串比较会给出假失败。
+// 断言全部走 OS 层面（os.SameFile / filepath.Rel），不做字符串比较：
+//   - Windows 的 t.TempDir() 常给 8.3 短名（ADMINI~1），与解析后的长名不同；
+//   - macOS 的 /var 是指向 /private/var 的符号链接，原始路径与真实路径不同。
+//
+// 两者都是"同一目录的另一种写法"，字符串比较只会制造假失败。
 func TestPathGuardAcceptsInsideRoot(t *testing.T) {
 	tr := newScopeTree(t)
 	g := mustGuard(t, tr.root)
+
+	rootFI, err := os.Stat(tr.root)
+	if err != nil {
+		t.Fatalf("stat 根: %v", err)
+	}
 
 	existing := []struct {
 		name   string
@@ -87,21 +94,21 @@ func TestPathGuardAcceptsInsideRoot(t *testing.T) {
 			if !os.SameFile(got, want) {
 				t.Fatalf("真实路径 %q 与期望 %q 不是同一文件", dec.Real, tc.want)
 			}
-			if dec.Root != tr.root {
-				t.Fatalf("命中根 = %q，期望 %q", dec.Root, tr.root)
+			rootGot, err := os.Stat(dec.Root)
+			if err != nil || !os.SameFile(rootGot, rootFI) {
+				t.Fatalf("命中根 %q 与被授权根不是同一目录（err=%v）", dec.Root, err)
 			}
 		})
 	}
 
-	// 尚不存在的新文件：断言父目录是同一目录，且文件名原样保留。
+	// 尚不存在的新文件：断言"相对根的剩余路径"原样保留，这才是真正要保的性质。
 	missing := []struct {
 		name   string
 		target string
-		parent string
-		base   string
+		rel    string
 	}{
-		{"新文件", filepath.Join(tr.root, "new.txt"), tr.root, "new.txt"},
-		{"深层新文件", filepath.Join(tr.root, "sub", "deep", "new.txt"), filepath.Join(tr.root, "sub", "deep"), "new.txt"},
+		{"新文件", filepath.Join(tr.root, "new.txt"), "new.txt"},
+		{"深层新文件", filepath.Join(tr.root, "sub", "deep", "new.txt"), filepath.Join("sub", "deep", "new.txt")},
 	}
 	for _, tc := range missing {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,14 +116,16 @@ func TestPathGuardAcceptsInsideRoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("尚不存在的新文件应通过: %v", err)
 			}
-			if filepath.Base(dec.Real) != tc.base {
-				t.Fatalf("文件名 = %q，期望 %q", filepath.Base(dec.Real), tc.base)
+			rel, relErr := filepath.Rel(dec.Root, dec.Real)
+			if relErr != nil {
+				t.Fatalf("求相对路径: %v", relErr)
 			}
-			if foldKey(filepath.Dir(dec.Real)) != foldKey(tr.root) && foldKey(filepath.Dir(dec.Real)) != foldKey(tc.parent) {
-				t.Fatalf("父目录 = %q，期望 %q（或根的等价长名）", filepath.Dir(dec.Real), tc.parent)
+			if foldKey(rel) != foldKey(tc.rel) {
+				t.Fatalf("相对根的路径 = %q，期望 %q（真实路径 %q）", rel, tc.rel, dec.Real)
 			}
-			if dec.Root != tr.root {
-				t.Fatalf("命中根 = %q，期望 %q", dec.Root, tr.root)
+			rootGot, err := os.Stat(dec.Root)
+			if err != nil || !os.SameFile(rootGot, rootFI) {
+				t.Fatalf("命中根 %q 与被授权根不是同一目录（err=%v）", dec.Root, err)
 			}
 		})
 	}
