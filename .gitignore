@@ -28,3 +28,6 @@ Thumbs.db
 
 # 证据目录里的临时草稿
 /docs/evidence/raw/_*.tmp.txt
+
+# 本地临时运行数据（应用 home、fixture 记录、截图草稿）
+/.tmp/
