@@ -1,0 +1,118 @@
+# 六目标真实 runner 验证。
+#
+# 为什么需要它：本地只有一台 Windows 10 / amd64 机器，RPC05（进程树回收）、
+# 分帧、worker 关闭时序里的 Unix 分支在本地一次都跑不到。用真实 runner 跑，
+# 才算真的验证过，而不是"没有机器所以跳过"。
+#
+# 每个 target 跑：build → vet → test → race。
+# -race 在 CI 上可用（runner 自带 gcc/clang），本机缺编译器时由这里补上竞态验证。
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-matrix:
+    name: go / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    # windows-11-arm 为公开预览 runner，失败不阻塞主流程，但结果要单独记录。
+    continue-on-error: ${{ matrix.experimental || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025,    target: win-x64,     goos: windows, goarch: amd64 }
+          - { os: windows-11-arm,  target: win-arm64,   goos: windows, goarch: arm64, experimental: true }
+          - { os: macos-13,        target: mac-x64,     goos: darwin,  goarch: amd64, experimental: true }
+          - { os: macos-14,        target: mac-arm64,   goos: darwin,  goarch: arm64 }
+          - { os: ubuntu-24.04,    target: linux-x64,   goos: linux,   goarch: amd64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, goos: linux,  goarch: arm64 }
+    env:
+      # 与 go.mod / versions.lock.json 保持一致；setup-go 直接读 go.mod。
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 记录实际工具链
+        shell: bash
+        run: |
+          echo "go      = $(go version)"
+          echo "GOOS    = $(go env GOOS)"
+          echo "GOARCH  = $(go env GOARCH)"
+          echo "CC      = $(go env CC)"
+          echo "os      = ${{ matrix.os }}"
+
+      - name: 断言 runner 架构与目标矩阵一致
+        shell: bash
+        run: |
+          got="$(go env GOOS)/$(go env GOARCH)"
+          want="${{ matrix.goos }}/${{ matrix.goarch }}"
+          if [ "$got" != "$want" ]; then
+            echo "::error::runner 实际架构 $got 与目标 $want 不一致，该结果不可用作 ${{ matrix.target }} 证据"
+            exit 2
+          fi
+
+      - name: build
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./... -count=1 -timeout 600s
+
+      - name: race
+        # 竞态验证。CI runner 自带编译器，这里的结果才是"-race 已通过"的依据。
+        run: go test -race ./internal/... -count=1 -timeout 900s
+
+      - name: 交叉编译到其余目标（只验证可编译，不冒充运行验证）
+        shell: bash
+        run: |
+          set -e
+          for t in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os="${t%%/*}"; arch="${t##*/}"
+            if [ "$os/$arch" = "${{ matrix.goos }}/${{ matrix.goarch }}" ]; then continue; fi
+            ext=""; [ "$os" = "windows" ] && ext=".exe"
+            echo "--- cross build $os/$arch ---"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "$RUNNER_TEMP/cross-$os-$arch$ext" ./...
+          done
+
+  frontend:
+    name: frontend typecheck + build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 与 build/versions.lock.json 一致
+          node-version: "24.16.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 断言 node/npm 版本
+        run: |
+          node -v
+          npm -v
+          test "$(node -v)" = "v24.16.0" || { echo "::error::node 版本与基线不一致"; exit 2; }
+
+      - working-directory: frontend
+        run: npm ci
+
+      - working-directory: frontend
+        run: npm run typecheck
+
+      - working-directory: frontend
+        run: npm run build
