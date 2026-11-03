@@ -1,0 +1,277 @@
+﻿2026-11-03T10:57:27.5089040Z Current runner version: '2.338.2'
+2026-11-03T10:57:27.5113631Z ##[group]Runner Image Provisioner
+2026-11-03T10:57:27.5114429Z Hosted Compute Agent
+2026-11-03T10:57:27.5114970Z Version: 20261021.618
+2026-11-03T10:57:27.5115455Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-11-03T10:57:27.5116020Z Build Date: 2026-10-21T00:45:21Z
+2026-11-03T10:57:27.5116517Z Worker ID: {fd949565-5e41-4d8d-8636-4c1941a30287}
+2026-11-03T10:57:27.5117068Z Region: eastus
+2026-11-03T10:57:27.5117527Z Cloud: Azure
+2026-11-03T10:57:27.5117971Z ##[endgroup]
+2026-11-03T10:57:27.5119108Z ##[group]Operating System
+2026-11-03T10:57:27.5119610Z Microsoft Windows Server 2025
+2026-11-03T10:57:27.5120112Z 10.0.26100
+2026-11-03T10:57:27.5120500Z Datacenter
+2026-11-03T10:57:27.5120882Z ##[endgroup]
+2026-11-03T10:57:27.5121298Z ##[group]Runner Image
+2026-11-03T10:57:27.5121742Z Image: windows-2025-vs2026
+2026-11-03T10:57:27.5122240Z Version: 20261030.294.1
+2026-11-03T10:57:27.5123525Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20261030.294/images/windows/Windows2025-VS2026-Readme.md
+2026-11-03T10:57:27.5124820Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20261030.294
+2026-11-03T10:57:27.5125598Z ##[endgroup]
+2026-11-03T10:57:27.5126563Z ##[group]GITHUB_TOKEN Permissions
+2026-11-03T10:57:27.5128231Z Contents: read
+2026-11-03T10:57:27.5128693Z Metadata: read
+2026-11-03T10:57:27.5129103Z ##[endgroup]
+2026-11-03T10:57:27.5131326Z Secret source: Actions
+2026-11-03T10:57:27.5132112Z Cache mode: write
+2026-11-03T10:57:27.5132647Z Prepare workflow directory
+2026-11-03T10:57:27.5493785Z Prepare all required actions
+2026-11-03T10:57:27.5540538Z Getting action download info
+2026-11-03T10:57:27.6912125Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-03T10:57:27.8488739Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+2026-11-03T10:57:28.1801652Z Complete job name: go / win-x64
+2026-11-03T10:57:28.3216153Z ##[group]Run actions/checkout@v4
+2026-11-03T10:57:28.3216994Z with:
+2026-11-03T10:57:28.3217333Z   repository: WinterChenS/my-agent-go
+2026-11-03T10:57:28.3220485Z   token: ***
+2026-11-03T10:57:28.3220805Z   ssh-strict: true
+2026-11-03T10:57:28.3221127Z   ssh-user: git
+2026-11-03T10:57:28.3221454Z   persist-credentials: true
+2026-11-03T10:57:28.3221816Z   clean: true
+2026-11-03T10:57:28.3222139Z   sparse-checkout-cone-mode: true
+2026-11-03T10:57:28.3222520Z   fetch-depth: 1
+2026-11-03T10:57:28.3222840Z   fetch-tags: false
+2026-11-03T10:57:28.3223162Z   show-progress: true
+2026-11-03T10:57:28.3223484Z   lfs: false
+2026-11-03T10:57:28.3223778Z   submodules: false
+2026-11-03T10:57:28.3224099Z   set-safe-directory: true
+2026-11-03T10:57:28.3224845Z   allow-unsafe-pr-checkout: false
+2026-11-03T10:57:28.3225417Z env:
+2026-11-03T10:57:28.3225697Z   CGO_ENABLED: 1
+2026-11-03T10:57:28.3226008Z ##[endgroup]
+2026-11-03T10:57:28.4548258Z Syncing repository: WinterChenS/my-agent-go
+2026-11-03T10:57:28.4551249Z ##[group]Getting Git version info
+2026-11-03T10:57:28.4552757Z Working directory is 'D:\a\my-agent-go\my-agent-go'
+2026-11-03T10:57:28.5305100Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-11-03T10:57:28.9293914Z git version 2.56.0.windows.4
+2026-11-03T10:57:28.9336091Z ##[endgroup]
+2026-11-03T10:57:28.9351121Z Temporarily overriding HOME='D:\a\_temp\89a010a6-a8f0-4285-a14e-bfce7542cbf9' before making global git config changes
+2026-11-03T10:57:28.9352228Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T10:57:28.9359342Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\my-agent-go\my-agent-go
+2026-11-03T10:57:28.9908568Z Deleting the contents of 'D:\a\my-agent-go\my-agent-go'
+2026-11-03T10:57:28.9913354Z ##[group]Initializing the repository
+2026-11-03T10:57:28.9920345Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\my-agent-go\my-agent-go
+2026-11-03T10:57:29.1767259Z Initialized empty Git repository in D:/a/my-agent-go/my-agent-go/.git/
+2026-11-03T10:57:29.1817130Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/WinterChenS/my-agent-go
+2026-11-03T10:57:29.2611582Z ##[endgroup]
+2026-11-03T10:57:29.2612466Z ##[group]Disabling automatic garbage collection
+2026-11-03T10:57:29.2613303Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-11-03T10:57:29.2901559Z ##[endgroup]
+2026-11-03T10:57:29.2902406Z ##[group]Setting up auth
+2026-11-03T10:57:29.2910670Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T10:57:29.3195027Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-11-03T10:57:31.2360837Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T10:57:31.2665791Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-11-03T10:57:31.7142870Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T10:57:31.7435777Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-11-03T10:57:32.1465125Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-11-03T10:57:32.1785192Z ##[endgroup]
+2026-11-03T10:57:32.1785553Z ##[group]Fetching the repository
+2026-11-03T10:57:32.1798047Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +23c01afb8fd71b6d985644869ab8c134dc091129:refs/remotes/origin/main
+2026-11-03T10:57:33.3995866Z From https://github.com/WinterChenS/my-agent-go
+2026-11-03T10:57:33.3997037Z  * [new ref]         23c01afb8fd71b6d985644869ab8c134dc091129 -> origin/main
+2026-11-03T10:57:33.4030454Z ##[endgroup]
+2026-11-03T10:57:33.4030760Z ##[group]Determining the checkout info
+2026-11-03T10:57:33.4031826Z ##[endgroup]
+2026-11-03T10:57:33.4039220Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-11-03T10:57:33.4505762Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-11-03T10:57:33.4798896Z ##[group]Checking out the ref
+2026-11-03T10:57:33.4805603Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-11-03T10:57:33.5705862Z Switched to a new branch 'main'
+2026-11-03T10:57:33.5722189Z branch 'main' set up to track 'origin/main'.
+2026-11-03T10:57:33.5763484Z ##[endgroup]
+2026-11-03T10:57:33.6343539Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-11-03T10:57:33.6619296Z 23c01afb8fd71b6d985644869ab8c134dc091129
+2026-11-03T10:57:33.6991526Z ##[group]Run actions/setup-go@v5
+2026-11-03T10:57:33.6991820Z with:
+2026-11-03T10:57:33.6991978Z   go-version-file: go.mod
+2026-11-03T10:57:33.6992155Z   cache: true
+2026-11-03T10:57:33.6992300Z   check-latest: false
+2026-11-03T10:57:33.6994333Z   token: ***
+2026-11-03T10:57:33.6994477Z env:
+2026-11-03T10:57:33.6994603Z   CGO_ENABLED: 1
+2026-11-03T10:57:33.6994745Z ##[endgroup]
+2026-11-03T10:57:33.8230944Z Setup go version spec 1.27.3
+2026-11-03T10:57:33.8239550Z Attempting to download 1.27.3...
+2026-11-03T10:57:33.8384810Z (node:6908) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-03T10:57:33.8385362Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-03T10:57:34.3469701Z matching 1.27.3...
+2026-11-03T10:57:34.3491777Z Acquiring 1.27.3 from https://github.com/actions/go-versions/releases/download/1.27.3-39437817176/go-1.27.3-win32-x64.zip
+2026-11-03T10:57:34.8172566Z Extracting Go...
+2026-11-03T10:57:34.9232736Z [command]"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command "$ErrorActionPreference = 'Stop' ; try { Add-Type -AssemblyName System.IO.Compression.ZipFile } catch { } ; try { [System.IO.Compression.ZipFile]::ExtractToDirectory('D:\a\_temp\go-1.27.3-win32-x64.zip', 'D:\a\_temp\d8329551-931f-440f-b31a-2b0fbeba950c', $true) } catch { if (($_.Exception.GetType().FullName -eq 'System.Management.Automation.MethodException') -or ($_.Exception.GetType().FullName -eq 'System.Management.Automation.RuntimeException') ){ Expand-Archive -LiteralPath 'D:\a\_temp\go-1.27.3-win32-x64.zip' -DestinationPath 'D:\a\_temp\d8329551-931f-440f-b31a-2b0fbeba950c' -Force } else { throw $_ } } ;"
+2026-11-03T10:57:40.0214875Z Successfully extracted go to D:\a\_temp\d8329551-931f-440f-b31a-2b0fbeba950c
+2026-11-03T10:57:40.0215255Z Adding to the cache ...
+2026-11-03T10:57:49.7908394Z Created link C:\hostedtoolcache\windows\go\1.27.3\x64 => D:\hostedtoolcache\windows\go\1.27.3\x64
+2026-11-03T10:57:49.7911470Z Created link C:\hostedtoolcache\windows\go\1.27.3\x64.complete => D:\hostedtoolcache\windows\go\1.27.3\x64.complete
+2026-11-03T10:57:49.7912426Z Successfully cached go to C:\hostedtoolcache\windows\go\1.27.3\x64
+2026-11-03T10:57:49.7918967Z Added go to the path
+2026-11-03T10:57:49.7921914Z Successfully set up Go version 1.27.3
+2026-11-03T10:57:52.5721472Z [command]C:\hostedtoolcache\windows\go\1.27.3\x64\bin\go.exe env GOMODCACHE
+2026-11-03T10:57:52.5781805Z [command]C:\hostedtoolcache\windows\go\1.27.3\x64\bin\go.exe env GOCACHE
+2026-11-03T10:57:52.5993122Z C:\Users\runneradmin\go\pkg\mod
+2026-11-03T10:57:52.6008179Z C:\Users\runneradmin\AppData\Local\go-build
+2026-11-03T10:57:53.5902263Z Cache is not found
+2026-11-03T10:57:53.5922940Z go version go1.27.3 windows/amd64
+2026-11-03T10:57:53.5923108Z 
+2026-11-03T10:57:53.5923337Z ##[group]go env
+2026-11-03T10:57:59.3723983Z set AR=ar
+2026-11-03T10:57:59.3724328Z set CC=gcc
+2026-11-03T10:57:59.3724595Z set CGO_CFLAGS=-O2 -g
+2026-11-03T10:57:59.3724789Z set CGO_CPPFLAGS=
+2026-11-03T10:57:59.3724960Z set CGO_CXXFLAGS=-O2 -g
+2026-11-03T10:57:59.3725132Z set CGO_ENABLED=1
+2026-11-03T10:57:59.3725286Z set CGO_FFLAGS=-O2 -g
+2026-11-03T10:57:59.3725456Z set CGO_LDFLAGS=-O2 -g
+2026-11-03T10:57:59.3725614Z set CXX=g++
+2026-11-03T10:57:59.3725753Z set GCCGO=gccgo
+2026-11-03T10:57:59.3725917Z set GO111MODULE=
+2026-11-03T10:57:59.3726059Z set GOAMD64=v1
+2026-11-03T10:57:59.3726200Z set GOARCH=amd64
+2026-11-03T10:57:59.3726342Z set GOAUTH=netrc
+2026-11-03T10:57:59.3726520Z set GOBIN=C:\Users\runneradmin\go\bin
+2026-11-03T10:57:59.3726775Z set GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
+2026-11-03T10:57:59.3727019Z set GOCACHEPROG=
+2026-11-03T10:57:59.3727181Z set GODEBUG=
+2026-11-03T10:57:59.3727372Z set GOENV=C:\Users\runneradmin\AppData\Roaming\go\env
+2026-11-03T10:57:59.3727602Z set GOEXE=.exe
+2026-11-03T10:57:59.3727754Z set GOEXPERIMENT=
+2026-11-03T10:57:59.3734024Z set GOFIPS140=off
+2026-11-03T10:57:59.3734299Z set GOFLAGS=
+2026-11-03T10:57:59.3734907Z set GOGCCFLAGS=-m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=C:\Users\RUNNER~1\AppData\Local\Temp\go-build736099699=/tmp/go-build -gno-record-gcc-switches
+2026-11-03T10:57:59.3735507Z set GOHOSTARCH=amd64
+2026-11-03T10:57:59.3735672Z set GOHOSTOS=windows
+2026-11-03T10:57:59.3735826Z set GOINSECURE=
+2026-11-03T10:57:59.3736024Z set GOMOD=D:\a\my-agent-go\my-agent-go\go.mod
+2026-11-03T10:57:59.3736271Z set GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
+2026-11-03T10:57:59.3736481Z set GONOPROXY=
+2026-11-03T10:57:59.3736620Z set GONOSUMDB=
+2026-11-03T10:57:59.3736753Z set GOOS=windows
+2026-11-03T10:57:59.3783636Z set GOPACKAGESDRIVER=
+2026-11-03T10:57:59.3784016Z set GOPATH=C:\Users\runneradmin\go
+2026-11-03T10:57:59.3785712Z set GOPRIVATE=
+2026-11-03T10:57:59.3785966Z set GOPROXY=https://proxy.golang.org,direct
+2026-11-03T10:57:59.3786261Z set GOROOT=C:\hostedtoolcache\windows\go\1.27.3\x64
+2026-11-03T10:57:59.3786505Z set GOSUMDB=sum.golang.org
+2026-11-03T10:57:59.3786680Z set GOTELEMETRY=local
+2026-11-03T10:57:59.3786925Z set GOTELEMETRYDIR=C:\Users\runneradmin\AppData\Roaming\go\telemetry
+2026-11-03T10:57:59.3787482Z set GOTMPDIR=
+2026-11-03T10:57:59.3787704Z set GOTOOLCHAIN=auto
+2026-11-03T10:57:59.3788142Z set GOTOOLDIR=C:\hostedtoolcache\windows\go\1.27.3\x64\pkg\tool\windows_amd64
+2026-11-03T10:57:59.3788641Z set GOVCS=
+2026-11-03T10:57:59.3788875Z set GOVERSION=go1.27.3
+2026-11-03T10:57:59.3789128Z set GOWORK=
+2026-11-03T10:57:59.3789356Z set PKG_CONFIG=pkg-config
+2026-11-03T10:57:59.3789530Z 
+2026-11-03T10:57:59.3789942Z ##[endgroup]
+2026-11-03T10:57:59.4107907Z ##[group]Run echo "go      = $(go version)"
+2026-11-03T10:57:59.4108258Z [36;1mecho "go      = $(go version)"[0m
+2026-11-03T10:57:59.4108501Z [36;1mecho "GOOS    = $(go env GOOS)"[0m
+2026-11-03T10:57:59.4108724Z [36;1mecho "GOARCH  = $(go env GOARCH)"[0m
+2026-11-03T10:57:59.4108940Z [36;1mecho "CC      = $(go env CC)"[0m
+2026-11-03T10:57:59.4109139Z [36;1mecho "os      = windows-2025"[0m
+2026-11-03T10:57:59.4129015Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-03T10:57:59.4129330Z env:
+2026-11-03T10:57:59.4129476Z   CGO_ENABLED: 1
+2026-11-03T10:57:59.4129628Z ##[endgroup]
+2026-11-03T10:57:59.6429874Z go      = go version go1.27.3 windows/amd64
+2026-11-03T10:57:59.6747807Z GOOS    = windows
+2026-11-03T10:57:59.7072174Z GOARCH  = amd64
+2026-11-03T10:57:59.7397568Z CC      = gcc
+2026-11-03T10:57:59.7398661Z os      = windows-2025
+2026-11-03T10:57:59.7558563Z ##[group]Run got="$(go env GOOS)/$(go env GOARCH)"
+2026-11-03T10:57:59.7558910Z [36;1mgot="$(go env GOOS)/$(go env GOARCH)"[0m
+2026-11-03T10:57:59.7559146Z [36;1mwant="windows/amd64"[0m
+2026-11-03T10:57:59.7559369Z [36;1mif [ "$got" != "$want" ]; then[0m
+2026-11-03T10:57:59.7559648Z [36;1m  echo "::error::runner 实际架构 $got 与目标 $want 不一致，该结果不可用作 win-x64 证据"[0m
+2026-11-03T10:57:59.7559922Z [36;1m  exit 2[0m
+2026-11-03T10:57:59.7560068Z [36;1mfi[0m
+2026-11-03T10:57:59.7570954Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-03T10:57:59.7571252Z env:
+2026-11-03T10:57:59.7571397Z   CGO_ENABLED: 1
+2026-11-03T10:57:59.7571556Z ##[endgroup]
+2026-11-03T10:57:59.8783096Z ##[group]Run go build ./...
+2026-11-03T10:57:59.8783360Z [36;1mgo build ./...[0m
+2026-11-03T10:57:59.9278644Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-03T10:57:59.9278920Z env:
+2026-11-03T10:57:59.9279060Z   CGO_ENABLED: 1
+2026-11-03T10:57:59.9279208Z ##[endgroup]
+2026-11-03T10:58:00.2927821Z go: downloading golang.org/x/sys v0.49.0
+2026-11-03T10:58:15.8406098Z ##[group]Run go vet ./...
+2026-11-03T10:58:15.8406361Z [36;1mgo vet ./...[0m
+2026-11-03T10:58:15.8460352Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-03T10:58:15.8460623Z env:
+2026-11-03T10:58:15.8460763Z   CGO_ENABLED: 1
+2026-11-03T10:58:15.8460920Z ##[endgroup]
+2026-11-03T10:58:21.4701809Z ##[group]Run go test ./... -count=1 -timeout 600s
+2026-11-03T10:58:21.4702161Z [36;1mgo test ./... -count=1 -timeout 600s[0m
+2026-11-03T10:58:21.4757603Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-03T10:58:21.4757878Z env:
+2026-11-03T10:58:21.4758016Z   CGO_ENABLED: 1
+2026-11-03T10:58:21.4758164Z ##[endgroup]
+2026-11-03T10:58:24.7508202Z ?   	my-agent-go/cmd/devtools	[no test files]
+2026-11-03T10:58:25.7653695Z ok  	my-agent-go/internal/contracts	0.021s
+2026-11-03T10:58:28.1902435Z ok  	my-agent-go/internal/devtools	2.430s
+2026-11-03T10:58:29.2858032Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T10:58:42.9830375Z ok  	my-agent-go/internal/runtime/pi	13.563s
+2026-11-03T10:58:42.9831026Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T10:58:42.9831336Z ok  	my-agent-go/tests/fixtures/mcp	1.511s
+2026-11-03T10:58:42.9831607Z ?   	my-agent-go/tests/fixtures/provider	[no test files]
+2026-11-03T10:58:43.9768954Z ##[group]Run cc="$(go env CC | awk '{print $1}')"
+2026-11-03T10:58:43.9769327Z [36;1mcc="$(go env CC | awk '{print $1}')"[0m
+2026-11-03T10:58:43.9769588Z [36;1mif ! command -v "$cc" >/dev/null 2>&1; then[0m
+2026-11-03T10:58:43.9769956Z [36;1m  echo "::error::runner 无 C 编译器（CC=$cc），-race 无法执行；win-x64 不得声明已过竞态验证"[0m
+2026-11-03T10:58:43.9770255Z [36;1m  exit 2[0m
+2026-11-03T10:58:43.9770404Z [36;1mfi[0m
+2026-11-03T10:58:43.9770603Z [36;1mgo test -race ./internal/... -count=1 -timeout 900s[0m
+2026-11-03T10:58:43.9782747Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-03T10:58:43.9783058Z env:
+2026-11-03T10:58:43.9783199Z   CGO_ENABLED: 1
+2026-11-03T10:58:43.9783352Z ##[endgroup]
+2026-11-03T10:59:01.1994616Z ok  	my-agent-go/internal/contracts	1.064s
+2026-11-03T10:59:01.7744511Z ok  	my-agent-go/internal/devtools	1.638s
+2026-11-03T10:59:06.7576619Z ?   	my-agent-go/internal/fixtures/openaisse	[no test files]
+2026-11-03T10:59:22.5699132Z ok  	my-agent-go/internal/runtime/pi	14.278s
+2026-11-03T10:59:22.5699603Z ?   	my-agent-go/internal/runtime/pi/fakeworker	[no test files]
+2026-11-03T10:59:22.8059122Z ##[group]Run set -e
+2026-11-03T10:59:22.8059389Z [36;1mset -e[0m
+2026-11-03T10:59:22.8059718Z [36;1mfor t in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do[0m
+2026-11-03T10:59:22.8060086Z [36;1m  os="${t%%/*}"; arch="${t##*/}"[0m
+2026-11-03T10:59:22.8060339Z [36;1m  if [ "$os/$arch" = "windows/amd64" ]; then continue; fi[0m
+2026-11-03T10:59:22.8060733Z [36;1m  ext=""; [ "$os" = "windows" ] && ext=".exe"[0m
+2026-11-03T10:59:22.8060980Z [36;1m  echo "--- cross build $os/$arch ---"[0m
+2026-11-03T10:59:22.8061336Z [36;1m  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "$RUNNER_TEMP/cross-$os-$arch$ext" ./...[0m
+2026-11-03T10:59:22.8061677Z [36;1mdone[0m
+2026-11-03T10:59:22.8072353Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-03T10:59:22.8072662Z env:
+2026-11-03T10:59:22.8072806Z   CGO_ENABLED: 1
+2026-11-03T10:59:22.8072956Z ##[endgroup]
+2026-11-03T10:59:22.8372122Z --- cross build windows/arm64 ---
+2026-11-03T10:59:23.1148063Z go: cannot write multiple packages to non-directory D:\a\_temp/cross-windows-arm64.exe
+2026-11-03T10:59:23.1228482Z ##[error]Process completed with exit code 1.
+2026-11-03T10:59:23.1435816Z Post job cleanup.
+2026-11-03T10:59:23.2785419Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-11-03T10:59:23.3068816Z git version 2.56.0.windows.4
+2026-11-03T10:59:23.3128814Z Temporarily overriding HOME='D:\a\_temp\cb507147-9476-41da-877e-054c83fa8f00' before making global git config changes
+2026-11-03T10:59:23.3129738Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-03T10:59:23.3139233Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\my-agent-go\my-agent-go
+2026-11-03T10:59:23.3527900Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-11-03T10:59:23.3863504Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-11-03T10:59:24.3583492Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-03T10:59:24.3854508Z http.https://github.com/.extraheader
+2026-11-03T10:59:24.3892228Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-11-03T10:59:24.4204997Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-11-03T10:59:25.0302287Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-03T10:59:25.0613914Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-11-03T10:59:25.5354970Z Cleaning up orphan processes
+2026-11-03T10:59:25.5766172Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

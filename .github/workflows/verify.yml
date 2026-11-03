@@ -75,15 +75,44 @@ jobs:
         run: go test ./... -count=1 -timeout 600s
 
       - name: race
-        # 竞态验证。缺 C 编译器时明确判红，不静默跳过（跳过不是通过）。
+        # 竞态验证。两类"不通过"要分开处理，不能混成一种绿色：
+        #   1) Go 工具链本身不支持该 GOOS/GOARCH 的 -race（如 windows/arm64）→ 记 BLOCKED，
+        #      明确写进 job summary，不得声明已通过；
+        #   2) runner 缺 C 编译器 → 可修复的环境问题，直接判红。
         shell: bash
         run: |
+          pair="$(go env GOOS)/$(go env GOARCH)"
+          race_supported=""
+          case "$pair" in
+            linux/amd64|linux/arm64|linux/arm|linux/386|linux/ppc64le|linux/s390x|linux/riscv64|linux/loong64) race_supported=1 ;;
+            darwin/amd64|darwin/arm64) race_supported=1 ;;
+            windows/amd64) race_supported=1 ;;
+            freebsd/amd64|freebsd/arm64|netbsd/amd64|netbsd/arm64) race_supported=1 ;;
+          esac
+          if [ -z "$race_supported" ]; then
+            echo "::warning title=-race 不支持该目标::Go 工具链不支持 $pair 的 -race；${{ matrix.target }} 竞态验证记为 BLOCKED"
+            {
+              echo "### ${{ matrix.target }}"
+              echo ""
+              echo "| 检查 | 结果 | 说明 |"
+              echo "|---|---|---|"
+              echo "| -race | **BLOCKED** | Go 工具链不支持 \`$pair\` 的 -race；该目标不得声明已过竞态验证 |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           cc="$(go env CC | awk '{print $1}')"
           if ! command -v "$cc" >/dev/null 2>&1; then
             echo "::error::runner 无 C 编译器（CC=$cc），-race 无法执行；${{ matrix.target }} 不得声明已过竞态验证"
             exit 2
           fi
           go test -race ./internal/... -count=1 -timeout 900s
+          {
+            echo "### ${{ matrix.target }}"
+            echo ""
+            echo "| 检查 | 结果 | 说明 |"
+            echo "|---|---|---|"
+            echo "| -race | **PASS** | \`$pair\`，CC=$cc |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 交叉编译到其余目标（只验证可编译，不冒充运行验证）
         shell: bash
@@ -92,9 +121,10 @@ jobs:
           for t in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             os="${t%%/*}"; arch="${t##*/}"
             if [ "$os/$arch" = "${{ matrix.goos }}/${{ matrix.goarch }}" ]; then continue; fi
-            ext=""; [ "$os" = "windows" ] && ext=".exe"
             echo "--- cross build $os/$arch ---"
-            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "$RUNNER_TEMP/cross-$os-$arch$ext" ./...
+            # 不能带 -o：./... 是多包，-o 只接受单个包或目录，会报
+            # "cannot write multiple packages to non-directory"。
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build ./...
           done
 
   frontend:
