@@ -1,0 +1,18 @@
+﻿--- FAIL: TestGateRejectsMissingRequiredCase (0.14s)
+    gate_test.go:99: 鏈熸湜鍒ゆ缂?case锛屽疄闄?passed=true exitCode=0 reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢
+--- FAIL: TestGateRejectsStaleRevision (0.17s)
+    gate_test.go:118: 鏈熸湜鍒ゆ鏃?revision锛屽疄闄?passed=true exitCode=0 reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢
+--- FAIL: TestGateRejectsEmptyOrSkippedNativeSuite (0.06s)
+    gate_test.go:132: 绌?suite 搴斿垽姝伙紝瀹為檯 passed=true exitCode=0 err=<nil>
+--- FAIL: TestGateRejectsUnknownGate (0.01s)
+    gate_test.go:156: 鏈煡 gate 搴旇繑鍥?2锛屽疄闄?0 (reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢)
+--- FAIL: TestGateRejectsUnknownTarget (0.17s)
+    gate_test.go:174: 鏈煡 target 搴旇繑鍥?2锛屽疄闄?0 (reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢)
+--- FAIL: TestGateRejectsFakeReportHash (0.20s)
+    gate_test.go:198: 浼€犳姤鍛婂搱甯屽簲鍒ゆ锛屽疄闄?passed=true exitCode=0 reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢
+--- FAIL: TestGateRejectsMissingReviewer (0.20s)
+    gate_test.go:216: 缂哄鏌ヤ汉/鏈哄櫒淇℃伅搴斿垽姝伙紝瀹為檯 passed=true exitCode=0 reasons=[STUB: 姘歌繙閫氳繃锛堝崰浣嶏紝鎻愪氦鍓嶆浛鎹负鐪熷疄鍒ゅ畾锛塢
+FAIL
+FAIL	my-agent-go/internal/devtools	1.147s
+FAIL
+EXIT=1

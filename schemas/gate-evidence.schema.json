@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://my-agent-go/schemas/gate-evidence.schema.json",
+  "title": "GateEvidence",
+  "description": "单条用例门禁证据。门禁判定必须能识别缺 case / 旧 revision / 空 suite / 全 skip / 报告哈希被篡改 / 未知 target / 未知 gate。状态必须显式枚举，不允许 null 或缺字段当作通过。绝不允许用 passed.json 冒充执行。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "gateId",
+    "taskId",
+    "sourceRevision",
+    "versionsLockHash",
+    "targetId",
+    "startedAt",
+    "endedAt",
+    "command",
+    "exitCode",
+    "caseResults",
+    "reviewer"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "gateId": { "type": "string", "enum": ["G0", "G1", "G2", "G3", "G4", "G5"] },
+    "taskId": { "type": "string", "minLength": 1 },
+    "sourceRevision": { "type": "string", "minLength": 1, "description": "当前代码 revision；与基线不一致即过期" },
+    "versionsLockHash": { "type": "string", "minLength": 1, "description": "build/versions.lock.json 的哈希；不一致即被篡改或过期" },
+    "targetId": {
+      "type": "string",
+      "enum": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
+      "description": "未知 target 必须判死"
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" },
+    "command": { "type": "string", "description": "实际执行的命令（保留原始形式）" },
+    "exitCode": { "type": "integer", "description": "子进程真实退出码；0 通过，1 断言失败，2 配置/缺失" },
+    "caseResults": {
+      "type": "array",
+      "description": "每条用例结果；空数组视为空 suite，必须判死",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "expected", "actual", "startedAt", "endedAt"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "subcase": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "BLOCKED", "SKIP", "NOT_RUN"],
+            "description": "必须显式枚举；null/缺字段不允许当作通过"
+          },
+          "expected": { "type": "string" },
+          "actual": { "type": "string" },
+          "oraclePath": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "hash": { "type": "string" }
+        }
+      }
+    },
+    "limitations": { "type": "string", "description": "已知限制；结构通过不等于事实审查通过" },
+    "reviewer": {
+      "type": "object",
+      "description": "人工/机器审查元数据；结构缺失必须判死。结构通过不等于事实审查通过。",
+      "additionalProperties": false,
+      "required": ["name", "machine", "reviewedAt"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "machine": { "type": "string", "minLength": 1, "description": "真实机器信息；缺机器信息必须判死" },
+        "reviewedAt": { "type": "string", "format": "date-time", "minLength": 1 },
+        "signature": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "reportHash": {
+      "type": "string",
+      "description": "命令/输出/结果文件的规范化哈希；门禁重新计算并比对以发现篡改"
+    }
+  }
+}

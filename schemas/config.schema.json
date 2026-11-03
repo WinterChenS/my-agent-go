@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://my-agent-go/schemas/config.schema.json",
+  "title": "ConfigDocument",
+  "description": "版本化配置的权威载体。写入必须 CompareAndSwap(expectedRevision)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "body"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "revision": { "type": "integer", "minimum": 0, "description": "单调递增修订号" },
+    "body": { "description": "实际配置内容，允许任意对象或数组；可为空对象但不允许缺字段" }
+  }
+}

@@ -56,6 +56,16 @@ go run ./cmd/devtools gate --id=G0 --evidence=<abs-evidence-root>
 退出码：0 通过；1 断言失败；2 配置/索引/目标/门禁缺失或未知。
 不允许 `|| true`、不允许写 `passed.json` 冒充执行、不允许空 suite 判成功。
 
+**入口形式有坑**：`go run` 会把程序退出码压成 1，1 与 2 无法区分。
+门禁/CI 判定一律走包装脚本（退出码原样保真）：
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 <同上参数>
+./scripts/devtools.sh <同上参数>
+```
+
+依据见 `docs/adr/0001-devtools-exit-code-fidelity.md`。
+
 ## 6. 单任务纪律
 
 每个任务：**失败用例 → 最小实现 → focused 验证 → 原始证据 → 可独立审查的提交**。

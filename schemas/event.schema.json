@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://my-agent-go/schemas/event.schema.json",
+  "title": "Event",
+  "description": "跨进程/UI 的事件信封。seq 按 run 从 1 单调递增；未知 type 保留不崩溃。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "workspaceId",
+    "sessionId",
+    "runId",
+    "seq",
+    "type",
+    "occurredAt",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1, "description": "事件 envelope 版本，当前固定为 1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "workspaceId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "runId": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 1, "description": "按 run 单调递增，从 1 起" },
+    "type": { "type": "string", "minLength": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "payload": {}
+  }
+}
