@@ -86,32 +86,10 @@ jobs:
           command -v secret-tool
 
       - name: test
+        # 统一经由 with-keyring.sh：Linux 上它会开 D-Bus session 并解锁 keyring。
+        # 不能只在某一步做——job 级 MYAGENT_REQUIRE_NATIVE_CREDSTORE=1 对所有步骤生效。
         shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            # D-Bus session 与 keyring daemon 必须活在**同一个** session 里，
-            # 否则 secret-tool 连不上 org.freedesktop.secrets。
-            # gnome-keyring-daemon --unlock 从 stdin 读密码；login keyring 不存在时
-            # 会用这个密码创建它，因此不需要预置任何状态。
-            dbus-run-session -- bash -euxo pipefail -c '
-              printf "%s" "myagent-ci" | gnome-keyring-daemon --unlock --components=secrets --daemonize
-              sleep 1
-              # 探测：exit 1 = 查不到（服务活着），其它非 0 = 服务不可用。
-              set +e
-              secret-tool lookup service cn.myagent.credentials account __probe__
-              probe=$?
-              set -e
-              if [ "$probe" -ne 1 ]; then
-                echo "::error::Secret Service 不可用（secret-tool 探测退出码 $probe）"
-                ps -ef | grep -i keyring || true
-                exit 2
-              fi
-              go test ./... -count=1 -timeout 600s
-            '
-          else
-            go test ./... -count=1 -timeout 600s
-          fi
+        run: bash scripts/ci/with-keyring.sh go test ./... -count=1 -timeout 600s
 
       - name: race
         # 竞态验证。两类"不通过"要分开处理，不能混成一种绿色：
@@ -129,6 +107,10 @@ jobs:
             freebsd/amd64|freebsd/arm64|netbsd/amd64|netbsd/arm64) race_supported=1 ;;
           esac
           if [ -z "$race_supported" ]; then
+            # 工具链不支持 -race 的目标：跑 checkptr 作为**补充**证据。
+            # checkptr 能抓出 unsafe.Pointer 误用（process_windows.go 正是靠 unsafe 调
+            # Job Object API），但**不能**替代数据竞争检测——两者查的是不同的东西。
+            bash scripts/ci/with-keyring.sh go test -gcflags=all=-d=checkptr=2 ./internal/... -count=1 -timeout 900s
             echo "::warning title=-race 不支持该目标::Go 工具链不支持 $pair 的 -race；${{ matrix.target }} 竞态验证记为 BLOCKED"
             {
               echo "### ${{ matrix.target }}"
@@ -136,6 +118,7 @@ jobs:
               echo "| 检查 | 结果 | 说明 |"
               echo "|---|---|---|"
               echo "| -race | **BLOCKED** | Go 工具链不支持 \`$pair\` 的 -race；该目标不得声明已过竞态验证 |"
+              echo "| checkptr | **PASS** | \`-d=checkptr=2\`，覆盖 unsafe.Pointer 误用；不替代竞态检测 |"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -144,13 +127,15 @@ jobs:
             echo "::error::runner 无 C 编译器（CC=$cc），-race 无法执行；${{ matrix.target }} 不得声明已过竞态验证"
             exit 2
           fi
-          go test -race ./internal/... -count=1 -timeout 900s
+          bash scripts/ci/with-keyring.sh go test -race ./internal/... -count=1 -timeout 900s
+          bash scripts/ci/with-keyring.sh go test -gcflags=all=-d=checkptr=2 ./internal/... -count=1 -timeout 900s
           {
             echo "### ${{ matrix.target }}"
             echo ""
             echo "| 检查 | 结果 | 说明 |"
             echo "|---|---|---|"
             echo "| -race | **PASS** | \`$pair\`，CC=$cc |"
+            echo "| checkptr | **PASS** | \`-d=checkptr=2\`，覆盖 unsafe.Pointer 误用 |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 交叉编译到其余目标（只验证可编译，不冒充运行验证）
