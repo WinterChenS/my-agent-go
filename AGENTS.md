@@ -30,15 +30,16 @@ Go 1.27.3（Harness 主体）+ Wails v3.0.0（桌面宿主）+ React/TS/Vite/Tai
 
 | 事实 | 后果 | 做法 |
 |---|---|---|
-| Bash 工具链残缺（`dirname`/`head` 缺失） | `Bash` 工具执行即报错 | 一律用 `PowerShell` 工具 |
+| Bash 工具链残缺（`dirname`/`head` 缺失） | `Bash` 工具执行即报错 | 一律用 `PowerShell` 工具。**2026-11-04 复核**：当前 harness 的 bash 可用（`head`/`grep`/`sed` 均在）；但 MSYS 会把 `cmd /c` 改写成 `C:/`，需要时用 `cmd //c`。旧记录仍保留，因为换机器/换 harness 可能复发 |
 | PATH 首个 node 是 v22.22.2（WorkBuddy 托管运行时） | 不符合基线 Node 24.16.0 | 显式用 `D:\Program Files\nodejs\node.exe`（v24.16.0） |
 | `微信web开发者工具\node.exe` 也在 PATH | 抢解析，正是 `ToolchainRejectsWechatNode` 要拦的场景 | 脚本必须校验实际路径，不能只 `node -v` |
 | `npm.ps1` 被执行策略禁止 | `npm -v` 报脚本无法运行 | 用 `D:\Program Files\nodejs\npm.cmd` |
-| 无 gcc/cc/clang/mingw | cgo 相关构建可能不可用 | 需要 cgo 时先探测再决定，不假设 |
+| 无 gcc/cc/clang/mingw | cgo 相关构建可能不可用 | 需要 cgo 时先探测再决定，不假设。**2026-11-04 复核**：本机存在 MinGW-W64 gcc 16.2.0（`mingw64in\gcc.exe`），`CGO_ENABLED=1` 的 Wails 构建与 `go test -race` 均成功；仍是"先探测"，不要假设每台机器都有 |
 | WebView2 运行时 156.0.4314.58 已装 | Windows WebView 可用 | 记录进环境证据 |
 | PATH 上 Pi 为 1.4.0，基线认证 1.5.0 | 版本不匹配即 unverified | 不把 1.4.0 当通过 |
 | PowerShell 标准输出有时不回显 | 误判"命令没跑" | 结果写文件再 `Read` 读回 |
 | `wmic` 被安全策略拉黑 | 取进程信息失败 | 用 `Get-CimInstance Win32_Process` |
+| `Start-Process -PassThru` 的 `ExitCode` 读不到（返回空） | 会误判 GUI 进程"没跑过" | GUI 退出码用 `cmd //c "程序 & echo %ERRORLEVEL%"` 包装采集 |
 
 ## 5. 统一命令契约（F01 完成后才可用）
 

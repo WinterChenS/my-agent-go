@@ -28,10 +28,10 @@
 
 Snapshot{ID,TabID,NavigationID,ControlGeneration,Viewport,Elements,Text,UnsupportedFrames}；Element{Ref,FrameID,Role,Name,Tag,InputType,Disabled,Bounds}；Action{Kind,SnapshotID,Ref,Text,Key,DeltaX,DeltaY,ExpectedCondition}；ActionResult{Delivered,Verified,NavigationID,Verification,Error}。ExpectedCondition仅允许url_equals/element_text/field_value/element_present等有界检查，不允许任意JS。Delivered表示输入已发送，不等于业务成功；没有后置条件时Verified=false/unknown，agent必须重新观察。Image{Bytes,MimeType,PixelWidth,PixelHeight,CSSWidth,CSSHeight,Scale,NavigationID}。SlotGeometry{SlotID,Revision,Left,Top,Width,Height,Visible,Zoom}。
 
-- [ ] 创建两个不同origin的本地站点，页面包括普通表单、SPA节点替换、同URL导航、cross-origin iframe、closed shadow、trusted-only button、登录cookie、下载、新窗口、慢加载。每个写操作通过服务端counter可核查。
-- [ ] 写 `TestFixtureCountersAndOrigins`：提交前counter=0，提交一次=1；cross-origin确实不同；trusted-only忽略非trusted事件。不可仅创建同一页面的假标签。
-- [ ] 创建最小Wails spike，分别预留右侧slot和dialog；最初尚未挂native view要记录失败，不能先放iframe当成功。
-- [ ] 实现契约/schema与fixture，运行 `go test ./internal/browser ./tests/fixtures/browser -count=1`；锁定native suite观察步骤和证据格式后提交。
+- [x] 创建两个不同origin的本地站点，页面包括普通表单、SPA节点替换、同URL导航、cross-origin iframe、closed shadow、trusted-only button、登录cookie、下载、新窗口、慢加载。每个写操作通过服务端counter可核查。→ `tests/fixtures/browser`（内核分配端口；counter 是唯一 oracle；trusted-only 服务端闸门 + 页面 isTrusted）。
+- [x] 写 `TestFixtureCountersAndOrigins`：提交前counter=0，提交一次=1；cross-origin确实不同；trusted-only忽略非trusted事件。不可仅创建同一页面的假标签。→ 实际为 `TestFixtureTwoDistinctOrigins` / `TestCounterSemantics` / `TestTrustedOnlyRejectsUntrustedInput` 等 10 条；实测 A=1/B=0、缺 `X-Event-Trusted` 返回 403 且计数 0。
+- [x] 创建最小Wails spike，分别预留右侧slot和dialog；最初尚未挂native view要记录失败，不能先放iframe当成功。→ `cmd/browser-spike`：真实窗口 + 红框空 slot + `<dialog>`；14 条探针全部 NOT_IMPLEMENTED，verdict=AS_EXPECTED，截图见 `docs/evidence/raw/b00-browser/`。
+- [x] 实现契约/schema与fixture，运行 `go test ./internal/browser ./tests/fixtures/browser -count=1`；锁定native suite观察步骤和证据格式后提交。→ 16 + 10 条通过；`verify --suite=native` 已落地并接入 BR00（`internal/devtools/native.go`）。证据 `docs/evidence/b00-browser-fixtures.md`。
 
 **验收：** BR00；B01/B02/B03共用同一fixture和契约，不复制三套预期。
 
@@ -41,11 +41,11 @@ Snapshot{ID,TabID,NavigationID,ControlGeneration,Viewport,Elements,Text,Unsuppor
 
 **Interfaces：** 实现B00 Backend/Surface；`NewWindowsHost(parent NativeParent,opts HostOptions)(NativeHost,error)`；HostOptions{ProfilePath,OnEvent}，OnEvent接BrowserEvent{TabID,Type,Payload}。所有native方法在UI线程异步完成。
 
-- [ ] 写/记录 `NativeRightPaneWindows` 初始失败：同一主窗口右侧网页空缺。使用本机WebView2运行时，记录runtime、Wails和SDK版本。
-- [ ] 创建独立child host/controller，页面不能调用主Wails bridge；不把主界面controller导航到第三方站点。UI线程创建/释放，late callback有generation保护。
-- [ ] 实现导航、DOM观察、CDP点击/输入、截图；React slot转原生坐标，100/150/200%缩放下中心点误差≤2 CSS px。来回拖分栏20次，浏览器不得漂移/脱离主窗口。
-- [ ] 展示应用dialog并隐藏相交native视图；中文输入、焦点切换、最小化恢复、关tab/关窗口验证。重复创建销毁50次，不崩溃、不遗留tab对象/句柄；记录RSS而非只断言对象计数。
-- [ ] 运行 `go run ./cmd/devtools verify --suite=native --target=win-x64 --display=desktop`；ARM64目标也要有独立结果，编译x64不代替。提交native报告和录屏。
+- [x] 写/记录 `NativeRightPaneWindows` 初始失败：同一主窗口右侧网页空缺。使用本机WebView2运行时，记录runtime、Wails和SDK版本。→ B00 spike 已记录（verdict=AS_EXPECTED）；WebView2=156.0.4314.58。
+- [x] 创建独立child host/controller，页面不能调用主Wails bridge；不把主界面controller导航到第三方站点。UI线程创建/释放，late callback有generation保护。→ B01a：WS_CHILD + WebView2 controller，`GetParent(child)==main` 可查；自建 UI 线程派发器；独立 user data folder；未接入 Wails bridge（ADO 0004）。
+- [ ] 实现导航、DOM观察、CDP点击/输入、截图；React slot转原生坐标，100/150/200%缩放下中心点误差≤2 CSS px。来回拖分栏20次，浏览器不得漂移/脱离主窗口。→ **部分**：100% 下导航/隔离世界观察/CDP 可信 click+fill/截图已真实通过（`TestNativeRightPaneWindows`、`TestNativeWindowGeometry100`）；150%/200% 与 20 轮分栏未做（B01b）。
+- [ ] 展示应用dialog并隐藏相交native视图；中文输入、焦点切换、最小化恢复、关tab/关窗口验证。重复创建销毁50次，不崩溃、不遗留tab对象/句柄；记录RSS而非只断言对象计数。→ **部分**：`SetVisible` 隐藏原生视图后 dialog 可见已证；IME/focus/clipboard/最小化恢复与 50 轮+RSS 未做（B01b，当前只有 3 轮句柄不残留）。
+- [ ] 运行 `go run ./cmd/devtools verify --suite=native --target=win-x64 --display=desktop`；ARM64目标也要有独立结果，编译x64不代替。提交native报告和录屏。→ **部分**：命令已可跑，BR00/BR01 PASS、可跑 2/7、缺 BR04/05/06/BR07.native/UI04.native → exit 2；win-arm64 无机器；无录屏（窗口截图替代）。证据 `docs/evidence/b01-native-webview2.md`。
 
 **验收：** BR01、BR04–BR06的Windows结果；其他平台仍未通过。
 
