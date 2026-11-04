@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -147,40 +148,67 @@ func runUnit() int {
 	return code
 }
 
-// runFrontendTypecheck 真实执行前端 typecheck；脚本缺失→2（runner 不存在）。
-func runFrontendTypecheck() (int, string, string, error) {
-	const pkgPath = "frontend/package.json"
+// repoFile 从当前目录向上找 go.mod，返回仓库内相对路径对应的绝对路径。
+//
+// 为什么需要：go test 的 cwd 是包目录，devtools 被测试调用时 cwd 不是仓库根。
+// 直接 os.ReadFile("frontend/package.json") 会在测试里失败并返回 2——
+// 那是“路径错了”，不是“runner 缺失”，两者都会让 GOV04 的断言假绿。
+func repoFile(rel string) (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, statErr := os.Stat(filepath.Join(wd, "go.mod")); statErr == nil {
+			return filepath.Join(wd, rel), nil
+		}
+		parent := filepath.Dir(wd)
+		if parent == wd {
+			return "", fmt.Errorf("找不到仓库根（go.mod）：%s", rel)
+		}
+		wd = parent
+	}
+}
+
+// frontendScript 校验 package.json 里有指定脚本；不存在→2（runner 不存在）。
+// 只做存在性判定，不执行任何命令——测试可以放心调用。
+func frontendScript(pkgPath, name string) (int, string, error) {
 	data, err := os.ReadFile(pkgPath)
 	if err != nil {
-		return 2, "", fmt.Sprintf("读取 %s 失败: %v", pkgPath, err), err
+		return 2, fmt.Sprintf("读取 %s 失败: %v", pkgPath, err), err
 	}
 	var pkg struct {
 		Scripts map[string]string `json:"scripts"`
 	}
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		return 2, "", fmt.Sprintf("解析 %s 失败: %v", pkgPath, err), err
+		return 2, fmt.Sprintf("解析 %s 失败: %v", pkgPath, err), err
 	}
-	if _, ok := pkg.Scripts["typecheck"]; !ok {
-		return 2, "", "前端缺少 typecheck 脚本（runner 不存在）", nil
+	if _, ok := pkg.Scripts[name]; !ok {
+		return 2, fmt.Sprintf("前端缺少 %s 脚本（runner 不存在）", name), nil
 	}
-	return RunExternal(npmCmd, "--prefix", "frontend", "run", "typecheck")
+	return 0, "", nil
+}
+
+// runFrontendTypecheck 真实执行前端 typecheck；脚本缺失→2（runner 不存在）。
+func runFrontendTypecheck() (int, string, string, error) {
+	pkgPath, err := repoFile("frontend/package.json")
+	if err != nil {
+		return 2, "", err.Error(), err
+	}
+	if code, msg, err := frontendScript(pkgPath, "typecheck"); code != 0 {
+		return code, "", msg, err
+	}
+	return RunExternal(npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "typecheck")
 }
 
 // runFrontendTest 真实执行前端测试；脚本缺失→明确报 runner 不存在并以 2 退出。
 func runFrontendTest() (int, string, string, error) {
-	const pkgPath = "frontend/package.json"
-	data, err := os.ReadFile(pkgPath)
+	pkgPath, err := repoFile("frontend/package.json")
 	if err != nil {
-		return 2, "", fmt.Sprintf("读取 %s 失败: %v", pkgPath, err), err
+		return 2, "", err.Error(), err
 	}
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
+	if code, msg, err := frontendScript(pkgPath, "test"); code != 0 {
+		return code, "", msg + "，不能静默跳过判成功", err
 	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return 2, "", fmt.Sprintf("解析 %s 失败: %v", pkgPath, err), err
-	}
-	if _, ok := pkg.Scripts["test"]; !ok {
-		return 2, "", "前端缺少 test 脚本（runner 不存在），不能静默跳过判成功", nil
-	}
-	return RunExternal(npmCmd, "--prefix", "frontend", "run", "test", "--", "--run")
+	return RunExternal(npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "test", "--", "--run")
 }

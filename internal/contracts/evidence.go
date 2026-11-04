@@ -56,20 +56,28 @@ type ArtifactRef struct {
 // 原始 stdout/stderr 必须保留。reportHash 在证据生成时由 evidence 工具计算，
 // 门禁重新计算并比对，用于发现报告被篡改（GOV02）。
 type GateEvidence struct {
-	SchemaVersion    int           `json:"schemaVersion"`
-	GateID           string        `json:"gateId"`
-	TaskID           string        `json:"taskId"`
-	SourceRevision   string        `json:"sourceRevision"`
-	VersionsLockHash string        `json:"versionsLockHash"`
-	TargetID         string        `json:"targetId"`
-	StartedAt        string        `json:"startedAt"`
-	EndedAt          string        `json:"endedAt"`
-	Command          string        `json:"command"`
-	ExitCode         int           `json:"exitCode"`
-	CaseResults      []CaseResult  `json:"caseResults"`
-	Artifacts        []ArtifactRef `json:"artifacts,omitempty"`
-	Limitations      string        `json:"limitations,omitempty"`
-	Reviewer         Reviewer      `json:"reviewer"`
+	SchemaVersion    int    `json:"schemaVersion"`
+	GateID           string `json:"gateId"`
+	TaskID           string `json:"taskId"`
+	SourceRevision   string `json:"sourceRevision"`
+	VersionsLockHash string `json:"versionsLockHash"`
+	TargetID         string `json:"targetId"`
+	// Display 是原生/显示会话标识（Linux: x11/wayland；Windows/macOS: desktop）。
+	// 不区分显示的用例留空：门禁会把非 Linux 目标的空值归一化为 desktop。
+	// 加这个维度是因为「gate 按 case 汇总」会丢平台维度：linux 只跑 X11 也能
+	// 满足 LNX 的 case，结论就变成了「Linux 通过」。
+	Display string `json:"display,omitempty"`
+	// WorktreeDirty 表示生成证据时工作区不干净。
+	// 门禁判死：dirty 工作区的代码不是 sourceRevision 那一份，贴上去就是假归属。
+	WorktreeDirty bool          `json:"worktreeDirty,omitempty"`
+	StartedAt     string        `json:"startedAt"`
+	EndedAt       string        `json:"endedAt"`
+	Command       string        `json:"command"`
+	ExitCode      int           `json:"exitCode"`
+	CaseResults   []CaseResult  `json:"caseResults"`
+	Artifacts     []ArtifactRef `json:"artifacts,omitempty"`
+	Limitations   string        `json:"limitations,omitempty"`
+	Reviewer      Reviewer      `json:"reviewer"`
 	// ReportHash 是命令/输出/结果文件的规范化哈希，用于篡改检测。
 	ReportHash string `json:"reportHash,omitempty"`
 }

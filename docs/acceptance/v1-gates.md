@@ -8,6 +8,32 @@
 
 执行顺序G0→G1→G2→G3→G4→G5，但独立任务可先完成。前置失败不应浪费时间运行必然失败的依赖用例，也不能标通过。gate针对同一产品revision、版本锁hash、fixture版本和平台矩阵；代码变更后按影响映射重跑相关suite，重编后的最终包必须重新跑package suite。保留未改模块报告时，需说明对应源码tree hash不变，不能简单把旧revision字符串改成当前值。
 
+### 1.1 门禁判定的证据维度（2026-11-04 修正）
+
+gate 按 **case × target × display** 三个维度判定，不按 case 汇总。一个 case 在某个目标上的 PASS 不能代表其它目标；同一 case 两个目标一成一败时，gate 判死。
+
+`scope` 列翻译成必需证据位（`tests/acceptance/cases.json`）：
+
+| scope | 必需 target × display |
+|---|---|
+| ALL | 六个目标；display 不区分（非 Linux 归一化为 desktop） |
+| NATIVE | 六个目标；Linux 的 x11 与 wayland 各一份，其余 desktop |
+| HOST | 至少一个已知目标；若出现多份，每一份都必须通过（不能挑绿的） |
+| HOST+ALL路径集成 | 六个目标；display 不区分 |
+| LNX / Linux两架构 | linux-x64、linux-arm64，各 x11 + wayland |
+| Windows两架构 | win-x64、win-arm64；display 不区分 |
+| macOS两架构 | mac-x64、mac-arm64；display 不区分 |
+
+未知 scope、原子 case 缺 scope 一律返回 2，不静默变成「不需要证据」。另四条判死规则：
+
+1. 同一必需位出现两份证据 → 判死（结论不确定，不挑一份绿的）。
+2. 证据 `gateId` 与请求的 gate 不一致 → 判死（不能把 G1 的报告塞进 G0 证据树）。
+3. 证据 `worktreeDirty=true` → 判死。dirty 工作区的代码不是 `sourceRevision` 那一份，贴上去就是假归属；正式证据必须在干净工作区生成。
+4. 必需 case 的**其它**证据（不在必需集合里的 target）也必须有效：win-arm64 失败不会因为没有排在必需集合里而被忽略。
+
+gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：某目标 18/18 只说明它本身齐了，全矩阵才是结论。本机只有单一目标时，缺失目标记 BLOCKED，不能当通过。
+
+
 平台范围缩写：ALL=六目标；LNX=两个Linux目标各X11/Wayland；HOST=当前测试宿主的纯逻辑测试，仍由六目标完整构建检查补充；NATIVE=ALL且LNX双会话。公开版本需G5，内部版本至少G4。
 
 ## 2. 用例与断言
@@ -181,9 +207,16 @@ artifacts/evidence/<source-revision>/<gate>/<targetId>/<caseId>/
   screenshot.png / recording.mp4   # native/人工步骤要求
 ```
 
+带 display 的 case（Linux 双会话、原生用例）必须把 display 写进路径，否则同一目标
+的 X11 与 Wayland 两份证据会互相覆盖：
+
+```text
+artifacts/evidence/<source-revision>/<gate>/<targetId>/<display>/<caseId>/
+```
+
 oracle按case包含文件hash、服务器counter、DB查询、进程树、坐标/时间/RSS原始样本。原始证据可保留在CI artifact或用户指定本地目录，仓库只提交索引与脱敏摘要；禁止提交真实凭证、个人网页/cookies、模型私密对话。对外分享诊断前由用户决定。
 
-result.json字段见F01 GateEvidence schema；每个CaseResult含id/subcase/status/expected/actual/oraclePath/startedAt/endedAt。截图只能证明视觉状态，不能独自证明后台调用被拒或不存在数据泄漏。
+result.json字段见F01 GateEvidence schema；每个CaseResult含id/subcase/status/expected/actual/oraclePath/startedAt/endedAt；GateEvidence另含targetId、display（Linux: x11/wayland；Windows/macOS: desktop 或空）、worktreeDirty（必须为 false）、sourceRevision、versionsLockHash、reportHash、reviewer。截图只能证明视觉状态，不能独自证明后台调用被拒或不存在数据泄漏。
 
 签名/公证/人工审查涉及人或外部凭证；脚本不能自行生成“已签名”“已审查”字段当证据。结构校验通过不是事实审查通过。
 

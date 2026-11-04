@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"my-agent-go/internal/contracts"
 )
@@ -48,15 +49,27 @@ func ComputeEvidenceHash(dir string) string {
 // GetSourceRevision 返回当前仓库的短 revision。
 // 若 git 不可用，返回空串；此时门禁跳过 revision 一致性检查（其他检查仍生效）。
 func GetSourceRevision() string {
+	rev, _ := SourceIdentity()
+	return rev
+}
+
+// SourceIdentity 同时返回短 revision 与「工作区是否不干净」。
+//
+// 只取短 HEAD 是不够的：dirty 工作区的代码不属于那个提交，证据若贴上该
+// revision 就是假归属（门禁看到的是「rev1 通过」，实际测的是 rev1+改动）。
+// 因此证据必须记录 dirty 标记，门禁对 dirty 证据判死；要用正式证据就把
+// 改动提交成干净工作区再跑（或把证据目录放在 gitignore 的 artifacts/ 下）。
+func SourceIdentity() (string, bool) {
 	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
-		return ""
+		return "", false
 	}
-	rev := string(out)
-	for len(rev) > 0 && (rev[len(rev)-1] == '\n' || rev[len(rev)-1] == '\r') {
-		rev = rev[:len(rev)-1]
-	}
-	return rev
+	rev := strings.TrimSpace(string(out))
+	// --untracked-files=normal：新增源码文件也算脏，但不把 .gitignore 里的
+	// 证据目录（artifacts/、docs/evidence/runs/）算成脏。
+	st, stErr := exec.Command("git", "status", "--porcelain").Output()
+	dirty := stErr == nil && strings.TrimSpace(string(st)) != ""
+	return rev, dirty
 }
 
 // ComputeVersionsLockHash 返回 versions.lock 文件的 sha256（带前缀）。
@@ -74,11 +87,15 @@ type GateBaseline struct {
 	SourceRevision   string
 	VersionsLockHash string
 	VersionsLockPath string
+	// WorktreeDirty 是「下结论时」的工作区状态。它不影响已绑定 revision
+	// 的证据能否通过（证据自带 WorktreeDirty 且必须为 false），只在报告里
+	// 如实标注，避免把脏工作区的分析说成干净基线。
+	WorktreeDirty bool
 }
 
 // BuildBaseline 依据当前仓库构建门禁基线。
 func BuildBaseline() (GateBaseline, error) {
-	rev := GetSourceRevision()
+	rev, dirty := SourceIdentity()
 	const lockPath = "build/versions.lock.json"
 	h, err := ComputeVersionsLockHash(lockPath)
 	if err != nil {
@@ -88,5 +105,6 @@ func BuildBaseline() (GateBaseline, error) {
 		SourceRevision:   rev,
 		VersionsLockHash: h,
 		VersionsLockPath: lockPath,
+		WorktreeDirty:    dirty,
 	}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"my-agent-go/internal/contracts"
@@ -17,10 +18,12 @@ func testIndexG0(t *testing.T) *CasesIndex {
 	return &CasesIndex{
 		SchemaVersion: 1,
 		Cases: []CaseEntry{
-			{ID: "GOV01", Owner: "F01", Required: true, Gates: []string{"G0"}},
-			{ID: "GOV02", Owner: "F01", Required: true, Gates: []string{"G0"}},
-			{ID: "GOV03", Owner: "F01", Required: true, Gates: []string{"G0"}},
-			{ID: "GOV04", Owner: "F01", Required: true, Gates: []string{"G0"}},
+			// scope=HOST：任一已知目标的有效证据即可。
+			// 目标维度本身由 TestGate*Scope* 系列单独覆盖。
+			{ID: "GOV01", Owner: "F01", Required: true, Scope: "HOST", Gates: []string{"G0"}},
+			{ID: "GOV02", Owner: "F01", Required: true, Scope: "HOST", Gates: []string{"G0"}},
+			{ID: "GOV03", Owner: "F01", Required: true, Scope: "HOST", Gates: []string{"G0"}},
+			{ID: "GOV04", Owner: "F01", Required: true, Scope: "HOST", Gates: []string{"G0"}},
 		},
 	}
 }
@@ -33,7 +36,12 @@ func testBaseline() GateBaseline {
 // （用于模拟陈旧 revision / 未知 target / 缺审查人 / 空或全 skip / 伪造哈希）。
 func writeEvidence(t *testing.T, root, rev, gate, target, caseID, lockHash string, mutate func(*contracts.GateEvidence)) string {
 	t.Helper()
-	dir := filepath.Join(root, rev, gate, target, caseID)
+	return writeEvidenceAt(t, filepath.Join(root, rev, gate, target, caseID), rev, gate, target, caseID, lockHash, mutate)
+}
+
+// writeEvidenceAt 在指定目录写证据。重复证据测试需要写到非规范路径。
+func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash string, mutate func(*contracts.GateEvidence)) string {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -249,9 +257,271 @@ func TestVerifyRejectsMissingSuite(t *testing.T) {
 }
 
 func TestFrontendTestRunnerMissingReturnsConfigCode(t *testing.T) {
-	// 当前 frontend 无 test 脚本，必须明确报 runner 不存在并以 2 退出。
-	code, _, out, _ := runFrontendTest()
-	if code != 2 {
-		t.Fatalf("前端 test runner 缺失应返回 2，实际 %d；输出: %s", code, out)
+	// 用显式 package.json 路径，而不是依赖 "frontend/package.json" 这个相对路径：
+	// go test 的 cwd 是包目录，相对路径读不到会返回 2——那是「路径错了」，
+	// 不是「runner 缺失」，两者都会让这个断言假绿（修复前实测就是假绿）。
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "package.json")
+	if err := os.WriteFile(pkg, []byte(`{"scripts":{"build":"vite build"}}`), 0o644); err != nil {
+		t.Fatalf("写 fixture package.json: %v", err)
 	}
+	if code, msg, _ := frontendScript(pkg, "test"); code != 2 {
+		t.Fatalf("缺 test 脚本应返回 2，实际 %d；msg=%s", code, msg)
+	}
+	if code, _, _ := frontendScript(pkg, "typecheck"); code != 2 {
+		t.Fatalf("缺 typecheck 脚本应返回 2，实际 %d", code)
+	}
+
+	// 反向对照：脚本存在时不能返回 2，否则上面那条可能只是「永远返回 2」。
+	if err := os.WriteFile(pkg, []byte(`{"scripts":{"test":"vitest run"}}`), 0o644); err != nil {
+		t.Fatalf("写 fixture package.json: %v", err)
+	}
+	if code, msg, _ := frontendScript(pkg, "test"); code != 0 {
+		t.Fatalf("有 test 脚本时不应返回 2，实际 %d；msg=%s", code, msg)
+	}
+}
+
+// TestFrontendPackageJSONReachableFromPackageDir 钉住 repoFile 的仓库根解析：
+// 测试运行在包目录里，仍必须能找到真实的 frontend/package.json。
+// 这条测试失败意味着 verify --suite=static/unit 在子目录调用时也会读错文件。
+func TestFrontendPackageJSONReachableFromPackageDir(t *testing.T) {
+	pkg, err := repoFile("frontend/package.json")
+	if err != nil {
+		t.Fatalf("repoFile: %v", err)
+	}
+	for _, name := range []string{"typecheck", "test"} {
+		if code, msg, _ := frontendScript(pkg, name); code != 0 {
+			t.Fatalf("真实 frontend/package.json 缺 %s 脚本: %s", name, msg)
+		}
+	}
+}
+
+// ---- 目标 × 显示维度（门禁聚合回归） ----
+
+func testIndexOne(t *testing.T, c CaseEntry) *CasesIndex {
+	t.Helper()
+	return &CasesIndex{SchemaVersion: 1, Cases: []CaseEntry{c}}
+}
+
+func TestGateAcceptsAllRequiredEvidence(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if !rep.Passed || rep.ExitCode != 0 {
+		t.Fatalf("完整证据应通过，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+	}
+}
+
+func TestGateAcceptsAllScopeOnSixTargets(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "SEC06", Owner: "F04", Required: true, Scope: "ALL", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	for _, target := range KnownTargets {
+		writeEvidence(t, root, base.SourceRevision, "G0", target, "SEC06", base.VersionsLockHash, nil)
+	}
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if !rep.Passed || rep.ExitCode != 0 {
+		t.Fatalf("六目标齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+	}
+	if len(rep.PerRequirement) != 6 {
+		t.Fatalf("scope=ALL 应展开为 6 条必需证据位，实际 %d", len(rep.PerRequirement))
+	}
+}
+
+// TestGateRejectsAllScopeMissingOneTarget 钉住交接文档指出的聚合缺陷：
+// 同一 case 在某个目标上的 PASS 不能代表整个 ALL。
+func TestGateRejectsAllScopeMissingOneTarget(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "SEC06", Owner: "F04", Required: true, Scope: "ALL", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	for _, target := range KnownTargets {
+		if target == "mac-arm64" {
+			continue
+		}
+		writeEvidence(t, root, base.SourceRevision, "G0", target, "SEC06", base.VersionsLockHash, nil)
+	}
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("缺 mac-arm64 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+	if !reasonMentions(rep, "mac-arm64") {
+		t.Fatalf("报告应明确指出缺 mac-arm64，实际 reasons=%v", rep.Reasons)
+	}
+}
+
+// TestGateRejectsLinuxMissingWayland：Linux 只跑 X11 不能宣称 LNX 通过。
+func TestGateRejectsLinuxMissingWayland(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "BR03", Owner: "B03", Required: true, Scope: "LNX", Gates: []string{"G1"}})
+	root := t.TempDir()
+	base := testBaseline()
+	// 显示维度写在路径里（<rev>/<gate>/<target>/<display>/<case>）：
+	// 同一 target 的 X11 与 Wayland 必须能在证据树里共存两份，不能互相覆盖。
+	writeDisplayed := func(target, display string) {
+		t.Helper()
+		dir := filepath.Join(root, base.SourceRevision, "G1", target, display, "BR03")
+		writeEvidenceAt(t, dir, base.SourceRevision, "G1", target, "BR03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+			e.Display = display
+		})
+	}
+	for _, target := range []string{"linux-x64", "linux-arm64"} {
+		writeDisplayed(target, "x11")
+	}
+	rep, err := EvaluateGate(idx, "G1", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("缺 Wayland 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+	if !reasonMentions(rep, "wayland") {
+		t.Fatalf("报告应指出缺 wayland，实际 reasons=%v", rep.Reasons)
+	}
+
+	// 反向对照：两个 display 都齐 → 通过（否则上面的判死可能只是「永远判死」）。
+	for _, target := range []string{"linux-x64", "linux-arm64"} {
+		writeDisplayed(target, "wayland")
+	}
+	rep2, err := EvaluateGate(idx, "G1", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if !rep2.Passed || rep2.ExitCode != 0 {
+		t.Fatalf("X11+Wayland 齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep2.Passed, rep2.ExitCode, rep2.Reasons)
+	}
+}
+
+// TestGateRejectsSameCaseOneTargetFails：两个目标一成一败不能互相覆盖。
+func TestGateRejectsSameCaseOneTargetFails(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "BR01", Owner: "B01", Required: true, Scope: "Windows两架构", Gates: []string{"G1"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G1", "win-x64", "BR01", base.VersionsLockHash, nil)
+	writeEvidence(t, root, base.SourceRevision, "G1", "win-arm64", "BR01", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+		e.CaseResults = []contracts.CaseResult{
+			{ID: "BR01", Status: contracts.StatusFail, Expected: "x", Actual: "y", StartedAt: "s", EndedAt: "e"},
+		}
+	})
+	rep, err := EvaluateGate(idx, "G1", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("win-arm64 失败必须判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+// TestGateRejectsDuplicateEvidence：同一必需位出现两份，结论不确定，不能挑一份绿的。
+func TestGateRejectsDuplicateEvidence(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+	// 第二份放到另一个证据树里，目录名仍是 case id（否则会被当成另一个 case）。
+	dup := filepath.Join(root, "dup-tree", "win-x64", "ENV03")
+	if err := os.MkdirAll(dup, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	src := filepath.Join(root, base.SourceRevision, "G0", "win-x64", "ENV03")
+	for _, name := range []string{"result.json", "command.txt", "stdout.log", "stderr.log"} {
+		b, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatalf("读 %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dup, name), b, 0o644); err != nil {
+			t.Fatalf("写 %s: %v", name, err)
+		}
+	}
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("重复证据应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+// TestGateRejectsDirtyWorktreeEvidence：dirty 工作区的代码不是该 revision 那一份。
+func TestGateRejectsDirtyWorktreeEvidence(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+		e.WorktreeDirty = true
+	})
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("dirty 证据应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+	if !reasonMentions(rep, "dirty") {
+		t.Fatalf("报告应指出 dirty 工作区，实际 reasons=%v", rep.Reasons)
+	}
+}
+
+// TestGateRejectsEvidenceForWrongGate：把 G1 的报告放进 G0 证据树不能顶用。
+func TestGateRejectsEvidenceForWrongGate(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+		e.GateID = "G1"
+	})
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("gateId 不匹配应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+// TestGateRejectsUnknownScope：新增 case 写了 typo 的 scope 不能静默变成「不需要证据」。
+func TestGateRejectsUnknownScope(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "火星", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("未知 scope 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+// TestGateRejectsAtomicCaseWithoutScope：原子 case 必须声明目标范围。
+func TestGateRejectsAtomicCaseWithoutScope(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("缺 scope 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+func reasonMentions(rep *GateReport, sub string) bool {
+	for _, r := range rep.Reasons {
+		if strings.Contains(strings.ToLower(r), strings.ToLower(sub)) {
+			return true
+		}
+	}
+	return false
 }

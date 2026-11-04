@@ -70,10 +70,15 @@ func integrationCases() []integrationCase {
 		{ID: "ENV03", External: toolchainCommand(), Env: baselinePathEnv()},
 
 		// ── 门禁自身 ──
-		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget"},
-		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer"},
+		// GOV01：缺证据/未知 gate/未知 target 返回 2；目标×显示维度缺失也判死，
+		// 而完整的六目标证据必须能通过（否则「全判死」也能让上面几条绿）。
+		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
+		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/串用阶段/重复证据/dirty 工作区均拒绝。
+		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite"},
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestReviewGate"},
+		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
+		// 「路径错了读不到」冒充（修复前实测就是假绿）。
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},
@@ -188,9 +193,15 @@ func RunIntegration(target string) int {
 		return 2
 	}
 
-	root := filepath.Join("docs", "evidence", "runs", GetSourceRevision(), target)
+	rev, dirty := SourceIdentity()
+	root := filepath.Join("docs", "evidence", "runs", rev, target)
 	fmt.Printf("== verify --suite=integration --target=%s ==\n", target)
 	fmt.Printf("证据根: %s\n", root)
+	if dirty {
+		// 证据照写（可诊断），但必须带 dirty 标记：门禁会拒绝它。
+		// 不做「把改动藏起来当作干净 revision」这种假归属。
+		fmt.Println("[警告] 工作区不干净：本次证据带 worktreeDirty=true，gate 会判死，不能用作正式结论。")
+	}
 
 	blocks := 0
 	fails := 0
@@ -231,6 +242,7 @@ func runIntegrationCase(c integrationCase, target, root string) caseOutcome {
 		GateID:           "G0",
 		TaskID:           taskForCase(c.ID),
 		SourceRevision:   GetSourceRevision(),
+		WorktreeDirty:    worktreeDirty(),
 		VersionsLockHash: versionsHash(),
 		TargetID:         target,
 		StartedAt:        started.Format(time.RFC3339),
@@ -340,6 +352,13 @@ func hostname() string {
 		return "unknown"
 	}
 	return h
+}
+
+// worktreeDirty 标记证据是否在脏工作区生成。
+// 与 SourceIdentity 共用同一条 git 判定，避免两处口径分叉。
+func worktreeDirty() bool {
+	_, dirty := SourceIdentity()
+	return dirty
 }
 
 // taskForCase 把 case 归属到模块，便于证据回溯到计划任务。
