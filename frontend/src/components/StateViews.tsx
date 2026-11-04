@@ -1,0 +1,116 @@
+// 四类状态的统一呈现：空 / 加载 / 失败 / 无权限。
+//
+// UI01 要求这些状态可用且可分辨。做成统一组件而不是各视图各写一套，
+// 是为了让"加载中"和"没有数据"永远长得不一样——
+// 一个转圈和一句"暂无内容"如果同一个样子，用户会把失败当成空。
+
+import type { ReactNode } from "react";
+import { AlertTriangle, Inbox, Loader2, ShieldAlert } from "lucide-react";
+import type { CallError } from "../types";
+
+export function LoadingState({ label = "加载中…" }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-500">
+      <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+      <p className="text-xs" role="status" aria-live="polite">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+export function EmptyState({
+  title,
+  hint,
+  action,
+  icon,
+}: {
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  icon?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+      <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-slate-500">
+        {icon ?? <Inbox className="h-4 w-4" aria-hidden />}
+      </div>
+      <p className="text-sm text-slate-300">{title}</p>
+      {hint && <p className="max-w-md text-xs leading-relaxed text-slate-500">{hint}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * 失败态。
+ *
+ * 必须同时显示 code 与 message：code 是给排查用的稳定标识，
+ * message 是给人看的解释。只显示其一都会让下一次排查从零开始。
+ */
+export function ErrorState({
+  error,
+  onRetry,
+  title,
+}: {
+  error: CallError | { code: string; message: string };
+  onRetry?: () => void;
+  title?: string;
+}) {
+  return (
+    <div
+      className="rounded-xl border border-rose-400/30 bg-rose-500/5 p-4"
+      role="alert"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-rose-200">
+            {title ?? "操作失败"}
+            <span className="ml-2 rounded bg-rose-400/10 px-1.5 py-0.5 font-mono text-[10px] text-rose-300">
+              {error.code}
+            </span>
+          </p>
+          <p className="mt-1 break-words text-xs leading-relaxed text-rose-200/80">
+            {error.message}
+          </p>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-2.5 rounded-md border border-rose-400/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+            >
+              重试
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 无权限态。
+ *
+ * 与失败态分开：失败意味着"做错了什么"，无权限意味着"需要你先做一件事"。
+ * 后者一定要带可执行的动作，否则用户只能去翻文档。
+ */
+export function NoPermissionState({
+  message,
+  action,
+}: {
+  message: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4" role="alert">
+      <div className="flex items-start gap-2">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-amber-200">需要先完成一步</p>
+          <p className="mt-1 break-words text-xs leading-relaxed text-amber-100/70">{message}</p>
+          {action && <div className="mt-2.5">{action}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}

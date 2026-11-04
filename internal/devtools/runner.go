@@ -137,6 +137,10 @@ func runUnit() int {
 		} else if code < 1 {
 			code = 1
 		}
+	} else {
+		// 通过时必须留一行凭证：没有输出的话，"前端测试跑了并通过"与
+		// "前端测试压根没被调度"在日志里长得一模一样。
+		fmt.Println("[PASS] 前端测试")
 	}
 
 	fmt.Printf("unit 退出码: %d\n", code)

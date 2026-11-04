@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,37 @@ func NewStore(root string) (*Store, error) {
 
 // Root 返回存储根目录。
 func (s *Store) Root() string { return s.root }
+
+// ListKeys 返回存储中匹配前缀的全部逻辑 key，按字典序。
+//
+// 不额外维护索引文件：索引与正文是两份真相，一旦不一致就得靠人工修复，
+// 而列举本身用目录扫描就足够便宜。单个文件损坏不影响列举——
+// 列举只回答"有哪些 key"，内容是否可信由 Load/CompareAndSwap 的 checksum 判定。
+func (s *Store) ListKeys(prefix string) ([]string, error) {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, contracts.NewAppError(contracts.CodeInternal, "读取配置存储目录失败: "+err.Error(), false)
+	}
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(name, ".json")
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
 
 // envelope 是磁盘上的存储信封：在权威文档之外附带 checksum，
 // 用来识别"文件被外部编辑但 revision 未变"的情况。

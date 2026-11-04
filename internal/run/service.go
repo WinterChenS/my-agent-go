@@ -201,6 +201,13 @@ func (s *Service) validate() error {
 	return s.opts.Isolation.Validate()
 }
 
+// IsolationArgs 返回**实际**交给 Pi 的隔离参数。
+//
+// 诊断展示必须读这里，而不是在展示侧另建一份"看起来一样"的参数：
+// 两处各写一份的历史结果是界面显示 --no-mcp、实际却启用了 harness MCP，
+// 诊断信息说谎比没有诊断信息更糟——它会把人带去错误的方向。
+func (s *Service) IsolationArgs() []string { return s.opts.Isolation.Args() }
+
 // launch 启动 worker、建策略端点、下发 prompt。失败时负责资源清理与终态收尾。
 func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 	runCtx, cancel := context.WithCancel(context.Background())

@@ -388,3 +388,69 @@ func TestCompileSessionOverridesWins(t *testing.T) {
 		t.Fatalf("会话覆盖不应写入磁盘（err=%v）", err)
 	}
 }
+
+// TestPermissionsBaselineWithoutDefaultLayer 守住一个曾经真实存在的缺陷：
+// 当 default 层没有写 permissions 时，第一个写 permissions 的层会被
+// 当成"当前是 none"来收紧，导致：
+//   - filesystem 无法从 none 升到 workspace
+//   - network/shell 的 true 被 false && true 永久锁死
+//
+// 结果是用户在设置里打开的开关永远不生效，而且没有任何报错。
+func TestPermissionsBaselineWithoutDefaultLayer(t *testing.T) {
+	// default 层只给模型，不谈权限。
+	merged, err := Merge([]Layer{
+		{Name: LayerDefault, Body: body(t, `{"schemaVersion":1,"models":[{"id":"m1"}]}`)},
+		{Name: LayerUser, Body: body(t, `{"schemaVersion":1,"permissions":{"filesystem":"workspace","network":true,"shell":true}}`)},
+	})
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if merged.Values.Permissions.Filesystem != "workspace" {
+		t.Fatalf("default 层未设 filesystem 时，用户层的 workspace 必须生效，实际 %q", merged.Values.Permissions.Filesystem)
+	}
+	if !merged.Values.Permissions.Network || !merged.Values.Permissions.Shell {
+		t.Fatalf("default 层未设时，用户层的 true 必须生效，实际 %+v", merged.Values.Permissions)
+	}
+	if merged.Provenance["permissions.filesystem"] != string(LayerUser) {
+		t.Fatalf("来源应指向用户层，实际 %q", merged.Provenance["permissions.filesystem"])
+	}
+
+	// 上层已开启后，profile 层仍只能收紧。
+	narrowed, err := Merge([]Layer{
+		{Name: LayerUser, Body: body(t, `{"schemaVersion":1,"permissions":{"filesystem":"workspace","network":true,"shell":true}}`)},
+		{Name: LayerProfile, Body: body(t, `{"schemaVersion":1,"permissions":{"filesystem":"read","network":false,"shell":false}}`)},
+	})
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if narrowed.Values.Permissions.Filesystem != "read" || narrowed.Values.Permissions.Network || narrowed.Values.Permissions.Shell {
+		t.Fatalf("profile 层应能把权限收紧为 read/false/false，实际 %+v", narrowed.Values.Permissions)
+	}
+	if narrowed.Provenance["permissions.network"] != string(LayerProfile) {
+		t.Fatalf("收紧后来源应指向实际收紧的那一层，实际 %q", narrowed.Provenance["permissions.network"])
+	}
+
+	// 反过来：上层收紧后，下层不能放宽。
+	widened, err := Merge([]Layer{
+		{Name: LayerUser, Body: body(t, `{"schemaVersion":1,"permissions":{"filesystem":"read","network":false,"shell":false}}`)},
+		{Name: LayerProfile, Body: body(t, `{"schemaVersion":1,"permissions":{"filesystem":"unrestricted","network":true,"shell":true}}`)},
+	})
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if widened.Values.Permissions.Filesystem != "read" || widened.Values.Permissions.Network || widened.Values.Permissions.Shell {
+		t.Fatalf("profile 层不得放宽权限，实际 %+v", widened.Values.Permissions)
+	}
+	if widened.Provenance["permissions.filesystem"] != string(LayerUser) {
+		t.Fatalf("未放宽时来源应保持用户层，实际 %q", widened.Provenance["permissions.filesystem"])
+	}
+
+	// 没有任何层提到权限时仍是安全默认 none。
+	bare, err := Merge([]Layer{{Name: LayerDefault, Body: body(t, `{"schemaVersion":1}`)}})
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if bare.Values.Permissions.Filesystem != "none" || bare.Values.Permissions.Network || bare.Values.Permissions.Shell {
+		t.Fatalf("无任何权限设置时应为 none/false/false，实际 %+v", bare.Values.Permissions)
+	}
+}

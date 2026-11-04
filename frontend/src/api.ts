@@ -3,7 +3,18 @@
 // 绑定名格式是 <Go package path>.<Type>.<Method>：Wails 用 package path 做 FQN，
 // 所以名字里带斜杠。集中在这里定义，避免散落各处的字符串拼错。
 import { Call, Events } from "@wailsio/runtime";
-import type { ProductEvent, RunSnapshot, Settings, Status } from "./types";
+import type {
+  ProductEvent,
+  Profile,
+  ProfileConflictResult,
+  ProfileListResult,
+  ProfileResult,
+  RunSnapshot,
+  Settings,
+  Status,
+  WorkspaceListResult,
+  WorkspaceResult,
+} from "./types";
 
 const FQN = "my-agent-go/internal/app.Desktop";
 
@@ -28,6 +39,46 @@ export const api = {
     Call.ByName(`${FQN}.ResolveApproval`, runId, approvalId, choice),
 
   lastError: (): Promise<string> => Call.ByName(`${FQN}.LastError`),
+
+  // ---- C01：工作区与 Profile ----
+  //
+  // 这些调用返回带 error 字段的结构体而不是 reject：跨进程错误必须能被
+  // 按 code 分支处理（冲突要展示差异、未信任要给修复路径），
+  // 依赖 Promise reject 的字符串 message 判断类型是不可靠的。
+
+  workspaces: (): Promise<WorkspaceListResult> =>
+    Call.ByName(`${FQN}.ListWorkspaces`),
+
+  createWorkspace: (path: string): Promise<WorkspaceResult> =>
+    Call.ByName(`${FQN}.CreateWorkspace`, path),
+
+  currentWorkspace: (): Promise<WorkspaceResult> =>
+    Call.ByName(`${FQN}.CurrentWorkspace`),
+
+  setWorkspaceTrust: (
+    id: string,
+    trusted: boolean
+  ): Promise<WorkspaceResult> =>
+    Call.ByName(`${FQN}.SetWorkspaceTrust`, id, trusted),
+
+  profiles: (): Promise<ProfileListResult> => Call.ByName(`${FQN}.ListProfiles`),
+
+  profile: (id: string): Promise<ProfileResult> =>
+    Call.ByName(`${FQN}.GetProfile`, id),
+
+  saveProfile: (
+    id: string,
+    workspaceId: string,
+    expectedRevision: number,
+    p: Profile
+  ): Promise<ProfileResult> =>
+    Call.ByName(`${FQN}.SaveProfile`, id, workspaceId, expectedRevision, p),
+
+  profileConflict: (
+    id: string,
+    draft: Profile
+  ): Promise<ProfileConflictResult> =>
+    Call.ByName(`${FQN}.ProfileConflict`, id, draft),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

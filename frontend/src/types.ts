@@ -97,3 +97,78 @@ export interface ApprovalItem {
   args: string;
   expiresAtUnix: number;
 }
+
+// ---- C01：工作区与 Profile ----
+
+/** 绑定层统一错误。前端按 code 分支，不解析 message 文案。 */
+export interface CallError {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  canonicalPath: string;
+  trusted: boolean;
+  createdAt: string;
+}
+
+/** 工具策略的文件系统等级，取值必须与 Go 侧 config.NormalizeFilesystem 一致。 */
+export type FilesystemScope = "none" | "read" | "workspace" | "unrestricted";
+
+export interface ToolPolicy {
+  filesystem: FilesystemScope;
+  network: boolean;
+  shell: boolean;
+}
+
+export interface MemoryPolicy {
+  enabled: boolean;
+  maxEntries: number;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  modelRef: string;
+  skillIDs: string[] | null;
+  mcpIDs: string[] | null;
+  toolPolicy: ToolPolicy;
+  memoryPolicy: MemoryPolicy;
+  revision: number;
+}
+
+export interface WorkspaceResult {
+  item: Workspace;
+  error?: CallError;
+}
+
+export interface WorkspaceListResult {
+  items: Workspace[] | null;
+  error?: CallError;
+}
+
+export interface ProfileResult {
+  item: Profile;
+  error?: CallError;
+}
+
+export interface ProfileListResult {
+  items: Profile[] | null;
+  error?: CallError;
+}
+
+/** 一处字段差异：我的草稿 vs 磁盘上的当前版本。 */
+export interface ProfileFieldDiff {
+  field: string;
+  mine: string;
+  theirs: string;
+}
+
+export interface ProfileConflictResult {
+  current: Profile;
+  diff: ProfileFieldDiff[] | null;
+  error?: CallError;
+}

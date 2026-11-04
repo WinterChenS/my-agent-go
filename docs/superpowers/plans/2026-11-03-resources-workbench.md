@@ -24,11 +24,16 @@
 
 **Interfaces：** `CreateWorkspace(ctx,path string)(Workspace,error)`、`SetTrust(ctx,WorkspaceID,bool) error`；Workspace{ID,Name,CanonicalPath,Trusted,CreatedAt}；`SaveProfile(ctx,id ProfileID,expectedRevision uint64,body json.RawMessage)(ConfigDocument,error)`；profile schema字段modelRef/skillIDs/mcpIDs/toolPolicy/memoryPolicy，不另存秘密。
 
-- [ ] 写 `TestWorkspaceCanonicalizationAndTrust`：同一解析路径重复添加返回已有ID，junction重复可识别，不信任不启动可执行资源；目录不可访问显示错误。
-- [ ] 写 `ProfileEditorConflict`：外部修改后保存显示冲突和差异，不能覆盖；资源引用不存在保存拒绝，Profile可保存但禁止启动缺失模型的run。
-- [ ] 实现五入口：工作台/资源库/记忆/运行记录/设置；左项目会话、中消息、右可折叠浏览器/详情。无Pi/凭证仍能浏览设置和历史，发起任务显示修复路径。
-- [ ] 组件测试空/加载/失败/无权限状态，键盘Tab可达主要操作，最小1024×720无主按钮遮挡；真实Wails shell验证bindings，不只React网页截图。
-- [ ] unit/frontend suite通过后提交；此任务不宣称浏览器已完成。
+- [x] 写 `TestWorkspaceCanonicalizationAndTrust`：同一解析路径重复添加返回已有ID，junction重复可识别，不信任不启动可执行资源；目录不可访问显示错误。
+- [x] 写 `ProfileEditorConflict`：外部修改后保存显示冲突和差异，不能覆盖；资源引用不存在保存拒绝，Profile可保存但禁止启动缺失模型的run。
+- [x] 实现五入口：工作台/资源库/记忆/运行记录/设置；左项目会话、中消息、右可折叠浏览器/详情。无Pi/凭证仍能浏览设置和历史，发起任务显示修复路径。
+- [x] 组件测试空/加载/失败/无权限状态，键盘Tab可达主要操作，最小1024×720无主按钮遮挡；真实Wails shell验证bindings，不只React网页截图。
+- [x] unit/frontend suite通过后提交；此任务不宣称浏览器已完成。
+
+> 证据：`docs/evidence/c01-workbench.md`（含真实模型一轮、1024×720、配置档冲突、
+> 真机抓到的 4 个界面缺陷 + 1 个验证工具缺陷）。
+> 键盘可达性为 DOM 级验证（`Layout.test.tsx` 的真实 Tab 序列）：本机 agent-desktop
+> 送物理按键被拒，不能声称"真机按键已验"。
 
 **验收：** UI01、CFG01/CFG02。
 

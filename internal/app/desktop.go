@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,8 +22,10 @@ import (
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/policy"
+	"my-agent-go/internal/profile"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
+	"my-agent-go/internal/workspace"
 )
 
 // EventName 是推给前端的 Wails 事件名。
@@ -79,6 +82,12 @@ type Desktop struct {
 	// harness 是自有 MCP 服务（应用级单例）。端口与令牌固定，
 	// 因此 mcp.json 只需写一次，多个 run 共用同一端点。
 	harness *harnessmcp.Server
+
+	// svcMu 保护 C01 服务（工作区/Profile）的懒加载。
+	// 与 d.mu 分开：持有它期间会做磁盘读写，不该连带把 Status 也卡住。
+	svcMu      sync.Mutex
+	wsSvc      *workspace.Service
+	profileSvc *profile.Service
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -92,6 +101,12 @@ func New(root string) (*Desktop, error) {
 		return nil, err
 	}
 	d.settings = s
+	// 默认工作区先建出来，避免首次启动就撞"目录不存在"。
+	// 建不出来不阻断启动：真正的原因（只读盘、无权限）会在 Start 时
+	// 以更准确的错误码出现，比在启动阶段吞掉它更有用。
+	if s.Workspace != "" {
+		_ = os.MkdirAll(s.Workspace, 0o755)
+	}
 	return d, nil
 }
 
@@ -117,6 +132,10 @@ func (d *Desktop) loadSettings() (Settings, error) {
 }
 
 // defaultSettings 给出可用的默认值：优先本机基线的 Node 与隔离安装的 Pi 1.5.0。
+//
+// 默认工作区路径指向应用数据目录下的 workspace，并会在 New 里创建，
+// 但**不会**默认信任：目录存在只代表"这里可以放文件"，
+// 允许在其中执行代码必须是用户的显式动作（C01）。
 func defaultSettings(root string) Settings {
 	s := Settings{
 		Provider:  "fixture",
@@ -193,16 +212,38 @@ func (d *Desktop) SaveSettings(s Settings) error {
 	return nil
 }
 
+// isolationSpec 是"实际传给 Pi 的隔离参数"的唯一构造点。
+//
+// Status 展示与 ensureRuntime 启动都必须调用它。这两处曾经各写一份，
+// 结果是界面显示 --no-mcp、实际却启用了 harness MCP——
+// 诊断信息不准比没有诊断信息更糟，它会把人带去错误的方向。
+func isolationSpec(policyExt string) pi.IsolationSpec {
+	return pi.IsolationSpec{PolicyExtension: policyExt, HarnessMCP: true}
+}
+
 // Status 返回环境概览。
 func (d *Desktop) Status() Status {
 	d.mu.Lock()
 	s := d.settings
 	ext := d.policyExt
+	svc := d.svc
 	d.mu.Unlock()
 
-	// 隔离参数按"实际会传给 Pi 的那一份"展示，包括显式 -e <policy ext>。
-	// 只展示默认 flag 会让界面看起来比实际更严格或更宽松，两种都是误导。
-	spec := pi.IsolationSpec{PolicyExtension: ext}
+	// 已启动时直接读运行时那份 spec —— 展示值与实际启动参数同源，
+	// 结构上就不可能出现"显示 --no-mcp、实际启用了 MCP"。
+	// 未启动时按同样的构造点推算，并先解析策略扩展路径，
+	// 免得显示一串缺 -e <policy> 的参数让人以为策略没生效。
+	var args []string
+	if svc != nil {
+		args = svc.IsolationArgs()
+	} else {
+		if ext == "" {
+			if p, err := findPolicyExtension(); err == nil {
+				ext = p
+			}
+		}
+		args = isolationSpec(ext).Args()
+	}
 
 	st := Status{
 		AppRoot:   d.root,
@@ -212,7 +253,7 @@ func (d *Desktop) Status() Status {
 		Model:     s.Model,
 		Workspace: s.Workspace,
 		Platform:  runtime.GOOS + "/" + runtime.GOARCH,
-		Isolation: strings.Join(spec.Args(), " "),
+		Isolation: strings.Join(args, " "),
 	}
 	st.PolicyActive = true
 	return st
@@ -304,7 +345,7 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		Installation: inst,
 		// HarnessMCP=true 会以 `-e builtin:mcp` 重新启用内置 MCP（-ne 会连带关掉它）。
 		// 项目级 .pi/mcp.json 仍被 -na 切断，能连上的只有 agentDir 里我们自己写的那一条。
-		Isolation:  pi.IsolationSpec{PolicyExtension: ext, HarnessMCP: true},
+		Isolation:  isolationSpec(ext),
 		Provider:   s.Provider,
 		Model:      s.Model,
 		Policy:     pol,
@@ -410,7 +451,15 @@ func writeModels(s Settings, agentDir string) error {
 }
 
 // Start 启动一次 run。
+//
+// 启动前先确认工作区存在且已信任。这道检查必须在绑定层，
+// 不能只靠 UI 灰掉发送按钮——UI 可以被绕过（直接调绑定、未来的 CLI），
+// 而"未信任不执行"是数据层不变量。
 func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
+	if err := d.assertWorkspaceReady(context.Background()); err != nil {
+		d.setLastErr(err.Error())
+		return contracts.RunSnapshot{}, err
+	}
 	svc, err := d.ensureRuntime()
 	if err != nil {
 		d.setLastErr(err.Error())
@@ -422,6 +471,46 @@ func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
 		return snap, err
 	}
 	return snap, nil
+}
+
+// assertWorkspaceReady 把设置里的工作区路径登记成工作区并检查信任。
+//
+// 每次 Start 都做一次幂等登记，而不是只在设置保存时做：
+// 设置里的路径可能已经被删掉、被改成软链接或换了大小写，
+// 只在保存时检查会留下一段"设置说 OK、实际目录已经不是那个"的窗口。
+func (d *Desktop) assertWorkspaceReady(ctx context.Context) error {
+	d.mu.Lock()
+	path := strings.TrimSpace(d.settings.Workspace)
+	d.mu.Unlock()
+	if path == "" {
+		return contracts.NewAppError(
+			contracts.CodeConfigMissing,
+			"尚未选择工作区：请先在设置里添加一个目录，并信任它之后再发起任务",
+			false,
+		)
+	}
+	ws, _, err := d.coreServices()
+	if err != nil {
+		return err
+	}
+	item, err := ws.CreateWorkspace(ctx, path)
+	if err != nil {
+		return err
+	}
+	if err := ws.AssertRunnable(ctx, item.ID); err != nil {
+		var appErr *contracts.AppError
+		// 只给"未信任"补一句修复指引；其它错误原样透出，
+		// 重写文案会把配置冲突之类的原因掩盖成"未信任"。
+		if errors.As(err, &appErr) && appErr.Code == contracts.CodeUnauthorized {
+			return contracts.NewAppError(
+				appErr.Code,
+				"工作区「"+item.Name+"」尚未信任，不能在其中执行代码；请在设置里确认信任后重试",
+				false,
+			)
+		}
+		return err
+	}
+	return nil
 }
 
 // Abort 停止一次 run。
