@@ -19,7 +19,11 @@ func policyExtFixture(t *testing.T) string {
 }
 
 // TestIsolationArgsCoverEveryProjectChannel 覆盖 SEC08 的通道清单：
-// 每一条项目级可执行资源都必须有一个参数负责切断它。
+// 每一条"按设计应切断"的项目级可执行资源都必须有一个参数负责切断它。
+//
+// 技能通道 2026-11-04 真实 Pi 1.5.0 测量后拆成三层：项目/祖先级由 -na 切断，
+// 用户级按设计开放（本地技能同步过来）。这里既断言开放的那条确实开放，
+// 也断言项目/祖先那两条确实标为被 -na 切断——防止有人把"没切断"写成"按设计开放"。
 func TestIsolationArgsCoverEveryProjectChannel(t *testing.T) {
 	spec := IsolationSpec{PolicyExtension: policyExtFixture(t)}
 	if err := spec.Validate(); err != nil {
@@ -30,17 +34,44 @@ func TestIsolationArgsCoverEveryProjectChannel(t *testing.T) {
 	if len(cov) == 0 {
 		t.Fatal("覆盖表为空")
 	}
+	openByDesign := map[string]bool{
+		"用户级技能自动发现（~/.agents/skills、<agentDir>/skills）": true,
+		"用户级配置里的技能（<agentDir>/settings.json 的 skills）":  true,
+	}
+	// 项目/祖先技能通道必须由 -na 切断（实测结论，不能改成开放）。
+	mustBeBlockedByNA := []string{
+		".pi/skills（项目技能）",
+		"项目/祖先 .agents/skills（当前目录到仓库根/卷根，不含 ~/.agents/skills）",
+	}
+	blockedByNA := map[string]string{}
 	for _, ch := range cov {
+		if openByDesign[ch.Name] {
+			if ch.Blocked {
+				t.Fatalf("技能通道按设计应开放（本地技能同步），实际却被 %s 切断", ch.BlockedBy)
+			}
+			continue
+		}
 		if !ch.Blocked {
 			t.Fatalf("通道未被切断: %s（应由 %s 切断）", ch.Name, ch.BlockedBy)
+		}
+		if ch.BlockedBy != "" {
+			blockedByNA[ch.Name] = ch.BlockedBy
+		}
+	}
+	for _, name := range mustBeBlockedByNA {
+		if got, ok := blockedByNA[name]; !ok || got != "-na" {
+			t.Fatalf("通道 %q 必须由 -na 切断（实测），实际 BlockedBy=%q 存在=%v", name, got, ok)
 		}
 	}
 
 	args := spec.Args()
-	for _, flag := range []string{"-na", "-nc", "-ne", "-ns", "-np", "--no-themes", "--no-mcp"} {
+	for _, flag := range []string{"-na", "-nc", "-ne", "-np", "--no-themes", "--no-mcp"} {
 		if !containsArg(args, flag) {
 			t.Fatalf("缺参数 %s，实际 %v", flag, args)
 		}
+	}
+	if containsArg(args, "-ns") {
+		t.Fatalf("不应再带 -ns（本地技能自动发现按设计保持打开）: %v", args)
 	}
 	if !containsPair(args, "-e", spec.PolicyExtension) {
 		t.Fatalf("策略扩展必须显式 -e 加载，实际 %v", args)
@@ -137,6 +168,50 @@ func removeArg(args []string, drop string) []string {
 		}
 	}
 	return out
+}
+
+// TestSkillsKeepAutoDiscoveryOpen 钉住 2026-11-04 的方向调整：
+// 加载托管技能时**不再**带 -ns，Pi 的本地技能自动发现保持打开（本地技能同步过来）。
+// 托管技能本身仍通过 --skill 显式加载（它不在 Pi 的发现路径上）。
+func TestSkillsKeepAutoDiscoveryOpen(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(file, []byte("---\nname: demo\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatalf("写技能: %v", err)
+	}
+	spec := IsolationSpec{
+		PolicyExtension: file, // 复用同一路径，Validate 只检查"存在且是文件"
+		Skills:          []string{file},
+	}
+	args := spec.Args()
+	if containsArg(args, "-ns") {
+		t.Fatalf("不应再带 -ns（本地技能自动发现按设计保持打开）: %v", args)
+	}
+	if !containsPair(args, "--skill", file) {
+		t.Fatalf("托管技能应通过 --skill 显式加载，实际参数: %v", args)
+	}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("合法技能路径应通过校验: %v", err)
+	}
+}
+
+// TestValidateSkillsRejectsMissingOrRelative 守"不静默跳过"。
+func TestValidateSkillsRejectsMissingOrRelative(t *testing.T) {
+	ext := t.TempDir()
+	policy := filepath.Join(ext, "policy.ts")
+	if err := os.WriteFile(policy, []byte("export default {}"), 0o644); err != nil {
+		t.Fatalf("写策略扩展: %v", err)
+	}
+
+	rel := IsolationSpec{PolicyExtension: policy, Skills: []string{"relative/SKILL.md"}}
+	if err := rel.Validate(); err == nil {
+		t.Fatal("相对路径的技能必须被拒绝")
+	}
+
+	missing := IsolationSpec{PolicyExtension: policy, Skills: []string{filepath.Join(ext, "nope", "SKILL.md")}}
+	if err := missing.Validate(); err == nil {
+		t.Fatal("不存在的技能路径必须被拒绝，而不是悄悄少加载一个")
+	}
 }
 
 func removePair(args []string, a, b string) []string {

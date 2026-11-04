@@ -73,11 +73,14 @@ function Shell() {
         runId: snap.runId,
         state: snap.state,
         // 记的是启动那一刻的快照：provider/model 用的是这一轮真正发给 Pi 的值，
-        // 不是"现在设置里是什么"。
+        // 不是"现在设置里是什么"。技能同理：托管显式加载的 ID 与自动发现开关
+        // 都取自快照，不在界面上重新推算。
         meta: {
           provider: snap.provider ?? "",
           model: snap.model ?? "",
           configRevision: snap.configRevision,
+          managedSkills: snap.managedSkills ?? [],
+          skillAutoDiscovery: snap.skillAutoDiscovery,
         },
       });
     } catch (e) {
@@ -172,8 +175,16 @@ function Shell() {
             modelOptions={backend.modelOptions}
             modelRevision={backend.modelRevision}
             currentModel={backend.currentModel}
+            skills={backend.skills}
+            skillRevision={backend.skillRevision}
+            skillsPending={backend.skillsPending}
+            skillsActiveRun={backend.skillsActiveRun}
+            runtimeSkills={backend.status?.runtimeSkills ?? []}
+            extensions={backend.extensions}
+            extensionRevision={backend.extensionRevision}
             onChanged={() => void backend.refreshProfiles()}
             onModelsChanged={() => void backend.refreshModels()}
+            onSkillsChanged={() => void backend.refreshSkills()}
           />
         );
       case "memory":

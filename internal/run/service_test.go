@@ -349,3 +349,118 @@ func TestSnapshotRecordsModelAndConfigRevision(t *testing.T) {
 		t.Fatalf("模型凭证没有通过环境变量传给 worker: %v", gotEnv)
 	}
 }
+
+// decodeSnapshotJSON 把快照转成"字段名 → 原始 JSON"的表。
+//
+// 直接断言原始 JSON 而不是结构体：omitempty 的取舍本身就是契约的一部分
+// （哪些字段缺失等于"没记录"、哪些必须显式为空数组），只用结构体断言看不到。
+func decodeSnapshotJSON(t *testing.T, snap contracts.RunSnapshot) map[string]json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("快照不能序列化: %v", err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("快照不是合法 JSON 对象: %v\n%s", err, raw)
+	}
+	return doc
+}
+
+// TestSnapshotSeparatesManagedSkillsFromPiAutoDiscovery 守 C03 的运行记录口径。
+//
+// 2026-11-04 起产品不再用 -ns 抑制 Pi 的本地技能发现：Pi 会自己加载
+// $HOME/.agents/skills 等位置里它发现的技能，而那份清单只存在于 Pi 进程内。
+// 所以快照必须把两件事分开写：
+//   - managedSkills：这一轮通过 --skill 显式加载的托管技能（空 = 确实没显式加载）；
+//   - skillAutoDiscovery：自动发现开着还是关着（清单未知，产品不能编造）。
+//
+// 旧实现只有一个 skills 列表，空数组被界面读成"未加载任何技能"——
+// 自动发现开着时这是谎话，这条测试就是钉住那个谎话。
+func TestSnapshotSeparatesManagedSkillsFromPiAutoDiscovery(t *testing.T) {
+	opts := testOptions(t)
+	opts.SkillAutoDiscovery = contracts.SkillDiscoveryEnabled
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		return newFakeWorker(), nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap, err := svc.Start(context.Background(), StartRunRequest{Message: "hi"})
+	if err != nil {
+		t.Fatalf("启动失败: %v", err)
+	}
+	if len(snap.ManagedSkills) != 0 {
+		t.Fatalf("没有显式 --skill 时 managedSkills 必须为空，实际 %v", snap.ManagedSkills)
+	}
+	if snap.SkillAutoDiscovery != contracts.SkillDiscoveryEnabled {
+		t.Fatalf("自动发现开着时必须如实记录 enabled，实际 %q", snap.SkillAutoDiscovery)
+	}
+
+	doc := decodeSnapshotJSON(t, snap)
+	// 空 managedSkills 是"确实没显式加载"这条事实，不能靠字段缺失表达。
+	if got, ok := doc["managedSkills"]; !ok || string(got) != "[]" {
+		t.Fatalf("managedSkills 应显式序列化成 []，实际 %s（存在=%v）", got, ok)
+	}
+	if got := string(doc["skillAutoDiscovery"]); got != `"enabled"` {
+		t.Fatalf("skillAutoDiscovery 应在 JSON 里可见，实际 %s", got)
+	}
+	// 旧字段必须消失：留着它，界面又会把它当"实际加载清单"。
+	if got, ok := doc["skills"]; ok {
+		t.Fatalf("旧的 skills 字段不应再出现（会被误读成实际加载清单），实际 %s", got)
+	}
+}
+
+// TestSnapshotRecordsManagedSkillIDs 确认托管显式加载的 ID 照实进快照，
+// 而不是被"自动发现开着"盖过去。
+func TestSnapshotRecordsManagedSkillIDs(t *testing.T) {
+	opts := testOptions(t)
+	skillPath := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("---\nname: demo-skill\ndescription: 快照用\n---\n"), 0o644); err != nil {
+		t.Fatalf("写技能桩失败: %v", err)
+	}
+	opts.Isolation.Skills = []string{skillPath}
+	opts.ManagedSkillIDs = []string{"demo-skill"}
+	opts.SkillAutoDiscovery = contracts.SkillDiscoveryEnabled
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		return newFakeWorker(), nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap, err := svc.Start(context.Background(), StartRunRequest{Message: "hi"})
+	if err != nil {
+		t.Fatalf("启动失败: %v", err)
+	}
+	if len(snap.ManagedSkills) != 1 || snap.ManagedSkills[0] != "demo-skill" {
+		t.Fatalf("托管技能 ID 未进快照: %v", snap.ManagedSkills)
+	}
+	if snap.SkillAutoDiscovery != contracts.SkillDiscoveryEnabled {
+		t.Fatalf("自动发现状态丢了: %q", snap.SkillAutoDiscovery)
+	}
+}
+
+// TestSnapshotLeavesAutoDiscoveryUnknownWhenNotProvided 守"不替调用方猜"：
+// 没提供自动发现状态时快照留空（界面显示未知），不能默认成 enabled。
+func TestSnapshotLeavesAutoDiscoveryUnknownWhenNotProvided(t *testing.T) {
+	opts := testOptions(t)
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		return newFakeWorker(), nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap, err := svc.Start(context.Background(), StartRunRequest{Message: "hi"})
+	if err != nil {
+		t.Fatalf("启动失败: %v", err)
+	}
+	if snap.SkillAutoDiscovery != "" {
+		t.Fatalf("调用方没提供时不能编造自动发现状态，实际 %q", snap.SkillAutoDiscovery)
+	}
+	if _, ok := decodeSnapshotJSON(t, snap)["skillAutoDiscovery"]; ok {
+		t.Fatal("未知状态不应出现在 JSON 里：缺失=未知，界面据此显示未知")
+	}
+}

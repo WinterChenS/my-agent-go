@@ -5,7 +5,8 @@
 // 也明确写出历史为什么是空的——而不是用一个永远空着的列表假装功能已就绪。
 
 import { Activity, CheckCircle2, XCircle } from "lucide-react";
-import type { UiState } from "../../runState";
+import { managedSkillsLabel, skillAutoDiscoveryLabel } from "../../runState";
+import type { RunMeta, UiState } from "../../runState";
 import type { Workspace } from "../../types";
 import { EmptyState } from "../../components/StateViews";
 
@@ -49,6 +50,7 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
           <Row label="状态" value={PHASE_LABEL[ui.phase] ?? ui.phase} />
           <Row label="工作区" value={workspace?.canonicalPath ?? "未选择"} mono />
           <Row label="事件序号" value={String(seq)} />
+          <SkillsRow meta={ui.runMeta} />
           {/* MOD04：这一轮真正用的是什么模型、哪个配置版本，取自启动时的快照。
               换成"当前设置里的模型"就会在用户中途换模型后撒谎。 */}
           <Row
@@ -94,12 +96,56 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  mono,
+  testId,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  testId?: string;
+}) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-testid={testId}>
       <dt className="text-[10px] uppercase tracking-wide text-slate-600">{label}</dt>
       <dd className={"truncate text-slate-300 " + (mono ? "font-mono text-[10px]" : "")} title={value}>
         {value}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * 技能行：把两段事实分开写，不能合成一句。
+ *
+ *   - 托管：这一轮通过 --skill 显式加载的 ID。空 = 确实没显式加载（不是“没有技能”）。
+ *   - Pi 本地自动发现：开关状态。发现到的清单产品拿不到，所以只能写“清单未知”，
+ *     状态缺失时写“未知”，不能默认成“已关闭”或“已开启”。
+ *
+ * 旧实现只有一个托管列表，空数组直接渲染成“未加载任何技能”。2026-11-04 起
+ * Pi 会自己加载用户级技能，那句话在自动发现开启时是假的，已删。
+ */
+function SkillsRow({ meta }: { meta: RunMeta | null }) {
+  if (!meta) {
+    return <Row label="技能" value="尚未启动" testId="run-skills" />;
+  }
+  const managed = managedSkillsLabel(meta.managedSkills);
+  return (
+    <div className="min-w-0" data-testid="run-skills">
+      <dt className="text-[10px] uppercase tracking-wide text-slate-600">技能</dt>
+      <dd className="min-w-0 text-slate-300">
+        <div
+          className="truncate font-mono text-[10px]"
+          title={managed}
+          data-testid="run-managed-skills"
+        >
+          托管：{managed}
+        </div>
+        <div className="truncate text-[10px]" data-testid="run-skill-autodiscovery">
+          Pi 本地自动发现：{skillAutoDiscoveryLabel(meta.skillAutoDiscovery)}
+        </div>
       </dd>
     </div>
   );

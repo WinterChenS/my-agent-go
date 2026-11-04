@@ -9,10 +9,12 @@ import { api } from "../api";
 import type {
   CallError,
   CurrentModelResult,
+  Extension,
   ModelDefinition,
   ModelOptions,
   Profile,
   Settings,
+  SkillResource,
   Status,
   Workspace,
 } from "../types";
@@ -31,6 +33,14 @@ export interface BackendState {
   modelOptions: ModelOptions;
   /** 当前使用的模型（可能来自设置而不是资源库）。 */
   currentModel: CurrentModelResult | null;
+  /** 技能与扩展（C03）。 */
+  skills: SkillResource[];
+  skillRevision: number;
+  /** 技能改动还没被运行中的 worker 用上。 */
+  skillsPending: boolean;
+  skillsActiveRun: boolean;
+  extensions: Extension[];
+  extensionRevision: number;
   /** 首次加载尚未完成。 */
   loading: boolean;
   error: CallError | null;
@@ -46,6 +56,12 @@ const emptyState: BackendState = {
   modelRevision: 0,
   modelOptions: { apis: [], inputKinds: [], thinkingLevels: [] },
   currentModel: null,
+  skills: [],
+  skillRevision: 0,
+  skillsPending: false,
+  skillsActiveRun: false,
+  extensions: [],
+  extensionRevision: 0,
   loading: true,
   error: null,
 };
@@ -89,15 +105,25 @@ export function useBackend() {
     }));
 
     // 其余四项并行，互不阻塞：设置读不到不该拖住工作区列表。
-    const [statusRes, settingsRes, wsRes, profileRes, modelRes, curModelRes] =
-      await Promise.allSettled([
-        api.status(),
-        api.settings(),
-        api.workspaces(),
-        api.profiles(),
-        api.models(),
-        api.currentModel(),
-      ]);
+    const [
+      statusRes,
+      settingsRes,
+      wsRes,
+      profileRes,
+      modelRes,
+      curModelRes,
+      skillRes,
+      extRes,
+    ] = await Promise.allSettled([
+      api.status(),
+      api.settings(),
+      api.workspaces(),
+      api.profiles(),
+      api.models(),
+      api.currentModel(),
+      api.skills(),
+      api.extensions(),
+    ]);
 
     const next: BackendState = {
       status: statusRes.status === "fulfilled" ? statusRes.value : null,
@@ -109,6 +135,12 @@ export function useBackend() {
       modelRevision: 0,
       modelOptions: { apis: [], inputKinds: [], thinkingLevels: [] },
       currentModel: null,
+      skills: [],
+      skillRevision: 0,
+      skillsPending: false,
+      skillsActiveRun: false,
+      extensions: [],
+      extensionRevision: 0,
       loading: false,
       error: null,
     };
@@ -143,6 +175,25 @@ export function useBackend() {
 
     if (curModelRes.status === "fulfilled" && !curModelRes.value.error) {
       next.currentModel = curModelRes.value;
+    }
+
+    if (skillRes.status === "fulfilled") {
+      const r = skillRes.value;
+      if (r.error && !next.error) next.error = r.error;
+      next.skills = r.items ?? [];
+      next.skillRevision = r.revision;
+      next.skillsPending = r.pending;
+      next.skillsActiveRun = r.activeRun;
+    } else if (!next.error) {
+      next.error = toCallError(skillRes.reason);
+    }
+
+    if (extRes.status === "fulfilled") {
+      if (extRes.value.error && !next.error) next.error = extRes.value.error;
+      next.extensions = extRes.value.items ?? [];
+      next.extensionRevision = extRes.value.revision;
+    } else if (!next.error) {
+      next.error = toCallError(extRes.reason);
     }
 
     // status 读不到通常是应用壳还没就绪；这属于致命失败，必须显示出来。
@@ -204,6 +255,31 @@ export function useBackend() {
     if (res) setState((prev) => ({ ...prev, status: res }));
   }, []);
 
+  /**
+   * 刷新技能与扩展。
+   *
+   * 同时刷 Status：技能是否"已生效"只有对比运行中的摘要才知道，
+   * 而这个结论在 Status 里。只刷列表会让"下次生效"的提示停留在旧值上。
+   */
+  const refreshSkills = useCallback(async () => {
+    const [res, ext, status] = await Promise.all([
+      api.skills(),
+      api.extensions(),
+      api.status().catch(() => null),
+    ]);
+    setState((prev) => ({
+      ...prev,
+      skills: res.error ? prev.skills : res.items ?? [],
+      skillRevision: res.error ? prev.skillRevision : res.revision,
+      skillsPending: res.error ? prev.skillsPending : res.pending,
+      skillsActiveRun: res.error ? prev.skillsActiveRun : res.activeRun,
+      extensions: ext.error ? prev.extensions : ext.items ?? [],
+      extensionRevision: ext.error ? prev.extensionRevision : ext.revision,
+      status: status ?? prev.status,
+      error: res.error ?? prev.error,
+    }));
+  }, []);
+
   /** 只刷新 Profile，用于保存后同步 revision。 */
   const refreshProfiles = useCallback(async () => {
     const res = await api.profiles();
@@ -221,5 +297,6 @@ export function useBackend() {
     refreshProfiles,
     refreshModels,
     refreshStatus,
+    refreshSkills,
   };
 }

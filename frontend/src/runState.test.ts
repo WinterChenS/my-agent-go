@@ -7,7 +7,15 @@
 // 断言的都是会真的出现在用户眼前的行为：气泡数量、流式标记、工具卡状态、
 // 审批条内容。不测实现细节（比如内部数组的引用是否变化）。
 import { describe, expect, it } from "vitest";
-import { initialState, isTerminal, reduce, type UiState, type UiAction } from "./runState";
+import {
+  initialState,
+  isTerminal,
+  managedSkillsLabel,
+  reduce,
+  skillAutoDiscoveryLabel,
+  type UiState,
+  type UiAction,
+} from "./runState";
 import type { ProductEvent } from "./types";
 
 let seq = 0;
@@ -262,30 +270,62 @@ describe("错误与诊断", () => {
 // MOD04：这一轮用的是哪个 provider/模型、哪个配置 revision，必须来自启动时的
 // 快照。写成"当前设置里的模型"就会在用户中途换模型之后撒谎——那一轮用的
 // 仍然是启动时那个。
+// C03：技能同理，而且必须分两段——托管显式加载的清单 + 自动发现开关。
 describe("run_started 记录实际使用的模型", () => {
   it("保存 provider/模型/配置 revision", () => {
     const s = reduce(started(), {
       kind: "run_started",
       runId: "run-meta",
       state: "running",
-      meta: { provider: "deepseek", model: "deepseek-v4.1-flash", configRevision: 4 },
+      meta: {
+        provider: "deepseek",
+        model: "deepseek-v4.1-flash",
+        configRevision: 4,
+        managedSkills: ["demo-skill"],
+        skillAutoDiscovery: "enabled",
+      },
     });
     expect(s.runMeta).toEqual({
       provider: "deepseek",
       model: "deepseek-v4.1-flash",
       configRevision: 4,
+      managedSkills: ["demo-skill"],
+      skillAutoDiscovery: "enabled",
     });
   });
 
   it("没有 meta 时不清空上一轮记录，也不编造", () => {
+    const meta = {
+      provider: "p",
+      model: "m",
+      configRevision: 3,
+      managedSkills: [],
+      skillAutoDiscovery: "enabled" as const,
+    };
     const first = reduce(started(), {
       kind: "run_started",
       runId: "run-a",
       state: "running",
-      meta: { provider: "p", model: "m", configRevision: 3 },
+      meta,
     });
     const second = reduce(first, { kind: "run_started", runId: "run-b", state: "running" });
-    expect(second.runMeta).toEqual({ provider: "p", model: "m", configRevision: 3 });
+    expect(second.runMeta).toEqual(meta);
     expect(initialState.runMeta).toBeNull();
+  });
+});
+
+// C03：技能的两段事实必须能分开读。托管空数组不是"没有技能"，
+// 自动发现状态缺失也不是"已关闭"。
+describe("技能事实的展示文案", () => {
+  it("托管为空只能写「未显式加载」，不能写「没有技能」", () => {
+    expect(managedSkillsLabel([])).toBe("未显式加载");
+    expect(managedSkillsLabel(["demo-skill"])).toBe("demo-skill");
+    expect(managedSkillsLabel([])).not.toContain("没有技能");
+  });
+
+  it("自动发现三态：开着=清单未知，关着=已关闭，没记录=未知", () => {
+    expect(skillAutoDiscoveryLabel("enabled")).toBe("已开启（清单未知）");
+    expect(skillAutoDiscoveryLabel("disabled")).toBe("已关闭");
+    expect(skillAutoDiscoveryLabel(undefined)).toBe("未知");
   });
 });

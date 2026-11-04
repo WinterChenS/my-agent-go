@@ -93,8 +93,21 @@ func (d *Desktop) resourceServices() (*resources.Service, error) {
 			d.creds = creds
 		}
 	}
-	d.modelSvc = resources.New(store, d.creds)
+	d.modelSvc = resources.New(store, d.creds,
+		resources.WithLayout(resources.NewLayout(d.root)),
+		// 系统策略扩展的位置由仓库决定；解析失败时不阻塞模型功能，
+		// 只在列扩展时缺少那一条（界面会因此没有"系统资源"可展示）。
+		resources.WithSystemExtension(d.systemExtensionPath()),
+	)
 	return d.modelSvc, nil
+}
+
+// systemExtensionPath 尽力解析策略扩展路径；找不到返回空串。
+func (d *Desktop) systemExtensionPath() string {
+	if p, err := findPolicyExtension(); err == nil {
+		return p
+	}
+	return ""
 }
 
 func modelOptions() ModelOptions {

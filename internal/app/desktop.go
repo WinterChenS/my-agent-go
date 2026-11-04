@@ -78,10 +78,21 @@ type Status struct {
 	RuntimeProvider string `json:"runtimeProvider"`
 	RuntimeModel    string `json:"runtimeModel"`
 	// RuntimePending 为 true 表示模型已改，但还有 run 在跑，等空闲才生效。
-	RuntimePending bool   `json:"runtimePending"`
-	Isolation      string `json:"isolation"`
-	PolicyActive   bool   `json:"policyActive"`
-	Platform       string `json:"platform"`
+	RuntimePending bool `json:"runtimePending"`
+	// RuntimeSkills 是最近一次构建**托管且启用**、并通过 --skill 显式交给 Pi 的
+	// 技能 ID（RES02）。空表示没有托管技能被显式加载，**不是**"没有技能可用"：
+	// Pi 自己的自动发现仍可能加载了它发现的技能。
+	RuntimeSkills []string `json:"runtimeSkills"`
+	// SkillAutoDiscovery 是当前运行参数下 Pi 侧技能自动发现的状态
+	// （contracts.SkillDiscoveryEnabled / Disabled）。自动发现到的清单产品拿不到，
+	// 所以这里只有开关，没有名次。
+	SkillAutoDiscovery string `json:"skillAutoDiscovery"`
+	// SkillsPending 表示托管技能的配置与运行中的不一致（内容摘要或集合变了，
+	// 要等下一个 run 才生效）。
+	SkillsPending bool   `json:"skillsPending"`
+	Isolation     string `json:"isolation"`
+	PolicyActive  bool   `json:"policyActive"`
+	Platform      string `json:"platform"`
 }
 
 // Desktop 是绑定到前端的服务对象。
@@ -107,6 +118,10 @@ type Desktop struct {
 	modelSvc   *resources.Service
 	creds      credentials.Store
 
+	// workerStarter 允许测试注入假 worker；nil 时 RunService 用真实的 pi.StartWorker。
+	// 生产路径不设它。
+	workerStarter run.WorkerStarter
+
 	// rtMu 串行化运行时构建/重建，避免两次 Start 同时建出两个 Pi 运行时。
 	rtMu sync.Mutex
 	// runtimeKey 描述当前运行时的模型来源；模型或配置变了就要重建。
@@ -115,6 +130,13 @@ type Desktop struct {
 	// runtimeProvider/Model 是最近一次构建实际使用的模型（诊断展示用）。
 	runtimeProvider string
 	runtimeModel    string
+	// runtimeSkills/Digest 是最近一次构建**托管且启用**的技能集合（RES02 的"旧 run 保持快照"）。
+	// 它只是"显式 --skill 的那几条"，不是 Pi 实际可见的全部技能。
+	// Digest 同时参与运行时签名：编辑 SKILL.md 内容不会改配置 revision，
+	// 只有内容摘要能发现"技能变了"。
+	runtimeSkills       []string
+	runtimeSkillDigest  string
+	runtimeExtensionDig string
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -263,6 +285,34 @@ func isolationSpec(policyExt string) pi.IsolationSpec {
 	return pi.IsolationSpec{PolicyExtension: policyExt, HarnessMCP: true}
 }
 
+// isolationSpecWith 在隔离参数上追加本次要加载的技能与托管扩展。
+//
+// 单独一个函数而不是改 isolationSpec 的签名：Status 只需要"隔离参数"，
+// 给它多传两个参数会让展示路径与启动路径的构造点再次分叉。
+func isolationSpecWith(policyExt string, skills, extraExts []string) pi.IsolationSpec {
+	return pi.IsolationSpec{
+		PolicyExtension: policyExt,
+		HarnessMCP:      true,
+		ExtraExtensions: extraExts,
+		Skills:          skills,
+	}
+}
+
+// skillAutoDiscoveryFromArgs 从**实际交给 Pi 的参数**读出技能自动发现的状态。
+//
+// 判据只有一个：参数里到底有没有抑制发现的 flag（-ns / --no-skills）。
+// 不另立一个"设置项"：历史上界面显示 --no-mcp、实际却启用了 MCP，
+// 就是因为展示侧和启动侧各写了一份"应该是什么"。这里两边读同一份 args。
+func skillAutoDiscoveryFromArgs(args []string) string {
+	for _, a := range args {
+		switch a {
+		case "-ns", "--no-skills":
+			return contracts.SkillDiscoveryDisabled
+		}
+	}
+	return contracts.SkillDiscoveryEnabled
+}
+
 // Status 返回环境概览。
 func (d *Desktop) Status() Status {
 	d.mu.Lock()
@@ -290,22 +340,42 @@ func (d *Desktop) Status() Status {
 	d.mu.Lock()
 	runtimeProvider := d.runtimeProvider
 	runtimeModel := d.runtimeModel
+	runtimeSkills := append([]string{}, d.runtimeSkills...)
+	runtimeSkillDigest := d.runtimeSkillDigest
 	pending := d.pendingRuntimeKey != "" && d.pendingRuntimeKey != d.runtimeKey
 	d.mu.Unlock()
 
+	// 自动发现的状态从同一份 args 推出：展示值与实际启动参数同源。
+	autoDiscovery := skillAutoDiscoveryFromArgs(args)
+
+	// 运行中的托管技能摘要与当前配置不一致 → 说明改了还没生效。
+	// 这里只做"能不能读配置"的降级：读不出来时保守地不说"已生效"。
+	//
+	// 不随着"自动发现开着"退化成永远 false：自动发现不改变托管技能的台账，
+	// 而用户真正要确认的是"我刚启用的那条托管技能到底进了参数没有"。
+	skillsPending := false
+	if runtimeSkillDigest != "" {
+		if plan, planErr := d.compileSkills(); planErr == nil {
+			skillsPending = plan.Digest != runtimeSkillDigest
+		}
+	}
+
 	st := Status{
-		AppRoot:         d.root,
-		AgentDir:        d.agentDir(),
-		PiPath:          s.PiPath,
-		Provider:        s.Provider,
-		Model:           s.Model,
-		ModelRef:        s.ModelRef,
-		Workspace:       s.Workspace,
-		Platform:        runtime.GOOS + "/" + runtime.GOARCH,
-		Isolation:       strings.Join(args, " "),
-		RuntimeProvider: runtimeProvider,
-		RuntimeModel:    runtimeModel,
-		RuntimePending:  pending,
+		AppRoot:            d.root,
+		AgentDir:           d.agentDir(),
+		PiPath:             s.PiPath,
+		Provider:           s.Provider,
+		Model:              s.Model,
+		ModelRef:           s.ModelRef,
+		Workspace:          s.Workspace,
+		Platform:           runtime.GOOS + "/" + runtime.GOARCH,
+		Isolation:          strings.Join(args, " "),
+		RuntimeProvider:    runtimeProvider,
+		RuntimeModel:       runtimeModel,
+		RuntimePending:     pending,
+		RuntimeSkills:      runtimeSkills,
+		SkillAutoDiscovery: autoDiscovery,
+		SkillsPending:      skillsPending,
 	}
 	st.PolicyActive = true
 	return st
@@ -456,9 +526,16 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 技能与扩展也在签名里：换模型、改技能、开关扩展都必须重建运行时，
+	// 否则"界面显示已启用、Pi 根本没加载"这种偏差会一直存在。
+	skills, extPlan, err := d.resolveRuntimeResources()
+	if err != nil {
+		return nil, err
+	}
+	key := setup.key() + "|sk:" + skills.Digest + "|ex:" + extPlan.Digest
 
 	d.mu.Lock()
-	if d.svc != nil && d.runtimeKey == setup.key() {
+	if d.svc != nil && d.runtimeKey == key {
 		svc := d.svc
 		d.mu.Unlock()
 		return svc, nil
@@ -466,12 +543,13 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	existing := d.svc
 	emitter := d.emitter
 	s := d.settings
+	workerStarter := d.workerStarter
 	d.mu.Unlock()
 
 	if existing != nil {
 		if existing.ActiveCount() > 0 || existing.QueuedCount() > 0 {
 			d.mu.Lock()
-			d.pendingRuntimeKey = setup.key()
+			d.pendingRuntimeKey = key
 			d.mu.Unlock()
 			return existing, nil
 		}
@@ -545,6 +623,11 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		return nil, err
 	}
 
+	// 技能+扩展的隔离参数只在这里构造一次：下面既用它启动 Pi，也用它推出
+	// "技能自动发现开着还是关着"。两边读同一份 args，展示与执行不会分叉。
+	iso := isolationSpecWith(ext, skills.Paths, extPlan.Paths)
+	isolationArgs := iso.Args()
+
 	svc := run.New(run.Options{
 		WorkspaceID:  "ws-default",
 		SessionID:    contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix())),
@@ -553,13 +636,18 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		Installation: inst,
 		// HarnessMCP=true 会以 `-e builtin:mcp` 重新启用内置 MCP（-ne 会连带关掉它）。
 		// 项目级 .pi/mcp.json 仍被 -na 切断，能连上的只有 agentDir 里我们自己写的那一条。
-		Isolation:      isolationSpec(ext),
+		Isolation:      iso,
 		Provider:       setup.Provider,
 		Model:          setup.Model,
 		ConfigRevision: setup.Revision,
 		ModelEnv:       setup.Env,
-		Policy:         pol,
-		HarnessEnv:     harness.Env(),
+		// 快照记的是这一轮通过 --skill 显式加载的托管技能 ID（RES02），
+		// 以及 Pi 自己发现技能的那个开关。两者分开：托管为空不等于没有技能。
+		ManagedSkillIDs:    skills.IDs,
+		SkillAutoDiscovery: skillAutoDiscoveryFromArgs(isolationArgs),
+		Policy:             pol,
+		HarnessEnv:         harness.Env(),
+		StartWorker:        workerStarter,
 	})
 	if emitter != nil {
 		svc.Subscribe(emitter)
@@ -567,12 +655,49 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 
 	d.mu.Lock()
 	d.svc = svc
-	d.runtimeKey = setup.key()
+	d.runtimeKey = key
 	d.runtimeProvider = setup.Provider
 	d.runtimeModel = setup.Model
+	d.runtimeSkills = append([]string{}, skills.IDs...)
+	d.runtimeSkillDigest = skills.Digest
+	d.runtimeExtensionDig = extPlan.Digest
 	d.pendingRuntimeKey = ""
 	d.mu.Unlock()
 	return svc, nil
+}
+
+// resolveRuntimeResources 计算本次运行要加载的技能与扩展。
+//
+// 扩展里包含系统策略扩展（它是 CompileExtensions 的第一项）；它已经通过
+// IsolationSpec.PolicyExtension 以 -e 传下去了，这里必须排除，否则同一个
+// 扩展会被加载两次。
+func (d *Desktop) resolveRuntimeResources() (resources.SkillPlan, resources.ExtensionPlan, error) {
+	svc, err := d.resourceServices()
+	if err != nil {
+		return resources.SkillPlan{}, resources.ExtensionPlan{}, err
+	}
+	skills, err := svc.CompileSkills(context.Background(), defaultWorkspaceID)
+	if err != nil {
+		return resources.SkillPlan{}, resources.ExtensionPlan{}, err
+	}
+	svc.SetSystemExtension(d.systemExtensionPath())
+	exts, err := svc.CompileExtensions(context.Background())
+	if err != nil {
+		return resources.SkillPlan{}, resources.ExtensionPlan{}, err
+	}
+	policy := d.systemExtensionPath()
+	kept := make([]string, 0, len(exts.Paths))
+	keptIDs := make([]string, 0, len(exts.IDs))
+	for i, p := range exts.Paths {
+		if policy != "" && strings.EqualFold(filepath.Clean(p), filepath.Clean(policy)) {
+			continue
+		}
+		kept = append(kept, p)
+		keptIDs = append(keptIDs, exts.IDs[i])
+	}
+	exts.Paths = kept
+	exts.IDs = keptIDs
+	return skills, exts, nil
 }
 
 // resolveInstallation 把设置里的 Pi 路径转成可启动的安装件。

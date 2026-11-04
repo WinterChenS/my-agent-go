@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Loader2, Save } from "lucide-react";
 import type { CallError, Settings, Status, Workspace } from "../../types";
 import { ErrorState } from "../../components/StateViews";
+import { managedSkillsLabel, skillAutoDiscoveryLabel } from "../../runState";
 
 export interface SettingsViewProps {
   /** 由外层保证非空：设置读不到时根本不会渲染这一页。 */
@@ -184,11 +185,29 @@ export function SettingsView({
           {status?.runtimePending && (
             <DiagRow label="模型变更" value="已保存，等当前 run 结束后生效" />
           )}
+          {/* 技能同样是两段事实：托管显式加载的清单，与 Pi 自动发现的开关。
+              自动发现到的清单产品拿不到，只报开关；缺数据时写“未知”。 */}
+          <DiagRow
+            label="托管技能"
+            value={managedSkillsLabel(status?.runtimeSkills ?? [])}
+            mono
+            testId="settings-managed-skills"
+          />
+          <DiagRow
+            label="自动发现"
+            value={skillAutoDiscoveryLabel(status?.skillAutoDiscovery)}
+            testId="settings-skill-autodiscovery"
+          />
+          {status?.skillsPending && (
+            <DiagRow label="技能变更" value="已保存，等当前 run 结束后生效" />
+          )}
           <DiagRow label="隔离参数" value={isolation.join(" ") || "—"} mono />
         </dl>
         <p className="mt-1.5 text-[10px] leading-relaxed text-slate-600">
           隔离参数是实际传给 Pi 的那一份，包括显式加载的策略扩展。
           与会话目录相关的 flag 不在其中，因为它每次运行不同。
+          "托管技能"只列我们用 --skill 显式加载的条目；Pi 自己发现到的技能清单拿不到，
+          所以只能报自动发现的开关状态。
         </p>
       </section>
     </div>
@@ -227,9 +246,19 @@ function Field({
   );
 }
 
-function DiagRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function DiagRow({
+  label,
+  value,
+  mono,
+  testId,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  testId?: string;
+}) {
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-2" data-testid={testId}>
       <dt className="w-20 shrink-0 text-slate-600">{label}</dt>
       <dd className={"min-w-0 flex-1 break-all text-slate-400 " + (mono ? "font-mono text-[10px]" : "")}>
         {value}

@@ -52,6 +52,22 @@ type Options struct {
 	// 不写进 models.json。与 HarnessEnv 分开是因为二者的生命周期与来源不同。
 	ModelEnv []string
 
+	// ManagedSkillIDs 是这一轮通过 --skill 显式加载的托管技能 ID，仅用于快照
+	// （RES02：旧 run 保持快照）。真正让技能生效的是 Isolation.Skills 里的路径，
+	// 两者由同一次技能编译产出，ID 与路径不会分叉。
+	//
+	// 空表示没有显式加载托管技能，**不表示这一轮没有任何技能**：Pi 自己发现的
+	// 技能由 SkillAutoDiscovery 描述，清单没有可信来源。
+	ManagedSkillIDs []string
+
+	// SkillAutoDiscovery 是这一轮 Pi 侧技能自动发现的开关状态
+	// （contracts.SkillDiscoveryEnabled / contracts.SkillDiscoveryDisabled）。
+	//
+	// 必须由绑定层从**实际传给 Pi 的参数**推出来，不在这里写死 "enabled"：
+	// 一旦有人把 -ns 加回隔离参数，写死值会立刻变成谎话。留空表示调用方没提供，
+	// 快照里如实留空（界面显示未知），不替它猜。
+	SkillAutoDiscovery string
+
 	// Policy 为空时不启用执行前授权端点。生产路径必须提供：
 	// 没有端点时策略扩展 fail-closed，工具调用一律被拒。
 	Policy *policy.Service
@@ -166,6 +182,10 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 			PiVersion:      s.opts.Installation.Version,
 			Provider:       s.opts.Provider,
 			Model:          s.opts.Model,
+			// 两段技能事实分开写：托管显式加载的 ID 清单 + Pi 自动发现的开关。
+			// 空数组照样序列化成 []（不是 null/缺失），避免被读成"没记录"。
+			ManagedSkills:      append([]string{}, s.opts.ManagedSkillIDs...),
+			SkillAutoDiscovery: s.opts.SkillAutoDiscovery,
 		},
 		pending: map[string]policy.ApprovalRequest{},
 		done:    make(chan struct{}),

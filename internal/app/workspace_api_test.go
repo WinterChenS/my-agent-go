@@ -146,10 +146,14 @@ func TestStatusIsolationIsBoundToRuntimeSpec(t *testing.T) {
 	if !strings.Contains(pre.Isolation, "-e builtin:mcp") {
 		t.Fatalf("诊断应显示 -e builtin:mcp: %q", pre.Isolation)
 	}
-	for _, flag := range []string{"-na", "-nc", "-ne", "-ns", "-np", "--no-themes"} {
+	for _, flag := range []string{"-na", "-nc", "-ne", "-np", "--no-themes"} {
 		if !strings.Contains(pre.Isolation, flag) {
 			t.Fatalf("诊断缺少隔离参数 %s: %q", flag, pre.Isolation)
 		}
+	}
+	// 技能自动发现按 2026-11-04 方向保持打开，诊断里不应再出现 -ns。
+	if strings.Contains(pre.Isolation, "-ns") {
+		t.Fatalf("诊断不应再带 -ns（本地技能自动发现按设计保持打开）: %q", pre.Isolation)
 	}
 
 	ext := filepath.Join(t.TempDir(), "harness-policy.ts")

@@ -37,12 +37,22 @@ vi.mock("../../api", () => ({
   },
 }));
 
+// C03 之后资源库还包含技能与扩展；这几条测试只关心配置档，
+// 但仍要满足 props（否则"缺字段"会掩盖真正的断言失败）。
 const modelProps = {
   models: [],
   modelOptions: { apis: ["openai-completions"], inputKinds: ["text"], thinkingLevels: ["low"] },
   modelRevision: 0,
   currentModel: null,
+  skills: [],
+  skillRevision: 0,
+  skillsPending: false,
+  skillsActiveRun: false,
+  runtimeSkills: [],
+  extensions: [],
+  extensionRevision: 0,
   onModelsChanged: () => {},
+  onSkillsChanged: () => {},
 };
 
 describe("ResourcesView", () => {

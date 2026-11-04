@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -60,16 +61,47 @@ type Set struct {
 	Revision uint64            `json:"revision"`
 }
 
-// Service 提供模型定义的读写与编译。
+// Service 提供模型、技能与扩展资源的读写与编译。
 type Service struct {
 	store *config.Store
 	creds credentials.Store
+	// layout 是托管资源目录（技能、扩展）的位置。零值时技能相关操作会明确报错，
+	// 而不是把文件写到一个相对当前目录的意外位置。
+	layout Layout
+	// systemExtension 是本产品的策略扩展路径；它作为不可关闭的系统资源列出。
+	systemExtension string
+	// lookPath 用于检查技能声明的依赖命令是否存在。测试可注入。
+	lookPath func(string) (string, error)
 }
 
-// New 构造模型服务。creds 可以为 nil（仅有单元测试会这样用），
+// Option 调整 Service 的可选依赖。
+type Option func(*Service)
+
+// WithLayout 指定托管资源目录。
+func WithLayout(l Layout) Option { return func(s *Service) { s.layout = l } }
+
+// WithSystemExtension 指定系统策略扩展路径。
+func WithSystemExtension(p string) Option {
+	return func(s *Service) { s.systemExtension = p }
+}
+
+// WithLookPath 替换依赖检查实现（只影响测试）。
+func WithLookPath(fn func(string) (string, error)) Option {
+	return func(s *Service) {
+		if fn != nil {
+			s.lookPath = fn
+		}
+	}
+}
+
+// New 构造资源服务。creds 可以为 nil（仅有单元测试会这样用），
 // 此时任何涉及密钥的保存都会明确失败，而不是悄悄退化成明文。
-func New(store *config.Store, creds credentials.Store) *Service {
-	return &Service{store: store, creds: creds}
+func New(store *config.Store, creds credentials.Store, opts ...Option) *Service {
+	s := &Service{store: store, creds: creds, lookPath: exec.LookPath}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // supportedAPIs 是允许用户选择的协议实现。
@@ -721,87 +753,19 @@ func decodeModels(body json.RawMessage) ([]ModelDefinition, error) {
 }
 
 func rawModels(body json.RawMessage) ([]json.RawMessage, error) {
-	if len(body) == 0 {
-		return nil, nil
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, contracts.NewAppError(contracts.CodeConfigConflict,
-			"用户配置解析失败: "+err.Error(), false)
-	}
-	raw, ok := fields["models"]
-	if !ok {
-		return nil, nil
-	}
-	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, contracts.NewAppError(contracts.CodeConfigConflict,
-			"用户配置的 models 不是数组: "+err.Error(), false)
-	}
-	return items, nil
-}
-
-// idOf 取一条原始资源的 id，用于按 ID 替换。
-func idOf(raw json.RawMessage) string {
-	var v struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return ""
-	}
-	return v.ID
+	return rawField(body, "models")
 }
 
 // upsertModel 在保留同层其它字段的前提下按 ID 写入一条模型。
 func upsertModel(old json.RawMessage, def ModelDefinition) (json.RawMessage, error) {
-	items, err := rawModels(old)
-	if err != nil {
-		return nil, err
-	}
 	encoded, err := json.Marshal(def)
 	if err != nil {
 		return nil, contracts.NewAppError(contracts.CodeInternal, "序列化模型定义失败: "+err.Error(), false)
 	}
-	out := make([]json.RawMessage, 0, len(items)+1)
-	replaced := false
-	for _, raw := range items {
-		if idOf(raw) == def.ID {
-			out = append(out, encoded)
-			replaced = true
-			continue
-		}
-		out = append(out, raw)
-	}
-	if !replaced {
-		out = append(out, encoded)
-	}
-	return withModels(old, out)
+	return upsertEncoded(old, "models", def.ID, encoded)
 }
 
 // withModels 把 models 数组写回 body，保留其它顶层字段。
 func withModels(old json.RawMessage, items []json.RawMessage) (json.RawMessage, error) {
-	fields := map[string]json.RawMessage{}
-	if len(old) > 0 {
-		if err := json.Unmarshal(old, &fields); err != nil {
-			return nil, contracts.NewAppError(contracts.CodeConfigConflict,
-				"用户配置解析失败: "+err.Error(), false)
-		}
-	}
-	if _, ok := fields["schemaVersion"]; !ok {
-		v, err := json.Marshal(config.ConfigSchemaVersion)
-		if err != nil {
-			return nil, contracts.NewAppError(contracts.CodeInternal, "序列化 schemaVersion 失败: "+err.Error(), false)
-		}
-		fields["schemaVersion"] = v
-	}
-	encoded, err := json.Marshal(items)
-	if err != nil {
-		return nil, contracts.NewAppError(contracts.CodeInternal, "序列化模型列表失败: "+err.Error(), false)
-	}
-	fields["models"] = encoded
-	out, err := json.Marshal(fields)
-	if err != nil {
-		return nil, contracts.NewAppError(contracts.CodeInternal, "序列化用户配置失败: "+err.Error(), false)
-	}
-	return out, nil
+	return withField(old, "models", items)
 }

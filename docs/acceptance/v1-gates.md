@@ -107,7 +107,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | MOD03 | C02 | ALL | 旧Pi auth无读取/修改，客户端key显式输入OS库；未知模型能力标unknown |
 | MOD04 | C02 | ALL | model切换在新run或明确支持的安全点生效，记录真实provider/model及配置revision |
 | RES01 | C03 | HOST | 本地skill导入校验、编辑、删除、启停真实落盘；不改源目录、不执行导入脚本 |
-| RES02 | C03 | ALL | 禁用skill后新run不加载；同名自动发现副本不能绕过；旧run保持快照 |
+| RES02 | C03 | ALL | 纯托管skill禁用后新run不加载；同名自动发现副本按2026-11-04用户指令同步（禁用不保证消失、启用也不保证覆盖）；运行记录不得把托管清单冒充实际加载清单；旧run保持快照（ADR 0003） |
 | RES03 | C03 | HOST | skill依赖缺失显示原因；恶意路径/损坏frontmatter被拒；不自动安装外部工具 |
 | RES04 | C03/C04 | ALL | 系统policy扩展不可关闭；工具启停影响实际执行，不只是菜单可见性 |
 | MCP01 | C04 | ALL | stdio/HTTP两类经真实Pi发现与调用fixture工具，各一个成功 |

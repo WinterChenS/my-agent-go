@@ -14,6 +14,15 @@ export type RunState =
   | "cancelled"
   | "interrupted";
 
+/**
+ * Pi 技能自动发现的开关状态。
+ *
+ * 2026-11-04 起产品不再用 -ns 抑制 Pi 的本地技能发现，Pi 会自己加载
+ * $HOME/.agents/skills 等位置里它发现的技能。那份清单产品拿不到，
+ * 只有开关状态可信；缺失表示这次 run/这份状态没记录（界面显示“未知”）。
+ */
+export type SkillAutoDiscovery = "enabled" | "disabled";
+
 export interface RunSnapshot {
   runId: string;
   sessionId: string;
@@ -25,6 +34,18 @@ export interface RunSnapshot {
   /** 这次 run 实际使用的 provider 键与模型名（MOD04）。 */
   provider?: string;
   model?: string;
+  /**
+   * 这一轮通过 --skill 显式加载的托管技能 ID（RES02：旧 run 保持快照）。
+   *
+   * 空数组 = 确实没有显式加载托管技能，**不是**“这一轮没有任何技能”：
+   * Pi 自动发现的技能不在这个列表里（见 skillAutoDiscovery）。
+   */
+  managedSkills?: string[];
+  /**
+   * 这一轮 Pi 侧技能自动发现的开关。字段缺失表示没记录，界面必须显示“未知”。
+   * 自动发现到的清单产品无法可信列出——不能把它当成空列表。
+   */
+  skillAutoDiscovery?: SkillAutoDiscovery;
   error?: { code: string; message: string };
 }
 
@@ -57,6 +78,15 @@ export interface Status {
   runtimeModel: string;
   /** 模型已改但还有 run 在跑，等空闲才生效。 */
   runtimePending: boolean;
+  /**
+   * 最近一次构建**托管且启用**、通过 --skill 显式交给 Pi 的技能 ID（RES02）。
+   * 空 = 没有托管技能被显式加载；不是“没有技能可用”——Pi 自动发现仍可能加载了技能。
+   */
+  runtimeSkills: string[];
+  /** 当前参数下 Pi 侧技能自动发现的开关（enabled / disabled；缺失=未知）。 */
+  skillAutoDiscovery?: SkillAutoDiscovery;
+  /** 托管技能的配置与运行中的不一致（内容摘要或集合变了）。 */
+  skillsPending: boolean;
 }
 
 export interface Settings {
@@ -262,5 +292,88 @@ export interface ModelAction {
   ref: string;
   /** 有 run 在跑：新模型要等空闲才生效。 */
   deferred: boolean;
+  error?: CallError;
+}
+
+// ---- C03：技能与扩展 ----
+
+export type ResourceScope = "user" | "workspace";
+
+export interface SkillResource {
+  id: string;
+  name: string;
+  description: string;
+  /** 托管目录里 SKILL.md 的绝对路径。 */
+  path: string;
+  scope: ResourceScope;
+  workspaceId?: string;
+  enabled: boolean;
+  origin: string;
+  revision: number;
+  hash: string;
+  dependencies: string[] | null;
+  /** 声明了但在本机 PATH 上找不到的依赖。 */
+  missingDependencies: string[] | null;
+  /** false 表示不会被交给 Pi，原因在 unavailableReason。 */
+  available: boolean;
+  unavailableReason?: string;
+  disableModelInvocation: boolean;
+  bytes: number;
+}
+
+export interface SkillListResult {
+  items: SkillResource[] | null;
+  revision: number;
+  /** 当前有 run 在跑（改动要等它结束）。 */
+  activeRun: boolean;
+  /** 配置里的技能集合与运行中的不一致。 */
+  pending: boolean;
+  /**
+   * 运行中的 worker **显式加载的托管技能**（--skill）。
+   * 不含 Pi 自动发现的技能：那份清单没有可信来源。
+   */
+  runtimeSkills: string[] | null;
+  error?: CallError;
+}
+
+export interface SkillResult {
+  item: SkillResource;
+  revision: number;
+  pending: boolean;
+  error?: CallError;
+}
+
+export interface SkillContentResult {
+  item: SkillResource;
+  content: string;
+  error?: CallError;
+}
+
+export interface Extension {
+  id: string;
+  name: string;
+  path: string;
+  /** 系统资源：不可关闭。 */
+  system: boolean;
+  /** 扩展本身就是在 Pi 进程里执行的代码。 */
+  executable: boolean;
+  enabled: boolean;
+  origin: "system" | "local" | string;
+  canDisable: boolean;
+  /** 信任边界说明，直接展示给用户。 */
+  note: string;
+  revision: number;
+  hash: string;
+}
+
+export interface ExtensionListResult {
+  items: Extension[] | null;
+  revision: number;
+  error?: CallError;
+}
+
+export interface ExtensionResult {
+  item: Extension;
+  revision: number;
   error?: CallError;
 }

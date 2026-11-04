@@ -5,6 +5,11 @@
 import { Call, Events } from "@wailsio/runtime";
 import type {
   CurrentModelResult,
+  ExtensionListResult,
+  ExtensionResult,
+  SkillContentResult,
+  SkillListResult,
+  SkillResult,
   ModelAction,
   ModelDefinition,
   ModelListResult,
@@ -110,6 +115,54 @@ export const api = {
 
   currentModel: (): Promise<CurrentModelResult> =>
     Call.ByName(`${FQN}.CurrentModel`),
+
+  // ---- C03：技能与扩展 ----
+
+  skills: (): Promise<SkillListResult> => Call.ByName(`${FQN}.ListSkills`),
+
+  /** 只接受本地目录（复制进产品托管目录，不改源目录）。 */
+  importSkill: (
+    path: string,
+    scope: string,
+    workspaceId: string
+  ): Promise<SkillResult> => Call.ByName(`${FQN}.ImportSkill`, path, scope, workspaceId),
+
+  overwriteSkill: (
+    id: string,
+    path: string,
+    expectedRevision: number
+  ): Promise<SkillResult> =>
+    Call.ByName(`${FQN}.OverwriteSkill`, id, path, expectedRevision),
+
+  readSkill: (id: string): Promise<SkillContentResult> =>
+    Call.ByName(`${FQN}.ReadSkill`, id),
+
+  saveSkill: (
+    id: string,
+    expectedRevision: number,
+    content: string
+  ): Promise<SkillResult> =>
+    Call.ByName(`${FQN}.SaveSkill`, id, expectedRevision, content),
+
+  setSkillEnabled: (
+    id: string,
+    expectedRevision: number,
+    enabled: boolean
+  ): Promise<SkillResult> =>
+    Call.ByName(`${FQN}.SetSkillEnabled`, id, expectedRevision, enabled),
+
+  deleteSkill: (expectedRevision: number, id: string): Promise<SkillResult> =>
+    Call.ByName(`${FQN}.DeleteSkill`, expectedRevision, id),
+
+  extensions: (): Promise<ExtensionListResult> =>
+    Call.ByName(`${FQN}.ListExtensions`),
+
+  setExtensionEnabled: (
+    id: string,
+    expectedRevision: number,
+    enabled: boolean
+  ): Promise<ExtensionResult> =>
+    Call.ByName(`${FQN}.SetExtensionEnabled`, id, expectedRevision, enabled),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

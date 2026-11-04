@@ -1,0 +1,251 @@
+{
+  "command": "MYAGENT_PI_WORKER_INTEGRATION=1 MYAGENT_NODE_PATH=D:\\Program Files\\nodejs\\node.exe MYAGENT_C03_EVIDENCE_OUT=D:\\project\\my-agent-go\\.tmp\\c03-skill-discovery.json go test ./internal/resources -run TestSkillDiscoveryLayersAgainstRealPi -count=1 -v",
+  "measuredAt": "2026-11-04T20:13:15+08:00",
+  "hostOs": "windows",
+  "hostArch": "amd64",
+  "piVersion": "1.5.0",
+  "piExecutable": "D:\\Program Files\\nodejs\\node.exe",
+  "piCli": "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+  "piHelpSkillsAndTrustFlags": "  --skill \u003cpath\u003e                 Load a skill file or directory (can be used multiple times)\n  --no-skills, -ns               Disable skills discovery and loading\n  --approve, -a                  Trust project-local files for this run\n  --no-approve, -na              Ignore project-local files for this run",
+  "note": "--help 里没有只关项目/祖先技能发现而保留用户级的参数：只有 --no-skills（连用户级一起关）与 --no-approve（项目级信任开关）。 fixture provider 只替代模型端点，Pi 是真实进程。",
+  "records": [
+    {
+      "scenario": "用户级 .agents/skills",
+      "requirement": "T1(a) / 本地技能同步",
+      "trustArg": "-na",
+      "piArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-na",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "workingDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiUserLevelAgentsSkillsSync2381898164\\001\\ws",
+      "home": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiUserLevelAgentsSkillsSync2381898164\\001\\home",
+      "sentinels": {
+        "user": "SENTINEL-C03-USER-9f21c"
+      },
+      "expected": "用户级技能出现在系统提示，location 指向 C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiUserLevelAgentsSkillsSync2381898164\\001\\home\\.agents\\skills\\user-marker\\SKILL.md",
+      "observed": {
+        "user_marker_present": true
+      },
+      "availableSkillCount": 1,
+      "availableSkills": [
+        {
+          "name": "user-marker",
+          "description": "SENTINEL-C03-USER-9f21c",
+          "location": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiUserLevelAgentsSkillsSync2381898164\\001\\home\\.agents\\skills\\user-marker\\SKILL.md"
+        }
+      ],
+      "rawAvailableSkills": "(系统提示共 1 条技能，其中 1 条带 SENTINEL-C03 marker；无关条目已省略)\n\u003cavailable_skills\u003e\n  \u003cskill\u003e\n    \u003cname\u003euser-marker\u003c/name\u003e\n    \u003cdescription\u003eSENTINEL-C03-USER-9f21c\u003c/description\u003e\n    \u003clocation\u003eC:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiUserLevelAgentsSkillsSync2381898164\\001\\home\\.agents\\skills\\user-marker\\SKILL.md\u003c/location\u003e\n  \u003c/skill\u003e\n\u003c/available_skills\u003e"
+    },
+    {
+      "scenario": "项目级 .pi/skills（-na 与 -a 对照）",
+      "requirement": "T1(b) / SEC08",
+      "trustArg": "-na vs -a",
+      "piArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-na",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "positiveControlPiArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-a",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "workingDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiProjectPiSkillsBlockedByNo2303946775\\001\\ws\\proj",
+      "home": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiProjectPiSkillsBlockedByNo2303946775\\001\\home",
+      "sentinels": {
+        "project": "SENTINEL-C03-PROJ-4a7be"
+      },
+      "expected": "-na 下不出现；-a 下出现（否则 marker 本身不可被发现）",
+      "observed": {
+        "present_under_approve": true,
+        "present_under_no_approve": false,
+        "sentinel_in_untrusted_raw": false
+      },
+      "availableSkillCount": 55,
+      "availableSkills": [
+        {
+          "name": "proj-marker",
+          "description": "SENTINEL-C03-PROJ-4a7be",
+          "location": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiProjectPiSkillsBlockedByNo2303946775\\001\\ws\\proj\\.pi\\skills\\proj-marker\\SKILL.md"
+        }
+      ],
+      "rawAvailableSkills": "== -na ==\n\n== -a ==\n(系统提示共 55 条技能，其中 1 条带 SENTINEL-C03 marker；无关条目已省略)\n\u003cavailable_skills\u003e\n  \u003cskill\u003e\n    \u003cname\u003eproj-marker\u003c/name\u003e\n    \u003cdescription\u003eSENTINEL-C03-PROJ-4a7be\u003c/description\u003e\n    \u003clocation\u003eC:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiProjectPiSkillsBlockedByNo2303946775\\001\\ws\\proj\\.pi\\skills\\proj-marker\\SKILL.md\u003c/location\u003e\n  \u003c/skill\u003e\n\u003c/available_skills\u003e"
+    },
+    {
+      "scenario": "祖先目录 .agents/skills（-na 与 -a 对照）",
+      "requirement": "T1(c) / SEC08",
+      "trustArg": "-na vs -a",
+      "piArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-na",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "positiveControlPiArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-a",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "workingDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiAncestorAgentsSkillsBlocke3623827474\\001\\ws\\proj",
+      "home": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiAncestorAgentsSkillsBlocke3623827474\\001\\home",
+      "sentinels": {
+        "ancestor": "SENTINEL-C03-ANC-c1d38"
+      },
+      "expected": "-na 下不出现；-a 下出现（否则 marker 本身不可被发现）",
+      "observed": {
+        "present_under_approve": true,
+        "present_under_no_approve": false,
+        "sentinel_in_untrusted_raw": false
+      },
+      "availableSkillCount": 55,
+      "availableSkills": [
+        {
+          "name": "anc-marker",
+          "description": "SENTINEL-C03-ANC-c1d38",
+          "location": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiAncestorAgentsSkillsBlocke3623827474\\001\\ws\\.agents\\skills\\anc-marker\\SKILL.md"
+        }
+      ],
+      "rawAvailableSkills": "== -na ==\n\n== -a ==\n(系统提示共 55 条技能，其中 1 条带 SENTINEL-C03 marker；无关条目已省略)\n\u003cavailable_skills\u003e\n  \u003cskill\u003e\n    \u003cname\u003eanc-marker\u003c/name\u003e\n    \u003cdescription\u003eSENTINEL-C03-ANC-c1d38\u003c/description\u003e\n    \u003clocation\u003eC:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiAncestorAgentsSkillsBlocke3623827474\\001\\ws\\.agents\\skills\\anc-marker\\SKILL.md\u003c/location\u003e\n  \u003c/skill\u003e\n\u003c/available_skills\u003e"
+    },
+    {
+      "scenario": "同名冲突：托管 --skill + 用户级副本",
+      "requirement": "T1(d) / RES02 已知限制",
+      "trustArg": "managed enabled(-na) vs managed disabled(-na)",
+      "managedSkills": [
+        "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\managed\\dup-skill\\SKILL.md"
+      ],
+      "piArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-na",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--skill",
+        "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\managed\\dup-skill\\SKILL.md",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "positiveControlPiArgv": [
+        "D:\\Program Files\\nodejs\\node.exe",
+        "D:\\project\\my-agent-go\\.tools\\pi\\v1.5.0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+        "--mode",
+        "rpc",
+        "-na",
+        "-nc",
+        "-ne",
+        "-np",
+        "--no-themes",
+        "--no-mcp",
+        "--no-session",
+        "--tools",
+        "read",
+        "--provider",
+        "probe",
+        "--model",
+        "probe-model"
+      ],
+      "workingDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\ws",
+      "home": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\home",
+      "sentinels": {
+        "managed": "SENTINEL-C03-MANAGED-5e0b2",
+        "userCopy": "SENTINEL-C03-USERCOPY-8b3d7"
+      },
+      "expected": "两种情况下都只出现 1 条 dup-skill，且 location 指向用户级副本；托管那份被同名副本压过（已知限制）",
+      "observed": {
+        "disabled_entry_count_is_1": true,
+        "enabled_entry_count_is_1": true,
+        "enabled_managed_sentinel_in_prompt": false,
+        "enabled_usercopy_sentinel_in_prompt": true
+      },
+      "availableSkillCount": 1,
+      "availableSkills": [
+        {
+          "name": "dup-skill",
+          "description": "SENTINEL-C03-USERCOPY-8b3d7",
+          "location": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\home\\.agents\\skills\\dup-skill\\SKILL.md"
+        }
+      ],
+      "rawAvailableSkills": "== managed enabled ==\n(系统提示共 1 条技能，其中 1 条带 SENTINEL-C03 marker；无关条目已省略)\n\u003cavailable_skills\u003e\n  \u003cskill\u003e\n    \u003cname\u003edup-skill\u003c/name\u003e\n    \u003cdescription\u003eSENTINEL-C03-USERCOPY-8b3d7\u003c/description\u003e\n    \u003clocation\u003eC:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\home\\.agents\\skills\\dup-skill\\SKILL.md\u003c/location\u003e\n  \u003c/skill\u003e\n\u003c/available_skills\u003e\n== managed disabled ==\n(系统提示共 1 条技能，其中 1 条带 SENTINEL-C03 marker；无关条目已省略)\n\u003cavailable_skills\u003e\n  \u003cskill\u003e\n    \u003cname\u003edup-skill\u003c/name\u003e\n    \u003cdescription\u003eSENTINEL-C03-USERCOPY-8b3d7\u003c/description\u003e\n    \u003clocation\u003eC:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\TestSkillDiscoveryLayersAgainstRealPiSameNameAutoCopyWinsOverMa1732306484\\001\\home\\.agents\\skills\\dup-skill\\SKILL.md\u003c/location\u003e\n  \u003c/skill\u003e\n\u003c/available_skills\u003e"
+    }
+  ]
+}

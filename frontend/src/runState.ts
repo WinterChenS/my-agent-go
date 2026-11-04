@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   ProductEvent,
   RunState,
+  SkillAutoDiscovery,
   ToolCard,
 } from "./types";
 
@@ -45,6 +46,14 @@ export interface RunMeta {
   provider: string;
   model: string;
   configRevision: number;
+  /**
+   * 这一轮通过 --skill 显式加载的托管技能 ID（RES02）。
+   * 空数组 = 确实没显式加载托管技能，不是“没有任何技能”：
+   * Pi 自己发现的技能不在这个列表里，见 skillAutoDiscovery。
+   */
+  managedSkills: string[];
+  /** Pi 侧技能自动发现的开关。缺失 = 没记录，界面必须显示“未知”。 */
+  skillAutoDiscovery?: SkillAutoDiscovery;
 }
 
 export const initialState: UiState = {
@@ -67,7 +76,7 @@ export type UiAction =
   | { kind: "error"; message: string }
   | { kind: "clear_error" };
 
-/** 终态集合。进入终态后界面不再"正在输出"，审批条也必须清空。 */
+/** 终态集合。进入终态后界面不再“正在输出”，审批条也必须清空。 */
 export function isTerminal(state: RunState): boolean {
   return (
     state === "completed" ||
@@ -75,6 +84,33 @@ export function isTerminal(state: RunState): boolean {
     state === "cancelled" ||
     state === "interrupted"
   );
+}
+
+/**
+ * “Pi 本地自动发现”的中文表述。
+ *
+ * 产品拿不到 Pi 自动发现到的清单，只能报开关；未知就是未知，
+ * 不能写成“未加载”——那是托管显式加载那一半的事实，两件事不能混。
+ */
+export function skillAutoDiscoveryLabel(value: SkillAutoDiscovery | undefined): string {
+  switch (value) {
+    case "enabled":
+      return "已开启（清单未知）";
+    case "disabled":
+      return "已关闭";
+    default:
+      return "未知";
+  }
+}
+
+/**
+ * 托管显式加载清单的展示文案。
+ *
+ * 空数组只能说“未显式加载”，不能说“没有技能”：
+ * 自动发现开着时 Pi 仍可能带着用户级技能在跑。
+ */
+export function managedSkillsLabel(ids: string[]): string {
+  return ids.length > 0 ? ids.join("、") : "未显式加载";
 }
 
 function nextMessageId(s: UiState): { id: string; msgSeq: number } {

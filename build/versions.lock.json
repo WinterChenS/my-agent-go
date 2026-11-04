@@ -36,6 +36,14 @@
       "hash": "h1:lBe89kFu23bVz1dc1H9v0srkHQgWsy7BAKpH4sLQuDw=",
       "license": "MIT",
       "purpose": "Desktop host (Windows WebView2 / macOS WKWebView / Linux WebKitGTK)"
+    },
+    {
+      "name": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "source": "https://proxy.golang.org/gopkg.in/yaml.v3/@v/v3.0.1.zip",
+      "hash": "h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=",
+      "license": "MIT (Go port) / Apache-2.0 (libyaml)",
+      "purpose": "SKILL.md YAML frontmatter parsing (C03, added 2026-11-04; not in the F00 freeze)"
     }
   ],
   "nativeToolchains": {

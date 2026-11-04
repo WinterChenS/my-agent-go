@@ -1,6 +1,6 @@
-// 资源库：模型 + 配置档（Profile）+ 尚未实现的技能/MCP。
+// 资源库：模型 + 技能 + 扩展 + 配置档 + 尚未实现的 MCP。
 //
-// 模型（C02）与配置档（C01）都是真的能用；技能与 MCP 分别属于 C03/C04。
+// 模型（C02）、技能与扩展（C03）、配置档（C01）都是真的能用；MCP 属于 C04。
 // 未实现的部分必须明确写出来并且不显示任何数据——
 // 用空列表配一句"暂无"会让人以为"我还没添加"，而不是"这个功能不存在"。
 
@@ -9,14 +9,18 @@ import { Boxes, Plus } from "lucide-react";
 import type {
   CallError,
   CurrentModelResult,
+  Extension,
   ModelDefinition,
   ModelOptions,
   Profile,
+  SkillResource,
 } from "../../types";
 import { api } from "../../api";
 import { toCallError } from "../../app/useBackend";
 import { ProfileEditor } from "../profiles/ProfileEditor";
 import { ModelsSection } from "../models/ModelsSection";
+import { SkillsSection } from "../skills/SkillsSection";
+import { ExtensionsSection } from "../skills/ExtensionsSection";
 import { EmptyState } from "../../components/StateViews";
 
 export interface ResourcesViewProps {
@@ -26,8 +30,20 @@ export interface ResourcesViewProps {
   modelOptions: ModelOptions;
   modelRevision: number;
   currentModel: CurrentModelResult | null;
+  skills: SkillResource[];
+  skillRevision: number;
+  skillsPending: boolean;
+  skillsActiveRun: boolean;
+  /**
+   * 运行中的 worker **显式加载的托管技能**（--skill，RES02 的“旧 run 保持快照”）。
+   * 不含 Pi 自动发现的技能：那份清单没有可信来源。
+   */
+  runtimeSkills: string[];
+  extensions: Extension[];
+  extensionRevision: number;
   onChanged: () => void;
   onModelsChanged: () => void;
+  onSkillsChanged: () => void;
 }
 
 export function ResourcesView({
@@ -37,8 +53,16 @@ export function ResourcesView({
   modelOptions,
   modelRevision,
   currentModel,
+  skills,
+  skillRevision,
+  skillsPending,
+  skillsActiveRun,
+  runtimeSkills,
+  extensions,
+  extensionRevision,
   onChanged,
   onModelsChanged,
+  onSkillsChanged,
 }: ResourcesViewProps) {
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -75,6 +99,22 @@ export function ResourcesView({
         currentProvider={currentModel?.provider ?? ""}
         currentModelName={currentModel?.model ?? ""}
         onChanged={onModelsChanged}
+      />
+
+      <SkillsSection
+        skills={skills}
+        revision={skillRevision}
+        pending={skillsPending}
+        activeRun={skillsActiveRun}
+        runtimeSkills={runtimeSkills}
+        workspaceId={workspaceId}
+        onChanged={onSkillsChanged}
+      />
+
+      <ExtensionsSection
+        extensions={extensions}
+        revision={extensionRevision}
+        onChanged={onSkillsChanged}
       />
 
       <section>
@@ -162,11 +202,6 @@ export function ResourcesView({
         )}
       </section>
 
-      <PendingSection
-        title="技能"
-        task="C03"
-        reason="技能的导入、启停与真实 Pi 加载验证属于 C03，尚未实现。"
-      />
       <PendingSection
         title="MCP 服务"
         task="C04"

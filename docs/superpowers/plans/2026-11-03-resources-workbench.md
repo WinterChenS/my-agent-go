@@ -65,11 +65,16 @@
 
 **Interfaces：** `ImportSkill(ctx,sourcePath string,scope ResourceScope)(SkillResource,error)`；`SetSkillEnabled(ctx,id string,expectedRevision uint64,enabled bool) error`；SkillResource{ID,Name,Description,Path,Scope,Enabled,Origin,Revision,Hash,Dependencies}；ResourceScope user/workspace。支持本地导入/编辑/启停/删除，Git/npm下载后置。
 
-- [ ] 写 frontmatter/name/description缺失、重复ID、损坏UTF8、symlink逃逸测试；Import默认复制到产品管理目录，不修改源skill；覆盖须CAS/明确动作。
-- [ ] 写 `TestDisabledSkillAbsentInNextRun`：真实Pi加载资源快照，禁用后新run不能列出/读取自动发现同名副本；运行中沿用旧revision且UI显示下次生效。
-- [ ] 管理自有policy extension为不可关闭的系统资源；第三方可执行扩展默认不自动启用，显示来源与信任边界。用户信任安装不等于工具免审批。
-- [ ] 对依赖缺失显示不可用和原因，不静默安装Python/命令；导入数据不执行skill脚本。
-- [ ] 跑资源unit、真实Pi技能加载integration和UI测试，提交。
+- [x] 写 frontmatter/name/description缺失、重复ID、损坏UTF8、symlink逃逸测试；Import默认复制到产品管理目录，不修改源skill；覆盖须CAS/明确动作。→ `internal/resources/skills_test.go` 13 条；真机 §3 #1/#2（跨盘 rename 缺陷已修）。
+- [x] 写 `TestDisabledSkillAbsentInNextRun`：真实Pi加载资源快照，禁用后新run不能列出/读取自动发现同名副本；运行中沿用旧revision且UI显示下次生效。→ **2026-11-04 方向调整 + 实测收口**（ADR 0003）：不再用 `-ns` 抑制本地技能。真实 Pi 1.5.0 正反两向实测：用户级 `~/.agents/skills` 同步进来；项目 `.pi/skills` 与祖先 `.agents/skills` 仍被 `-na` 切断；同名时自动发现副本胜出（禁用不消失，启用也不覆盖托管版）。测试：`TestDisabledManagedSkillAbsentInNextRun`（纯托管禁用后不加载）、`TestSkillChangeIsDeferredDuringRun`（运行中沿用旧集合、pending）、`TestSkillDiscoveryLayersAgainstRealPi`（4 子测试，项目/祖先隔离 + 用户级同步 + 同名限制）。证据见 `docs/evidence/c03-skills.md` §7。
+- [x] 运行记录不把托管清单冒充实际加载清单（RES02）：`RunSnapshot` 拆成 `managedSkills` + `skillAutoDiscovery`，UI 两段式显示（托管：… ｜ Pi 本地自动发现：已开启（清单未知））。—— 见 `docs/evidence/c03-skills.md` §8。
+- [x] 管理自有policy extension为不可关闭的系统资源；第三方可执行扩展默认不自动启用，显示来源与信任边界。用户信任安装不等于工具免审批。→ `internal/resources/extensions.go` + `ExtensionsSection.tsx`；真机 §3 #7/#8/#9。
+- [x] 对依赖缺失显示不可用和原因，不静默安装Python/命令；导入数据不执行skill脚本。→ `TestMissingDependencyMarksUnavailable`、`TestImportCopiesWithoutExecutingSource`（marker 文件不存在）。
+- [x] 跑资源unit、真实Pi技能加载integration和UI测试，提交。→ 见 `docs/evidence/c03-skills.md` §5/§7；commit 见仓库历史（`C03:` 开头）。
+
+> 证据：`docs/evidence/c03-skills.md`（真机操作、真实 Pi 测到的项目/祖先隔离、同名冲突、
+> 运行快照口径）+ `docs/adr/0003-skills-discovery-and-res02.md`。
+> 限制：只有 win-x64；其余五目标 BLOCKED。RES02 的 `ALL` 范围因此**未**满足，不宣称 C03 全矩阵 PASS。
 
 **验收：** RES01–RES04。
 

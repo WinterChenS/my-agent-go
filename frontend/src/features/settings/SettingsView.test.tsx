@@ -120,10 +120,26 @@ describe("SettingsView", () => {
       runtimeProvider: "fixture",
       runtimeModel: "m",
       runtimePending: false,
+      runtimeSkills: [],
+      skillAutoDiscovery: "enabled",
+      skillsPending: false,
     };
     renderSettings({ status });
     expect(screen.getByText("-na -nc -e policy.ts")).toBeInTheDocument();
     // agentDir 要能核对，否则排查"会话写哪儿了"只能靠猜。
     expect(screen.getByText("C:\\app\\agents\\ws-1")).toBeInTheDocument();
+    // C03：技能分成两段事实。托管空只能写「未显式加载」，
+    // 自动发现开着的清单产品拿不到，只能写「清单未知」。
+    expect(screen.getByTestId("settings-managed-skills")).toHaveTextContent("未显式加载");
+    expect(screen.getByTestId("settings-skill-autodiscovery")).toHaveTextContent(
+      "已开启（清单未知）"
+    );
+    expect(screen.queryByText(/未加载任何技能/)).toBeNull();
+  });
+
+  it("状态缺失时不编造技能事实：托管为空、自动发现未知", () => {
+    renderSettings();
+    expect(screen.getByTestId("settings-managed-skills")).toHaveTextContent("未显式加载");
+    expect(screen.getByTestId("settings-skill-autodiscovery")).toHaveTextContent("未知");
   });
 });
