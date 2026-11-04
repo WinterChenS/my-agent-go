@@ -78,7 +78,7 @@ func integrationCases() []integrationCase {
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestReviewGate"},
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},
