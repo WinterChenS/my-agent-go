@@ -47,7 +47,7 @@
 | 外部 MCP | `TestRealPiPolicyBlocksToolAndProjectResources` | handler **未收到** `tools/call`（待审批 1 次） | handler 收到 `tools/call` | fixture MCP 请求日志 |
 | 扩展工具 | `TestRealPiPolicyBlocksExtensionChannel` | `extension-ran.txt` 不存在（待审批 1 次） | 存在，内容 `extension-tool-ran` | 文件系统 |
 | `codemode` 嵌套 | `TestRealPiPolicyBlocksCodemodeNestedChannel` | 见下表 | 见下表 | 文件系统 + 按工具拆分审批数 |
-| 自有 MCP（未支持） | `TestRealPiPolicyBlocksToolAndProjectResources` | 见 §4 | — | 审批数 + handler 日志 |
+| **自有 MCP** | `TestRealPiPolicyBlocksHarnessMCPChannel` | `harness-ran.txt` 不存在，handler **0 次到达**（待审批 1 次） | 存在，内容 `ran by harness mcp`，handler 1 次 | 文件系统 + 服务端计数 |
 
 ### codemode 嵌套：外两层必须分开给结论
 
@@ -66,16 +66,28 @@
 
 原始证据：`docs/evidence/raw/f04-policy-codemode-nested.json`。
 
-## 4. 未支持的通道：禁用 + 验证不可调用
+## 4. 自有 MCP：从"没有实现"到"六条通道全闭环"
 
-`internal/harnessmcp`（自有 MCP server）本期没有实现，因此"自有 MCP 通道"当前不存在。
-验收计划对这类通道的要求不是"策略会拦住它"，而是**从工具列表里禁用并验证不可调用**
-（`docs/superpowers/plans/2026-11-03-foundation-runtime.md` §F04）。
+本期新增 `internal/harnessmcp`（`server.go` / `auth.go` / `tools.go`），是一个真实的
+MCP Streamable HTTP 服务：回环随机端口、每实例随机令牌、Host/Origin 校验、
+`${MYAGENT_HARNESS_TOKEN}` 只经 worker 环境注入（不落盘、不进 DTO）。
 
-两者的差别很实际：策略拦截说明工具还在，安全依赖"钩子实现永远正确"；
-工具根本不在工具表里，模型连发起的机会都没有。
+实测（`TestRealPiPolicyBlocksHarnessMCPChannel`）：
 
-实测（`agentDir/mcp.json` 保持存在，只是不启用 MCP）：
+| 场景 | 待审批 | handler 到达 | `harness-ran.txt` |
+|---|---|---|---|
+| 拒绝 | 1 | **0** | 不存在 |
+| 允许 | 1 | 1 | 存在，内容 `ran by harness mcp` |
+
+这里刻意用**两条独立证据**：只看文件会把"写失败"误判成"被拦"，只看计数会把
+"策略拦了但客户端重试"漏掉。原始证据：`docs/evidence/raw/f04-policy-harness-mcp-channel.json`。
+
+### 仍然保留的兜底验证
+
+`--no-mcp` 下"工具根本不在表里"这条验证继续保留（`f04-policy-integration.json` 的
+`mcp.disabled` 段），虽然现在已有实现。理由：策略拦截说明工具还在，安全依赖
+"钩子实现永远正确"；工具不在工具表里，模型连发起的机会都没有。两者是不同层次的防线，
+不能因为前一条有了就删掉后一条。
 
 | 场景 | 审批请求 | handler 是否收到 `tools/call` | mcp.json |
 |---|---|---|---|
@@ -83,8 +95,21 @@
 | `-e builtin:mcp` + 允许 | 1 | 是 | 存在 |
 | `--no-mcp` | **0** | 否 | 存在 |
 
-`--no-mcp` 下审批次数为 **0**，说明工具不在工具表里（不是"在、但被拦"）。
-原始证据：`docs/evidence/raw/f04-policy-integration.json` 的 `mcp.disabled` 段。
+### 接通过程中撞到的真实约束：MCP 工具默认不可见
+
+第一版直接写 `mcpServers` 就跑，结果 Pi 全程没有发起调用，只在事件流里给了一行 warning：
+
+```text
+MCP tools are only reachable from the codemode or tool_search tool,
+but neither is active; they cannot be called.
+```
+
+根因是 Pi 1.5.0 的 `exposure` 默认值是 `codemode`——工具注册了，但既不声明给模型，
+也不在 codemode 的工具描述里列出来。生产配置必须显式写 `"exposure": "direct"`，
+否则表现是"配置看起来没问题、服务也连着、模型就是调不到"。
+
+这类问题只有真跑才会暴露：单测里 `tools/list` 一直是通的，因为那测的是服务端，
+而这里是客户端根本不声明工具。
 
 ## 5. 过程中发现并修掉的两个真实缺陷
 
@@ -102,8 +127,12 @@
 
 ## 6. 限制（如实记录）
 
-- **自有 MCP server 未实现**：§4 覆盖的是"禁用后不可调用"，不是"自有 MCP 通道的执行前授权"。
-  `internal/harnessmcp` 落地后，本节必须补一条真实对照，届时本表才完整。
+- **自有 MCP 目前只暴露一个探针工具**：`harness_probe`。它证明的是"自有 MCP 通道过策略"，
+  不等于"将来放进去的浏览器/记忆工具都安全"——每个新工具都要单独确认它的副作用可观测。
+- **自有 MCP 的授权在扩展侧，服务端不做二次审批**：`harnessmcp` 只负责认证与参数范围。
+  这是有意的：一次性批准已被上游消费，服务端再问一次会让用户批准同一个调用两次。
+  代价是"服务端本身没有独立防线"，若哪天 `harness-policy.ts` 的 `tool_call` 钩子被绕过，
+  自有工具会直接执行。§4 保留的 `--no-mcp` 验证是对这条风险的部分补偿。
 - **扩展工具 fixture 是自己写的**：`tests/fixtures/extension/fixture-tool.ts`。
   它证明的是"扩展注册的工具同样过钩子"，不等于"第三方扩展的所有写法都安全"
   （例如扩展在 `session_start` 里直接写文件，不经过工具调用——那是扩展自身的权限问题，

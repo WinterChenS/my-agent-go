@@ -30,6 +30,7 @@ import (
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/fixtures/openaisse"
+	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/policybridge"
 )
@@ -352,6 +353,126 @@ func TestRealPiPolicyBlocksExtensionChannel(t *testing.T) {
 //   - 外层拒绝 → 脚本压根没跑（此步只证明外层被拦）；
 //   - 外层允许 + 内层拒绝 → 脚本跑了，但嵌套的 bash 被单独拦下（关键一步）；
 //   - 两层都允许 → marker 出现（正向对照，证明上面的"没出现"不是因为链路本来就不通）。
+//
+// TestRealPiPolicyBlocksHarnessMCPChannel 验证"自有 MCP"这条通道同样在执行前被拦。
+//
+// 与外部 MCP 的区别不是安全性，而是可观测性：server 是我们自己的，所以能直接问
+// "handler 到底被调用了没有"，而不只能看 Pi 有没有报错、界面写了什么。
+// 判定用两条独立证据，缺一不可：
+//   - 文件系统：harness-ran.txt 是否出现；
+//   - 服务端计数：harnessmcp 的 Calls() 是否记录到 harness_probe。
+//
+// 只看文件会把"写失败"误判成"被拦"；只看计数会把"策略拦了但客户端重试"漏掉。
+func TestRealPiPolicyBlocksHarnessMCPChannel(t *testing.T) {
+	if os.Getenv("MYAGENT_PI_POLICY") != "1" {
+		t.Skip("设置 MYAGENT_PI_POLICY=1 才执行真实 Pi 的策略集成验证")
+	}
+	if runtime.GOOS != "windows" {
+		t.Skip("当前集成脚本按 Windows 路径编写")
+	}
+
+	root := repoRoot(t)
+	work := t.TempDir()
+	agentDir := filepath.Join(work, "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("建 agentDir: %v", err)
+	}
+	prov := httptest.NewServer(openaisse.NewHandler(filepath.Join(work, "requests")))
+	defer prov.Close()
+	writeFixtureModels(t, agentDir, prov.URL)
+
+	hs, err := harnessmcp.Start(context.Background(), harnessmcp.Options{
+		Tools:   []harnessmcp.Tool{harnessmcp.ProbeTool(work)},
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("启动自有 MCP: %v", err)
+	}
+	defer func() { _ = hs.Close(context.Background()) }()
+
+	// mcp.json 与生产同一份写法：令牌只写 ${...} 引用，由 worker 环境展开。
+	cfg := map[string]any{"mcpServers": map[string]any{"harness": map[string]any{
+		"url":     hs.Endpoint().URL,
+		"headers": map[string]any{"Authorization": "Bearer ${MYAGENT_HARNESS_TOKEN}"},
+		// 默认 exposure=codemode 时模型看不到 MCP 工具，直接调用会得到
+		// "only reachable from codemode or tool_search"。生产配置同样用 direct。
+		"exposure": "direct",
+	}}}
+	blob, _ := json.MarshalIndent(cfg, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "mcp.json"), blob, 0o644); err != nil {
+		t.Fatalf("写 mcp.json: %v", err)
+	}
+	// 端点与令牌只经环境变量交付；子进程按 os.Environ() 继承。
+	for _, kv := range hs.Env() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			t.Setenv(k, v)
+		}
+	}
+
+	marker := filepath.Join(work, "harness-ran.txt")
+	sc := func(choice policy.ApprovalChoice) runScenario {
+		return runScenario{scenario: "tool-harness", choice: choice, harnessMCP: true}
+	}
+
+	// ── 拒绝 ──
+	_ = os.Remove(marker)
+	deny := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalDeny))
+	callsAfterDeny := len(hs.Calls())
+	t.Logf("自有 MCP 拒绝：%d 条记录，待审批 %d 次，handler 被调用 %d 次",
+		len(deny.records), deny.pending, callsAfterDeny)
+	if deny.pending == 0 {
+		t.Fatalf("自有 MCP 调用没有触发审批——该通道未被覆盖，本用例不构成证据；记录：\n%s",
+			truncate(joinRecords(deny.records), 1500))
+	}
+	denyCreated := fileExists(marker)
+	if denyCreated {
+		t.Fatal("拒绝后自有 MCP 工具仍然执行了（harness-ran.txt 存在）")
+	}
+	if callsAfterDeny != 0 {
+		t.Fatalf("拒绝后 handler 仍被调用 %d 次：%v", callsAfterDeny, hs.Calls())
+	}
+
+	// ── 允许（正向对照） ──
+	// 没有这一步，"拒绝后没写文件"也可能是因为 MCP 根本没连上、工具压根不在表里。
+	_ = os.Remove(marker)
+	allow := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalOnce))
+	callsAfterAllow := len(hs.Calls())
+	t.Logf("自有 MCP 允许：%d 条记录，待审批 %d 次，handler 被调用 %d 次",
+		len(allow.records), allow.pending, callsAfterAllow)
+	if !fileExists(marker) {
+		t.Fatalf("允许后应写出 harness-ran.txt；handler 调用 %d 次，记录：\n%s",
+			callsAfterAllow, truncate(joinRecords(allow.records), 1500))
+	}
+	if callsAfterAllow <= callsAfterDeny {
+		t.Fatalf("允许后 handler 未被调用（%d → %d）——正向对照失败，拒绝场景的'没执行'说明不了问题",
+			callsAfterDeny, callsAfterAllow)
+	}
+	allowContent := readIfExists(marker)
+
+	evidence := map[string]any{
+		"channel":  "harness-mcp",
+		"toolName": "mcp__harness__harness_probe",
+		"deny": map[string]any{
+			"pendingApprovals": deny.pending,
+			"fileCreated":      denyCreated,
+			"handlerCalls":     callsAfterDeny,
+		},
+		"allow": map[string]any{
+			"pendingApprovals": allow.pending,
+			"fileCreated":      fileExists(marker),
+			"handlerCalls":     callsAfterAllow,
+			"content":          allowContent,
+		},
+	}
+	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
+		t.Logf("自有 MCP 通道策略证据：\n%s", b)
+		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-harness-mcp-channel.json")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
+			_ = os.WriteFile(out, b, 0o644)
+		}
+	}
+}
+
 func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
 	if os.Getenv("MYAGENT_PI_POLICY") != "1" {
 		t.Skip("设置 MYAGENT_PI_POLICY=1 才执行真实 Pi 的策略集成验证")

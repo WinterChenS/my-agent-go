@@ -12,12 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
@@ -74,6 +76,9 @@ type Desktop struct {
 	lastErr string
 	// policyExt 是解析到的策略扩展绝对路径，供状态展示复用。
 	policyExt string
+	// harness 是自有 MCP 服务（应用级单例）。端口与令牌固定，
+	// 因此 mcp.json 只需写一次，多个 run 共用同一端点。
+	harness *harnessmcp.Server
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -273,16 +278,37 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.policyExt = ext
 	d.mu.Unlock()
 
+	// 自有 MCP 是应用级单例：端口与令牌在进程内固定，mcp.json 只写一次，
+	// 多个 run 共用同一端点。若改成每 run 一个，并发 run 会互相覆盖同一份
+	// mcp.json，后启动的 Pi 可能连到前一个 run 的端点。
+	harness, err := harnessmcp.Start(context.Background(), harnessmcp.Options{
+		Tools:   []harnessmcp.Tool{harnessmcp.ProbeTool(s.Workspace)},
+		Version: d.version(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeMCPConfig(agentDir, harness.Endpoint().URL); err != nil {
+		_ = harness.Close(context.Background())
+		return nil, err
+	}
+	d.mu.Lock()
+	d.harness = harness
+	d.mu.Unlock()
+
 	svc := run.New(run.Options{
 		WorkspaceID:  "ws-default",
 		SessionID:    contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix())),
 		WorkspaceDir: s.Workspace,
 		AgentDir:     agentDir,
 		Installation: inst,
-		Isolation:    pi.IsolationSpec{PolicyExtension: ext},
-		Provider:     s.Provider,
-		Model:        s.Model,
-		Policy:       pol,
+		// HarnessMCP=true 会以 `-e builtin:mcp` 重新启用内置 MCP（-ne 会连带关掉它）。
+		// 项目级 .pi/mcp.json 仍被 -na 切断，能连上的只有 agentDir 里我们自己写的那一条。
+		Isolation:  pi.IsolationSpec{PolicyExtension: ext, HarnessMCP: true},
+		Provider:   s.Provider,
+		Model:      s.Model,
+		Policy:     pol,
+		HarnessEnv: harness.Env(),
 	})
 	if emitter != nil {
 		svc.Subscribe(emitter)
@@ -456,10 +482,26 @@ func (d *Desktop) Shutdown() {
 	d.mu.Lock()
 	svc := d.svc
 	d.svc = nil
+	harness := d.harness
+	d.harness = nil
 	d.mu.Unlock()
 	if svc != nil {
 		_ = svc.Close(context.Background())
 	}
+	// 自有 MCP 与应用同寿命；退出时关掉，避免端口比进程活得久。
+	if harness != nil {
+		_ = harness.Close(context.Background())
+	}
+}
+
+// version 返回构建版本，写进 MCP serverInfo 便于从 Pi 日志确认连的是哪个构建。
+func (d *Desktop) version() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := strings.TrimSpace(info.Main.Version); v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return "0.1.0-dev"
 }
 
 // findPolicyExtension 定位仓库内的策略扩展。

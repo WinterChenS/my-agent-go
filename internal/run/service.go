@@ -49,6 +49,11 @@ type Options struct {
 	// 没有端点时策略扩展 fail-closed，工具调用一律被拒。
 	Policy *policy.Service
 
+	// HarnessEnv 是自有 MCP 服务的端点与令牌（harnessmcp.Server.Env()）。
+	// run 包只负责透传给 worker，不依赖 harnessmcp 包本身：
+	// 谁提供端点谁负责写 mcp.json，两边共用同一份环境变量。
+	HarnessEnv []string
+
 	MaxActive   int
 	StartWorker WorkerStarter
 	Now         func() time.Time
@@ -235,6 +240,10 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 		env = append(env, srv.Env()...)
 		rs.token = tokenFromEnv(env)
 	}
+
+	// 自有 MCP 的端点与令牌：与策略端点同样是"只经环境变量交付"，
+	// 不写进 mcp.json 明文（那里只有 ${...} 引用）。
+	env = append(env, s.opts.HarnessEnv...)
 
 	args := append([]string{"--mode", "rpc"}, s.opts.Isolation.Args()...)
 	// 会话必须落在隔离 agentDir 下：否则 Pi 会写进用户真实配置目录，

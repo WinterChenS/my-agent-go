@@ -355,6 +355,18 @@ func BuildScenario(name string, hasTools bool) Scenario {
 			ToolArgs: []string{`{"marker":"extension-ran.txt"}`},
 			Finish:   "tool_calls",
 		}
+	case "tool-harness":
+		// 自有 MCP 通道：Pi 把 MCP 工具改名成 mcp__<server>__<tool>，
+		// 我们的 server 叫 harness，因此全名是 mcp__harness__harness_probe。
+		// 工具由 internal/harnessmcp 提供，执行时在 workspace 写 marker，
+		// 判定同样落在文件系统上。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"调用自有 MCP 工具。"},
+			ToolName: "mcp__harness__harness_probe",
+			ToolArgs: []string{`{"path":"harness-ran.txt"}`},
+			Finish:   "tool_calls",
+		}
 	case "tool-codemode":
 		// codemode 嵌套通道：脚本里再调 bash。外层是 codemode 工具调用，内层是 bash
 		// 工具调用——两条都会触发 tool_call 钩子，且内层带 parentToolCallId。

@@ -92,11 +92,12 @@ func integrationCases() []integrationCase {
 		{ID: "SEC01", Package: policyTests, Run: "TestApprovalBinds|TestControlGenerationInvalidatesApproval|TestSessionScopeGrantAllowsSubsequentCalls|TestPermissionDeniesWithoutApproval"},
 		// SEC02：三条内置写通道（bash/write/edit）逐条做拒绝+允许对照。
 		{ID: "SEC02", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels", Env: []string{"MYAGENT_PI_POLICY=1"}},
-		// SEC03.runtime：逐条通道的真实对照，覆盖 builtin(bash/write/edit)、external-MCP、
-		// 扩展工具、codemode 嵌套调用，四条通道各自"拒绝 → 副作用不发生 / 允许 → 发生"。
-		// 未支持通道（自有 MCP，internal/harnessmcp 尚无实现）按验收计划要求"禁用并验证不可调用"：
-		// --no-mcp 下 MCP 工具不在工具表里，审批次数 0、handler 未到达。
-		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksCodemodeNestedChannel", Env: []string{"MYAGENT_PI_POLICY=1"}},
+		// SEC03.runtime：六条通道的真实对照，各自"拒绝 → 副作用不发生 / 允许 → 发生"：
+		// builtin(bash)、内置写(write/edit)、外部 MCP、自有 MCP、扩展工具、codemode 嵌套。
+		// 自有 MCP 用到 internal/harnessmcp 的真实 server，判定同时看文件系统与 handler 计数。
+		// 无未支持通道后不再有"禁用并验证不可调用"的豁免项（该验证仍保留在
+		// TestRealPiPolicyBlocksToolAndProjectResources 里，防止未来回归）。
+		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksHarnessMCPChannel|TestRealPiPolicyBlocksCodemodeNestedChannel", Env: []string{"MYAGENT_PI_POLICY=1"}},
 		{ID: "SEC04.runtime", Package: "internal/policybridge", Run: "TestRejectsUnauthenticatedAndForeignRequests|TestOriginFromOwnEndpointIsAccepted|TestApprovedOnceSideEffectIsExactlyOne"},
 		{ID: "SEC05", Package: policyTests, Run: "TestPathGuard|TestApprovalBindsRealPathNotSpelling"},
 		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork"},

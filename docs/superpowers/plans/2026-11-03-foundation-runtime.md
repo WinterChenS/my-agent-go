@@ -86,9 +86,9 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 - [x] 写 `TestApprovalBindsArgumentsAndExpires`：参数变更、不同session、60秒后、二次消费均拒绝；拒绝/断连/服务超时后fixture副作用计数=0。
 - [x] 写 `TestUntrustedProjectDoesNotExecuteMarker`（扩展点：`TestTrustOriginResolvesSymlink` / 真实 Pi `TestRealPiPolicyBlocksToolAndProjectResources`）：项目扩展、项目设置、AGENTS.md 用真实副作用 marker 验证未生效。`.agents/祖先发现`、`项目MCP`、`!command` 仍属未实测部分，SEC08 记 PARTIAL。
-- [ ] 写 `TestAllToolPathsUsePolicy`：真实Pi+受控provider依次调用内置write/edit/bash、自有MCP、外部MCP、扩展工具、codemode嵌套工具；拒绝后文件/HTTP计数不变。每条通道有独立case，未支持的通道从工具列表禁用并验证不可调用。**已完成 builtin(bash) 与 external-MCP 两条通道的真实双跑（拒绝/批准对照）；write/edit、扩展工具、codemode 嵌套、自有 MCP 未做。**
+- [x] 写 `TestAllToolPathsUsePolicy`：真实Pi+受控provider依次调用内置write/edit/bash、自有MCP、外部MCP、扩展工具、codemode嵌套工具；拒绝后文件/HTTP计数不变。每条通道有独立case，未支持的通道从工具列表禁用并验证不可调用。**六条通道全部完成真实双跑（拒绝 → 副作用不发生 / 允许 → 发生）：builtin(bash)、write/edit、外部 MCP、自有 MCP、扩展工具、codemode 嵌套。自有 MCP 由 `internal/harnessmcp` 提供，判定同时看文件系统与 handler 计数（拒绝时 0 次到达，允许时 1 次）。**
 - [x] 实现loopback随机端口、每worker随机令牌、session绑定、Host/Origin检查、请求schema、超时/大小限制；错token/伪造session/网页Origin调用不得到达工具。路径校验包含junction/symlink/UNC和实际解析后路径；明确不是OS沙箱。（`internal/policybridge`，尚未接入 RunService）
-- [ ] 跑policy/Harness unit与真实Pi integration，记录hook覆盖表。全部可用执行通道满足执行前检查才允许G0；不得仅在提示词里要求模型征求批准。**Harness MCP server（`internal/harnessmcp`）未实现，`StartHarnessServer` 不存在，因此这一条不算完成。**
+- [x] 跑policy/Harness unit与真实Pi integration，记录hook覆盖表。全部可用执行通道满足执行前检查才允许G0；不得仅在提示词里要求模型征求批准。**`internal/harnessmcp` 已实现（server/auth/tools + 8 条单测，含对抗性验证）。与草案接口的差异：入口是 `Start(ctx, Options)` 而非 `StartHarnessServer(ctx, binding)`——服务是应用级单例，工作区根由工具自身持有，不需要按 session 绑定；令牌仍只经 `Env()` 交付，不进 `Endpoint()`。**
 
 **验收：** SEC01–SEC08、CFG03；G0关键阻断项。
 

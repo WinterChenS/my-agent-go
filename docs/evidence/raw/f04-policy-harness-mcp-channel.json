@@ -1,0 +1,15 @@
+{
+  "allow": {
+    "content": "ran by harness mcp",
+    "fileCreated": true,
+    "handlerCalls": 1,
+    "pendingApprovals": 1
+  },
+  "channel": "harness-mcp",
+  "deny": {
+    "fileCreated": false,
+    "handlerCalls": 0,
+    "pendingApprovals": 1
+  },
+  "toolName": "mcp__harness__harness_probe"
+}
