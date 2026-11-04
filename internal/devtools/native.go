@@ -186,7 +186,7 @@ func RunNative(target, display string) int {
 	}
 
 	rev, dirty := SourceIdentity()
-	root := filepath.Join("docs", "evidence", "runs", rev, target, display)
+	root := evidenceRoot(rev, "G1", target, display)
 	fmt.Printf("== verify --suite=native --target=%s --display=%s ==\n", target, display)
 	fmt.Printf("证据根: %s\n", root)
 	if dirty {

@@ -6,6 +6,7 @@ package devtools
 // 非法 display、缺 runner 都必须非零；Linux 的 X11/Wayland 不能被另一个顶替。
 
 import (
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -96,6 +97,25 @@ func TestNativeCaseIDsExistInIndex(t *testing.T) {
 		}
 		if len(nc.Steps) == 0 && nc.Blocked == "" {
 			t.Errorf("case %s 既没有执行步骤也没有说明阻塞原因", nc.ID)
+		}
+	}
+}
+
+// TestEvidenceRootLayout 钉住证据目录布局（v1-gates.md §4）：
+// 少了 gate 或 display 任何一层，同名 case 的两份证据就会互相覆盖，
+// 而门禁只会看到最后写的那一份。
+func TestEvidenceRootLayout(t *testing.T) {
+	cases := []struct {
+		rev, gate, target, display string
+		want                       string
+	}{
+		{"rev1", "G0", "win-x64", "", filepath.Join("docs", "evidence", "runs", "rev1", "G0", "win-x64")},
+		{"rev1", "G1", "linux-x64", "wayland", filepath.Join("docs", "evidence", "runs", "rev1", "G1", "linux-x64", "wayland")},
+		{"rev1", "G2", "win-x64", "desktop", filepath.Join("docs", "evidence", "runs", "rev1", "G2", "win-x64", "desktop")},
+	}
+	for _, c := range cases {
+		if got := evidenceRoot(c.rev, c.gate, c.target, c.display); got != c.want {
+			t.Errorf("evidenceRoot(%q,%q,%q,%q)=%q，期望 %q", c.rev, c.gate, c.target, c.display, got, c.want)
 		}
 	}
 }

@@ -78,7 +78,7 @@ func integrationCases() []integrationCase {
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestReviewGate"},
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},
@@ -150,6 +150,19 @@ func dirExists(p string) bool {
 }
 
 // RunIntegration 是 `verify --suite=integration` 的入口。
+// evidenceRoot 返回某 (rev, gate, target, display) 的证据目录。
+//
+// 布局来自 v1-gates.md §4：<rev>/<gate>/<target>/<display?>/<case>。
+// gate 与 display 都不能省：同一个 case 可能同时属于两个 gate（SEC05），
+// Linux 的 X11/Wayland 也必须各存一份，省掉任一层都会互相覆盖。
+func evidenceRoot(rev, gate, target, display string) string {
+	parts := []string{"docs", "evidence", "runs", rev, gate, target}
+	if display != "" {
+		parts = append(parts, display)
+	}
+	return filepath.Join(parts...)
+}
+
 // RunIntegration 是 G0 的集成入口（兼容旧调用）。
 func RunIntegration(target string) int {
 	return RunIntegrationForGate(target, "G0")
@@ -205,7 +218,7 @@ func RunIntegrationForGate(target, gate string) int {
 	}
 
 	rev, dirty := SourceIdentity()
-	root := filepath.Join("docs", "evidence", "runs", rev, target)
+	root := evidenceRoot(rev, gate, target, "")
 	fmt.Printf("== verify --suite=integration --target=%s ==\n", target)
 	fmt.Printf("证据根: %s\n", root)
 	if dirty {
