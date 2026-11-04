@@ -60,6 +60,27 @@ type nativeStep struct {
 func nativeCases() []nativeCase {
 	return []nativeCase{
 		{
+			// BR01：同一主窗口右侧真实 WebView2（不是第二个顶层窗口）。
+			// 测试断言 GetParent(child)==main、GetAncestor(child,GA_ROOT)==main、
+			// 导航完成、CDP 页面像素非纯色；不靠"截图里看起来像网页"。
+			ID:      "BR01",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestNativeRightPaneWindows",
+			}},
+		},
+		{
+			ID:      "BR01",
+			Target:  "win-arm64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestNativeRightPaneWindows",
+			}},
+		},
+		{
 			// BR00：两个 origin 独立、server counter 可核对、trusted-only 负例。
 			// 它不需要 GUI，但 G1 把它算作浏览器基线的一部分，所以从 native 套件出证据。
 			ID: "BR00",
