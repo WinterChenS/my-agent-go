@@ -28,6 +28,11 @@
     "deny": {
       "handlerReached": false,
       "pendingApprovals": 1
+    },
+    "disabled": {
+      "configStillPresent": true,
+      "handlerReached": false,
+      "pendingApprovals": 0
     }
   },
   "policyExtension": "pi-extensions/harness-policy.ts",

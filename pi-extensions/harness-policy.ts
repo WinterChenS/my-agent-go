@@ -14,6 +14,7 @@
 // external-mcp（mcp__*）、extension（其它工具）、codemode（嵌套调用同样会触发 tool_call）、
 // 以及用户手输的 ! 命令（user_bash）。
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
 
 const URL_ENV = "MYAGENT_POLICY_URL";
 const TOKEN_ENV = "MYAGENT_POLICY_TOKEN";
@@ -52,16 +53,26 @@ function sourceOf(toolName: string): string {
  *
  * 只认内置工具已知的字段名。取不到就返回空串——策略层对"文件类工具缺资源范围"是直接拒绝，
  * 所以这里的保守取值不会导致漏检，只会导致误拒（可接受方向）。
+ *
+ * 相对路径必须在这里解析成绝对路径：工具实际是按 Pi 进程的 cwd（即用户工作区）落地的，
+ * 而策略层如果拿相对路径去 filepath.Abs，会按**策略进程**的 cwd 解析——那是另一个目录，
+ * 判定出来的"实际资源"根本不对。这个错误的方向是先误拒（相对路径被判越界），
+ * 但一旦两个 cwd 恰好有交集就可能变成误放。所以统一在这里定死。
  */
 function scopeOf(toolName: string, input: unknown): string {
 	if (!input || typeof input !== "object") return "";
 	const rec = input as Record<string, unknown>;
+
+	let raw = "";
 	if (BUILTIN_TOOLS.has(toolName)) {
-		if (typeof rec.path === "string") return rec.path;
-		if (typeof rec.file_path === "string") return rec.file_path;
+		if (typeof rec.path === "string") raw = rec.path;
+		else if (typeof rec.file_path === "string") raw = rec.file_path;
+	} else if (typeof rec.path === "string" && !toolName.startsWith("mcp__")) {
+		raw = rec.path;
 	}
-	if (typeof rec.path === "string" && !toolName.startsWith("mcp__")) return rec.path;
-	return "";
+	raw = raw.trim();
+	if (!raw) return "";
+	return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
 }
 
 interface PolicyChannel {

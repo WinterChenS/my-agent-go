@@ -1,0 +1,23 @@
+{
+  "edit": {
+    "allow": {
+      "content": "after\n",
+      "pendingApprovals": 1
+    },
+    "deny": {
+      "content": "before\n",
+      "pendingApprovals": 1
+    },
+    "denyPreserved": true
+  },
+  "write": {
+    "allow": {
+      "fileCreated": true,
+      "pendingApprovals": 1
+    },
+    "deny": {
+      "fileCreated": false,
+      "pendingApprovals": 1
+    }
+  }
+}

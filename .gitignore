@@ -31,3 +31,8 @@ Thumbs.db
 
 # 本地临时运行数据（应用 home、fixture 记录、截图草稿）
 /.tmp/
+
+# 集成证据运行目录：按 git revision 分目录，属于"针对某一次提交现场生成的产物"。
+# 提交它会让 revision 立刻对不上（下一次提交就换 HEAD），门禁会判过期；
+# 因此只保留生成能力，不入库。可长期引用的结论进 docs/evidence/raw/ 与 docs/evidence/*.md。
+/docs/evidence/runs/

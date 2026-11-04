@@ -1,0 +1,29 @@
+{
+  "bothAllow": {
+    "askedByTool": {
+      "bash": 1,
+      "codemode": 1
+    },
+    "content": "codemode\n",
+    "fileCreated": true,
+    "pendingApprovals": 2
+  },
+  "channel": "codemode-nested",
+  "innerDeny": {
+    "askedByTool": {
+      "bash": 1,
+      "codemode": 1
+    },
+    "fileCreated": false,
+    "pendingApprovals": 2
+  },
+  "nestedCallWasAsked": true,
+  "outerDeny": {
+    "askedByTool": {
+      "codemode": 1
+    },
+    "fileCreated": false,
+    "pendingApprovals": 1
+  },
+  "scenario": "tool-codemode（脚本内调用 bash）"
+}

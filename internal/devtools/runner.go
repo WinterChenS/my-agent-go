@@ -41,7 +41,9 @@ func RunVerify(suite, target, display, artifact string) int {
 		return runStatic()
 	case "unit":
 		return runUnit()
-	case "integration", "native", "e2e", "package":
+	case "integration":
+		return RunIntegration(target)
+	case "native", "e2e", "package":
 		return unimplementedSuite(suite)
 	case "":
 		fmt.Fprintln(os.Stderr, "verify 必须指定 --suite 参数")

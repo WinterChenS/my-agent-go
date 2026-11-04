@@ -324,6 +324,49 @@ func BuildScenario(name string, hasTools bool) Scenario {
 			ToolArgs: []string{`{"command":"echo ran > tool-ran.txt"}`},
 			Finish:   "tool_calls",
 		}
+	case "tool-write":
+		// write 通道：参数与 Pi 1.5.0 的 writeSchema 一致（path/content）。
+		// 断言落在文件系统上——"被拦了"和"跑了"在记录里都含同一个文件名。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"写一个文件。"},
+			ToolName: "write",
+			ToolArgs: []string{`{"path":"write-ran.txt","content":"written by write tool"}`},
+			Finish:   "tool_calls",
+		}
+	case "tool-edit":
+		// edit 通道：参数与 editSchema 一致（path/edits[].oldText/newText）。
+		// 目标文件由用例预先创建，内容必须是唯一的 before 串，否则 Pi 会拒绝。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"改一个文件。"},
+			ToolName: "edit",
+			ToolArgs: []string{`{"path":"edit-target.txt","edits":[{"oldText":"before","newText":"after"}]}`},
+			Finish:   "tool_calls",
+		}
+	case "tool-ext":
+		// 扩展工具通道：fixture_marker 由 tests/fixtures/extension/fixture-tool.ts 注册。
+		// 该工具被执行时会写 extension-ran.txt，因此"被拦"与"跑了"可落在文件系统上判定。
+		// 参数名用 marker（非 path），使策略层不做文件范围绑定——本用例只考察通道本身。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"调用扩展工具。"},
+			ToolName: "fixture_marker",
+			ToolArgs: []string{`{"marker":"extension-ran.txt"}`},
+			Finish:   "tool_calls",
+		}
+	case "tool-codemode":
+		// codemode 嵌套通道：脚本里再调 bash。外层是 codemode 工具调用，内层是 bash
+		// 工具调用——两条都会触发 tool_call 钩子，且内层带 parentToolCallId。
+		// 这条通道最容易被"只看顶层工具"的实现漏掉，所以单独覆盖。
+		// 需要 --tools +codemode 才会激活（该工具默认 defaultActive:false）。
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"用脚本调用一个工具。"},
+			ToolName: "codemode",
+			ToolArgs: []string{`{"code":"const r = await tools.bash({ command: \"echo codemode > codemode-ran.txt\" }); return r.exit_code;"}`},
+			Finish:   "tool_calls",
+		}
 	case "tool-mcp":
 		// 调用受控 MCP server 的工具。用于验证"外部 MCP 通道同样在执行前被拦"：
 		// fixture MCP 会把收到的每条请求写进日志，因此"是否到达 handler"可判定。

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -49,6 +50,10 @@ type policyRun struct {
 	stderr  string
 	code    int
 	pending int32 // 策略端点收到的待审批次数
+	// asked 是按工具名统计的审批请求数。
+	// 它回答一个单看总数回答不了的问题：嵌套调用（codemode → bash）究竟有没有
+	// 单独触发一次策略询问。只有总数而不分工具，"嵌套被拦"和"外层被拦"分不开。
+	asked map[string]int
 }
 
 // runScenario 描述一次真实 Pi 运行。
@@ -59,6 +64,25 @@ type runScenario struct {
 	choice policy.ApprovalChoice
 	// harnessMCP 为 true 时用 -e builtin:mcp 重新启用 MCP（-ne 会连带关掉它）。
 	harnessMCP bool
+	// extraExtensions 是额外显式 -e 加载的扩展（绝对路径）。
+	// 用于验证"托管扩展注册的工具同样要过策略"，与项目级扩展（永远不加载）不是一回事。
+	extraExtensions []string
+	// extraArgs 是追加给 Pi 的额外参数（如 --tools +codemode）。
+	extraArgs []string
+	// choices 按工具名指定审批结论，未列出的工具用 choice。
+	//
+	// 为什么需要按工具区分：codemode 的外层调用与嵌套调用是**两个**独立的审批请求。
+	// 如果两层用同一个结论，"外层被拒"会让脚本根本没跑，嵌套通道等于没被测到——
+	// 那就会得到一个"看起来通过、实际没覆盖"的假证据。
+	choices map[string]policy.ApprovalChoice
+}
+
+// choiceFor 返回某个工具名对应的审批结论。
+func (sc runScenario) choiceFor(toolName string) policy.ApprovalChoice {
+	if c, ok := sc.choices[toolName]; ok {
+		return c
+	}
+	return sc.choice
 }
 
 // runPolicyCase 在 work 目录上跑一次真实 Pi，策略结论由 sc.choice 决定。
@@ -80,6 +104,8 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 		ConfigRevision: 1, ControlGeneration: 1,
 	}
 	var pending int32
+	var askedMu sync.Mutex
+	asked := map[string]int{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -95,10 +121,13 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 		AskTimeout: 20 * time.Second,
 		OnPending: func(p policy.ApprovalRequest) {
 			atomic.AddInt32(&pending, 1)
-			// 由用例指定的结论；用独立 goroutine 提交，避免阻塞 Pi 的请求。
+			askedMu.Lock()
+			asked[p.ToolName]++
+			askedMu.Unlock()
+			// 由用例按工具名指定的结论；用独立 goroutine 提交，避免阻塞 Pi 的请求。
 			go func() {
 				time.Sleep(50 * time.Millisecond)
-				_ = resolveViaBridge(srv.Endpoint(), srv.Env(), exec.SessionID, p.ID, sc.choice)
+				_ = resolveViaBridge(srv.Endpoint(), srv.Env(), exec.SessionID, p.ID, sc.choiceFor(p.ToolName))
 			}()
 		},
 	})
@@ -110,8 +139,9 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 	spec := IsolationSpec{
 		PolicyExtension: filepath.Join(root, "pi-extensions", "harness-policy.ts"),
 		HarnessMCP:      sc.harnessMCP,
+		ExtraExtensions: sc.extraExtensions,
 	}
-	extra := spec.Args()
+	extra := append(spec.Args(), sc.extraArgs...)
 
 	launch := nodeLaunch(captureNodePath(t), piCLIPath(t, root))
 	launch.env = append(launch.env, srv.Env()...)
@@ -119,7 +149,14 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 	recs, stderr, code := runPiRPC(t, launch, work, agentDir,
 		[][]string{{promptCmd("req-policy", sc.scenario)}}, 1, true, extra, 0, 120*time.Second)
 
-	return policyRun{records: recs, stderr: stderr, code: code, pending: atomic.LoadInt32(&pending)}
+	askedMu.Lock()
+	askedCopy := make(map[string]int, len(asked))
+	for k, v := range asked {
+		askedCopy[k] = v
+	}
+	askedMu.Unlock()
+
+	return policyRun{records: recs, stderr: stderr, code: code, pending: atomic.LoadInt32(&pending), asked: askedCopy}
 }
 
 // resolveViaBridge 从端点环境变量里取出 URL/令牌，提交人工结论。
@@ -132,6 +169,282 @@ func resolveViaBridge(ep policybridge.Endpoint, env []string, session contracts.
 	}
 	client := policybridge.NewClient(ep, token, session, 10*time.Second)
 	return client.Resolve(context.Background(), id, choice)
+}
+
+// TestRealPiPolicyBlocksWriteAndEditChannels 覆盖 SEC02 里 bash 之外的写通道。
+//
+// 为什么必须单独测：bash 被拦住不代表 write/edit 也被拦住——它们是三条不同的
+// 内置工具，参数结构不同（write: path/content；edit: path/edits[]），
+// 策略扩展的取值与策略层的文件类工具判定都要各自成立。
+//
+// 判定同样落在文件系统上：write 产物是否存在、edit 目标内容是否被改。
+func TestRealPiPolicyBlocksWriteAndEditChannels(t *testing.T) {
+	if os.Getenv("MYAGENT_PI_POLICY") != "1" {
+		t.Skip("设置 MYAGENT_PI_POLICY=1 才执行真实 Pi 的策略集成验证")
+	}
+	if runtime.GOOS != "windows" {
+		t.Skip("当前集成脚本按 Windows 路径编写")
+	}
+
+	root := repoRoot(t)
+	work := t.TempDir()
+	agentDir := filepath.Join(work, "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("建 agentDir: %v", err)
+	}
+	srv := httptest.NewServer(openaisse.NewHandler(filepath.Join(work, "requests")))
+	defer srv.Close()
+	writeFixtureModels(t, agentDir, srv.URL)
+
+	writeMarker := filepath.Join(work, "write-ran.txt")
+	editTarget := filepath.Join(work, "edit-target.txt")
+
+	// ── write：拒绝 ──
+	_ = os.Remove(writeMarker)
+	writeDeny := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-write", choice: policy.ApprovalDeny})
+	t.Logf("write 拒绝：%d 条记录，待审批 %d 次", len(writeDeny.records), writeDeny.pending)
+	if writeDeny.pending == 0 {
+		t.Fatal("write 调用没有触发审批——策略扩展可能没覆盖该通道，本用例不构成证据")
+	}
+	if fileExists(writeMarker) {
+		t.Fatal("拒绝后 write 仍然写出了文件（write-ran.txt 存在）")
+	}
+	writeDenyCreated := fileExists(writeMarker)
+
+	// ── write：允许（正向对照） ──
+	_ = os.Remove(writeMarker)
+	writeAllow := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-write", choice: policy.ApprovalOnce})
+	t.Logf("write 允许：%d 条记录，待审批 %d 次", len(writeAllow.records), writeAllow.pending)
+	if !fileExists(writeMarker) {
+		t.Fatalf("允许后 write 应写出 write-ran.txt；前 1200 字节记录：\n%s", truncate(joinRecords(writeAllow.records), 1200))
+	}
+	writeAllowCreated := fileExists(writeMarker)
+
+	// ── edit：拒绝 ──
+	// edit 需要一个唯一的 oldText 才能改；先写入基线内容，拒绝后必须原样保留。
+	if err := os.WriteFile(editTarget, []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("写 edit 目标文件: %v", err)
+	}
+	editDeny := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-edit", choice: policy.ApprovalDeny})
+	t.Logf("edit 拒绝：%d 条记录，待审批 %d 次", len(editDeny.records), editDeny.pending)
+	if editDeny.pending == 0 {
+		t.Fatal("edit 调用没有触发审批——该通道未被覆盖")
+	}
+	if got := readIfExists(editTarget); got != "before\n" {
+		t.Fatalf("拒绝后 edit 仍然改了文件，实际内容 %q", got)
+	}
+	editDenyContent := readIfExists(editTarget)
+
+	// ── edit：允许（正向对照） ──
+	editAllow := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-edit", choice: policy.ApprovalOnce})
+	t.Logf("edit 允许：%d 条记录，待审批 %d 次", len(editAllow.records), editAllow.pending)
+	if got := readIfExists(editTarget); !strings.Contains(got, "after") {
+		t.Fatalf("允许后 edit 应把 before 改成 after，实际内容 %q；前 1200 字节记录：\n%s",
+			got, truncate(joinRecords(editAllow.records), 1200))
+	}
+	editAllowContent := readIfExists(editTarget)
+
+	// 证据必须在每个场景结束时立刻取快照：跑完全部场景再读，读到的是最终状态，
+	// 会让 deny 的记录看起来"也写了文件"——那不是事实，是采集时机错了。
+	evidence := map[string]any{
+		"write": map[string]any{
+			"deny":  map[string]any{"pendingApprovals": writeDeny.pending, "fileCreated": writeDenyCreated},
+			"allow": map[string]any{"pendingApprovals": writeAllow.pending, "fileCreated": writeAllowCreated},
+		},
+		"edit": map[string]any{
+			"deny":          map[string]any{"pendingApprovals": editDeny.pending, "content": editDenyContent},
+			"allow":         map[string]any{"pendingApprovals": editAllow.pending, "content": editAllowContent},
+			"denyPreserved": editDenyContent == "before\n",
+		},
+	}
+	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
+		t.Logf("写通道策略证据：\n%s", b)
+		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-write-channels.json")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
+			_ = os.WriteFile(out, b, 0o644)
+		}
+	}
+}
+
+// TestRealPiPolicyBlocksExtensionChannel 覆盖 SEC03 里的"扩展工具"通道。
+//
+// 为什么必须单独测：策略扩展在 tool_call 钩子上做拦截，而内置工具、MCP 工具、扩展工具
+// 是三条不同的执行路径。内部工具被拦住，不能推出扩展工具也被拦住——扩展注册的工具
+// 有自己的 execute 实现，参数结构也由扩展自定义。这条通道要么实测过，要么就是未知。
+//
+// 判定落在文件系统上：fixture_marker 被执行就写 extension-ran.txt，没被执行就不存在。
+func TestRealPiPolicyBlocksExtensionChannel(t *testing.T) {
+	if os.Getenv("MYAGENT_PI_POLICY") != "1" {
+		t.Skip("设置 MYAGENT_PI_POLICY=1 才执行真实 Pi 的策略集成验证")
+	}
+	if runtime.GOOS != "windows" {
+		t.Skip("当前集成脚本按 Windows 路径编写")
+	}
+
+	root := repoRoot(t)
+	ext := filepath.Join(root, "tests", "fixtures", "extension", "fixture-tool.ts")
+	if _, err := os.Stat(ext); err != nil {
+		t.Fatalf("扩展工具 fixture 不存在: %v", err)
+	}
+
+	work := t.TempDir()
+	agentDir := filepath.Join(work, "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("建 agentDir: %v", err)
+	}
+	srv := httptest.NewServer(openaisse.NewHandler(filepath.Join(work, "requests")))
+	defer srv.Close()
+	writeFixtureModels(t, agentDir, srv.URL)
+
+	// marker 由 fixture 工具按 Pi 进程的 cwd（即 work）解析。
+	marker := filepath.Join(work, "extension-ran.txt")
+	sc := func(choice policy.ApprovalChoice) runScenario {
+		return runScenario{scenario: "tool-ext", choice: choice, extraExtensions: []string{ext}}
+	}
+
+	// ── 拒绝 ──
+	_ = os.Remove(marker)
+	deny := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalDeny))
+	t.Logf("扩展工具拒绝：%d 条记录，待审批 %d 次", len(deny.records), deny.pending)
+	if deny.pending == 0 {
+		t.Fatalf("扩展工具调用没有触发审批——该通道未被覆盖，本用例不构成证据；记录：\n%s",
+			truncate(joinRecords(deny.records), 1200))
+	}
+	if fileExists(marker) {
+		t.Fatal("拒绝后扩展工具仍然执行了（extension-ran.txt 存在）")
+	}
+	denyCreated := fileExists(marker)
+
+	// ── 允许（正向对照） ──
+	// 没有这一步，"拒绝后没写文件"也可能是因为工具根本没被注册/根本调不到，
+	// 那样本用例证明的是"fixture 坏了"，不是"策略拦住了"。
+	_ = os.Remove(marker)
+	allow := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalOnce))
+	t.Logf("扩展工具允许：%d 条记录，待审批 %d 次", len(allow.records), allow.pending)
+	if !fileExists(marker) {
+		t.Fatalf("允许后扩展工具应写出 extension-ran.txt；前 1200 字节记录：\n%s",
+			truncate(joinRecords(allow.records), 1200))
+	}
+	allowContent := readIfExists(marker)
+
+	evidence := map[string]any{
+		"channel":  "extension",
+		"toolName": "fixture_marker",
+		"deny":     map[string]any{"pendingApprovals": deny.pending, "fileCreated": denyCreated},
+		"allow":    map[string]any{"pendingApprovals": allow.pending, "fileCreated": fileExists(marker), "content": allowContent},
+	}
+	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
+		t.Logf("扩展工具通道策略证据：\n%s", b)
+		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-extension-channel.json")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
+			_ = os.WriteFile(out, b, 0o644)
+		}
+	}
+}
+
+// TestRealPiPolicyBlocksCodemodeNestedChannel 覆盖 SEC03 的"codemode 嵌套调用"通道。
+//
+// 这是四条通道里最容易漏的一条：脚本在 QuickJS 沙箱里执行 `tools.bash(...)`，
+// 没有经过模型、也不经过任何一层顶层的工具调用 UI。如果实现只拦"模型直接发起的
+// 工具调用"，这条通道就会整体绕过策略层，而外面看起来一切正常。
+//
+// 因此本用例必须把外层与内层的结论分开给：
+//   - 外层拒绝 → 脚本压根没跑（此步只证明外层被拦）；
+//   - 外层允许 + 内层拒绝 → 脚本跑了，但嵌套的 bash 被单独拦下（关键一步）；
+//   - 两层都允许 → marker 出现（正向对照，证明上面的"没出现"不是因为链路本来就不通）。
+func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
+	if os.Getenv("MYAGENT_PI_POLICY") != "1" {
+		t.Skip("设置 MYAGENT_PI_POLICY=1 才执行真实 Pi 的策略集成验证")
+	}
+	if runtime.GOOS != "windows" {
+		t.Skip("当前集成脚本按 Windows 路径编写")
+	}
+
+	root := repoRoot(t)
+	work := t.TempDir()
+	agentDir := filepath.Join(work, "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("建 agentDir: %v", err)
+	}
+	srv := httptest.NewServer(openaisse.NewHandler(filepath.Join(work, "requests")))
+	defer srv.Close()
+	writeFixtureModels(t, agentDir, srv.URL)
+
+	marker := filepath.Join(work, "codemode-ran.txt")
+	// codemode 是内置扩展：-ne 会把它一起关掉，必须显式 -e builtin:codemode 才加载；
+	// 加载后仍是 defaultActive:false，还要 --tools +codemode 才进工具表。
+	// 两句缺一不可——只写 --tools 会得到一个"工具不存在"的假失败。
+	base := runScenario{
+		scenario:  "tool-codemode",
+		extraArgs: []string{"-e", "builtin:codemode", "--tools", "+codemode"},
+	}
+
+	// ── 1. 外层拒绝：脚本不该跑 ──
+	outerDeny := base
+	outerDeny.choice = policy.ApprovalDeny
+	_ = os.Remove(marker)
+	r1 := runPolicyCase(t, root, work, agentDir, outerDeny)
+	t.Logf("外层 codemode 拒绝：待审批 %d 次，按工具 %v", r1.pending, r1.asked)
+	if r1.asked["codemode"] == 0 {
+		t.Fatalf("外层 codemode 没有触发审批——该工具未激活或未被策略覆盖；按工具：%v\n前 2000 字节记录：\n%s",
+			r1.asked, truncate(joinRecords(r1.records), 2000))
+	}
+	if fileExists(marker) {
+		t.Fatal("外层 codemode 被拒绝后脚本仍然执行了（codemode-ran.txt 存在）")
+	}
+
+	// ── 2. 外层允许 + 内层 bash 拒绝：嵌套调用必须被单独拦下 ──
+	innerDeny := base
+	innerDeny.choice = policy.ApprovalOnce
+	innerDeny.choices = map[string]policy.ApprovalChoice{"bash": policy.ApprovalDeny}
+	_ = os.Remove(marker)
+	r2 := runPolicyCase(t, root, work, agentDir, innerDeny)
+	t.Logf("外层允许 / 嵌套 bash 拒绝：待审批 %d 次，按工具 %v", r2.pending, r2.asked)
+	if r2.asked["codemode"] == 0 {
+		t.Fatalf("外层 codemode 没有触发审批；按工具：%v", r2.asked)
+	}
+	if r2.asked["bash"] == 0 {
+		t.Fatalf("嵌套 bash 没有单独触发审批——codemode 脚本内的工具调用绕过了策略层；按工具：%v", r2.asked)
+	}
+	if fileExists(marker) {
+		t.Fatal("嵌套 bash 被拒绝后仍写出了 codemode-ran.txt")
+	}
+	innerDenyCreated := fileExists(marker)
+
+	// ── 3. 两层都允许：正向对照 ──
+	innerAllow := base
+	innerAllow.choice = policy.ApprovalOnce
+	innerAllow.choices = map[string]policy.ApprovalChoice{"bash": policy.ApprovalOnce}
+	_ = os.Remove(marker)
+	r3 := runPolicyCase(t, root, work, agentDir, innerAllow)
+	t.Logf("两层都允许：待审批 %d 次，按工具 %v", r3.pending, r3.asked)
+	if !fileExists(marker) {
+		t.Fatalf("两层都允许后应写出 codemode-ran.txt；前 1200 字节记录：\n%s",
+			truncate(joinRecords(r3.records), 1200))
+	}
+	allowContent := readIfExists(marker)
+
+	evidence := map[string]any{
+		"channel":  "codemode-nested",
+		"scenario": "tool-codemode（脚本内调用 bash）",
+		"outerDeny": map[string]any{
+			"pendingApprovals": r1.pending, "askedByTool": r1.asked, "fileCreated": false,
+		},
+		"innerDeny": map[string]any{
+			"pendingApprovals": r2.pending, "askedByTool": r2.asked, "fileCreated": innerDenyCreated,
+		},
+		"bothAllow": map[string]any{
+			"pendingApprovals": r3.pending, "askedByTool": r3.asked, "fileCreated": true, "content": allowContent,
+		},
+		"nestedCallWasAsked": r2.asked["bash"] > 0,
+	}
+	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
+		t.Logf("codemode 嵌套通道策略证据：\n%s", b)
+		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-codemode-nested.json")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
+			_ = os.WriteFile(out, b, 0o644)
+		}
+	}
 }
 
 // TestRealPiPolicyBlocksToolAndProjectResources 是 F04 的关键证据。
@@ -240,6 +553,27 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 		t.Fatalf("批准后 MCP 调用应到达 handler（正向对照失败）；MCP 日志：\n%s", truncate(allowLog, 600))
 	}
 
+	// ── 未支持通道：禁用之后必须"实际不能调用"，而不是"策略会说拒绝" ──
+	//
+	// 自有 MCP server（internal/harnessmcp）本期没有实现，属于"未支持的通道"。
+	// 验收计划对这一类的要求不是"策略会拦住"，而是**从工具列表里禁用并验证不可调用**
+	// （foundation-runtime 计划 §F04）。差别很实际：策略层拦截说明工具还在、
+	// 有一条依赖"钩子实现正确"的安全边界；工具根本不在列表里，模型连发起的机会都没有。
+	//
+	// 判据落在两处：mcp.json 仍然存在（配置没被删掉，只是没启用），
+	// 而 handler 日志里没有任何 tools/call、审批次数为 0（工具不存在 → 连询问都不会发生）。
+	_ = os.Remove(mcpLog)
+	mcpOff := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-mcp", choice: policy.ApprovalOnce, harnessMCP: false})
+	offLog := readIfExists(mcpLog)
+	t.Logf("MCP 禁用场景：%d 条记录，待审批 %d 次", len(mcpOff.records), mcpOff.pending)
+	if strings.Contains(offLog, `"tools/call"`) {
+		t.Fatalf("--no-mcp 下 MCP 调用仍到达 handler（通道未被真正禁用）；MCP 日志：\n%s", truncate(offLog, 600))
+	}
+	if mcpOff.pending != 0 {
+		t.Fatalf("--no-mcp 下仍出现 %d 次审批请求，说明工具仍在工具表里（只是被拦）；按“禁用并不可调用”的要求应为 0", mcpOff.pending)
+	}
+	mcpDisabledHandlerReached := strings.Contains(offLog, `"tools/call"`)
+
 	// ── SEC08：项目级资源一律不得生效（两场都不行）──
 	if _, err := os.Stat(evilMarker); err == nil {
 		t.Fatal("项目扩展被执行了：工作区出现 evil-extension-ran.txt（-na/-ne 未生效）")
@@ -265,8 +599,9 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 			"pendingApprovals": allowRun.pending, "toolRan": fileExists(toolMarker),
 		},
 		"mcp": map[string]any{
-			"deny":  map[string]any{"pendingApprovals": mcpDeny.pending, "handlerReached": strings.Contains(denyLog, `"tools/call"`)},
-			"allow": map[string]any{"pendingApprovals": mcpAllow.pending, "handlerReached": strings.Contains(allowLog, `"tools/call"`)},
+			"deny":     map[string]any{"pendingApprovals": mcpDeny.pending, "handlerReached": strings.Contains(denyLog, `"tools/call"`)},
+			"allow":    map[string]any{"pendingApprovals": mcpAllow.pending, "handlerReached": strings.Contains(allowLog, `"tools/call"`)},
+			"disabled": map[string]any{"pendingApprovals": mcpOff.pending, "handlerReached": mcpDisabledHandlerReached, "configStillPresent": fileExists(filepath.Join(agentDir, "mcp.json"))},
 		},
 		"projectExtensionLoaded": false,
 		"agentsMdLeaked":         false,

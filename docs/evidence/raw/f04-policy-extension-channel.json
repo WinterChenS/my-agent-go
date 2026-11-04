@@ -1,0 +1,13 @@
+{
+  "allow": {
+    "content": "extension-tool-ran",
+    "fileCreated": true,
+    "pendingApprovals": 1
+  },
+  "channel": "extension",
+  "deny": {
+    "fileCreated": false,
+    "pendingApprovals": 1
+  },
+  "toolName": "fixture_marker"
+}
