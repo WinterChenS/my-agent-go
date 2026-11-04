@@ -108,6 +108,11 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 ## F06：Pi 一键安装、升级与回滚
 
+**状态：延后（2026-11-04，用户决策）。** 安装器会改写本机 active Pi 指针、清理旧版本，
+在功能开发期间执行有破坏现有 Pi 环境的风险，因此推迟到全部功能完成之后。
+连带影响与门禁调整见 [ADR 0002](../../adr/0002-defer-f06-pi-installer.md)：
+INS01–07 的验收阶段由 G2 移到 G4。**任务与 R03 需求本身不删除。**
+
 **依赖：** F02/F03/F07；可先定义测试，不得在G0前认证安装渠道。**Files：** `internal/piinstall/{manifest,download,extract,activate,service}.go`、`build/pi-manifest.json`、`internal/app/pi_api.go`；测试 `extract_test.go`、`activate_test.go`、`install_integration_test.go`。
 
 **Interfaces：** `Install(ctx, InstallRequest)(InstallID,error)`、`Cancel(ctx,InstallID) error`、`Rollback(ctx,InstallationID) error`；InstallRequest只含已认证version/target，URL不由前端任意指定；Progress事件stage=download/verify/extract/probe/activate，明确bytesDownloaded/total与错误。

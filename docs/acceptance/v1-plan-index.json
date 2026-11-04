@@ -38,9 +38,9 @@
   "gates": [
     {"id":"G0","dependsOn":["F00","F01","F02","F03","F04"],"state":"NOT_RUN"},
     {"id":"G1","dependsOn":["G0","B00","B01","B02","B03"],"state":"NOT_RUN"},
-    {"id":"G2","dependsOn":["G1","F05","F06","F07","C02","C03","C04","C05","B04","B05","B06"],"state":"NOT_RUN"},
+    {"id":"G2","dependsOn":["G1","F05","F07","C02","C03","C04","C05","B04","B05","B06"],"state":"NOT_RUN"},
     {"id":"G3","dependsOn":["G2","C01","C06","C07","B07","X01","X02"],"state":"NOT_RUN"},
-    {"id":"G4","dependsOn":["G3","X03","X04"],"state":"NOT_RUN"},
+    {"id":"G4","dependsOn":["G3","F06","X03","X04"],"state":"NOT_RUN"},
     {"id":"G5","dependsOn":["G4","X05"],"state":"NOT_RUN"}
   ],
   "requirements": {

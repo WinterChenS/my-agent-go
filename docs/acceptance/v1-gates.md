@@ -159,9 +159,9 @@
 
 - G0：ENV01–03、GOV01–04、PI01–04、RPC01–05、SEC01–06/SEC08的runtime子case、CFG03.isolation（F04项目执行隔离）。SEC07/配置存储可独立完成，但不能用未实现的明文fallback暂过门禁。
 - G1：BR00–BR07（BR07先用原生基础操作，B04再做完整工具语义）、UI04的最小dialog验证；六目标/LNX双display齐全。
-- G2：CFG01–04、DB01–03、RUN01–07、INS01–07、MOD01–04、RES01–04、MCP01–05、MEM01–05、SEC01–08、BR08–BR17。
+- G2：CFG01–04、DB01–03、RUN01–07、MOD01–04、RES01–04、MCP01–05、MEM01–05、SEC01–08、BR08–BR17。（INS01–07 于 2026-11-04 移到 G4，见 ADR 0002；G2 对 Pi 来源只要求记录外部已装版本与hash，不要求自研安装器。）
 - G3：UI01–04、ART01–03、E2E01–05，并保留相关G0–G2通过证据。
-- G4：PKG01–07、PERF01–04，外加当前候选包自身PKG03的NATIVE结果；不能仅沿用开发二进制G3证据。
+- G4：PKG01–07、PERF01–04、INS01–07，外加当前候选包自身PKG03的NATIVE结果；不能仅沿用开发二进制G3证据。INS 是 F06 安装器的验收，与安装包在同一阶段：安装器会改写 active Pi 指针并清理旧版，不在功能开发期执行（ADR 0002）。
 - G5：REL01–04及当前revision完整G0–G4。
 
 ### 避免阶段依赖循环
