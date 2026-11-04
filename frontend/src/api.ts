@@ -11,6 +11,12 @@ import type {
   SkillListResult,
   SkillResult,
   ModelAction,
+  MCPCredentialResult,
+  MCPDefinition,
+  MCPListResult,
+  MCPResult,
+  MCPStatusListResult,
+  MCPStatusResult,
   ModelDefinition,
   ModelListResult,
   ModelProbeResponse,
@@ -23,6 +29,7 @@ import type {
   RunSnapshot,
   Settings,
   Status,
+  ToolListResult,
   WorkspaceListResult,
   WorkspaceResult,
 } from "./types";
@@ -163,6 +170,43 @@ export const api = {
     enabled: boolean
   ): Promise<ExtensionResult> =>
     Call.ByName(`${FQN}.SetExtensionEnabled`, id, expectedRevision, enabled),
+
+  // ---- C04：MCP 与统一工具目录 ----
+
+  mcpServers: (): Promise<MCPListResult> => Call.ByName(`${FQN}.ListMCP`),
+
+  /** 保存配置不启动任何脚本/连接；校验失败会带可读错误码。 */
+  saveMCP: (
+    expectedRevision: number,
+    def: MCPDefinition
+  ): Promise<MCPResult> => Call.ByName(`${FQN}.SaveMCP`, expectedRevision, def),
+
+  deleteMCP: (expectedRevision: number, id: string): Promise<MCPResult> =>
+    Call.ByName(`${FQN}.DeleteMCP`, expectedRevision, id),
+
+  setMCPEnabled: (
+    id: string,
+    expectedRevision: number,
+    enabled: boolean
+  ): Promise<MCPResult> =>
+    Call.ByName(`${FQN}.SetMCPEnabled`, id, expectedRevision, enabled),
+
+  /** 只写 OS 凭证库，配置里只留 ref。 */
+  saveMCPCredential: (ref: string, secret: string): Promise<MCPCredentialResult> =>
+    Call.ByName(`${FQN}.SaveMCPCredential`, ref, secret),
+
+  /**
+   * 诊断会启动一个短命的 `pi mcp list --json`（连接由 Pi 拥有）。
+   * 需要 OAuth 的服务在这里返回 auth_required，不会是 connected。
+   */
+  diagnoseMCP: (id: string): Promise<MCPStatusResult> =>
+    Call.ByName(`${FQN}.DiagnoseMCP`, id),
+
+  diagnoseAllMCP: (): Promise<MCPStatusListResult> =>
+    Call.ByName(`${FQN}.DiagnoseAllMCP`),
+
+  /** 统一工具目录；MCP 工具来自 Pi 的诊断输出。 */
+  tools: (): Promise<ToolListResult> => Call.ByName(`${FQN}.ListTools`),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

@@ -34,6 +34,17 @@ vi.mock("../../api", () => ({
     profile: vi.fn(async () => ({ item: fresh, error: null })),
     saveProfile: vi.fn(async () => ({ item: fresh, error: null })),
     profileConflict: vi.fn(async () => ({ error: null })),
+    // C04 的 MCP/工具区块会自己加载；这里给空集合，避免把"缺 mock"
+    // 变成测试里的另一个错误弹层（真实失败会被重复 alert 掩盖）。
+    mcpServers: vi.fn(async () => ({
+      items: [],
+      revision: 0,
+      runtimeServers: [],
+      pending: false,
+      activeRun: false,
+      diagnoseReady: false,
+    })),
+    tools: vi.fn(async () => ({ items: [] })),
   },
 }));
 

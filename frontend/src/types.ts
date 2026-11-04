@@ -87,6 +87,13 @@ export interface Status {
   skillAutoDiscovery?: SkillAutoDiscovery;
   /** 托管技能的配置与运行中的不一致（内容摘要或集合变了）。 */
   skillsPending: boolean;
+  /**
+   * 最近一次构建实际写进隔离 agentDir/mcp.json 的外部 MCP 服务名。
+   * 空 = 没有启用任何外部 MCP（自有 harness MCP 不在此列）。
+   */
+  runtimeMCP?: string[];
+  /** MCP 配置与运行中的集合不一致：下一次安全点（ensureRuntime 重建）才生效。 */
+  mcpPending?: boolean;
 }
 
 export interface Settings {
@@ -375,5 +382,120 @@ export interface ExtensionListResult {
 export interface ExtensionResult {
   item: Extension;
   revision: number;
+  error?: CallError;
+}
+
+// ---- C04：MCP 与统一工具目录 ----
+
+export type MCPTransport = "stdio" | "http";
+/**
+ * 工具暴露策略。刻意不提供 Pi 的默认 codemode：
+ * V1 只支持 direct / deferred / hidden 三种可验证的语义。
+ */
+export type MCPExposure = "direct" | "deferred" | "hidden";
+
+export interface MCPDefinition {
+  id: string;
+  transport: MCPTransport;
+  /** stdio：只能是一个可执行文件；参数放 args。 */
+  command?: string;
+  args?: string[] | null;
+  /** 子进程环境变量名 → 凭证库 ref（不是秘密本体）。 */
+  envRefs?: Record<string, string> | null;
+  workingDir?: string;
+  /** http：Streamable HTTP 端点。 */
+  url?: string;
+  /** HTTP 头名 → 凭证库 ref；凭证内容是完整头值（如 `Bearer x`）。 */
+  headerRefs?: Record<string, string> | null;
+  enabled: boolean;
+  exposure: MCPExposure;
+}
+
+export interface MCPListResult {
+  items: MCPDefinition[] | null;
+  revision: number;
+  /** 运行中的 worker 实际拿到的外部 MCP 服务名。 */
+  runtimeServers: string[] | null;
+  /** 配置与运行中的集合不一致（有 run 在跑时本轮继续用旧集合）。 */
+  pending: boolean;
+  activeRun: boolean;
+  /** 是否具备启动 Pi 诊断的条件（Pi 可执行文件可用）。 */
+  diagnoseReady: boolean;
+  error?: CallError;
+}
+
+export interface MCPResult {
+  item?: MCPDefinition;
+  revision: number;
+  pending: boolean;
+  error?: CallError;
+}
+
+export type MCPState =
+  | "connected"
+  | "failed"
+  | "timeout"
+  | "auth_required"
+  | "disabled"
+  | "unavailable";
+
+export interface MCPToolStatus {
+  name: string;
+  exposure: MCPExposure;
+  /** hidden 时为 false：服务连上了但工具不可达。 */
+  enabled: boolean;
+  capabilityState: string;
+}
+
+export interface MCPStatus {
+  id: string;
+  configured: boolean;
+  transport: MCPTransport;
+  enabled: boolean;
+  exposure: MCPExposure;
+  state: MCPState;
+  tools: MCPToolStatus[] | null;
+  error?: CallError;
+  detail?: string;
+  source: string;
+  /** V1 没有实现 MCP OAuth；true 只可能来自未来版本。 */
+  oauthSupported: boolean;
+  checkedAt: string;
+}
+
+export interface MCPStatusResult {
+  status: MCPStatus;
+  error?: CallError;
+}
+
+export interface MCPStatusListResult {
+  items: MCPStatus[] | null;
+  error?: CallError;
+}
+
+export interface MCPCredentialResult {
+  ref: string;
+  error?: CallError;
+}
+
+export type ToolSource = "builtin" | "extension" | "mcp" | "harness";
+export type ToolPolicyKind = "approval" | "auto" | "denied";
+
+export interface ToolDescriptor {
+  name: string;
+  source: ToolSource | string;
+  description?: string;
+  inputSchema?: Record<string, unknown> | null;
+  /** 模型当前可达且未被禁用；hidden/disabled/failed 一律 false。 */
+  enabled: boolean;
+  policy: ToolPolicyKind | string;
+  /** available | deferred | hidden | unknown | unavailable | disabled */
+  capabilityState: string;
+  /** source=mcp 时的服务名。 */
+  server?: string;
+}
+
+export interface ToolListResult {
+  items: ToolDescriptor[] | null;
   error?: CallError;
 }

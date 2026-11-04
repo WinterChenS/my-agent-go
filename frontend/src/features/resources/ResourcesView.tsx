@@ -1,8 +1,8 @@
-// 资源库：模型 + 技能 + 扩展 + 配置档 + 尚未实现的 MCP。
+// 资源库：模型 + 技能 + 扩展 + MCP + 工具目录 + 配置档。
 //
-// 模型（C02）、技能与扩展（C03）、配置档（C01）都是真的能用；MCP 属于 C04。
-// 未实现的部分必须明确写出来并且不显示任何数据——
-// 用空列表配一句"暂无"会让人以为"我还没添加"，而不是"这个功能不存在"。
+// 模型（C02）、技能与扩展（C03）、MCP 与工具目录（C04）、配置档（C01）都是真的能用。
+// MCP 与工具目录自己加载后端数据：它们的"已连接/可用"必须来自 Pi 的诊断，
+// 不能由父组件的静态 props 决定。
 
 import { useState } from "react";
 import { Boxes, Plus } from "lucide-react";
@@ -21,6 +21,8 @@ import { ProfileEditor } from "../profiles/ProfileEditor";
 import { ModelsSection } from "../models/ModelsSection";
 import { SkillsSection } from "../skills/SkillsSection";
 import { ExtensionsSection } from "../skills/ExtensionsSection";
+import { MCPSection } from "../mcp/MCPSection";
+import { ToolsSection } from "../tools/ToolsSection";
 import { EmptyState } from "../../components/StateViews";
 
 export interface ResourcesViewProps {
@@ -202,25 +204,9 @@ export function ResourcesView({
         )}
       </section>
 
-      <PendingSection
-        title="MCP 服务"
-        task="C04"
-        reason="MCP 配置与诊断属于 C04。产品内置的 harness MCP 已在运行，但它的配置不对外暴露。"
-      />
-    </div>
-  );
-}
+      <MCPSection />
 
-function PendingSection({ title, task, reason }: { title: string; task: string; reason: string }) {
-  return (
-    <section className="rounded-lg border border-dashed border-white/10 px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-[12px] text-slate-400">{title}</h2>
-        <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">
-          未实现 · {task}
-        </span>
-      </div>
-      <p className="mt-1 text-[11px] leading-relaxed text-slate-600">{reason}</p>
-    </section>
+      <ToolsSection />
+    </div>
   );
 }

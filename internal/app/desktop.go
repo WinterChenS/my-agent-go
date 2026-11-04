@@ -83,6 +83,11 @@ type Status struct {
 	// 技能 ID（RES02）。空表示没有托管技能被显式加载，**不是**"没有技能可用"：
 	// Pi 自己的自动发现仍可能加载了它发现的技能。
 	RuntimeSkills []string `json:"runtimeSkills"`
+	// RuntimeMCP 是最近一次构建实际写进 agentDir/mcp.json 的外部 MCP 服务名。
+	// 空表示没有启用任何外部 MCP（自有 harness MCP 不在此列）。
+	RuntimeMCP []string `json:"runtimeMCP"`
+	// MCPPending 表示 MCP 配置与运行中的集合不一致（下一次安全点才生效）。
+	MCPPending bool `json:"mcpPending"`
 	// SkillAutoDiscovery 是当前运行参数下 Pi 侧技能自动发现的状态
 	// （contracts.SkillDiscoveryEnabled / Disabled）。自动发现到的清单产品拿不到，
 	// 所以这里只有开关，没有名次。
@@ -137,6 +142,11 @@ type Desktop struct {
 	runtimeSkills       []string
 	runtimeSkillDigest  string
 	runtimeExtensionDig string
+	// runtimeMCP/runtimeMCPDigest 是最近一次构建交给 Pi 的外部 MCP 集合。
+	// digest 参与运行时签名：改服务/改参数/改暴露策略都会重建 runtime，
+	// 有 run 在跑时则记 pending（旧 run 不静默变化）。
+	runtimeMCP       []string
+	runtimeMCPDigest string
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -342,6 +352,8 @@ func (d *Desktop) Status() Status {
 	runtimeModel := d.runtimeModel
 	runtimeSkills := append([]string{}, d.runtimeSkills...)
 	runtimeSkillDigest := d.runtimeSkillDigest
+	runtimeMCP := append([]string{}, d.runtimeMCP...)
+	runtimeMCPDigest := d.runtimeMCPDigest
 	pending := d.pendingRuntimeKey != "" && d.pendingRuntimeKey != d.runtimeKey
 	d.mu.Unlock()
 
@@ -359,6 +371,14 @@ func (d *Desktop) Status() Status {
 			skillsPending = plan.Digest != runtimeSkillDigest
 		}
 	}
+	// MCP 同理：禁用的服务在下一个安全点从 mcp.json 移除；在此之前
+	// 界面必须说“还没生效”，而不是让人以为已经断开。
+	mcpPending := false
+	if runtimeMCPDigest != "" {
+		if plan, planErr := d.compileMCP(); planErr == nil {
+			mcpPending = plan.Digest != runtimeMCPDigest
+		}
+	}
 
 	st := Status{
 		AppRoot:            d.root,
@@ -374,6 +394,8 @@ func (d *Desktop) Status() Status {
 		RuntimeModel:       runtimeModel,
 		RuntimePending:     pending,
 		RuntimeSkills:      runtimeSkills,
+		RuntimeMCP:         runtimeMCP,
+		MCPPending:         mcpPending,
 		SkillAutoDiscovery: autoDiscovery,
 		SkillsPending:      skillsPending,
 	}
@@ -532,7 +554,13 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := setup.key() + "|sk:" + skills.Digest + "|ex:" + extPlan.Digest
+	// MCP 也进运行时签名：启用/禁用/改参数/改暴露策略都必须重建，
+	// 否则“界面已禁用、Pi 还在用旧 mcp.json”会长期存在。
+	mcpPlan, err := d.compileMCP()
+	if err != nil {
+		return nil, err
+	}
+	key := setup.key() + "|sk:" + skills.Digest + "|ex:" + extPlan.Digest + "|mcp:" + mcpPlan.Digest
 
 	d.mu.Lock()
 	if d.svc != nil && d.runtimeKey == key {
@@ -609,7 +637,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.mu.Unlock()
 	if harness == nil {
 		harness, err = harnessmcp.Start(ctx, harnessmcp.Options{
-			Tools:   []harnessmcp.Tool{harnessmcp.ProbeTool(s.Workspace)},
+			// 工具注册表只在这里与工具目录共用同一份构造（harnessTools），
+			// 两处各写一份会出现“目录里有、实际没注册”的偏差。
+			Tools:   harnessTools(s.Workspace),
 			Version: d.version(),
 		})
 		if err != nil {
@@ -620,6 +650,11 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		d.mu.Unlock()
 	}
 	if err := writeMCPConfig(agentDir, harness.Endpoint().URL); err != nil {
+		return nil, err
+	}
+	// 外部 MCP 由这张表拥有：禁用的服务会在下一次构建时从 mcp.json 移除，
+	// 而不是留着 enabled:false。秘密只以 ${ENV} 引用出现。
+	if err := resources.ApplyMCPPlan(agentDir, mcpPlan); err != nil {
 		return nil, err
 	}
 
@@ -646,8 +681,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		ManagedSkillIDs:    skills.IDs,
 		SkillAutoDiscovery: skillAutoDiscoveryFromArgs(isolationArgs),
 		Policy:             pol,
-		HarnessEnv:         harness.Env(),
-		StartWorker:        workerStarter,
+		// 自有 MCP 的环境 + 外部 MCP 的凭证环境（只经子进程环境交付）。
+		HarnessEnv:  append(harness.Env(), mcpPlan.Env...),
+		StartWorker: workerStarter,
 	})
 	if emitter != nil {
 		svc.Subscribe(emitter)
@@ -661,6 +697,8 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.runtimeSkills = append([]string{}, skills.IDs...)
 	d.runtimeSkillDigest = skills.Digest
 	d.runtimeExtensionDig = extPlan.Digest
+	d.runtimeMCP = append([]string{}, mcpPlan.IDs...)
+	d.runtimeMCPDigest = mcpPlan.Digest
 	d.pendingRuntimeKey = ""
 	d.mu.Unlock()
 	return svc, nil

@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
@@ -72,6 +73,20 @@ type Service struct {
 	systemExtension string
 	// lookPath 用于检查技能声明的依赖命令是否存在。测试可注入。
 	lookPath func(string) (string, error)
+
+	// mcpMu 保护 C04 的附加状态（工作区根、诊断环境、自有工具清单）。
+	// 绑定层会在每次调用前刷新它们，而 Wails 的调用是并发的。
+	mcpMu sync.RWMutex
+	// workspaceRoot 是 MCP workingDir 的允许根之一（另一个是 app home）。
+	// 为空时只允许 app home：没有工作区就不能把 cwd 指到任意目录。
+	workspaceRoot string
+	// mcpDiagnose 是"用 Pi 的 Shell 命令诊断 MCP"所需的启动信息。
+	// Executable 为空表示尚未配置：诊断会明确报 CONFIG_MISSING，而不是假装 unknown=已连接。
+	mcpDiagnose MCPDiagnoseEnv
+	// mcpDiagnoseRun 可被测试替换；nil 时用真实进程。
+	mcpDiagnoseRun func(ctx context.Context, spec mcpCommand) (mcpListOutput, error)
+	// harnessTools 是自有 MCP 的工具清单（由绑定层注入，避免 resources 依赖 harnessmcp）。
+	harnessTools []ToolDescriptor
 }
 
 // Option 调整 Service 的可选依赖。
