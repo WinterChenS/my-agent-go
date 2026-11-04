@@ -1,0 +1,16 @@
+SCRATCH| main_hwnd=0x60906 class="scratchWv2Main"
+SCRATCH| child_hwnd=0xd10a24 client=884x661 GetParent(child)=0x60906 parentIsMain=true
+SCRATCH| edge.NewChromium OK, DataPath=D:\project\my-agent-go\.tmp\.tmp\scratch-wv2\profile
+SCRATCH| Embed(child) returned true after 289ms
+SCRATCH| GetController()=0x7ce800114308 inited
+SCRATCH| Navigate(http://127.0.0.1:54799/)
+SCRATCH| enumChild(main): hwnd=0xd10a24 class="scratchWv2Child" parent=0x60906
+SCRATCH| enumChild(main): hwnd=0x8e0a86 class="Chrome_WidgetWin_0" parent=0xd10a24
+SCRATCH| enumChild(main): hwnd=0x45086c class="Chrome_WidgetWin_1" parent=0x8e0a86
+SCRATCH| enumChild(main): hwnd=0x350a50 class="Chrome_RenderWidgetHostHWND" parent=0x45086c
+SCRATCH| enumChild(main): hwnd=0x4904a8 class="Intermediate D3D Window" parent=0x45086c
+SCRATCH| ICoreWebView2=0x7ce800124000（vtable 薄封装可用）
+SCRATCH| CDP Runtime.evaluate => {"result":{"type":"string","value":"{\"ready\":\"complete\",\"title\":\"Browser fixture\",\"url\":\"http://127.0.0.1:54799/\",\"w\":961,\"h\":1040,\"dpr\":1,\"body\":\"Browser fixture · http://127.0.0.1:54799\\n\\n页面里的 location.orig\"}"}}
+SCRATCH| CDP Page.captureScreenshot OK bytes(json)=42215 head={"data":"iVBORw0KGgoAAAANSUhEUgAAA8EAAAQQCAIAAABN785TAAAQAElEQVR4nOzdf2hVd54//nO…
+SCRATCH| pixels: uniqueColors=1 nonUniform=0.000 samples=9213
+SCRATCH| done

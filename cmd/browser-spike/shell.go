@@ -40,6 +40,23 @@ func newShellServer(fixture *browserfixture.Fixture, state *spikeState) (*shellS
 	mux.HandleFunc("GET /", s.handlePage)
 	mux.HandleFunc("GET /probe.json", s.handleProbe)
 	mux.HandleFunc("POST /slot", s.handleSlot)
+	// B01a：spike 用这两个端点驱动“打开应用内 dialog”与收集页面回报的状态。
+	mux.HandleFunc("POST /dialog", func(w http.ResponseWriter, _ *http.Request) {
+		s.state.requestDialog()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /dialog-state", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Open bool `json:"open"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "dialog 状态不是合法 JSON", http.StatusBadRequest)
+			return
+		}
+		s.state.setPageDialogOpen(body.Open)
+		fmt.Printf("B01|dialog|open=%t\n", body.Open)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -81,11 +98,23 @@ func boolLiteral(v bool) string {
 }
 
 func (s *shellServer) handlePage(w http.ResponseWriter, _ *http.Request) {
+	title := spikeWindowTitle
+	slotHead := "右侧 BrowserSlot（B00 占位）"
+	nativeNote := ""
+	if s.state.nativeMode {
+		title = nativeWindowTitle
+		slotHead = "右侧 BrowserSlot（B01a 原生 WebView2）"
+		nativeNote = "B01a 模式：这块区域被原生 WebView2 子窗口（独立 HWND）覆盖；" +
+			"上面这段 HTML 只在子窗口隐藏时（或 PrintWindow 截图里）看得到。"
+	}
 	body := strings.NewReplacer(
 		"{{PRIMARY}}", s.primary,
 		"{{SECONDARY}}", s.secondary,
 		"{{SLOT_ID}}", slotID,
 		"{{AUTO_DIALOG}}", boolLiteral(autoOpenDialog()),
+		"{{TITLE}}", title,
+		"{{SLOT_HEAD}}", slotHead,
+		"{{NATIVE_NOTE}}", nativeNote,
 	).Replace(shellPage)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -127,7 +156,7 @@ const shellPage = `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>MyAgent Browser Spike (B00)</title>
+<title>{{TITLE}}</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -201,11 +230,12 @@ const shellPage = `<!doctype html>
   </main>
 
   <section class="slot">
-    <h2>右侧 BrowserSlot（B00 占位）</h2>
+    <h2>{{SLOT_HEAD}}</h2>
     <div class="slot-frame" id="browser-slot" data-slot-id="{{SLOT_ID}}">
       <div class="slot-head">原生网页视图应该在这里</div>
       <div class="slot-body">
         <p class="missing">这里没有原生网页视图</p>
+        <p>{{NATIVE_NOTE}}</p>
         <p>预期：同一主窗口右侧的 WebView2 子视图铺满这块（R06）。</p>
         <p>实际：<code>BrowserSurface.Attach</code> 返回
           <code>NOT_IMPLEMENTED</code>，块内只有这段 HTML。</p>
@@ -298,7 +328,11 @@ function renderProbe(data) {
 
 function pollProbe() {
   fetch('/probe.json').then(function (r) { return r.json(); })
-    .then(renderProbe).catch(function () {});
+    .then(function (data) {
+      renderProbe(data);
+      // B01a：spike 通过 /dialog 要求打开应用内 dialog（遮挡证据用）。
+      if (data.openDialog && !dlg.open) { dlg.showModal(); reportDialogState(); }
+    }).catch(function () {});
 }
 
 pollProbe();
@@ -318,10 +352,18 @@ setInterval(function () {
 }, 2000);
 
 var dlg = document.getElementById('app-dialog');
-document.getElementById('open-dialog').addEventListener('click', function () { dlg.showModal(); });
-document.getElementById('close-dialog').addEventListener('click', function () { dlg.close(); });
+document.getElementById('open-dialog').addEventListener('click', function () { dlg.showModal(); reportDialogState(); });
+document.getElementById('close-dialog').addEventListener('click', function () { dlg.close(); reportDialogState(); });
+function reportDialogState() {
+  fetch('/dialog-state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ open: dlg.open })
+  }).catch(function () {});
+}
+dlg.addEventListener('close', reportDialogState);
 // MYAGENT_SPIKE_OPEN_DIALOG=1 时自动打开，等价于脚本点一次按钮，方便截图留证。
-if ({{AUTO_DIALOG}}) { dlg.showModal(); }
+if ({{AUTO_DIALOG}}) { dlg.showModal(); reportDialogState(); }
 </script>
 </body>
 </html>`

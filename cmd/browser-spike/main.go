@@ -1,21 +1,24 @@
-// Command browser-spike 是 B00 的最小 Wails 宿主 spike。
+// Command browser-spike 是 B00/B01a 的最小 Wails 宿主 spike。
 //
-// 它要被证明的是"右侧还没有原生视图"，而不是"已经有了"：
-//   - 真实 Wails v3 窗口，主窗口里预留右侧 slot，另有一个应用内 dialog；
-//   - BrowserSurface / BrowserBackend 用 internal/browser 的占位实现，
-//     Attach/Present/CreateTab… 必然失败，且失败是显式的 NOT_IMPLEMENTED；
-//   - 失败原文同时打到 stdout 和窗口里，截图和日志能逐行对上。
+// B00 模式（默认）要证明“右侧还没有原生视图”：真实 Wails v3 窗口，主窗口里预留
+// 右侧 slot，另有一个应用内 dialog；BrowserSurface/BrowserBackend 用占位实现，
+// Attach/Present/CreateTab… 必然失败，且失败是显式的 NOT_IMPLEMENTED。
+//
+// B01a 模式（-native）换成 internal/browser/native 的真实 Windows 宿主：在主窗口
+// 下挂一个 WS_CHILD 子窗口，嵌真实 WebView2，把 fixture 页面加载进右栏。
+// 只有三件事都成立才判 PASS：GetParent(child)==main、导航完成、CDP 截图非纯色。
 //
 // 刻意不做的事：不用 iframe、不弹独立顶层窗口、不把 fixture 页面塞进主 WebView
-// 冒充右侧网页（R06 明确排除这三种）。右侧那块就是空的，红框写着"没有原生视图"。
+// 冒充右侧网页（R06 明确排除这三种）。
 //
-// 退出码：0 = 全部占位调用都按预期返回 NOT_IMPLEMENTED；
+// 退出码：0 = 本次模式的预期结论成立；
 //
-//	1 = 出现了"静默成功"或非预期错误（这是真失败，不能当噪音忽略）。
+//	1 = 出现“静默成功”、非预期错误，或 B01a 三条硬条件有任一不成立。
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -33,13 +36,21 @@ import (
 const (
 	// spikeWindowTitle 同时是截图脚本定位窗口的锚点。
 	spikeWindowTitle = "MyAgent Browser Spike (B00)"
+	// nativeWindowTitle 是 B01a 模式的窗口标题（同样给截图脚本用）。
+	nativeWindowTitle = "MyAgent Browser Spike (B01a native)"
 	// slotID 与壳页面里 #browser-slot 的 data-slot-id 一致。
 	slotID = "browser-slot"
 )
 
 func main() {
 	log.SetFlags(0)
-	log.SetPrefix("b00| ")
+	log.SetPrefix("spike| ")
+
+	nativeMode := flag.Bool("native", envBool("MYAGENT_SPIKE_NATIVE"),
+		"用 B01a 的 Windows 原生 WebView2 宿主把 fixture 加载进右栏")
+	evidenceDir := flag.String("evidence-dir", ".tmp/b01-native",
+		"B01a 模式写截图与 PageState 的目录（默认为 .tmp，不入库）")
+	flag.Parse()
 
 	fixture, err := browserfixture.New()
 	if err != nil {
@@ -48,18 +59,24 @@ func main() {
 	fmt.Printf("B00|fixture|primary=%s\n", fixture.Primary.URL)
 	fmt.Printf("B00|fixture|secondary=%s\n", fixture.Secondary.URL)
 
-	state := &spikeState{verdict: "PENDING"}
+	state := &spikeState{verdict: "PENDING", nativeMode: *nativeMode}
 	shell, err := newShellServer(fixture, state)
 	if err != nil {
 		_ = fixture.Close()
 		log.Fatalf("启动壳页面服务: %v", err)
 	}
 	fmt.Printf("B00|shell|url=%s\n", shell.URL())
-	fmt.Printf("B00|env|goos=%s goarch=%s webview2=%q\n", runtime.GOOS, runtime.GOARCH, webView2RuntimeVersion())
+	fmt.Printf("B00|env|goos=%s goarch=%s webview2=%q native=%t\n",
+		runtime.GOOS, runtime.GOARCH, webView2RuntimeVersion(), *nativeMode)
+
+	title := spikeWindowTitle
+	if *nativeMode {
+		title = nativeWindowTitle
+	}
 
 	a := application.New(application.Options{
 		Name:        "MyAgent Browser Spike",
-		Description: "B00: 右侧原生浏览器占位与初始失败记录",
+		Description: "B00/B01a: 右侧原生浏览器视图与初始失败记录",
 		Windows:     application.WindowsOptions{},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
@@ -68,7 +85,7 @@ func main() {
 
 	win := a.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "browser-spike",
-		Title:            spikeWindowTitle,
+		Title:            title,
 		Width:            1180,
 		Height:           820,
 		MinWidth:         900,
@@ -85,8 +102,12 @@ func main() {
 		fmt.Printf("B00|shutdown|verdict=%s\n", state.Verdict())
 	})
 
-	// 探针必须在窗口出现之后跑：没有原生父窗口就谈不上"挂不进去"。
-	go runProbe(state, win)
+	// 探针必须在窗口出现之后跑：没有原生父窗口就谈不上“挂不进去”。
+	if *nativeMode {
+		go runNativeProbe(state, win, shell, fixture, *evidenceDir)
+	} else {
+		go runProbe(state, win)
+	}
 
 	// 自动化证据用的自退出。默认不启用，人工观察时窗口一直留着。
 	if sec := autoQuitSeconds(); sec > 0 {
@@ -103,9 +124,22 @@ func main() {
 
 	verdict := state.Verdict()
 	fmt.Printf("B00|summary|verdict=%s\n", verdict)
-	if verdict != verdictAsExpected {
+	expected := verdictAsExpected
+	if *nativeMode {
+		expected = verdictNativePresent
+	}
+	if verdict != expected {
 		os.Exit(1)
 	}
+}
+
+// envBool 把 MYAGENT_SPIKE_* 这类开关读成布尔值。
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // runProbe 依次触达右侧视图相关的每个入口，并核对失败是否"按预期失败"。

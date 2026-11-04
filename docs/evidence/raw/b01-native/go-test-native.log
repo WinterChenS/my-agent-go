@@ -1,0 +1,20 @@
+=== RUN   TestNativeRightPaneWindows
+    browser_windows_test.go:160: hwnd 关系: main=0x8e0a44 child=0x4c0a28 parent=0x8e0a44 root=0x8e0a44 class=MyAgentNativeHostChild
+    browser_windows_test.go:173: page: readyState=complete title="Browser fixture" url=http://127.0.0.1:60673/ counters=map[]
+    browser_windows_test.go:213: screenshot: 480x600 css=480x600 scale=1.00 bytes=26051 uniqueColors=56
+    browser_windows_test.go:244: act: delivered=true verified=true detail=观测到 url_equals="http://127.0.0.1:60673/form"
+    browser_windows_test.go:254: capabilities: navigate=true observe=true act=true screenshot=true unsupported=8
+--- PASS: TestNativeRightPaneWindows (2.68s)
+=== RUN   TestNativeWindowGeometry100
+    browser_windows_test.go:297: rev=2 css=640,40 480x600 -> screen 728,151 480x600
+    browser_windows_test.go:297: rev=3 css=700,60 420x560 -> screen 788,171 420x560
+--- PASS: TestNativeWindowGeometry100 (1.66s)
+=== RUN   TestNativeDialogOcclusionVisibility
+    browser_windows_test.go:354: visibility: hide/show 正常，controller 全程存活，title="Browser fixture"
+--- PASS: TestNativeDialogOcclusionVisibility (1.73s)
+=== RUN   TestNativeCreateDestroyRepeated
+    browser_windows_test.go:395: round 1: child=0x360b20 ready
+    browser_windows_test.go:395: round 2: child=0xe20058 ready
+--- PASS: TestNativeCreateDestroyRepeated (2.65s)
+PASS
+ok  	my-agent-go/tests/native	8.799s

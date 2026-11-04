@@ -44,6 +44,25 @@
       "hash": "h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=",
       "license": "MIT (Go port) / Apache-2.0 (libyaml)",
       "purpose": "SKILL.md YAML frontmatter parsing (C03, added 2026-11-04; not in the F00 freeze)"
+    },
+    {
+      "name": "github.com/jchv/go-webview2",
+      "version": "v0.0.0-20260205173254-56598839c808",
+      "source": "https://proxy.golang.org/github.com/jchv/go-webview2/@v/v0.0.0-20260205173254-56598839c808.zip",
+      "hash": "h1:ftnsTqIUH57XQEF+PnXX9++nlHCzdkuB5zbWyMMruZo=",
+      "license": "MIT",
+      "purpose": "B01a Windows WebView2 controller (pkg/edge: Embed/Navigate/Show/Hide/Resize + ICoreWebView2 COM types). Non-semver pseudo-version: pinning is exact and upgrades require an ADR (see docs/adr/0004-webview2-host-dependency.md); vtable slot order is an ABI dependency.",
+      "pinnedBecause": "non-semver pseudo-version; upgrade = ADR + re-run tests/native (TestNativeRightPaneWindows first)",
+      "transitive": false
+    },
+    {
+      "name": "github.com/jchv/go-winloader",
+      "version": "v0.0.0-20250406163304-c1995be93bd1",
+      "source": "https://proxy.golang.org/github.com/jchv/go-winloader/@v/v0.0.0-20250406163304-c1995be93bd1.zip",
+      "hash": "h1:njuLRcjAuMKr7kI3D85AXWkw6/+v9PwtV6M6o11sWHQ=",
+      "license": "ISC",
+      "purpose": "Transitive dependency of go-webview2: loads WebView2Loader.dll from an embedded copy when the DLL is not on PATH (no cgo, no PATH dependency). Non-semver pseudo-version, pinned by go-webview2's own go.mod.",
+      "transitive": true
     }
   ],
   "nativeToolchains": {

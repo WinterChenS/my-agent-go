@@ -1,0 +1,50 @@
+B00|fixture|primary=http://127.0.0.1:60376
+B00|fixture|secondary=http://127.0.0.1:60377
+B00|shell|url=http://127.0.0.1:60378
+B00|env|goos=windows goarch=amd64 webview2="156.0.4314.58" native=true
+Nov  4 22:52:33.858 INF AssetServer Info: middleware=true handler=false
+Nov  4 22:52:33.856 INF Build Info: Wails=v3.0.0 Compiler=go1.27.3 vcs.modified=true -compiler=gc CGO_CPPFLAGS= CGO_LDFLAGS= GOARCH=amd64 GOOS=windows GOAMD64=v1 vcs=git vcs.time=2026-11-04T14:34:10Z -buildmode=exe CGO_ENABLED=1 CGO_CFLAGS= CGO_CXXFLAGS= vcs.revision=fe603e07f294812f8cf311138519220ecb7d56be
+B00|autoquit|after=75s
+Nov  4 22:52:33.858 INF Platform Info: Go-WebView2Loader=true WebView2=156.0.4314.58 ID=22H2 Name=Windows 10 Pro Version=2009 (Build: 19045) Branding=Windows 10 专业版
+spike| [WebView2] Environment created successfully
+B01|parent|NativeParent(wails-main-window, valid=true)
+B01|hwnd|main=0x4609dc child=0xb60acc GetParent(child)=0x4609dc parentMatches=true dpi=96 scale=1.00
+B01|probe|AS_EXPECTED|GetParent(child)==main|main=0x4609dc child=0xb60acc getParent=0x4609dc parentMatches=true
+B00|slot|rev=1 slotId="browser-slot" left=722.0 top=37.0 width=432.0 height=734.0 visible=true zoom=1.00 dpr=1.00 viewport=1164x781
+B01|slot|rev=1 slotId="browser-slot" css=722.0,37.0 432.0x734.0 dpr=1.00
+B01|tab|id=tab-1 url=http://127.0.0.1:60376/
+B01|present|childRect=1100,178-1532,912 webviewChild=0x760b06
+B01|zorder|0|0xb60acc class="MyAgentNativeHostChild" title=""
+B01|zorder|1|0x2a0aec class="Chrome_WidgetWin_0" title=""
+B01|page|readyState="complete" title="Browser fixture" url=http://127.0.0.1:60376/
+B01|page|fixtureCountersInPage={}
+B01|probe|AS_EXPECTED|navigationCompleted|readyState="complete" title="Browser fixture" url=http://127.0.0.1:60376/
+B01|observe|snapshot=snap-1 nav=nav-2 elements=10 textChars=303 viewport=432x734 scale=1.00 unsupportedFrames=0
+B01|screenshot|path=D:\project\my-agent-go\.tmp\b01-native\b01-native-right-pane.png bytes=25207 pixel=432x734 css=432x734 scale=1.00 nav=nav-2 stats={w=432 h=734 samples=4824 uniqueColors=83 dominant=#ffffff dominantRatio=0.923}
+B01|probe|AS_EXPECTED|cdpScreenshotNonUniform|w=432 h=734 samples=4824 uniqueColors=83 dominant=#ffffff dominantRatio=0.923
+B01|act|click|delivered=true verified=true status=verified detail=观测到 url_equals="http://127.0.0.1:60376/form"
+B01|act|fill|delivered=true verified=true status=verified detail=观测到 field_value="B01a-fill"
+B01|capabilities|navigate=true observe=true act=true screenshot=true unsupported=8
+B01|capabilities|unsupported|trustedInput|B01a 只实现 click/fill 的 CDP 可信输入路径，未做 trusted-only 站点的行为验证
+B01|capabilities|unsupported|act:key|key 动作未实现（B01b）
+B01|capabilities|unsupported|act:scroll|scroll 动作未实现（B01b）
+B01|capabilities|unsupported|act:select/checkbox|select/checkbox 语义未实现（B01b）
+B01|capabilities|unsupported|crossOriginFrames|B01a 只观察顶层文档；cross-origin iframe 进 UnsupportedFrames 并标注原因
+B01|capabilities|unsupported|closedShadowRoots|闭合 shadow root 读不到，B01a 不声称支持
+B01|capabilities|unsupported|downloads|下载委托未实现（B06）
+B01|capabilities|unsupported|popups|window.open 未代理（B06）
+B01|windowcapture|method=screen-bitblt path=D:\project\my-agent-go\.tmp\b01-native\b01-native-window-slot.png stats={w=1180 h=820 samples=4554 uniqueColors=81 dominant=#0f1218 dominantRatio=0.555}
+B01|windowcapture|method=printwindow path=D:\project\my-agent-go\.tmp\b01-native\b01-native-window-printwindow.png stats={w=1180 h=820 samples=4554 uniqueColors=76 dominant=#0f1218 dominantRatio=0.555}
+B01|probe|AS_EXPECTED|windowSlotCapture|screen-bitblt path=D:\project\my-agent-go\.tmp\b01-native\b01-native-window-slot.png stats={w=1180 h=820 samples=4554 uniqueColors=81 dominant=#0f1218 dominantRatio=0.555} | printwindow path=D:\project\my-agent-go\.tmp\b01-native\b01-native-window-printwindow.png stats={w=1180 h=820 samples=4554 uniqueColors=76 dominant=#0f1218 dominantRatio=0.555}
+B01|occlusion|nativeVisible=false childVisible=false
+B01|dialog|open=true
+B01|occlusion|appDialogOpen=true
+B01|windowcapture|method=screen-bitblt path=D:\project\my-agent-go\.tmp\b01-native\b01-native-dialog-occlusion.png stats={w=1180 h=820 samples=4554 uniqueColors=142 dominant=#07080b dominantRatio=0.465}
+B01|windowcapture|method=printwindow path=D:\project\my-agent-go\.tmp\b01-native\b01-native-dialog-occlusion-print.png stats={w=1180 h=820 samples=4554 uniqueColors=137 dominant=#07080b dominantRatio=0.465}
+B01|cleanup|afterCloseTab child=0x0
+B01|cleanup|afterDetach parent=0x0 child=0x0 controllerReady=false
+B01|probe|done|verdict=NATIVE_VIEW_PRESENT
+B01|probe|done|navigationCompleted=true screenshotNonUniform=true
+B00|shutdown|verdict=NATIVE_VIEW_PRESENT
+B00|summary|verdict=NATIVE_VIEW_PRESENT
+[1104/225349.152:ERROR:ui\gfx\win\window_impl.cc:172] Failed to unregister class Chrome_WidgetWin_0. Error = 1412

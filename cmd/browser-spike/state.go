@@ -24,8 +24,14 @@ const (
 	resultWarn = "WARN"
 )
 
-// verdictAsExpected 是 spike 的"预期结论"：所有占位调用都明确失败。
+// verdictAsExpected 是 B00 模式的"预期结论"：所有占位调用都明确失败。
 const verdictAsExpected = "AS_EXPECTED"
+
+// verdictNativePresent 是 B01a 模式的"预期结论"：同一主窗口右侧真的有 WebView2 子视图。
+//
+// 它只在三条硬条件同时成立时才成立（父子句柄关系、导航完成、CDP 截图非纯色），
+// 任何一条不成立都打 FAIL 并让进程退出码为 1。
+const verdictNativePresent = "NATIVE_VIEW_PRESENT"
 
 // probeStep 是探针的一行记录，既进 stdout 也进壳页面的 /probe.json。
 type probeStep struct {
@@ -76,6 +82,13 @@ type spikeState struct {
 	slot    slotReport
 	hasSlot bool
 	verdict string
+
+	// B01a 模式的状态。
+	nativeMode     bool
+	nativePass     bool
+	nativeFailures []string
+	dialogOpen     bool
+	pageDialogOpen bool
 }
 
 // note 记录一条探针步骤并打到 stdout。
@@ -176,6 +189,12 @@ func (s *spikeState) waitSlot(ctx context.Context, timeout time.Duration) (slotR
 func (s *spikeState) computeVerdict() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.nativeMode {
+		if s.nativePass && len(s.nativeFailures) == 0 {
+			return verdictNativePresent
+		}
+		return "FAIL"
+	}
 	if len(s.steps) == 0 {
 		return "PENDING"
 	}
@@ -208,13 +227,43 @@ type probePayload struct {
 	Verdict string      `json:"verdict"`
 	Steps   []probeStep `json:"steps"`
 	Slot    *slotReport `json:"slot,omitempty"`
+	// OpenDialog 让页面在收到指令后打开应用内 dialog（B01a 遮挡证据）。
+	OpenDialog bool `json:"openDialog"`
+	// DialogOpen 由页面自己回报，用来证明 dialog 真的打开了。
+	DialogOpen bool `json:"dialogOpen"`
+}
+
+// requestDialog 让页面下一次轮询时打开应用内 dialog。
+func (s *spikeState) requestDialog() {
+	s.mu.Lock()
+	s.dialogOpen = true
+	s.mu.Unlock()
+}
+
+// setPageDialogOpen 记录页面自己回报的 dialog 状态。
+func (s *spikeState) setPageDialogOpen(open bool) {
+	s.mu.Lock()
+	s.pageDialogOpen = open
+	s.mu.Unlock()
+}
+
+// PageDialogOpen 返回页面自己回报的 dialog 状态。
+func (s *spikeState) PageDialogOpen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pageDialogOpen
 }
 
 // snapshot 取一份一致的快照给 HTTP 用。
 func (s *spikeState) snapshot() probePayload {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := probePayload{Verdict: s.verdict, Steps: append([]probeStep(nil), s.steps...)}
+	out := probePayload{
+		Verdict:    s.verdict,
+		Steps:      append([]probeStep(nil), s.steps...),
+		OpenDialog: s.dialogOpen,
+		DialogOpen: s.pageDialogOpen,
+	}
 	if s.hasSlot {
 		r := s.slot
 		out.Slot = &r
@@ -223,4 +272,42 @@ func (s *spikeState) snapshot() probePayload {
 		out.Verdict = "PENDING"
 	}
 	return out
+}
+
+// nativeFail 记录 B01a 的一条硬条件失败，并打到 stdout。
+func (s *spikeState) nativeFail(reason string) {
+	s.mu.Lock()
+	s.nativeFailures = append(s.nativeFailures, reason)
+	s.mu.Unlock()
+	fmt.Printf("B01|fail|%s\n", reason)
+}
+
+// setNativePass 记录 B01a 的三条硬条件全部成立。
+func (s *spikeState) setNativePass() {
+	s.mu.Lock()
+	s.nativePass = true
+	s.mu.Unlock()
+}
+
+// NativeFailures 返回已记录的硬条件失败。
+func (s *spikeState) NativeFailures() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.nativeFailures...)
+}
+
+// nativeStep 记录一条 B01a 观测（同时进 stdout 与壳页面的 /probe.json）。
+//
+// 与 B00 的 note 分开打印前缀：证据里 "B00|probe|" 表示占位实现的预期失败，
+// "B01|probe|" 表示原生宿主的真实观测，混在一起会让复核者误读。
+func (s *spikeState) nativeStep(name, got string, ok bool) {
+	result := resultAsExpected
+	if !ok {
+		result = resultUnexpectedError
+	}
+	step := probeStep{Name: name, Want: "B01a 观测", Got: got, Result: result}
+	s.mu.Lock()
+	s.steps = append(s.steps, step)
+	s.mu.Unlock()
+	fmt.Printf("B01|probe|%s|%s|%s\n", result, name, got)
 }

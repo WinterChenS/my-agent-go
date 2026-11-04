@@ -3,6 +3,8 @@ module my-agent-go
 go 1.27.3
 
 require (
+	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
+	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/wailsapp/wails/v3 v3.0.0
 	golang.org/x/sys v0.49.0

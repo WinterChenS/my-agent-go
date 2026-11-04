@@ -1,0 +1,65 @@
+{
+  "capabilities": {
+    "platform": "windows",
+    "engine": "WebView2 (Microsoft Edge WebView2 Runtime)",
+    "navigate": true,
+    "observe": true,
+    "act": true,
+    "screenshot": true,
+    "trustedInput": false,
+    "crossOriginFrames": false,
+    "closedShadowRoots": false,
+    "downloads": false,
+    "popups": false,
+    "unsupported": [
+      {
+        "capability": "trustedInput",
+        "reason": "B01a 只实现 click/fill 的 CDP 可信输入路径，未做 trusted-only 站点的行为验证"
+      },
+      {
+        "capability": "act:key",
+        "reason": "key 动作未实现（B01b）"
+      },
+      {
+        "capability": "act:scroll",
+        "reason": "scroll 动作未实现（B01b）"
+      },
+      {
+        "capability": "act:select/checkbox",
+        "reason": "select/checkbox 语义未实现（B01b）"
+      },
+      {
+        "capability": "crossOriginFrames",
+        "reason": "B01a 只观察顶层文档；cross-origin iframe 进 UnsupportedFrames 并标注原因"
+      },
+      {
+        "capability": "closedShadowRoots",
+        "reason": "闭合 shadow root 读不到，B01a 不声称支持"
+      },
+      {
+        "capability": "downloads",
+        "reason": "下载委托未实现（B06）"
+      },
+      {
+        "capability": "popups",
+        "reason": "window.open 未代理（B06）"
+      }
+    ]
+  },
+  "counters": {},
+  "failures": null,
+  "navigationOK": true,
+  "pageReadyState": "complete",
+  "pageTitle": "Browser fixture",
+  "pageURL": "http://127.0.0.1:60376/",
+  "parentMatches": true,
+  "screenshotBytes": 25207,
+  "screenshotStats": {
+    "Width": 432,
+    "Height": 734,
+    "UniqueColors": 83,
+    "DominantColor": "#ffffff",
+    "DominantRatio": 0.9233001658374793,
+    "Samples": 4824
+  }
+}
