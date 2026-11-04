@@ -348,13 +348,22 @@ func writeModels(s Settings, agentDir string) error {
 	if provider == "" {
 		provider = "fixture"
 	}
+	// Pi 的 models.json schema 要求 apiKey 至少 1 个字符（"must not have fewer than 1
+	// characters"）。本机/内网端点（fixture、ollama、vLLM）本来就没有密钥，
+	// 直接写空串会让整个 models.json 校验失败——症状是"provider 不存在"，
+	// 与真正的原因（密钥为空）毫无关联，排查代价极高。
+	// 这里填一个占位值：端点是否校验它由端点自己决定，不由我们替它决定。
+	apiKey := strings.TrimSpace(s.APIKey)
+	if apiKey == "" {
+		apiKey = "local-no-key"
+	}
 	doc := map[string]any{
 		"$schema": "https://pi.dev/schemas/models.schema.json",
 		"providers": map[string]any{
 			provider: map[string]any{
 				"baseUrl": s.BaseURL,
 				"api":     "openai-completions",
-				"apiKey":  s.APIKey,
+				"apiKey":  apiKey,
 				"models": []map[string]any{{
 					"id":            s.Model,
 					"name":          s.Model,

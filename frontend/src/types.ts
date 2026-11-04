@@ -66,6 +66,14 @@ export type ApprovalChoice = "once" | "session" | "deny";
 // ---- 消息模型（UI 侧）----
 
 export interface ToolCard {
+  /**
+   * 这张卡属于哪一次 run。
+   *
+   * 必须有它：toolCallId 只在**单个 run 内**唯一，不同 run 复用同一个 id 是常态
+   * （受控 fixture provider 每次都发 call_fixture_1，真实模型在重试时也可能复用）。
+   * 只按 toolCallId 回填，会把上一轮已经"失败"的卡片改成这一轮的"完成"。
+   */
+  runId: string;
   toolCallId: string;
   toolName: string;
   args: string;

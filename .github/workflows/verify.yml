@@ -196,4 +196,9 @@ jobs:
         run: npm run typecheck
 
       - working-directory: frontend
+        # 会话状态归约（frontend/src/runState.ts）的单测。
+        # 这段逻辑决定"后端事件 → 界面上是什么"，出错代价最高，必须单独跑。
+        run: npm test
+
+      - working-directory: frontend
         run: npm run build

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"my-agent-go/internal/contracts"
 )
@@ -477,4 +478,63 @@ func summarizeEvents(evs []RawEvent) string {
 		fmt.Fprintf(&b, "[%s %s] ", ev.Type, clip(string(ev.Record), 80))
 	}
 	return b.String()
+}
+
+// ---- 退出诊断 ----
+
+// TestExitDiagnosisCarriesStderrTail 守住一条可用性底线：
+// "进程没了"必须连带说出原因。
+//
+// 真实踩过的场景：models.json 因 apiKey 为空被判非法，Pi 打印一行
+// "Unknown provider" 后退出。如果错误只说"Pi 进程已退出"，
+// 排查者面对的是一个没有任何线索的界面。
+func TestExitDiagnosisCarriesStderrTail(t *testing.T) {
+	w := &worker{stderr: newStderrRing(1024)}
+	if _, err := w.stderr.Write([]byte("Error: Unknown provider \"fixture\".\n")); err != nil {
+		t.Fatalf("写 stderr 环: %v", err)
+	}
+	msg := w.exitDiagnosis()
+	if !strings.Contains(msg, "Unknown provider") {
+		t.Fatalf("退出诊断必须包含 stderr 内容，实际 %q", msg)
+	}
+}
+
+// TestExitDiagnosisIncludesExitCode 确认退出码不丢：
+// 0 与非 0 的含义完全不同，不能只靠 stderr 有无来判断。
+func TestExitDiagnosisIncludesExitCode(t *testing.T) {
+	w := &worker{stderr: newStderrRing(1024)}
+	w.exited = make(chan struct{})
+	close(w.exited) // 真实调用发生在 <-w.exited 之后，这里等价地先把退出信号置上
+	w.exitCode, w.exitOK = 7, true
+	msg := w.exitDiagnosis()
+	if !strings.Contains(msg, "退出码 7") {
+		t.Fatalf("诊断里应带退出码，实际 %q", msg)
+	}
+}
+
+// TestExitDiagnosisWithoutStderr 不能因为 stderr 为空就崩或输出空的"尾部"。
+func TestExitDiagnosisWithoutStderr(t *testing.T) {
+	w := &worker{stderr: newStderrRing(1024)}
+	msg := w.exitDiagnosis()
+	if strings.Contains(msg, "stderr 尾部") {
+		t.Fatalf("没有 stderr 时不该出现空的尾部片段，实际 %q", msg)
+	}
+	if !strings.Contains(msg, "Pi 进程已退出") {
+		t.Fatalf("保底文案丢了: %q", msg)
+	}
+}
+
+// TestTailRunesKeepsUTF8Intact 截断按 rune 而不是字节，中文不会被切坏。
+func TestTailRunesKeepsUTF8Intact(t *testing.T) {
+	s := "前" + strings.Repeat("中", 10) + "后"
+	got := tailRunes(s, 3)
+	if !utf8.ValidString(got) {
+		t.Fatalf("截断产生了非法 UTF-8: %q", got)
+	}
+	if got != "中中后" {
+		t.Fatalf("期望末 3 个字符为 中中后，实际 %q", got)
+	}
+	if tailRunes("短", 10) != "短" {
+		t.Fatal("短于上限时应原样返回")
+	}
 }

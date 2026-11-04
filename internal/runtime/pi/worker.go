@@ -300,8 +300,39 @@ func (w *worker) Call(ctx context.Context, command json.RawMessage) (json.RawMes
 			return w.interpretResponse(resp)
 		default:
 		}
-		return nil, contracts.NewAppError(contracts.CodeRpcWorkerExited, "Pi 进程已退出，该命令结果未知", false)
+		return nil, contracts.NewAppError(contracts.CodeRpcWorkerExited, w.exitDiagnosis(), false)
 	}
+}
+
+// exitDiagnosis 把"进程没了"变成一句能直接定位原因的话。
+//
+// 只写"Pi 进程已退出"是不够的：真实的退出原因几乎总在 stderr 里
+// （例如 models.json schema 非法导致 provider 不存在），而那正是用户看不到的地方。
+// 不带 stderr 的错误会让排查从"读一行报错"变成"猜十分钟"。
+func (w *worker) exitDiagnosis() string {
+	var b strings.Builder
+	b.WriteString("Pi 进程已退出，该命令结果未知")
+	if code, ok := w.ExitCode(); ok {
+		fmt.Fprintf(&b, "（退出码 %d）", code)
+	}
+	if tail, truncated := w.StderrTail(); strings.TrimSpace(tail) != "" {
+		b.WriteString("；stderr 尾部")
+		if truncated {
+			b.WriteString("（已截断）")
+		}
+		b.WriteString("：")
+		b.WriteString(tailRunes(strings.TrimSpace(tail), 800))
+	}
+	return b.String()
+}
+
+// tailRunes 取字符串末尾最多 n 个 rune（按字符而非字节，避免把中文切坏）。
+func tailRunes(s string, n int) string {
+	if n <= 0 || utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[len(runes)-n:])
 }
 
 // interpretResponse 把 success=false 的响应转成错误，但保留原始 record 供诊断。

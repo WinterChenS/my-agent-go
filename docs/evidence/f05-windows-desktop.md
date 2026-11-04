@@ -113,6 +113,36 @@ ran
 | `05-allowed-completed.png` | 允许后：工具卡 `完成`，run 变为 `run-…-2` |
 | `06-tool-expanded.png` | 工具卡展开：参数与结果 `(no output)` |
 
+### 5.1 第二轮复验（2026-11-04，UI 重构后）
+
+把会话状态从 `App.tsx` 里的 7 个 `setState` 抽成纯归约 `frontend/src/runState.ts`
+并补了 22 条前端单测之后，**重新在真实桌面上跑了一遍**（不是只看单测绿）。
+截图沿用同一套操作序列：
+
+| 文件 | 内容 |
+|---|---|
+| `07-approval-card-refactored.png` | 重构后的审批卡：`需要授权: bash` + 参数 + 三个按钮，工具卡 `执行中` |
+| `08-denied-card-failed.png` | 点拒绝后：工具卡 `失败`，审批条清空，顶栏 `已完成`，工作区仍为空 |
+| `09-regression-before-fix.png` | **修复前的错误现象**：第二轮"允许"之后，第一轮那张已标 `失败` 的卡片变成了 `完成` |
+| `10-two-runs-after-fix.png` | 修复后：第一轮保持 `失败`，第二轮 `完成`，`tool-ran.txt` 内容 `ran` |
+
+这一轮抓到两个真实缺陷，都属于"单测绿、界面错"的那一类：
+
+1. **同一工具卡跨 run 串状态**。两次 run 复用了同一个 `toolCallId`
+   （受控 provider 固定发 `call_fixture_1`；真实模型重试时也可能复用），
+   而 `tool.end` 只按 `toolCallId` 回填，于是第二轮的结果覆盖了第一轮的卡片。
+   修复：`ToolCard` 记录所属 `runId`，回填要求 `toolCallId` 与 `runId` 同时匹配。
+   回归用例 `两个 run 复用同一个 toolCallId 时不互相覆盖状态`，
+   去掉修复后该用例确实转红（做过对抗性验证）。
+
+2. **空 API key 让整份 models.json 失效**。Pi 的 schema 要求 `apiKey` 至少 1 个字符
+   （`must not have fewer than 1 characters`）。本机端点（fixture/ollama/vLLM）没有密钥，
+   直写空串会让 **整份** models.json 校验失败 → Pi 报 `Unknown provider "fixture"` 并退出 →
+   界面只显示 `RPC_WORKER_EXITED: Pi 进程已退出`。
+   修复两处：`writeModels` 在密钥为空时写占位值 `local-no-key`；
+   同时把 worker 的 stderr 尾部与退出码并入 `RPC_WORKER_EXITED` 的报错文案，
+   让同类问题一眼能定位（此前 stderr 已经在环形缓冲里，只是没被写进错误）。
+
 ## 6. 限制（不得当作已通过的范围）
 
 1. **模型是 fixture**，不是真实云端模型。它验证的是"链路通"，不是"模型质量"或
@@ -125,7 +155,9 @@ ran
 5. **本机是 Windows 10 19045**，低于基线要求的验收环境 Windows 11 24H2。
    因此这条证据只能证明"在 Win10 上能跑通"，不能替代 ENV02 的目标机验收。
 6. **UI 自动化依赖 `MYAGENT_UI_A11Y=1`**：默认关闭时 DOM 不进入可访问性树，
-   agent-desktop 只能看到空 pane。
+   agent-desktop 只能看到空 pane。开启后也有个坑：`snapshot -i` 只回传交互节点、
+   且会裁剪深层子节点，有时整棵树里看不到 `textfield`；**定位元素要用 `find --role/--name`**，
+   它的返回里带可用 ref 与完整 path。不要因为 snapshot 里没看见就断定 DOM 不可访问。
 7. 状态文案里 fixture 回放的第二段话（"命令已执行完毕，本轮结束。"）是 fixture
    脚本的固定文本，不是模型判断；不要据此推断产品会这样措辞。
 
@@ -144,9 +176,15 @@ go build -o build/bin/MyAgent.exe ./cmd/myagent
 export AGENT_DESKTOP_HOME="C:\Users\<user>\AppData\Local\adhome-myagent"
 agent-desktop list-windows --app MyAgent.exe
 agent-desktop snapshot --window-id <id> -i
+# 定位元素用 find（snapshot 会裁剪深层节点，可能看不到 textfield/button）
+agent-desktop find --window-id <id> --role textfield
+agent-desktop find --window-id <id> --role button --name 发送
 agent-desktop set-value <textfield-ref> "[[scenario:tool-file]]"
 agent-desktop click <send-button-ref>
 agent-desktop screenshot --window-id <id> out.png
+
+# 4) 前端状态归约的单测（也覆盖本轮抓到的跨 run 串状态回归）
+D:/Program\ Files/nodejs/npm.cmd --prefix frontend test
 ```
 
 `AGENT_DESKTOP_HOME` 必须指到用户目录（如 `%LOCALAPPDATA%`）。指向 `D:\project\...`

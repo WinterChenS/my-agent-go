@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -12,18 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { api, onRunEvent } from "./api";
-import type {
-  ApprovalChoice,
-  ApprovalItem,
-  ChatMessage,
-  ProductEvent,
-  RunState,
-  Settings,
-  Status,
-  ToolCard,
-} from "./types";
-
-type Phase = RunState | "idle";
+import { initialState, reduce } from "./runState";
+import type { ApprovalChoice, ApprovalItem, Settings, Status, ToolCard } from "./types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "空闲",
@@ -51,23 +41,16 @@ const PHASE_COLOR: Record<string, string> = {
   interrupted: "bg-rose-400",
 };
 
-let seq = 0;
-const nextId = () => `m${++seq}`;
-
-function payloadOf<T>(ev: ProductEvent): T {
-  return (ev.payload ?? {}) as T;
-}
-
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // 所有会话状态都在 reduce 里推进（frontend/src/runState.ts）：
+  // 组件只负责把事件转发进去，不自己拼状态。
+  const [ui, dispatch] = useReducer(reduce, initialState);
+  const { messages, phase, runId, approvals, error } = ui;
+
   const [input, setInput] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [runId, setRunId] = useState<string | null>(null);
-  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const activeRun = useRef<string | null>(null);
@@ -79,7 +62,7 @@ export default function App() {
     api
       .status()
       .then(setStatus)
-      .catch((e) => setError(String(e)));
+      .catch((e) => dispatch({ kind: "error", message: String(e) }));
     api
       .settings()
       .then(setSettings)
@@ -89,106 +72,7 @@ export default function App() {
   // 事件订阅。所有 UI 变更都由事件驱动，而不是由调用返回值猜测——
   // 这样"后端已经失败但前端以为在跑"的假状态不会出现。
   useEffect(() => {
-    const off = onRunEvent((ev) => {
-      switch (ev.type) {
-        case "run.state": {
-          const p = payloadOf<{ state: RunState }>(ev);
-          setPhase(p.state);
-          if (p.state === "completed" || p.state === "failed" || p.state === "cancelled" || p.state === "interrupted") {
-            setMessages((prev) =>
-              prev.map((m) => (m.role === "assistant" ? { ...m, streaming: false } : m))
-            );
-            setApprovals([]);
-          }
-          break;
-        }
-        case "message.delta": {
-          const p = payloadOf<{ text: string }>(ev);
-          setMessages((prev) => {
-            const idx = [...prev].reverse().findIndex((m) => m.role === "assistant" && m.streaming);
-            if (idx === -1) {
-              return [...prev, { id: nextId(), role: "assistant", text: p.text, tools: [], streaming: true }];
-            }
-            const at = prev.length - 1 - idx;
-            const copy = [...prev];
-            copy[at] = { ...copy[at], text: copy[at].text + p.text };
-            return copy;
-          });
-          break;
-        }
-        case "tool.start": {
-          const p = payloadOf<{ toolCallId: string; toolName: string; args: unknown }>(ev);
-          const card: ToolCard = {
-            toolCallId: p.toolCallId,
-            toolName: p.toolName,
-            args: JSON.stringify(p.args ?? {}, null, 2),
-            running: true,
-          };
-          setMessages((prev) => {
-            const idx = [...prev].reverse().findIndex((m) => m.role === "assistant");
-            if (idx === -1) {
-              return [...prev, { id: nextId(), role: "assistant", text: "", tools: [card], streaming: true }];
-            }
-            const at = prev.length - 1 - idx;
-            const copy = [...prev];
-            copy[at] = { ...copy[at], tools: [...copy[at].tools, card] };
-            return copy;
-          });
-          break;
-        }
-        case "tool.end": {
-          const p = payloadOf<{ toolCallId: string; text: string; isError: boolean; exitCode: number | null }>(ev);
-          setMessages((prev) =>
-            prev.map((m) => ({
-              ...m,
-              tools: m.tools.map((t) =>
-                t.toolCallId === p.toolCallId
-                  ? { ...t, result: p.text, isError: p.isError, running: false }
-                  : t
-              ),
-            }))
-          );
-          break;
-        }
-        case "approval.request": {
-          const p = payloadOf<{
-            approvalId: string;
-            toolName: string;
-            toolCallId: string;
-            arguments: unknown;
-            expiresAtUnix: number;
-          }>(ev);
-          setApprovals((prev) => [
-            ...prev,
-            {
-              approvalId: p.approvalId,
-              toolName: p.toolName,
-              toolCallId: p.toolCallId,
-              args: JSON.stringify(p.arguments ?? {}, null, 2),
-              expiresAtUnix: p.expiresAtUnix,
-            },
-          ]);
-          break;
-        }
-        case "approval.resolved": {
-          const p = payloadOf<{ approvalId: string }>(ev);
-          setApprovals((prev) => prev.filter((a) => a.approvalId !== p.approvalId));
-          break;
-        }
-        case "run.error": {
-          const p = payloadOf<{ code: string; message: string }>(ev);
-          setError(`${p.code}: ${p.message}`);
-          break;
-        }
-        case "diagnostic": {
-          const p = payloadOf<{ kind: string; message: string }>(ev);
-          setError(`诊断 ${p.kind}: ${p.message}`);
-          break;
-        }
-        default:
-          break;
-      }
-    });
+    const off = onRunEvent((ev) => dispatch({ kind: "event", ev }));
     return off;
   }, []);
 
@@ -200,25 +84,14 @@ export default function App() {
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
-    setError(null);
     setInput("");
-    setApprovals([]);
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId(), role: "user", text, tools: [], streaming: false },
-      { id: nextId(), role: "assistant", text: "", tools: [], streaming: true },
-    ]);
+    dispatch({ kind: "user_message", text });
     try {
       const snap = await api.start(text);
       activeRun.current = snap.runId;
-      setRunId(snap.runId);
-      setPhase(snap.state);
+      dispatch({ kind: "run_started", runId: snap.runId, state: snap.state });
     } catch (e) {
-      setError(String(e));
-      setPhase("failed");
-      setMessages((prev) =>
-        prev.map((m) => (m.role === "assistant" ? { ...m, streaming: false } : m))
-      );
+      dispatch({ kind: "run_start_failed", message: String(e) });
     }
   }, [input, busy]);
 
@@ -227,7 +100,7 @@ export default function App() {
     try {
       await api.abort(runId);
     } catch (e) {
-      setError(String(e));
+      dispatch({ kind: "error", message: String(e) });
     }
   }, [runId]);
 
@@ -236,9 +109,9 @@ export default function App() {
       if (!runId) return;
       try {
         await api.resolveApproval(runId, item.approvalId, choice);
-        setApprovals((prev) => prev.filter((a) => a.approvalId !== item.approvalId));
+        dispatch({ kind: "approval_resolved", approvalId: item.approvalId });
       } catch (e) {
-        setError(String(e));
+        dispatch({ kind: "error", message: String(e) });
       }
     },
     [runId]
@@ -252,9 +125,9 @@ export default function App() {
       const st = await api.status();
       setStatus(st);
       setShowSettings(false);
-      setError(null);
+      dispatch({ kind: "clear_error" });
     } catch (e) {
-      setError(String(e));
+      dispatch({ kind: "error", message: String(e) });
     } finally {
       setSaving(false);
     }
