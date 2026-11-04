@@ -269,9 +269,6 @@ func TestStandaloneLoadsMCPAndExtension(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(summary, "", "  "); err == nil {
 		t.Logf("独立包证据摘要：\n%s", b)
-		evidence := filepath.Join(root, "docs", "evidence", "raw", "f02-standalone-summary.json")
-		if err := os.MkdirAll(filepath.Dir(evidence), 0o755); err == nil {
-			_ = os.WriteFile(evidence, b, 0o644)
-		}
+		writeTestEvidence(t, "f02-standalone-summary.json", b)
 	}
 }

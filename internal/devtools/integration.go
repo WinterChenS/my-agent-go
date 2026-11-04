@@ -202,7 +202,6 @@ func RunIntegration(target string) int {
 		// 不做「把改动藏起来当作干净 revision」这种假归属。
 		fmt.Println("[警告] 工作区不干净：本次证据带 worktreeDirty=true，gate 会判死，不能用作正式结论。")
 	}
-
 	blocks := 0
 	fails := 0
 	for _, id := range required {
@@ -216,6 +215,25 @@ func RunIntegration(target string) int {
 	}
 
 	fmt.Printf("汇总: %d 条必需 case，失败 %d，阻塞 %d\n", len(required), fails, blocks)
+
+	// 测试不许改仓库。真实事故（2026-11-04）：F04/F02 的集成测试直接写
+	// docs/evidence/raw/*.json，于是跑一次 verify 就把已提交的历史运行记录
+	// 改写成当前参数（连 -ns 都抹掉），还让工作区变脏——下一轮证据就带
+	// worktreeDirty 被门禁判死，看上去像门禁自己坏了。
+	//
+	// 这里把「运行期间工作区从干净变脏」直接判配置类失败：证据不可变是硬约束，
+	// 不是靠人记住的约定。
+	if !dirty {
+		if _, nowDirty := SourceIdentity(); nowDirty {
+			fmt.Println("[FAIL] 测试运行期间工作区变脏：有测试在写仓库文件。")
+			fmt.Println("       历史证据必须不可变；需要归档新证据请显式指定独立输出目录。")
+			if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil {
+				fmt.Printf("       git status --porcelain:\n%s", out)
+			}
+			return 2
+		}
+	}
+
 	if fails > 0 {
 		return 1
 	}

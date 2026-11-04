@@ -260,10 +260,7 @@ func TestRealPiPolicyBlocksWriteAndEditChannels(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
 		t.Logf("写通道策略证据：\n%s", b)
-		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-write-channels.json")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
-			_ = os.WriteFile(out, b, 0o644)
-		}
+		writeTestEvidence(t, "f04-policy-write-channels.json", b)
 	}
 }
 
@@ -336,10 +333,7 @@ func TestRealPiPolicyBlocksExtensionChannel(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
 		t.Logf("扩展工具通道策略证据：\n%s", b)
-		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-extension-channel.json")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
-			_ = os.WriteFile(out, b, 0o644)
-		}
+		writeTestEvidence(t, "f04-policy-extension-channel.json", b)
 	}
 }
 
@@ -466,10 +460,7 @@ func TestRealPiPolicyBlocksHarnessMCPChannel(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
 		t.Logf("自有 MCP 通道策略证据：\n%s", b)
-		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-harness-mcp-channel.json")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
-			_ = os.WriteFile(out, b, 0o644)
-		}
+		writeTestEvidence(t, "f04-policy-harness-mcp-channel.json", b)
 	}
 }
 
@@ -561,10 +552,7 @@ func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
 		t.Logf("codemode 嵌套通道策略证据：\n%s", b)
-		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-codemode-nested.json")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
-			_ = os.WriteFile(out, b, 0o644)
-		}
+		writeTestEvidence(t, "f04-policy-codemode-nested.json", b)
 	}
 }
 
@@ -733,10 +721,7 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 	}
 	if b, err := json.MarshalIndent(evidence, "", "  "); err == nil {
 		t.Logf("策略集成证据：\n%s", b)
-		out := filepath.Join(root, "docs", "evidence", "raw", "f04-policy-integration.json")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err == nil {
-			_ = os.WriteFile(out, b, 0o644)
-		}
+		writeTestEvidence(t, "f04-policy-integration.json", b)
 	}
 }
 
