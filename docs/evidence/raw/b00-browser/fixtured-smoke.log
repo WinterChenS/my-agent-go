@@ -1,0 +1,7 @@
+# go run ./tests/fixtures/browser/cmd/fixtured 冒烟（2026-11-04 本机）
+# 输出第一行是 origin JSON，随后是对 primary 的三个只读请求。
+{"primary":"http://127.0.0.1:52778","secondary":"http://127.0.0.1:52779"}
+GET /                                  -> 200
+GET /__whoami  (Origin: http://example.test) -> {"host":"127.0.0.1:52778","originHeader":"http://example.test","sameOrigin":false,"selfOrigin":"http://127.0.0.1:52778","cookie":""}
+GET /__counters                        -> {}
+# 收尾：Stop-Process 结束 fixtured.exe 与 go run 包装进程

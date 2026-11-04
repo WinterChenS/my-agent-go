@@ -1,0 +1,5 @@
+Nov  4 21:37:45.329 INF AssetServer Info: middleware=true handler=false
+Nov  4 21:37:45.328 INF Build Info: Wails=v3.0.0 Compiler=go1.27.3 CGO_CXXFLAGS= CGO_LDFLAGS= GOARCH=amd64 GOAMD64=v1 vcs.time=2026-11-04T13:14:50Z vcs.modified=true -buildmode=exe -compiler=gc CGO_ENABLED=1 CGO_CFLAGS= CGO_CPPFLAGS= GOOS=windows vcs=git vcs.revision=f9229cf1663c3302b9c9a9415dd116d248f855dd
+Nov  4 21:37:45.329 INF Platform Info: Go-WebView2Loader=true WebView2=156.0.4314.58 ID=22H2 Name=Windows 10 Pro Version=2009 (Build: 19045) Branding=Windows 10 专业版
+b00| [WebView2] Environment created successfully
+[1104/213801.351:ERROR:ui\gfx\win\window_impl.cc:172] Failed to unregister class Chrome_WidgetWin_0. Error = 1412

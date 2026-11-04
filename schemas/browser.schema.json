@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://my-agent-go/schemas/browser.schema.json",
+  "title": "Browser DTOs",
+  "description": "右侧原生浏览器（R06）的跨边界 DTO。来源：docs/superpowers/specs/2026-11-03-v1-execution-baseline.md §7 与 plans/2026-11-03-native-browser.md B00。Go 侧唯一定义在 internal/browser，本文件与之由 TestSchemaMatchesGoTypes 交叉校验（字段名、required、类型、枚举、上限）。约定：Verified=true 必须同时有 condition 且 status=verified，没有后置条件时 status 只能是 unknown——Delivered 不等于业务成功。图片按 base64 传输，超过 4MiB 必须返回明确错误或受控缩小后更新 scale，不允许截断 base64。",
+  "anyOf": [
+    { "$ref": "#/$defs/Snapshot" },
+    { "$ref": "#/$defs/Element" },
+    { "$ref": "#/$defs/Rect" },
+    { "$ref": "#/$defs/Viewport" },
+    { "$ref": "#/$defs/UnsupportedFrame" },
+    { "$ref": "#/$defs/Action" },
+    { "$ref": "#/$defs/ExpectedCondition" },
+    { "$ref": "#/$defs/ActionResult" },
+    { "$ref": "#/$defs/Verification" },
+    { "$ref": "#/$defs/Image" },
+    { "$ref": "#/$defs/SlotGeometry" },
+    { "$ref": "#/$defs/TabOptions" },
+    { "$ref": "#/$defs/ObserveOptions" },
+    { "$ref": "#/$defs/CapabilitySet" },
+    { "$ref": "#/$defs/UnsupportedCapability" },
+    { "$ref": "#/$defs/ActionKind" },
+    { "$ref": "#/$defs/ConditionKind" },
+    { "$ref": "#/$defs/VerificationStatus" }
+  ],
+  "$defs": {
+    "ActionKind": {
+      "type": "string",
+      "description": "动作种类。与计划里的 click/fill/key/scroll 一一对应。",
+      "enum": ["click", "fill", "key", "scroll"]
+    },
+    "ConditionKind": {
+      "type": "string",
+      "description": "允许的有界后置条件。任意 JS 求值刻意不在枚举里：验证不能变成执行面。",
+      "enum": ["url_equals", "element_text", "field_value", "element_present"]
+    },
+    "VerificationStatus": {
+      "type": "string",
+      "description": "后置条件核验状态。unknown 是默认值：没有核验就不知道，不能写成 verified。",
+      "enum": ["unknown", "verified", "failed", "unsupported", "needs_human"]
+    },
+    "Rect": {
+      "type": "object",
+      "description": "元素在页面视口坐标系里的矩形，单位 CSS px（不是物理像素）。",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 }
+      }
+    },
+    "Viewport": {
+      "type": "object",
+      "description": "快照时刻的页面视口。scale = 设备像素 / CSS 像素（100% 缩放为 1，150% 为 1.5）。",
+      "additionalProperties": false,
+      "required": ["width", "height", "scale"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "scale": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "Element": {
+      "type": "object",
+      "description": "snapshot 里可被引用的一个元素。ref 只在产生它的 Snapshot 内有效；frameId 为空表示顶层文档。未覆盖的 frame 不出现在这里，而是进 Snapshot.unsupportedFrames。",
+      "additionalProperties": false,
+      "required": ["ref", "frameId", "role", "name", "tag", "disabled", "bounds"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "frameId": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "tag": { "type": "string", "minLength": 1 },
+        "inputType": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "bounds": { "$ref": "#/$defs/Rect" }
+      }
+    },
+    "UnsupportedFrame": {
+      "type": "object",
+      "description": "一个观察不到或操作不了的 frame。reason 必须是给用户看的具体理由（cross-origin / closed-shadow / detached），不能是空串。",
+      "additionalProperties": false,
+      "required": ["frameId", "reason"],
+      "properties": {
+        "frameId": { "type": "string", "minLength": 1 },
+        "url": { "type": "string" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "description": "一次观察的结果，也是后续动作的引用基准。navigationId 每次文档替换后变化（含同 URL 重导航、SPA 重建文档）；controlGeneration 是产生快照时刻的控制权代数。任一不匹配都必须返回 STALE_SNAPSHOT。",
+      "additionalProperties": false,
+      "x-maxJsonBytes": 262144,
+      "required": [
+        "id", "tabId", "navigationId", "controlGeneration",
+        "viewport", "elements", "text", "unsupportedFrames"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tabId": { "type": "string", "minLength": 1 },
+        "navigationId": { "type": "string", "minLength": 1 },
+        "controlGeneration": { "type": "integer", "minimum": 0 },
+        "viewport": { "$ref": "#/$defs/Viewport" },
+        "elements": {
+          "type": "array",
+          "maxItems": 300,
+          "description": "元素上限 300（基线 §7）。超限必须截断并显式告知，不能静默丢弃一半。",
+          "items": { "$ref": "#/$defs/Element" }
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 40000,
+          "description": "受限文本，按 Unicode 字符计上限 40000（不是字节）。密码值不得出现。"
+        },
+        "unsupportedFrames": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/UnsupportedFrame" }
+        }
+      }
+    },
+    "ExpectedCondition": {
+      "type": "object",
+      "description": "动作执行后的有界检查。不允许任意 JS：evaluate/script 之类必须被拒绝，不能静默降级。",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/ConditionKind" },
+        "url": { "type": "string", "description": "url_equals 时使用，按规范化后的完整 URL 比较。" },
+        "ref": { "type": "string", "description": "element_text / field_value / element_present 时使用，必须来自同一个 snapshotId。" },
+        "value": { "type": "string", "description": "期望文本或字段值；element_present 忽略。" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15000,
+          "description": "条件等待上限；不得超过动作超时 15s。"
+        }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "description": "一次原子操作请求。snapshotId 是授权基准：ref 必须来自该快照，执行前还要再核验文档与元素是否仍在。",
+      "additionalProperties": false,
+      "required": ["kind", "snapshotId"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/ActionKind" },
+        "snapshotId": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string" },
+        "text": { "type": "string", "description": "fill 的值；密码类字段的回读不得进入 snapshot/日志。" },
+        "key": { "type": "string" },
+        "deltaX": { "type": "number" },
+        "deltaY": { "type": "number" },
+        "expectedCondition": { "$ref": "#/$defs/ExpectedCondition" }
+      }
+    },
+    "Verification": {
+      "type": "object",
+      "description": "后置条件的核验过程。condition 为空表示本次没有后置条件，此时 status 必须为 unknown；detail 要写具体观测值而不是只写“失败”。",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "condition": { "$ref": "#/$defs/ConditionKind" },
+        "status": { "$ref": "#/$defs/VerificationStatus" },
+        "detail": { "type": "string" }
+      }
+    },
+    "ActionResult": {
+      "type": "object",
+      "description": "一次操作的结论。delivered 只表示输入已交给 native 引擎，不等于业务成功；verified=true 必须同时有 condition 且 status=verified。",
+      "additionalProperties": false,
+      "required": ["delivered", "verified", "navigationId", "verification"],
+      "properties": {
+        "delivered": { "type": "boolean" },
+        "verified": { "type": "boolean" },
+        "navigationId": { "type": "string" },
+        "verification": { "$ref": "#/$defs/Verification" },
+        "error": { "type": "string" }
+      }
+    },
+    "Image": {
+      "type": "object",
+      "description": "可见区域截图及其坐标元数据。bytes 在 JSON 里是 base64；4MiB 上限是解码后的字节数。",
+      "additionalProperties": false,
+      "x-maxBytes": 4194304,
+      "required": [
+        "bytes", "mimeType", "pixelWidth", "pixelHeight",
+        "cssWidth", "cssHeight", "scale", "navigationId"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-maxBytes": 4194304,
+          "description": "base64 编码的图片数据；解码后不得超过 4MiB（基线 §7）。"
+        },
+        "mimeType": { "type": "string", "enum": ["image/png", "image/jpeg", "image/webp"] },
+        "pixelWidth": { "type": "integer", "minimum": 1 },
+        "pixelHeight": { "type": "integer", "minimum": 1 },
+        "cssWidth": { "type": "number", "exclusiveMinimum": 0 },
+        "cssHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "scale": { "type": "number", "exclusiveMinimum": 0 },
+        "navigationId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "SlotGeometry": {
+      "type": "object",
+      "description": "React 上报的右侧槽位几何（B07 UpdateBrowserSlot 载荷），全部是应用 WebView 内的 CSS px。revision 单调递增，接收方必须丢弃旧 revision 的迟到消息。",
+      "additionalProperties": false,
+      "required": ["slotId", "revision", "left", "top", "width", "height", "visible", "zoom"],
+      "properties": {
+        "slotId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 0 },
+        "left": { "type": "number" },
+        "top": { "type": "number" },
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 },
+        "visible": { "type": "boolean" },
+        "zoom": { "type": "number", "exclusiveMinimum": 0, "description": "应用 WebView 的缩放系数（非设备 DPI）。" }
+      }
+    },
+    "TabOptions": {
+      "type": "object",
+      "description": "新建 tab 的参数。profileId 决定持久登录态归属；ownerSessionId 是授权归属，跨 session 操作必须被拒绝。",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^https?://" },
+        "profileId": { "type": "string" },
+        "ownerSessionId": { "type": "string" }
+      }
+    },
+    "ObserveOptions": {
+      "type": "object",
+      "description": "观察参数。上限只能往下调，不能往上调；0 表示使用基线默认值。",
+      "additionalProperties": false,
+      "properties": {
+        "maxElements": { "type": "integer", "minimum": 0, "maximum": 300 },
+        "maxTextChars": { "type": "integer", "minimum": 0, "maximum": 40000 },
+        "includeText": { "type": "boolean" }
+      }
+    },
+    "UnsupportedCapability": {
+      "type": "object",
+      "description": "缺失能力及原因，供 UI/agent 显示“需要人工”。",
+      "additionalProperties": false,
+      "required": ["capability", "reason"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "CapabilitySet": {
+      "type": "object",
+      "description": "backend 的实测能力（不能按 GOOS 写死）。未具备的能力必须为 false 并在 unsupported 里给出原因；上层据此不注册工具。",
+      "additionalProperties": false,
+      "required": [
+        "platform", "engine", "navigate", "observe", "act", "screenshot",
+        "trustedInput", "crossOriginFrames", "closedShadowRoots",
+        "downloads", "popups", "unsupported"
+      ],
+      "properties": {
+        "platform": { "type": "string" },
+        "engine": { "type": "string" },
+        "navigate": { "type": "boolean" },
+        "observe": { "type": "boolean" },
+        "act": { "type": "boolean" },
+        "screenshot": { "type": "boolean" },
+        "trustedInput": { "type": "boolean" },
+        "crossOriginFrames": { "type": "boolean" },
+        "closedShadowRoots": { "type": "boolean" },
+        "downloads": { "type": "boolean" },
+        "popups": { "type": "boolean" },
+        "unsupported": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/UnsupportedCapability" }
+        }
+      }
+    }
+  }
+}

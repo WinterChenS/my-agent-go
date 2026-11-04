@@ -1,0 +1,28 @@
+=== RUN   TestFixtureTwoDistinctOrigins
+    fixture_test.go:109: origin A(primary)=http://127.0.0.1:52437
+    fixture_test.go:110: origin B(secondary)=http://127.0.0.1:52438
+--- PASS: TestFixtureTwoDistinctOrigins (0.01s)
+=== RUN   TestCounterSemantics
+    fixture_test.go:188: 提交前 A.form-submit=0 B.form-submit=0
+    fixture_test.go:200: 提交一次后 A.form-submit=1 B.form-submit=0
+--- PASS: TestCounterSemantics (0.00s)
+=== RUN   TestSPACountersDistinguishTargetAndReplacement
+--- PASS: TestSPACountersDistinguishTargetAndReplacement (0.00s)
+=== RUN   TestTrustedOnlyRejectsUntrustedInput
+    fixture_test.go:307: 缺 X-Event-Trusted: status=403 trusted-only=0 trusted-rejected=1
+    fixture_test.go:333: 带 X-Event-Trusted=true: status=200 trusted-only=1 trusted-rejected=2
+--- PASS: TestTrustedOnlyRejectsUntrustedInput (0.00s)
+=== RUN   TestSlowLoadIsWaitable
+--- PASS: TestSlowLoadIsWaitable (1.00s)
+=== RUN   TestLoginCookieIsServerSideOracle
+--- PASS: TestLoginCookieIsServerSideOracle (0.00s)
+=== RUN   TestDownloadAndPopupHaveServerSideEvidence
+--- PASS: TestDownloadAndPopupHaveServerSideEvidence (0.00s)
+=== RUN   TestClosedShadowAndFramePagesDeclareTheHardParts
+--- PASS: TestClosedShadowAndFramePagesDeclareTheHardParts (0.00s)
+=== RUN   TestFixtureCloseReleasesPorts
+--- PASS: TestFixtureCloseReleasesPorts (0.00s)
+=== RUN   TestEveryPageIsServedWithItsOwnOrigin
+--- PASS: TestEveryPageIsServedWithItsOwnOrigin (1.00s)
+PASS
+ok  	my-agent-go/tests/fixtures/browser	2.057s

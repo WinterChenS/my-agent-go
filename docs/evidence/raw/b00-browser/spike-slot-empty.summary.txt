@@ -1,0 +1,10 @@
+﻿tag=b00-spike-slot-empty
+openDialog=False
+autoQuitSeconds=16
+startedAt=2026-11-04T21:37:45.3047285+08:00
+spikeExitCode=0
+screenshotExitCode=0
+screenshot=docs\evidence\raw\b00-browser\b00-spike-slot-empty.png
+stdout=.tmp\b00-spike-slot-empty.out
+stderr=.tmp\b00-spike-slot-empty.err
+OK hwnd=6294152 rect=370,110 1180x820 bytes=104484 sha256=84c1a2de0b5c72dc8f5135b4a6a73f8228b3e05990cff5425cbd3d95eb7c729a

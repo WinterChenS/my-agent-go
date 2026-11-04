@@ -1,0 +1,34 @@
+=== RUN   TestBaselineLimits
+--- PASS: TestBaselineLimits (0.00s)
+=== RUN   TestSchemaMatchesGoTypes
+--- PASS: TestSchemaMatchesGoTypes (0.00s)
+=== RUN   TestSchemaLimitsMatchConstants
+--- PASS: TestSchemaLimitsMatchConstants (0.00s)
+=== RUN   TestSchemaCoversEveryExportedType
+--- PASS: TestSchemaCoversEveryExportedType (0.00s)
+=== RUN   TestNativeParentNeverSerializes
+--- PASS: TestNativeParentNeverSerializes (0.00s)
+=== RUN   TestExpectedConditionRejectsArbitraryJS
+--- PASS: TestExpectedConditionRejectsArbitraryJS (0.00s)
+=== RUN   TestActionValidate
+--- PASS: TestActionValidate (0.00s)
+=== RUN   TestActionResultDeliveredIsNotVerified
+--- PASS: TestActionResultDeliveredIsNotVerified (0.00s)
+=== RUN   TestSnapshotLimits
+--- PASS: TestSnapshotLimits (0.00s)
+=== RUN   TestSnapshotValidateRefs
+--- PASS: TestSnapshotValidateRefs (0.00s)
+=== RUN   TestImageValidate
+--- PASS: TestImageValidate (0.00s)
+=== RUN   TestSlotGeometryValidate
+--- PASS: TestSlotGeometryValidate (0.00s)
+=== RUN   TestTabLimit
+--- PASS: TestTabLimit (0.00s)
+=== RUN   TestObserveOptionsClamp
+--- PASS: TestObserveOptionsClamp (0.00s)
+=== RUN   TestUnimplementedReturnsNotImplemented
+--- PASS: TestUnimplementedReturnsNotImplemented (0.00s)
+=== RUN   TestWireFormatGolden
+--- PASS: TestWireFormatGolden (0.00s)
+PASS
+ok  	my-agent-go/internal/browser	0.024s

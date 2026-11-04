@@ -1,0 +1,10 @@
+﻿tag=b00-spike-dialog
+openDialog=True
+autoQuitSeconds=16
+startedAt=2026-11-04T21:38:47.2231411+08:00
+spikeExitCode=0
+screenshotExitCode=0
+screenshot=docs\evidence\raw\b00-browser\b00-spike-dialog.png
+stdout=.tmp\b00-spike-dialog.out
+stderr=.tmp\b00-spike-dialog.err
+OK hwnd=3148196 rect=370,110 1180x820 bytes=98442 sha256=bf3352afce355df059cbfc74e484fc97fd784e440fd4caebccd75949639e2bf5

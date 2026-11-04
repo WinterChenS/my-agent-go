@@ -148,13 +148,16 @@ func RunNative(target, display string) int {
 	}
 
 	table := nativeCases()
+	var runnable []Requirement
 	var missing []string
 	for _, r := range selected {
-		if _, ok := lookupNativeCase(table, r, target, display); !ok {
-			missing = append(missing, r.CaseID)
+		if _, ok := lookupNativeCase(table, r, target, display); ok {
+			runnable = append(runnable, r)
+			continue
 		}
+		missing = append(missing, r.CaseID)
 	}
-	if len(missing) > 0 {
+	if len(runnable) == 0 {
 		fmt.Fprintf(os.Stderr, "以下 G1 必需 case 在 target=%s display=%s 上没有 native runner：%s\n",
 			target, display, strings.Join(dedupe(missing), ", "))
 		fmt.Fprintln(os.Stderr, "缺失 runner 属于配置缺失（退出 2），不是通过。")
@@ -170,7 +173,7 @@ func RunNative(target, display string) int {
 	}
 
 	blocks, fails := 0, 0
-	for _, r := range selected {
+	for _, r := range runnable {
 		nc, _ := lookupNativeCase(table, r, target, display)
 		res := runNativeCase(nc, target, display, root)
 		if res.blocked {
@@ -180,7 +183,12 @@ func RunNative(target, display string) int {
 		}
 	}
 
-	fmt.Printf("汇总: %d 条 G1 必需 case，失败 %d，阻塞 %d\n", len(selected), fails, blocks)
+	fmt.Printf("汇总: 可跑 %d / 必需 %d 条 G1 必需 case，失败 %d，阻塞 %d\n", len(runnable), len(selected), fails, blocks)
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "以下 G1 必需 case 在 target=%s display=%s 上没有 native runner：%s\n",
+			target, display, strings.Join(dedupe(missing), ", "))
+		fmt.Fprintln(os.Stderr, "已跑的部分不等于 G1 通过；缺 runner 属于配置缺失。")
+	}
 
 	if !dirty {
 		if _, nowDirty := SourceIdentity(); nowDirty {
@@ -193,9 +201,10 @@ func RunNative(target, display string) int {
 		}
 	}
 	if fails > 0 {
+		// 断言失败优先于「配置缺失」：这是真的回归，不能被缺失清单盖过去。
 		return 1
 	}
-	if blocks > 0 {
+	if blocks > 0 || len(missing) > 0 {
 		return 2
 	}
 	return 0

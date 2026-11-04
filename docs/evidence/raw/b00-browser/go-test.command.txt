@@ -1,0 +1,2 @@
+go test ./internal/browser ./tests/fixtures/browser -count=1
+exitCode=0
