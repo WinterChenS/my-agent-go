@@ -44,7 +44,9 @@ func RunVerify(suite, target, display, artifact string) int {
 		return runUnit()
 	case "integration":
 		return RunIntegration(target)
-	case "native", "e2e", "package":
+	case "native":
+		return RunNative(target, display)
+	case "e2e", "package":
 		return unimplementedSuite(suite)
 	case "":
 		fmt.Fprintln(os.Stderr, "verify 必须指定 --suite 参数")
@@ -211,4 +213,31 @@ func runFrontendTest() (int, string, string, error) {
 		return code, "", msg + "，不能静默跳过判成功", err
 	}
 	return RunExternal(npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "test", "--", "--run")
+}
+
+// EnsureRepoRoot 保证当前目录是仓库根。
+//
+// devtools 的所有相对路径（tests/acceptance/cases.json、build/versions.lock.json、
+// docs/evidence/runs/...）都以仓库根为基准。`go run ./cmd/devtools` 天然在根目录，
+// 但包装脚本、IDE、或从子目录调用时会落错位置——那种失败会表现为「索引读不到」
+// 或「证据写进了别的目录」，比直接报错难查得多。
+func EnsureRepoRoot() error {
+	if _, err := os.Stat("go.mod"); err == nil {
+		return nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	dir := wd
+	for {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+			return os.Chdir(dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return fmt.Errorf("找不到仓库根（go.mod），当前目录: %s", wd)
+		}
+		dir = parent
+	}
 }

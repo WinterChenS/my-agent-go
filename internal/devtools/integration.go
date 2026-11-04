@@ -75,10 +75,10 @@ func integrationCases() []integrationCase {
 		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
 		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/串用阶段/重复证据/dirty 工作区均拒绝。
 		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
-		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite"},
+		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestReviewGate"},
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},

@@ -30,6 +30,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "用法: devtools <verify|package|gate> [flags]")
 		os.Exit(2)
 	}
+	// 所有相对路径（案例索引、版本锁、证据树）都以仓库根为基准。
+	// 从子目录调用时先切到仓库根，避免"索引读不到/证据写错地方"的静默错位。
+	if err := devtools.EnsureRepoRoot(); err != nil {
+		fmt.Fprintf(os.Stderr, "定位仓库根失败: %v\n", err)
+		os.Exit(2)
+	}
+
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
