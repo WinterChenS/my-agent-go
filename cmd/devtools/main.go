@@ -49,6 +49,7 @@ func main() {
 		channel  string
 		id       string
 		evidence string
+		gate     string
 	)
 	fs.StringVar(&suite, "suite", "", "verify 的 suite：static|unit|integration|native|e2e|package")
 	fs.StringVar(&target, "target", "", "目标 targetId")
@@ -57,6 +58,7 @@ func main() {
 	fs.StringVar(&channel, "channel", "internal", "package 渠道")
 	fs.StringVar(&id, "id", "", "gate id：G0..G5")
 	fs.StringVar(&evidence, "evidence", "", "gate 证据根目录（绝对路径）")
+	fs.StringVar(&gate, "gate", "G0", "integration 要产出的门禁证据（G0..G5），默认 G0")
 
 	if err := fs.Parse(args); err != nil {
 		// flag 解析失败（如未知 flag）视为配置错误。
@@ -66,7 +68,13 @@ func main() {
 	var code int
 	switch cmd {
 	case "verify":
-		code = devtools.RunVerify(suite, target, display, artifact)
+		if suite == "integration" {
+			// 证据按 gate 分目录：同一个 case 可能同时属于 G0 与 G2，
+			// 不分开会让两份报告互相覆盖或串用。
+			code = devtools.RunIntegrationForGate(target, gate)
+		} else {
+			code = devtools.RunVerify(suite, target, display, artifact)
+		}
 	case "package":
 		code = devtools.RunPackage(target, channel)
 	case "gate":

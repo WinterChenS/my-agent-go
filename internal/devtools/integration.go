@@ -75,7 +75,7 @@ func integrationCases() []integrationCase {
 		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
 		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/串用阶段/重复证据/dirty 工作区均拒绝。
 		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
-		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted"},
+		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
 		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestReviewGate"},
@@ -150,7 +150,18 @@ func dirExists(p string) bool {
 }
 
 // RunIntegration 是 `verify --suite=integration` 的入口。
+// RunIntegration 是 G0 的集成入口（兼容旧调用）。
 func RunIntegration(target string) int {
+	return RunIntegrationForGate(target, "G0")
+}
+
+// RunIntegrationForGate 跑某个 gate 的必需 case。
+//
+// 为什么需要 gate 参数：同一个 case 可能同时属于 G0 与 G2（例如 SEC05），
+// 而证据里的 gateId 必须与判定它的 gate 一致。证据目录按
+// artifacts/evidence/<rev>/<gate>/<target>/<case> 分（见 v1-gates.md §4），
+// 两个 gate 的同名 case 不会互相覆盖、也不会串用报告。
+func RunIntegrationForGate(target, gate string) int {
 	if target == "" {
 		fmt.Fprintln(os.Stderr, "integration 必须指定 --target")
 		return 2
@@ -206,7 +217,7 @@ func RunIntegration(target string) int {
 	fails := 0
 	for _, id := range required {
 		c := table[id]
-		res := runIntegrationCase(c, target, root)
+		res := runIntegrationCase(c, gate, target, root)
 		if res.blocked {
 			blocks++
 		} else if !res.passed {
@@ -250,14 +261,14 @@ type caseOutcome struct {
 }
 
 // runIntegrationCase 执行一条 case 并写证据。
-func runIntegrationCase(c integrationCase, target, root string) caseOutcome {
+func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcome {
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 
 	started := time.Now().UTC()
 	ev := contracts.GateEvidence{
 		SchemaVersion:    1,
-		GateID:           "G0",
+		GateID:           gate,
 		TaskID:           taskForCase(c.ID),
 		SourceRevision:   GetSourceRevision(),
 		WorktreeDirty:    worktreeDirty(),

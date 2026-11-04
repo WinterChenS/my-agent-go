@@ -525,3 +525,10 @@ func reasonMentions(rep *GateReport, sub string) bool {
 	}
 	return false
 }
+
+// TestIntegrationRejectsUnknownGate：gate 参数拼错不能变成"没有必需 case 也算通过"。
+func TestIntegrationRejectsUnknownGate(t *testing.T) {
+	if code := RunIntegrationForGate("win-x64", "G9"); code != 2 {
+		t.Fatalf("未知 gate 应返回 2，实际 %d", code)
+	}
+}
