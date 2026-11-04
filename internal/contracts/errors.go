@@ -30,6 +30,13 @@ const (
 	CodeRunnerMissing              = "RUNNER_MISSING"
 	CodeDependencyMissing          = "DEPENDENCY_MISSING"
 
+	// 模型连接测试的分类（C02 / MOD02）。
+	// 分开而不是统一成"连接失败"：401 要用户改凭证，429 只需等待，
+	// 超时可能是端点慢或网络问题——把三者混成一句话等于让用户自己猜。
+	CodeRateLimited         = "RATE_LIMITED"
+	CodeProviderUnreachable = "PROVIDER_UNREACHABLE"
+	CodeProviderError       = "PROVIDER_ERROR"
+
 	// RPC / worker 相关（F03）。
 	// 语义约定：这些错误都不可自动重放。命令是否已在 Pi 侧生效未知，
 	// 自动重试会造成重复执行副作用（基线 §6「不自动重放未知结果调用」）。

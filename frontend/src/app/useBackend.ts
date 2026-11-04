@@ -6,7 +6,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import type { CallError, Profile, Settings, Status, Workspace } from "../types";
+import type {
+  CallError,
+  CurrentModelResult,
+  ModelDefinition,
+  ModelOptions,
+  Profile,
+  Settings,
+  Status,
+  Workspace,
+} from "../types";
 
 export interface BackendState {
   status: Status | null;
@@ -15,6 +24,13 @@ export interface BackendState {
   /** 设置里那个路径对应的工作区；没配或路径无效时为 null。 */
   currentWorkspace: Workspace | null;
   profiles: Profile[];
+  /** 资源库里的模型定义。 */
+  models: ModelDefinition[];
+  /** 模型配置文档的 revision：保存时用它做 CAS。 */
+  modelRevision: number;
+  modelOptions: ModelOptions;
+  /** 当前使用的模型（可能来自设置而不是资源库）。 */
+  currentModel: CurrentModelResult | null;
   /** 首次加载尚未完成。 */
   loading: boolean;
   error: CallError | null;
@@ -26,6 +42,10 @@ const emptyState: BackendState = {
   workspaces: [],
   currentWorkspace: null,
   profiles: [],
+  models: [],
+  modelRevision: 0,
+  modelOptions: { apis: [], inputKinds: [], thinkingLevels: [] },
+  currentModel: null,
   loading: true,
   error: null,
 };
@@ -69,12 +89,15 @@ export function useBackend() {
     }));
 
     // 其余四项并行，互不阻塞：设置读不到不该拖住工作区列表。
-    const [statusRes, settingsRes, wsRes, profileRes] = await Promise.allSettled([
-      api.status(),
-      api.settings(),
-      api.workspaces(),
-      api.profiles(),
-    ]);
+    const [statusRes, settingsRes, wsRes, profileRes, modelRes, curModelRes] =
+      await Promise.allSettled([
+        api.status(),
+        api.settings(),
+        api.workspaces(),
+        api.profiles(),
+        api.models(),
+        api.currentModel(),
+      ]);
 
     const next: BackendState = {
       status: statusRes.status === "fulfilled" ? statusRes.value : null,
@@ -82,6 +105,10 @@ export function useBackend() {
       workspaces: [],
       currentWorkspace: null,
       profiles: [],
+      models: [],
+      modelRevision: 0,
+      modelOptions: { apis: [], inputKinds: [], thinkingLevels: [] },
+      currentModel: null,
       loading: false,
       error: null,
     };
@@ -102,6 +129,20 @@ export function useBackend() {
       else next.profiles = profileRes.value.items ?? [];
     } else if (!next.error) {
       next.error = toCallError(profileRes.reason);
+    }
+
+    if (modelRes.status === "fulfilled") {
+      const r = modelRes.value;
+      if (r.error && !next.error) next.error = r.error;
+      next.models = r.items ?? [];
+      next.modelRevision = r.revision;
+      next.modelOptions = r.options;
+    } else if (!next.error) {
+      next.error = toCallError(modelRes.reason);
+    }
+
+    if (curModelRes.status === "fulfilled" && !curModelRes.value.error) {
+      next.currentModel = curModelRes.value;
     }
 
     // status 读不到通常是应用壳还没就绪；这属于致命失败，必须显示出来。
@@ -133,6 +174,36 @@ export function useBackend() {
     }));
   }, []);
 
+  /** 刷新模型列表、当前模型与设置（模型切换会改设置里的 modelRef）。 */
+  const refreshModels = useCallback(async () => {
+    const [res, cur, settings] = await Promise.all([
+      api.models(),
+      api.currentModel(),
+      api.settings().catch(() => null),
+    ]);
+    setState((prev) => ({
+      ...prev,
+      models: res.error ? prev.models : res.items ?? [],
+      modelRevision: res.error ? prev.modelRevision : res.revision,
+      modelOptions: res.error ? prev.modelOptions : res.options,
+      currentModel: cur.error ? prev.currentModel : cur,
+      settings: settings ?? prev.settings,
+      error: res.error ?? prev.error,
+    }));
+  }, []);
+
+  /**
+   * 只刷新 Status。
+   *
+   * 为什么需要：运行时（以及它实际用的 provider/model）是在 Start 时才构建的，
+   * 而整页 reload 只在挂载时跑一次。不刷的话，设置页的诊断会在一次真实运行之后
+   * 仍然写着"尚未启动"——一个本来用于说明事实的面板，反而在撒谎。
+   */
+  const refreshStatus = useCallback(async () => {
+    const res = await api.status().catch(() => null);
+    if (res) setState((prev) => ({ ...prev, status: res }));
+  }, []);
+
   /** 只刷新 Profile，用于保存后同步 revision。 */
   const refreshProfiles = useCallback(async () => {
     const res = await api.profiles();
@@ -143,5 +214,12 @@ export function useBackend() {
     }));
   }, []);
 
-  return { ...state, reload, refreshWorkspaces, refreshProfiles };
+  return {
+    ...state,
+    reload,
+    refreshWorkspaces,
+    refreshProfiles,
+    refreshModels,
+    refreshStatus,
+  };
 }

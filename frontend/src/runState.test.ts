@@ -258,3 +258,34 @@ describe("错误与诊断", () => {
     expect(s.error).toBeNull();
   });
 });
+
+// MOD04：这一轮用的是哪个 provider/模型、哪个配置 revision，必须来自启动时的
+// 快照。写成"当前设置里的模型"就会在用户中途换模型之后撒谎——那一轮用的
+// 仍然是启动时那个。
+describe("run_started 记录实际使用的模型", () => {
+  it("保存 provider/模型/配置 revision", () => {
+    const s = reduce(started(), {
+      kind: "run_started",
+      runId: "run-meta",
+      state: "running",
+      meta: { provider: "deepseek", model: "deepseek-v4.1-flash", configRevision: 4 },
+    });
+    expect(s.runMeta).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4.1-flash",
+      configRevision: 4,
+    });
+  });
+
+  it("没有 meta 时不清空上一轮记录，也不编造", () => {
+    const first = reduce(started(), {
+      kind: "run_started",
+      runId: "run-a",
+      state: "running",
+      meta: { provider: "p", model: "m", configRevision: 3 },
+    });
+    const second = reduce(first, { kind: "run_started", runId: "run-b", state: "running" });
+    expect(second.runMeta).toEqual({ provider: "p", model: "m", configRevision: 3 });
+    expect(initialState.runMeta).toBeNull();
+  });
+});

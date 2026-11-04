@@ -59,9 +59,20 @@ export function SettingsView({
             type="password"
             value={draft.apiKey}
             onChange={(v) => patch({ apiKey: v })}
-            hint="保存在本机 settings.json；凭证存储接入后会改为引用"
+            hint="仅旧路径生效；从资源库选模型后改由系统凭证库保存"
           />
         </div>
+        {status?.modelRef ? (
+          <p className="mt-2 rounded border border-sky-400/20 bg-sky-400/5 px-2 py-1 text-[10px] text-sky-200/90">
+            当前模型来自资源库（{status.modelRef}）：上面的 Provider / Base URL / Model / API Key
+            不再生效，密钥由系统凭证库提供。
+          </p>
+        ) : (
+          <p className="mt-2 text-[10px] text-slate-600">
+            这里配置的是"还没有从资源库选模型"时的兜底端点，API Key 会以明文写进 settings.json。
+            正式使用请在资源库里定义模型并设为当前。
+          </p>
+        )}
         <label className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
           <input
             type="checkbox"
@@ -160,6 +171,19 @@ export function SettingsView({
           <DiagRow label="平台" value={status?.platform ?? "—"} />
           <DiagRow label="agentDir" value={status?.agentDir ?? "—"} mono />
           <DiagRow label="应用数据" value={status?.appRoot ?? "—"} mono />
+          <DiagRow label="当前模型来源" value={status?.modelRef ? `资源库 ${status.modelRef}` : "设置字段（明文路径）"} />
+          <DiagRow
+            label="实际运行模型"
+            value={
+              status?.runtimeProvider
+                ? `${status.runtimeProvider}/${status.runtimeModel}`
+                : "尚未启动"
+            }
+            mono
+          />
+          {status?.runtimePending && (
+            <DiagRow label="模型变更" value="已保存，等当前 run 结束后生效" />
+          )}
           <DiagRow label="隔离参数" value={isolation.join(" ") || "—"} mono />
         </dl>
         <p className="mt-1.5 text-[10px] leading-relaxed text-slate-600">

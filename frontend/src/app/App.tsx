@@ -66,14 +66,27 @@ function Shell() {
     runDispatch({ kind: "user_message", text });
     try {
       const snap = await api.start(text);
-      runDispatch({ kind: "run_started", runId: snap.runId, state: snap.state });
+      // 运行时是这次 Start 才构建的：状态里的 provider/model 到这里才成立。
+      void backend.refreshStatus();
+      runDispatch({
+        kind: "run_started",
+        runId: snap.runId,
+        state: snap.state,
+        // 记的是启动那一刻的快照：provider/model 用的是这一轮真正发给 Pi 的值，
+        // 不是"现在设置里是什么"。
+        meta: {
+          provider: snap.provider ?? "",
+          model: snap.model ?? "",
+          configRevision: snap.configRevision,
+        },
+      });
     } catch (e) {
       const ce = toCallError(e);
       // 后端的拒绝理由要对用户可见：这里不翻译成"发送失败"，
       // 因为"工作区未信任"和"Pi 不存在"需要的下一步动作完全不同。
       runDispatch({ kind: "run_start_failed", message: `${ce.code}: ${ce.message}` });
     }
-  }, [input, busy]);
+  }, [input, busy, backend.refreshStatus]);
 
   const stop = useCallback(async () => {
     if (!ui.runId) return;
@@ -155,7 +168,12 @@ function Shell() {
           <ResourcesView
             profiles={backend.profiles}
             workspaceId={backend.currentWorkspace?.id ?? ""}
+            models={backend.models}
+            modelOptions={backend.modelOptions}
+            modelRevision={backend.modelRevision}
+            currentModel={backend.currentModel}
             onChanged={() => void backend.refreshProfiles()}
+            onModelsChanged={() => void backend.refreshModels()}
           />
         );
       case "memory":

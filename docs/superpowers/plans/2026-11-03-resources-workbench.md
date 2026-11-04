@@ -43,13 +43,21 @@
 
 **Interfaces：** `SaveModel(ctx,expectedRevision uint64,ModelDefinition)(ConfigDocument,error)`；ModelDefinition{ID,ProviderID,ModelID,API,BaseURL,InputKinds,ContextWindow,MaxOutput,CredentialRef,ThinkingLevels}；`TestModel(ctx,id string)(ModelProbeResult,error)`，Result{Reachable,ToolCalling,Vision,LatencyMS,Error}，没测的能力=unknown而非true。
 
-- [ ] 写 `TestNoImplicitAuthImport`、`TestModelSaveNoSecretsInJSON`：旧Pi auth marker不被读取/修改；secret仅OS存储；导出和错误日志中sentinel命中0。
-- [ ] 写配置schema测试：ID唯一、URL/端口/API类型合法、context/output数值正值且output≤context；API类型白名单来自认证Pi版本，不猜所有OpenAI兼容完全一致。
-- [ ] 实现本地配置→Pi models配置编译；连接测试通过临时Pi session实际发最小请求，用户点击才发生调用，展示可能计费；不在Go重写provider适配。
-- [ ] fixture provider分别返回401/429/超时/有效文本/工具调用，分类准确；真实模型能力在X01验证，fixture不能认证外部模型。
-- [ ] 运行资源unit/integration/frontend，提交。
+- [x] 写 `TestNoImplicitAuthImport`、`TestModelSaveNoSecretsInJSON`：旧Pi auth marker不被读取/修改；secret仅OS存储；导出和错误日志中sentinel命中0。
+- [x] 写配置schema测试：ID唯一、URL/端口/API类型合法、context/output数值正值且output≤context；API类型白名单来自认证Pi版本，不猜所有OpenAI兼容完全一致。
+- [x] 实现本地配置→Pi models配置编译；连接测试通过临时Pi session实际发最小请求，用户点击才发生调用，展示可能计费；不在Go重写provider适配。
+- [x] fixture provider分别返回401/429/超时/有效文本/工具调用，分类准确；真实模型能力在X01验证，fixture不能认证外部模型。
+- [x] 运行资源unit/integration/frontend，提交。
 
 **验收：** MOD01–MOD04、SEC07。
+
+> 证据：`docs/evidence/c02-models.md`（真实 deepseek 连接测试 2494ms、真实 run 走凭证库
+> 路径、运行记录带 provider/model/revision）。
+> 真机抓到并修掉的缺陷：旧路径把明文密钥写进 `models.json`（SEC07 实测漏洞）+
+> 切模型后旧明文残留；旧形状条目会被编译成空 provider 键；设置诊断"实际运行模型"
+> 永远显示"尚未启动"；运行记录不显示 provider/revision。
+> **未覆盖：** 视觉能力恒为 unknown（本轮不发图，X01 验）；只跑 Windows；
+> `pendingRuntimeKey`（等空闲生效）只有单测覆盖。
 
 ## C03：Skills 和自有扩展管理
 

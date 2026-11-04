@@ -4,6 +4,12 @@
 // 所以名字里带斜杠。集中在这里定义，避免散落各处的字符串拼错。
 import { Call, Events } from "@wailsio/runtime";
 import type {
+  CurrentModelResult,
+  ModelAction,
+  ModelDefinition,
+  ModelListResult,
+  ModelProbeResponse,
+  ModelResult,
   ProductEvent,
   Profile,
   ProfileConflictResult,
@@ -79,6 +85,31 @@ export const api = {
     draft: Profile
   ): Promise<ProfileConflictResult> =>
     Call.ByName(`${FQN}.ProfileConflict`, id, draft),
+
+  // ---- C02：模型定义与连接测试 ----
+
+  models: (): Promise<ModelListResult> => Call.ByName(`${FQN}.ListModels`),
+
+  /** secret 单独传：它不进 ModelDefinition（那份结构会被导出与展示）。 */
+  saveModel: (
+    expectedRevision: number,
+    def: ModelDefinition,
+    secret: string
+  ): Promise<ModelResult> =>
+    Call.ByName(`${FQN}.SaveModel`, expectedRevision, def, secret),
+
+  deleteModel: (expectedRevision: number, id: string): Promise<ModelResult> =>
+    Call.ByName(`${FQN}.DeleteModel`, expectedRevision, id),
+
+  /** 会真实调用模型（可能计费），必须由用户点击触发。 */
+  testModel: (id: string): Promise<ModelProbeResponse> =>
+    Call.ByName(`${FQN}.TestModel`, id),
+
+  setActiveModel: (ref: string): Promise<ModelAction> =>
+    Call.ByName(`${FQN}.SetActiveModel`, ref),
+
+  currentModel: (): Promise<CurrentModelResult> =>
+    Call.ByName(`${FQN}.CurrentModel`),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

@@ -45,6 +45,13 @@ type Options struct {
 	Provider string
 	Model    string
 
+	// ConfigRevision 是这次 run 依据的配置版本，写进快照供审计（MOD04）。
+	ConfigRevision uint64
+
+	// ModelEnv 是模型凭证的环境变量（形如 NAME=secret），只经子进程环境交付，
+	// 不写进 models.json。与 HarnessEnv 分开是因为二者的生命周期与来源不同。
+	ModelEnv []string
+
 	// Policy 为空时不启用执行前授权端点。生产路径必须提供：
 	// 没有端点时策略扩展 fail-closed，工具调用一律被拒。
 	Policy *policy.Service
@@ -151,10 +158,14 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		id:   id,
 		text: text,
 		snap: contracts.RunSnapshot{
-			RunID:       id,
-			SessionID:   s.opts.SessionID,
-			WorkspaceID: s.opts.WorkspaceID,
-			State:       contracts.RunStateQueued,
+			RunID:          id,
+			SessionID:      s.opts.SessionID,
+			WorkspaceID:    s.opts.WorkspaceID,
+			State:          contracts.RunStateQueued,
+			ConfigRevision: s.opts.ConfigRevision,
+			PiVersion:      s.opts.Installation.Version,
+			Provider:       s.opts.Provider,
+			Model:          s.opts.Model,
 		},
 		pending: map[string]policy.ApprovalRequest{},
 		done:    make(chan struct{}),
@@ -221,7 +232,7 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 			Binding: policybridge.Binding{
 				SessionID:         s.opts.SessionID,
 				RunID:             rs.id,
-				ConfigRevision:    1,
+				ConfigRevision:    s.opts.ConfigRevision,
 				ControlGeneration: 1,
 			},
 			OnPending: func(p policy.ApprovalRequest) {
@@ -250,6 +261,7 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 
 	// 自有 MCP 的端点与令牌：与策略端点同样是"只经环境变量交付"，
 	// 不写进 mcp.json 明文（那里只有 ${...} 引用）。
+	env = append(env, s.opts.ModelEnv...)
 	env = append(env, s.opts.HarnessEnv...)
 
 	args := append([]string{"--mode", "rpc"}, s.opts.Isolation.Args()...)

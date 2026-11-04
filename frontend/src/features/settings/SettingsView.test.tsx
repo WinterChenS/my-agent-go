@@ -16,6 +16,7 @@ const baseSettings: Settings = {
   baseUrl: "http://127.0.0.1:1/v1",
   model: "fixture-model",
   apiKey: "",
+  modelRef: "",
   workspace: "D:\\work\\proj",
   shellAllowed: true,
 };
@@ -111,10 +112,14 @@ describe("SettingsView", () => {
       piVersion: "1.5.0",
       provider: "fixture",
       model: "m",
+      modelRef: "",
       workspace: "D:\\work\\proj",
       isolation: "-na -nc -e policy.ts",
       policyActive: true,
       platform: "windows/amd64",
+      runtimeProvider: "fixture",
+      runtimeModel: "m",
+      runtimePending: false,
     };
     renderSettings({ status });
     expect(screen.getByText("-na -nc -e policy.ts")).toBeInTheDocument();

@@ -37,6 +37,14 @@ vi.mock("../../api", () => ({
   },
 }));
 
+const modelProps = {
+  models: [],
+  modelOptions: { apis: ["openai-completions"], inputKinds: ["text"], thinkingLevels: ["low"] },
+  modelRevision: 0,
+  currentModel: null,
+  onModelsChanged: () => {},
+};
+
 describe("ResourcesView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,7 +52,9 @@ describe("ResourcesView", () => {
 
   it("编辑已有配置档时先读磁盘，而不是用列表快照", async () => {
     const { api } = await import("../../api");
-    render(<ResourcesView profiles={[stale]} workspaceId="ws-1" onChanged={() => {}} />);
+    render(
+      <ResourcesView profiles={[stale]} workspaceId="ws-1" onChanged={() => {}} {...modelProps} />
+    );
 
     // 列表本身显示的是快照（外部改动不该凭空出现）。
     expect(screen.getByText("旧名字")).toBeInTheDocument();
@@ -64,7 +74,9 @@ describe("ResourcesView", () => {
       error: { code: "CONFIG_CONFLICT", message: "配置被外部编辑", retryable: false },
     } as never);
 
-    render(<ResourcesView profiles={[stale]} workspaceId="ws-1" onChanged={() => {}} />);
+    render(
+      <ResourcesView profiles={[stale]} workspaceId="ws-1" onChanged={() => {}} {...modelProps} />
+    );
     await userEvent.setup().click(screen.getByRole("button", { name: "编辑" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("CONFIG_CONFLICT"));

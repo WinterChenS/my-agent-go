@@ -49,6 +49,21 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
           <Row label="状态" value={PHASE_LABEL[ui.phase] ?? ui.phase} />
           <Row label="工作区" value={workspace?.canonicalPath ?? "未选择"} mono />
           <Row label="事件序号" value={String(seq)} />
+          {/* MOD04：这一轮真正用的是什么模型、哪个配置版本，取自启动时的快照。
+              换成"当前设置里的模型"就会在用户中途换模型后撒谎。 */}
+          <Row
+            label="模型"
+            value={
+              ui.runMeta?.provider || ui.runMeta?.model
+                ? `${ui.runMeta.provider}/${ui.runMeta.model}`
+                : "未记录（旧版本启动的 run）"
+            }
+            mono
+          />
+          <Row
+            label="配置 revision"
+            value={ui.runMeta ? String(ui.runMeta.configRevision) : "未记录"}
+          />
           <div className="col-span-2 mt-1 flex items-center gap-4 border-t border-white/5 pt-2 text-[11px]">
             <span className="flex items-center gap-1 text-emerald-400">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> 工具完成 {ok}

@@ -22,6 +22,9 @@ export interface RunSnapshot {
   lastSeq: number;
   configRevision: number;
   piVersion: string;
+  /** 这次 run 实际使用的 provider 键与模型名（MOD04）。 */
+  provider?: string;
+  model?: string;
   error?: { code: string; message: string };
 }
 
@@ -44,10 +47,16 @@ export interface Status {
   piVersion: string;
   provider: string;
   model: string;
+  modelRef: string;
   workspace: string;
   isolation: string;
   policyActive: boolean;
   platform: string;
+  /** 最近一次构建实际交给 Pi 的模型；与上面的设置值可能不同。 */
+  runtimeProvider: string;
+  runtimeModel: string;
+  /** 模型已改但还有 run 在跑，等空闲才生效。 */
+  runtimePending: boolean;
 }
 
 export interface Settings {
@@ -57,6 +66,8 @@ export interface Settings {
   baseUrl: string;
   model: string;
   apiKey: string;
+  /** 指向资源库里的模型定义；空表示沿用上面几个旧字段。 */
+  modelRef: string;
   workspace: string;
   shellAllowed: boolean;
 }
@@ -170,5 +181,86 @@ export interface ProfileFieldDiff {
 export interface ProfileConflictResult {
   current: Profile;
   diff: ProfileFieldDiff[] | null;
+  error?: CallError;
+}
+
+// ---- C02：模型定义与连接测试 ----
+
+/**
+ * 模型定义。
+ *
+ * 没有 apiKey 字段——密钥只存在于 OS 凭证库，这里只有 credentialRef。
+ * 这不是"暂时没加"：模型定义会被导出、被贴进 issue，不能有放密钥的位置。
+ */
+export interface ModelDefinition {
+  id: string;
+  providerId: string;
+  /** 真正发给 API 的模型名。 */
+  modelId: string;
+  api: string;
+  baseUrl: string;
+  inputKinds: string[];
+  contextWindow: number;
+  maxOutput: number;
+  credentialRef: string;
+  thinkingLevels: string[] | null;
+  /** 只有显式 false 才是禁用；省略视为启用。 */
+  enabled?: boolean | null;
+}
+
+/** 能力三态：unknown 表示"这次没测"，不是"不支持"。 */
+export type Capability = "unknown" | "supported" | "unsupported";
+
+export interface ProbeResult {
+  reachable: boolean;
+  toolCalling: Capability;
+  vision: Capability;
+  latencyMs: number;
+  providerId: string;
+  modelId: string;
+  /** provider 侧的分类错误（401/429/超时…）；可达时为空。 */
+  error?: CallError;
+}
+
+/** 下拉选项由后端给出：API 白名单来自已认证 Pi 的实际分发能力。 */
+export interface ModelOptions {
+  apis: string[];
+  inputKinds: string[];
+  thinkingLevels: string[];
+}
+
+export interface ModelListResult {
+  items: ModelDefinition[] | null;
+  revision: number;
+  options: ModelOptions;
+  error?: CallError;
+}
+
+export interface ModelResult {
+  item: ModelDefinition;
+  revision: number;
+  error?: CallError;
+}
+
+export interface ModelProbeResponse {
+  result: ProbeResult;
+  /** "根本没测成"（模型不存在 / Pi 未配置），与 result.error 分开。 */
+  error?: CallError;
+}
+
+export interface CurrentModelResult {
+  source: "resources" | "settings" | "none";
+  ref: string;
+  provider: string;
+  model: string;
+  item: ModelDefinition;
+  revision: number;
+  error?: CallError;
+}
+
+export interface ModelAction {
+  ref: string;
+  /** 有 run 在跑：新模型要等空闲才生效。 */
+  deferred: boolean;
   error?: CallError;
 }

@@ -32,6 +32,19 @@ export interface UiState {
   lastSeqByRun: Record<string, number>;
   /** 消息 id 的自增源。放在状态里而不是模块变量，保证测试可重复。 */
   msgSeq: number;
+  /**
+   * 当前 run 实际使用的 provider/模型与配置 revision（MOD04）。
+   *
+   * 取自启动那一刻的快照，而不是"现在设置里是什么"——用户中途换了模型，
+   * 这一轮用的仍然是启动时那个；两者混在一起就再也说不清哪一轮跑的是什么。
+   */
+  runMeta: RunMeta | null;
+}
+
+export interface RunMeta {
+  provider: string;
+  model: string;
+  configRevision: number;
 }
 
 export const initialState: UiState = {
@@ -42,12 +55,13 @@ export const initialState: UiState = {
   error: null,
   lastSeqByRun: {},
   msgSeq: 0,
+  runMeta: null,
 };
 
 export type UiAction =
   | { kind: "event"; ev: ProductEvent }
   | { kind: "user_message"; text: string }
-  | { kind: "run_started"; runId: string; state: RunState }
+  | { kind: "run_started"; runId: string; state: RunState; meta?: RunMeta }
   | { kind: "run_start_failed"; message: string }
   | { kind: "approval_resolved"; approvalId: string }
   | { kind: "error"; message: string }
@@ -245,7 +259,12 @@ export function reduce(state: UiState, action: UiAction): UiState {
       };
     }
     case "run_started":
-      return { ...state, runId: action.runId, phase: action.state };
+      return {
+        ...state,
+        runId: action.runId,
+        phase: action.state,
+        runMeta: action.meta ?? state.runMeta,
+      };
     case "run_start_failed":
       return {
         ...state,

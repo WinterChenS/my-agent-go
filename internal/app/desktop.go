@@ -14,15 +14,18 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/credentials"
 	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/profile"
+	"my-agent-go/internal/resources"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
 	"my-agent-go/internal/workspace"
@@ -47,7 +50,13 @@ type Settings struct {
 	// Model 是模型 id。
 	Model string `json:"model"`
 	// APIKey 交给 Pi 的 models.json。
+	//
+	// 仅用于"还没有任何模型定义"的旧配置路径（fixture/本机端点）。
+	// 一旦 ModelRef 指向资源库里的模型，密钥改从 OS 凭证库取，
+	// 这里不再被读到（也不会被写进 models.json 明文）。
 	APIKey string `json:"apiKey"`
+	// ModelRef 指向资源库中的模型定义；空表示沿用上面四个旧字段。
+	ModelRef string `json:"modelRef"`
 	// Workspace 是 agent 的工作目录（文件读写的边界）。
 	Workspace string `json:"workspace"`
 	// ShellAllowed 控制是否授予 shell 权限。
@@ -56,16 +65,23 @@ type Settings struct {
 
 // Status 是给 UI 的环境概览。
 type Status struct {
-	AppRoot      string `json:"appRoot"`
-	AgentDir     string `json:"agentDir"`
-	PiPath       string `json:"piPath"`
-	PiVersion    string `json:"piVersion"`
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	Workspace    string `json:"workspace"`
-	Isolation    string `json:"isolation"`
-	PolicyActive bool   `json:"policyActive"`
-	Platform     string `json:"platform"`
+	AppRoot   string `json:"appRoot"`
+	AgentDir  string `json:"agentDir"`
+	PiPath    string `json:"piPath"`
+	PiVersion string `json:"piVersion"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	ModelRef  string `json:"modelRef"`
+	Workspace string `json:"workspace"`
+	// RuntimeProvider/Model 是最近一次构建实际交给 Pi 的模型。
+	// 与上面的 Provider/Model（设置里的值）分开：设置里写的不一定是正在跑的。
+	RuntimeProvider string `json:"runtimeProvider"`
+	RuntimeModel    string `json:"runtimeModel"`
+	// RuntimePending 为 true 表示模型已改，但还有 run 在跑，等空闲才生效。
+	RuntimePending bool   `json:"runtimePending"`
+	Isolation      string `json:"isolation"`
+	PolicyActive   bool   `json:"policyActive"`
+	Platform       string `json:"platform"`
 }
 
 // Desktop 是绑定到前端的服务对象。
@@ -83,11 +99,22 @@ type Desktop struct {
 	// 因此 mcp.json 只需写一次，多个 run 共用同一端点。
 	harness *harnessmcp.Server
 
-	// svcMu 保护 C01 服务（工作区/Profile）的懒加载。
+	// svcMu 保护 C01/C02 服务（工作区/Profile/模型/凭证）的懒加载。
 	// 与 d.mu 分开：持有它期间会做磁盘读写，不该连带把 Status 也卡住。
 	svcMu      sync.Mutex
 	wsSvc      *workspace.Service
 	profileSvc *profile.Service
+	modelSvc   *resources.Service
+	creds      credentials.Store
+
+	// rtMu 串行化运行时构建/重建，避免两次 Start 同时建出两个 Pi 运行时。
+	rtMu sync.Mutex
+	// runtimeKey 描述当前运行时的模型来源；模型或配置变了就要重建。
+	runtimeKey        string
+	pendingRuntimeKey string
+	// runtimeProvider/Model 是最近一次构建实际使用的模型（诊断展示用）。
+	runtimeProvider string
+	runtimeModel    string
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -181,7 +208,28 @@ func (d *Desktop) Settings() Settings {
 }
 
 // SaveSettings 持久化设置并丢弃旧的 RunService（下次 Start 用新配置重建）。
+//
+// 它会关闭运行时，因此会中断正在跑的 run。只改"下一次运行用哪个模型"时
+// 不要走这里——用 persistSettings（SetActiveModel 就是这么做的）。
 func (d *Desktop) SaveSettings(s Settings) error {
+	if err := d.persistSettings(s); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	old := d.svc
+	d.svc = nil
+	d.mu.Unlock()
+	if old != nil {
+		_ = old.Close(context.Background())
+	}
+	return nil
+}
+
+// persistSettings 只落盘并更新内存里的设置，不动正在跑的运行时。
+//
+// 模型切换走这条路：运行中换模型不能把当前这一轮连根拔掉，
+// 新配置由 ensureRuntime 的签名比较在空闲时生效（MOD04 的安全点）。
+func (d *Desktop) persistSettings(s Settings) error {
 	if strings.TrimSpace(s.Workspace) == "" {
 		return fmt.Errorf("工作目录不能为空")
 	}
@@ -200,15 +248,9 @@ func (d *Desktop) SaveSettings(s Settings) error {
 	if err := os.WriteFile(d.settingsPath(), raw, 0o600); err != nil {
 		return fmt.Errorf("写 settings.json 失败: %w", err)
 	}
-
 	d.mu.Lock()
-	old := d.svc
 	d.settings = s
-	d.svc = nil
 	d.mu.Unlock()
-	if old != nil {
-		_ = old.Close(context.Background())
-	}
 	return nil
 }
 
@@ -245,15 +287,25 @@ func (d *Desktop) Status() Status {
 		args = isolationSpec(ext).Args()
 	}
 
+	d.mu.Lock()
+	runtimeProvider := d.runtimeProvider
+	runtimeModel := d.runtimeModel
+	pending := d.pendingRuntimeKey != "" && d.pendingRuntimeKey != d.runtimeKey
+	d.mu.Unlock()
+
 	st := Status{
-		AppRoot:   d.root,
-		AgentDir:  d.agentDir(),
-		PiPath:    s.PiPath,
-		Provider:  s.Provider,
-		Model:     s.Model,
-		Workspace: s.Workspace,
-		Platform:  runtime.GOOS + "/" + runtime.GOARCH,
-		Isolation: strings.Join(args, " "),
+		AppRoot:         d.root,
+		AgentDir:        d.agentDir(),
+		PiPath:          s.PiPath,
+		Provider:        s.Provider,
+		Model:           s.Model,
+		ModelRef:        s.ModelRef,
+		Workspace:       s.Workspace,
+		Platform:        runtime.GOOS + "/" + runtime.GOARCH,
+		Isolation:       strings.Join(args, " "),
+		RuntimeProvider: runtimeProvider,
+		RuntimeModel:    runtimeModel,
+		RuntimePending:  pending,
 	}
 	st.PolicyActive = true
 	return st
@@ -268,17 +320,167 @@ func (d *Desktop) agentDir() string {
 	return store.AgentDir("ws-default", "profile-default")
 }
 
-// ensureRuntime 按需构建 RunService（首次 Start 时）。
-func (d *Desktop) ensureRuntime() (*run.Service, error) {
+// modelSetup 描述"这次运行该用哪个模型"，以及它的来源。
+type modelSetup struct {
+	Provider string
+	Model    string
+	// ModelsJSON 非空表示用资源库编译出的 models.json（密钥只经 Env 交付）。
+	ModelsJSON []byte
+	Env        []string
+	Revision   uint64
+	// Source 是 "settings" 或 "resources"，只用于诊断与运行时签名。
+	Source string
+	Ref    string
+}
+
+// key 是运行时的身份：任一项变化都必须重建，否则改完模型还在跑旧的那个。
+func (m modelSetup) key() string {
+	return m.Source + "|" + m.Ref + "|" + m.Provider + "|" + m.Model + "|" + strconv.FormatUint(m.Revision, 10)
+}
+
+// resolveModelSetup 决定本次运行使用的模型。
+//
+// 优先 ModelRef（资源库里的定义）：那条路径上密钥只在 OS 凭证库，
+// 配置与 models.json 都不含明文。没有 ModelRef 时退回旧的四个设置字段，
+// 那是 fixture / 本机端点的路径——它把密钥放在 settings.json 里（界面会告警），
+// 但 models.json 仍然只写 $ENV 引用，不在磁盘上多留一份明文。
+func (d *Desktop) resolveModelSetup(ctx context.Context) (modelSetup, error) {
 	d.mu.Lock()
-	if d.svc != nil {
+	s := d.settings
+	d.mu.Unlock()
+
+	ref := strings.TrimSpace(s.ModelRef)
+	if ref == "" {
+		return legacyModelSetup(s)
+	}
+	svc, err := d.resourceServices()
+	if err != nil {
+		return modelSetup{}, err
+	}
+	def, err := svc.Get(ctx, ref)
+	if err != nil {
+		return modelSetup{}, contracts.NewAppError(contracts.CodeDependencyMissing,
+			"当前模型 "+ref+" 不存在（可能已被删除）；请在资源库中重新选择并设为当前模型", false)
+	}
+	if def.Enabled != nil && !*def.Enabled {
+		return modelSetup{}, contracts.NewAppError(contracts.CodeDependencyMissing,
+			"当前模型 "+ref+" 已被禁用；请启用它或改选其它模型", false)
+	}
+	if strings.TrimSpace(def.ProviderID) == "" || strings.TrimSpace(def.ModelID) == "" {
+		return modelSetup{}, contracts.NewAppError(contracts.CodeDependencyMissing,
+			"当前模型 "+ref+" 是旧格式（缺 provider 名或模型名），无法编译成 models.json；"+
+				"请在资源库里编辑补齐后再设为当前模型", false)
+	}
+	pm, err := svc.CompilePiModels(ctx)
+	if err != nil {
+		return modelSetup{}, err
+	}
+	if len(pm.JSON) == 0 {
+		return modelSetup{}, contracts.NewAppError(contracts.CodeConfigMissing,
+			"没有任何可用的模型定义，无法生成 models.json；"+describeSkipped(pm.Skipped)+
+				"请先在资源库里补齐或新建一个模型", false)
+	}
+	set, err := svc.List(ctx)
+	if err != nil {
+		return modelSetup{}, err
+	}
+	return modelSetup{
+		Provider:   def.ProviderID,
+		Model:      def.ModelID,
+		ModelsJSON: pm.JSON,
+		Env:        pm.Env,
+		Revision:   set.Revision,
+		Source:     "resources",
+		Ref:        ref,
+	}, nil
+}
+
+// legacyModelSetup 把旧的四个设置字段（provider/baseUrl/model/apiKey）编译成
+// 与资源库完全相同的一份 models.json。
+//
+// 用同一套编译实现而不是另写一段拼装代码：两段代码一旦分叉，"测过的"和
+// "实际跑的"就会是两份不同的配置，而症状要到 provider 报错时才出现。
+func legacyModelSetup(s Settings) (modelSetup, error) {
+	baseURL := strings.TrimSpace(s.BaseURL)
+	model := strings.TrimSpace(s.Model)
+	if baseURL == "" || model == "" {
+		return modelSetup{}, contracts.NewAppError(contracts.CodeConfigMissing, "缺少 provider 端点或模型 id", false)
+	}
+	provider := strings.TrimSpace(s.Provider)
+	if provider == "" {
+		provider = "fixture"
+	}
+	// Pi 的 models.json schema 要求 apiKey 至少 1 个字符，空值会让**整份**文件
+	// 校验失败，症状伪装成"provider 不存在"——占位值由编译层统一填。
+	pm, err := resources.CompileLegacy(resources.ModelDefinition{
+		ID:            "settings",
+		ProviderID:    provider,
+		ModelID:       model,
+		API:           "openai-completions",
+		BaseURL:       baseURL,
+		InputKinds:    []string{"text"},
+		ContextWindow: 128000,
+		MaxOutput:     8192,
+	}, s.APIKey)
+	if err != nil {
+		return modelSetup{}, err
+	}
+	return modelSetup{
+		Provider:   provider,
+		Model:      model,
+		ModelsJSON: pm.JSON,
+		Env:        pm.Env,
+		Source:     "settings",
+	}, nil
+}
+
+// describeSkipped 把"哪些条目没参与编译"说成一句人话。
+func describeSkipped(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	return "（" + strings.Join(ids, "、") + " 是旧格式，缺少 provider 名或模型名）"
+}
+
+// ensureRuntime 按需构建 RunService。
+//
+// 模型可以在两次 run 之间切换，但不能在 run 进行中切换：那会把正在跑的一轮
+// 连根拔掉。这里的规则是——空闲就重建，有 run 在跑就继续用旧运行时，
+// 并把新配置记在 pendingRuntimeKey 里，等下一次空闲时生效（MOD04）。
+func (d *Desktop) ensureRuntime() (*run.Service, error) {
+	d.rtMu.Lock()
+	defer d.rtMu.Unlock()
+
+	ctx := context.Background()
+	setup, err := d.resolveModelSetup(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	d.mu.Lock()
+	if d.svc != nil && d.runtimeKey == setup.key() {
 		svc := d.svc
 		d.mu.Unlock()
 		return svc, nil
 	}
-	s := d.settings
+	existing := d.svc
 	emitter := d.emitter
+	s := d.settings
 	d.mu.Unlock()
+
+	if existing != nil {
+		if existing.ActiveCount() > 0 || existing.QueuedCount() > 0 {
+			d.mu.Lock()
+			d.pendingRuntimeKey = setup.key()
+			d.mu.Unlock()
+			return existing, nil
+		}
+		_ = existing.Close(ctx)
+		d.mu.Lock()
+		d.svc = nil
+		d.runtimeKey = ""
+		d.mu.Unlock()
+	}
 
 	inst, err := d.resolveInstallation(s)
 	if err != nil {
@@ -288,7 +490,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err := run.EnsureAgentDir(agentDir); err != nil {
 		return nil, err
 	}
-	if err := writeModels(s, agentDir); err != nil {
+	// 两条路径都在这里落同一份 models.json：文件里只有 $ENV 引用，
+	// 真实密钥经 setup.Env 交给子进程。
+	if err := resources.WritePiModels(agentDir, resources.PiModels{JSON: setup.ModelsJSON}); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(s.Workspace, 0o700); err != nil {
@@ -320,22 +524,26 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.mu.Unlock()
 
 	// 自有 MCP 是应用级单例：端口与令牌在进程内固定，mcp.json 只写一次，
-	// 多个 run 共用同一端点。若改成每 run 一个，并发 run 会互相覆盖同一份
-	// mcp.json，后启动的 Pi 可能连到前一个 run 的端点。
-	harness, err := harnessmcp.Start(context.Background(), harnessmcp.Options{
-		Tools:   []harnessmcp.Tool{harnessmcp.ProbeTool(s.Workspace)},
-		Version: d.version(),
-	})
-	if err != nil {
-		return nil, err
+	// 多个 run 共用同一端点。重建运行时（换模型）不重建它：
+	// 换模型与换工具通道是两件事，重启 MCP 会白白打断正在用的端点。
+	d.mu.Lock()
+	harness := d.harness
+	d.mu.Unlock()
+	if harness == nil {
+		harness, err = harnessmcp.Start(ctx, harnessmcp.Options{
+			Tools:   []harnessmcp.Tool{harnessmcp.ProbeTool(s.Workspace)},
+			Version: d.version(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		d.mu.Lock()
+		d.harness = harness
+		d.mu.Unlock()
 	}
 	if err := writeMCPConfig(agentDir, harness.Endpoint().URL); err != nil {
-		_ = harness.Close(context.Background())
 		return nil, err
 	}
-	d.mu.Lock()
-	d.harness = harness
-	d.mu.Unlock()
 
 	svc := run.New(run.Options{
 		WorkspaceID:  "ws-default",
@@ -345,22 +553,24 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		Installation: inst,
 		// HarnessMCP=true 会以 `-e builtin:mcp` 重新启用内置 MCP（-ne 会连带关掉它）。
 		// 项目级 .pi/mcp.json 仍被 -na 切断，能连上的只有 agentDir 里我们自己写的那一条。
-		Isolation:  isolationSpec(ext),
-		Provider:   s.Provider,
-		Model:      s.Model,
-		Policy:     pol,
-		HarnessEnv: harness.Env(),
+		Isolation:      isolationSpec(ext),
+		Provider:       setup.Provider,
+		Model:          setup.Model,
+		ConfigRevision: setup.Revision,
+		ModelEnv:       setup.Env,
+		Policy:         pol,
+		HarnessEnv:     harness.Env(),
 	})
 	if emitter != nil {
 		svc.Subscribe(emitter)
 	}
 
 	d.mu.Lock()
-	if d.svc == nil {
-		d.svc = svc
-	} else {
-		svc = d.svc
-	}
+	d.svc = svc
+	d.runtimeKey = setup.key()
+	d.runtimeProvider = setup.Provider
+	d.runtimeModel = setup.Model
+	d.pendingRuntimeKey = ""
 	d.mu.Unlock()
 	return svc, nil
 }
@@ -404,50 +614,6 @@ func (d *Desktop) resolveInstallation(s Settings) (pi.PiInstallation, error) {
 		inst.Args = []string{abs}
 	}
 	return inst, nil
-}
-
-// writeModels 在隔离 agentDir 里写 models.json，把 Pi 指向配置的 provider。
-func writeModels(s Settings, agentDir string) error {
-	if strings.TrimSpace(s.BaseURL) == "" || strings.TrimSpace(s.Model) == "" {
-		return contracts.NewAppError(contracts.CodeConfigMissing, "缺少 provider 端点或模型 id", false)
-	}
-	provider := strings.TrimSpace(s.Provider)
-	if provider == "" {
-		provider = "fixture"
-	}
-	// Pi 的 models.json schema 要求 apiKey 至少 1 个字符（"must not have fewer than 1
-	// characters"）。本机/内网端点（fixture、ollama、vLLM）本来就没有密钥，
-	// 直接写空串会让整个 models.json 校验失败——症状是"provider 不存在"，
-	// 与真正的原因（密钥为空）毫无关联，排查代价极高。
-	// 这里填一个占位值：端点是否校验它由端点自己决定，不由我们替它决定。
-	apiKey := strings.TrimSpace(s.APIKey)
-	if apiKey == "" {
-		apiKey = "local-no-key"
-	}
-	doc := map[string]any{
-		"$schema": "https://pi.dev/schemas/models.schema.json",
-		"providers": map[string]any{
-			provider: map[string]any{
-				"baseUrl": s.BaseURL,
-				"api":     "openai-completions",
-				"apiKey":  apiKey,
-				"models": []map[string]any{{
-					"id":            s.Model,
-					"name":          s.Model,
-					"input":         []string{"text"},
-					"contextWindow": 128000,
-					"maxTokens":     8192,
-					"reasoning":     false,
-					"cost":          map[string]int{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-				}},
-			},
-		},
-	}
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(agentDir, "models.json"), raw, 0o600)
 }
 
 // Start 启动一次 run。

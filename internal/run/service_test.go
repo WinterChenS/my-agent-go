@@ -307,3 +307,45 @@ func TestStartRejectsIncompleteIsolation(t *testing.T) {
 		t.Fatal("隔离参数不完整时必须拒绝启动")
 	}
 }
+
+// TestSnapshotRecordsModelAndConfigRevision 覆盖 MOD04 的"记录真实
+// provider/model 与配置 revision"：快照里必须是这次实际交给 Pi 的那一套，
+// 而不是设置里后来被改成的值。
+func TestSnapshotRecordsModelAndConfigRevision(t *testing.T) {
+	opts := testOptions(t)
+	opts.Provider = "demo"
+	opts.Model = "demo-model"
+	opts.ConfigRevision = 7
+	opts.ModelEnv = []string{"MYAGENT_CRED_TEST=secret-value"}
+
+	var gotEnv []string
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		gotEnv = append([]string{}, spec.Env...)
+		return newFakeWorker(), nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap, err := svc.Start(context.Background(), StartRunRequest{Message: "hi"})
+	if err != nil {
+		t.Fatalf("启动失败: %v", err)
+	}
+	if snap.Provider != "demo" || snap.Model != "demo-model" {
+		t.Fatalf("快照未记录实际模型: %+v", snap)
+	}
+	if snap.ConfigRevision != 7 {
+		t.Fatalf("快照应记录配置 revision 7，实际 %d", snap.ConfigRevision)
+	}
+
+	// 凭证只经子进程环境交付，不写进 models.json。
+	found := false
+	for _, kv := range gotEnv {
+		if kv == "MYAGENT_CRED_TEST=secret-value" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("模型凭证没有通过环境变量传给 worker: %v", gotEnv)
+	}
+}

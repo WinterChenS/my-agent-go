@@ -1,24 +1,45 @@
-// 资源库：配置档（Profile）+ 真正的资源（模型/技能/MCP）。
+// 资源库：模型 + 配置档（Profile）+ 尚未实现的技能/MCP。
 //
-// 配置档现在是真的能用；模型/技能/MCP 的定义分别属于 C02–C04，尚未实现。
+// 模型（C02）与配置档（C01）都是真的能用；技能与 MCP 分别属于 C03/C04。
 // 未实现的部分必须明确写出来并且不显示任何数据——
 // 用空列表配一句"暂无"会让人以为"我还没添加"，而不是"这个功能不存在"。
 
 import { useState } from "react";
 import { Boxes, Plus } from "lucide-react";
-import type { CallError, Profile } from "../../types";
+import type {
+  CallError,
+  CurrentModelResult,
+  ModelDefinition,
+  ModelOptions,
+  Profile,
+} from "../../types";
 import { api } from "../../api";
 import { toCallError } from "../../app/useBackend";
 import { ProfileEditor } from "../profiles/ProfileEditor";
+import { ModelsSection } from "../models/ModelsSection";
 import { EmptyState } from "../../components/StateViews";
 
 export interface ResourcesViewProps {
   profiles: Profile[];
   workspaceId: string;
+  models: ModelDefinition[];
+  modelOptions: ModelOptions;
+  modelRevision: number;
+  currentModel: CurrentModelResult | null;
   onChanged: () => void;
+  onModelsChanged: () => void;
 }
 
-export function ResourcesView({ profiles, workspaceId, onChanged }: ResourcesViewProps) {
+export function ResourcesView({
+  profiles,
+  workspaceId,
+  models,
+  modelOptions,
+  modelRevision,
+  currentModel,
+  onChanged,
+  onModelsChanged,
+}: ResourcesViewProps) {
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<CallError | null>(null);
@@ -45,6 +66,17 @@ export function ResourcesView({ profiles, workspaceId, onChanged }: ResourcesVie
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-4 py-5">
+      <ModelsSection
+        models={models}
+        options={modelOptions}
+        revision={modelRevision}
+        currentRef={currentModel?.ref ?? ""}
+        currentSource={currentModel?.source ?? "none"}
+        currentProvider={currentModel?.provider ?? ""}
+        currentModelName={currentModel?.model ?? ""}
+        onChanged={onModelsChanged}
+      />
+
       <section>
         <header className="mb-2 flex items-center justify-between">
           <div>
@@ -130,11 +162,6 @@ export function ResourcesView({ profiles, workspaceId, onChanged }: ResourcesVie
         )}
       </section>
 
-      <PendingSection
-        title="模型"
-        task="C02"
-        reason="模型定义需要连接测试与凭证存储，还没做。因此这里不列出任何模型——配置档里的模型 ID 需要手动填写，且必须先在配置层里存在。"
-      />
       <PendingSection
         title="技能"
         task="C03"

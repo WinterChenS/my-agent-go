@@ -24,5 +24,9 @@ type RunSnapshot struct {
 	LastSeq        uint64      `json:"lastSeq"`
 	ConfigRevision uint64      `json:"configRevision"`
 	PiVersion      string      `json:"piVersion"`
-	Error          *AppError   `json:"error,omitempty"`
+	// Provider/Model 是这次 run 实际使用的 provider 键与模型名（MOD04）。
+	// 记录"真实使用"而不是"设置里写着"：模型切换后，旧 run 的审计线索不能跟着变。
+	Provider string    `json:"provider,omitempty"`
+	Model    string    `json:"model,omitempty"`
+	Error    *AppError `json:"error,omitempty"`
 }
