@@ -110,7 +110,16 @@
 
 ## C06：聊天、审批、停止和历史 UI
 
-> 本任务继续负责聊天域行为与已有 UI 契约；U02 负责按批准原型迁移生产 Chat、附件和四分区右栏。C06 通过不自动使 U02 通过。
+> 2026-11-05 增量：C06 只拥有会话/运行后端域和前端事件归约；生产 Chat 组件归 U02，历史侧栏归 U01。下方原 Files 清单里的 `frontend/src/features/chat/*`、`frontend/src/features/history/` 由 U01/U02 取代。C06 通过不自动使 U02 通过。
+>
+> **增量范围（供 U01/U02/U05 使用）：**
+> - **Acceptance cases：** UI02、RUN01/RUN04、E2E01（原有）；SES01–SES03（新增）。
+> - **Files：** `internal/session/{catalog,attachments,export}.go`、`internal/session/{catalog,attachments,export}_test.go`、`internal/storage/migrations/005_session_catalog.sql`（为 `sessions` 增加 title/pinned/archived/updated_at/revision，删除为软删除标记）、`internal/app/session_api.go`、`internal/app/session_api_test.go`、Modify `internal/app/desktop.go`（按会话启动 run）、Modify `frontend/src/runState.ts`。
+> - **Interfaces：** `ListSessions(SessionQuery) SessionPageResult`（按工作区分组、普通会话、稳定分页、置顶与归档过滤）、`CreateSession(workspaceID string)`、`RenameSession/PinSession/ArchiveSession(id, expectedRevision, …)`、`DeleteSession(id, expectedRevision)`（只移除索引与 transcript 定位，不删产物）、`StartSessionRun(sessionID, UserMessage)`、`SendMessage`、`AbortRun`、`ReplayRun`（现有 `Start/Abort/Replay` 保留为兼容入口）、`ResolveAttachments(sessionID, []AttachmentRequest) AttachmentResult`（Go 解析真实路径，校验工作区、symlink/junction 与 policy，逐项返回拒绝原因，生成不可变引用）、`ExportSession(sessionID, format html|markdown|json, target string)`（内容来自 Pi transcript，HTML 转义且不含脚本，秘密脱敏）。
+> - **普通会话：** 使用应用托管的 scratch 工作区，不授予任何用户目录访问，满足 `sessions.workspace_id` 非空约束。
+> - [ ] 先写失败测试：目录 CAS 并发写只有一个成功；分页在插入下稳定；重启后目录一致；删除不删产物；附件越界与 symlink 逃逸逐项拒绝；导出内容与 transcript 一致且 HTML 无脚本。
+> - [ ] 写迁移 005，实现 catalog/attachments/export 与 `session_api.go`；`desktop.go` 只加按会话启动的装配。
+> - [ ] `go test ./internal/session ./internal/app -run 'TestSession|TestAttachment|TestExport' -count=1` 通过后提交。
 
 **依赖：** C01/F05/F04/C02，G2。**Files：** `internal/app/session_api.go`、`frontend/src/features/chat/{Transcript,Composer,ToolCard,ApprovalCard,useRunEvents}.tsx`、`frontend/src/features/history/`；测试 `RunEvents.test.tsx`、`ApprovalCard.test.tsx`。
 
@@ -126,7 +135,14 @@
 
 ## C07：上下文、产物、预算和诊断
 
-> 本任务继续负责产物、预算和诊断域能力；U05/U06 负责资源库、记忆和观测页面。C07 证据只能覆盖其原子 case，不覆盖新增 UI/I18N/THEME case。
+> 2026-11-05 增量：C07 只拥有产物、usage/预算和诊断的后端域与统一 API；页面分别归 U02（右栏）、U05（资源库）、U06（观测）。下方原 Files 清单里的 `internal/app/details_api.go` 与 `frontend/src/features/{details,artifacts,diagnostics}/` 由以下文件取代。C07 证据只能覆盖其原子 case，不覆盖新增 UI/I18N/THEME case。
+>
+> **增量范围（供 U02/U05/U06 使用）：**
+> - **Acceptance cases：** ART01–ART03、SEC07、E2E02（原有）。
+> - **Files：** `internal/artifact/{service,import,preview}.go`、`internal/artifact/artifact_test.go`、`internal/diagnostics/{export,redact,usage}.go`、`internal/diagnostics/diagnostics_test.go`、`internal/storage/migrations/007_artifacts.sql`（产物索引与 run usage 记录）、`internal/app/artifact_api.go`、`internal/app/diagnostics_api.go` 及各自 `_test.go`。
+> - **Interfaces：** `ListArtifacts(ArtifactQuery)`、`GetArtifact(id)`（返回前重新核对磁盘 hash/大小，变化或丢失如实标记）、`ImportArtifact(path, workspaceID)`、`ExportArtifact(id, target)`、`PreviewArtifact(id)`（MIME 白名单）、`ListRunArtifacts(runID)`、`RunDetails(runID)`（引用来源、工具执行、审批、usage、压缩事件）、`UsageSummary(range)`（无 usage 或价格时为 `unavailable`）、`RunChain(runID)`、`ExportDiagnostics(ExportRequest)`。
+> - [ ] 先写失败测试：越界与 symlink 拒绝、hash 变化被检出、缺 usage 返回 `unavailable` 而不是 0、诊断导出 sentinel 命中 0。
+> - [ ] 写迁移 007，实现服务与 API，`go test ./internal/artifact ./internal/diagnostics ./internal/app -count=1` 通过后提交。
 
 **依赖：** C03–C06/F05/F07。**Files：** `internal/artifact/service.go`、`internal/diagnostics/{export,redact}.go`、`internal/app/details_api.go`、`frontend/src/features/{details,artifacts,diagnostics}/`；测试 `artifacts_test.go`、`redact_test.go`、`RunDetails.test.tsx`。
 

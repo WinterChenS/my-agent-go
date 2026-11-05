@@ -218,3 +218,184 @@ func TestOracleKindIsDeclaredOrGrandfathered(t *testing.T) {
 		}
 	}
 }
+
+// planIndex 是 docs/acceptance/v1-plan-index.json 的最小解析结构。
+type planIndex struct {
+	Tasks []struct {
+		ID          string   `json:"id"`
+		Plan        string   `json:"plan"`
+		DependsOn   []string `json:"dependsOn"`
+		AcceptAfter []string `json:"acceptAfter"`
+	} `json:"tasks"`
+	Gates []struct {
+		ID        string   `json:"id"`
+		DependsOn []string `json:"dependsOn"`
+	} `json:"gates"`
+	Requirements map[string][]string `json:"requirements"`
+}
+
+// TestPlanIndexIsConsistent 把计划索引变成可机检的契约。
+//
+// 为什么用三类事件建图：任务对任务是「开工前提」，任务对 gate 是「验收顺序」，
+// 两者语义不同。混在一张图里会出现假环（2026-11-05 复核实测：
+// F06→F09→C09→C08→U01→C06→G2→F06）。这里区分
+//
+//	Impl(T)  任务 T 已实现
+//	Acc(T)   任务 T 的 case 已验收
+//	Pass(G)  gate G 已通过
+//
+// 边：Impl(T)→Impl(D)（D 为开工前提）；Impl(T)→Pass(G)（X03/X05 这类硬性等待）；
+// Acc(T)→Impl(T)；Acc(T)→Pass(G)（acceptAfter）；Pass(G)→Acc(T)、Pass(G)→Pass(G')。
+// 图必须无环；每个 case 所属 gate 的 Pass 必须可达其每个 owner 的 Acc，
+// 否则该 gate 会在 owner 未验收时就能判定。
+func TestPlanIndexIsConsistent(t *testing.T) {
+	p, err := repoFile("docs/acceptance/v1-plan-index.json")
+	if err != nil {
+		t.Fatalf("定位计划索引: %v", err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("读取计划索引: %v", err)
+	}
+	var plan planIndex
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		t.Fatalf("解析计划索引: %v", err)
+	}
+
+	isTask := map[string]bool{}
+	isGate := map[string]bool{}
+	for _, task := range plan.Tasks {
+		if isTask[task.ID] {
+			t.Errorf("任务 %s 重复", task.ID)
+		}
+		isTask[task.ID] = true
+	}
+	for _, g := range plan.Gates {
+		isGate[g.ID] = true
+	}
+
+	edges := map[string][]string{}
+	add := func(from, to string) { edges[from] = append(edges[from], to) }
+	for _, task := range plan.Tasks {
+		add("Acc:"+task.ID, "Impl:"+task.ID)
+		for _, d := range task.DependsOn {
+			switch {
+			case isTask[d]:
+				add("Impl:"+task.ID, "Impl:"+d)
+			case isGate[d]:
+				add("Impl:"+task.ID, "Pass:"+d)
+			default:
+				t.Errorf("任务 %s 的 dependsOn 引用未知节点 %s", task.ID, d)
+			}
+		}
+		for _, g := range task.AcceptAfter {
+			if !isGate[g] {
+				t.Errorf("任务 %s 的 acceptAfter 只能是 gate，得到 %s", task.ID, g)
+				continue
+			}
+			add("Acc:"+task.ID, "Pass:"+g)
+		}
+	}
+	for _, g := range plan.Gates {
+		for _, d := range g.DependsOn {
+			switch {
+			case isTask[d]:
+				add("Pass:"+g.ID, "Acc:"+d)
+			case isGate[d]:
+				add("Pass:"+g.ID, "Pass:"+d)
+			default:
+				t.Errorf("gate %s 引用未知节点 %s", g.ID, d)
+			}
+		}
+	}
+
+	// 环检测（DFS 三色）。
+	const (
+		white = iota
+		grey
+		black
+	)
+	color := map[string]int{}
+	var stack []string
+	var visit func(n string) bool
+	visit = func(n string) bool {
+		color[n] = grey
+		stack = append(stack, n)
+		for _, m := range edges[n] {
+			switch color[m] {
+			case grey:
+				t.Errorf("计划索引存在环: %s -> %s", strings.Join(stack, " -> "), m)
+				return false
+			case white:
+				if !visit(m) {
+					return false
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		color[n] = black
+		return true
+	}
+	for n := range edges {
+		if color[n] == white && !visit(n) {
+			break
+		}
+	}
+
+	reach := func(from string) map[string]bool {
+		seen := map[string]bool{from: true}
+		queue := []string{from}
+		for len(queue) > 0 {
+			n := queue[0]
+			queue = queue[1:]
+			for _, m := range edges[n] {
+				if !seen[m] {
+					seen[m] = true
+					queue = append(queue, m)
+				}
+			}
+		}
+		return seen
+	}
+
+	idx := loadRealIndex(t)
+	owned := map[string]bool{}
+	gateReach := map[string]map[string]bool{}
+	for _, c := range idx.Cases {
+		owners := strings.Split(c.Owner, "/")
+		for _, o := range owners {
+			owned[o] = true
+			if !isTask[o] {
+				t.Errorf("case %s 的 owner %s 不是计划任务", c.ID, o)
+			}
+		}
+		if c.Composite {
+			continue
+		}
+		for _, g := range c.Gates {
+			if gateReach[g] == nil {
+				gateReach[g] = reach("Pass:" + g)
+			}
+			for _, o := range owners {
+				if !gateReach[g]["Acc:"+o] {
+					t.Errorf("case %s 属于 %s，但 %s 不等待 owner %s 验收（gate 的 dependsOn 漏了它）", c.ID, g, g, o)
+				}
+			}
+		}
+	}
+
+	traced := map[string]bool{}
+	for _, tasks := range plan.Requirements {
+		for _, id := range tasks {
+			traced[id] = true
+		}
+	}
+	for _, task := range plan.Tasks {
+		if !owned[task.ID] {
+			t.Errorf("任务 %s 没有任何验收 case", task.ID)
+		}
+		if !traced[task.ID] {
+			t.Errorf("任务 %s 没有追踪到任何 R 需求", task.ID)
+		}
+	}
+}

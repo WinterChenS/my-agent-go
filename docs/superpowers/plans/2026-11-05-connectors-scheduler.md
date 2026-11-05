@@ -27,10 +27,16 @@
 
 **Dependencies:** F08、F04、F07、U00、U01。U01 先提供壳层/路由注册边界，F08 先完成 desktop 装配，C08 再接入生产页面；不得与 F08/F09/F06/C09 并行修改 `internal/app/desktop.go`。C08 不依赖 F06，也不应被 G0 过闸阻塞开发。
 
+**Acceptance cases:** CONN01–CONN06、CONN08（G2）、CONN07（G3）；与 X01 共享 E2E06。各平台所需账户与应用注册见 `docs/acceptance/v1-external-dependencies.md`。
+
 **Files:**
 - Create: `internal/connectors/types.go`
 - Create: `internal/connectors/service.go`
 - Create: `internal/connectors/service_test.go`
+- Create: `internal/connectors/auth/oauth.go`
+- Create: `internal/connectors/auth/loopback.go`
+- Create: `internal/connectors/auth/tokens.go`
+- Create: `internal/connectors/auth/auth_test.go`
 - Create: `internal/connectors/mail/driver.go`
 - Create: `internal/connectors/dingtalk/driver.go`
 - Create: `internal/connectors/feishu/driver.go`
@@ -104,9 +110,22 @@ Validate each action input against its schema before authorization. Bind workspa
 
 Fixtures must expose independent counters for email send, DingTalk message, Feishu update/message, Slack reply, Notion create/update, and GitHub issue/comment. Read actions return deterministic content without incrementing write counters.
 
-- [ ] **Step 5: Implement the six minimal adapters test-first**
+- [ ] **Step 5: Implement per-connector authentication, then the six minimal adapters test-first**
 
-For each adapter, first add one read success, one write success, one denied write, one authentication failure, one timeout, and one unknown-outcome test. Use the following V1 actions exactly:
+先实现认证，再实现读写动作：
+
+```text
+mail:     IMAP/SMTP；应用专用密码或提供方要求时的 XOAUTH2
+GitHub:   OAuth 授权码 + PKCE，或用户提供的细粒度 PAT
+Slack:    OAuth v2 + PKCE（bot scope 按动作最小化）
+Notion:   OAuth + PKCE，或 internal integration token
+DingTalk: 企业自建应用 app key/secret 换取访问令牌
+Feishu:   企业自建应用 app id/secret 换取 tenant 令牌
+```
+
+OAuth 回调只用 RFC 8252 的 loopback 重定向：只绑定 `127.0.0.1` 随机端口，校验 `state` 与 PKCE verifier，只接受一次请求，5 分钟超时。V1 不用 `anvil://` 接 OAuth 回调。令牌只进 OS 凭证库，到期前刷新；刷新失败进入 `blocked`（需重新授权），不显示 connected。撤销授权删除凭证，工具从下一个 run 消失。认证测试至少覆盖：state 不匹配、非 loopback 重定向、刷新失败、撤销后不可调用。
+
+然后每个 adapter 先写一个读成功、一个写成功、一个写被拒、一个认证失败、一个超时和一个结果未知的测试。V1 动作严格如下：
 
 ```text
 mail: search, read, attachment, draft, send
@@ -148,6 +167,8 @@ git commit -m "C08: add policy-bound V1 connectors"
 ### Task C09: Persistent Local Scheduler
 
 **Dependencies:** C08、F04、F05、F07、U00、U01。C09 在 C08 提交之后修改 `internal/app/desktop.go` 和前端导航，禁止二者并行写共享装配文件。
+
+**Acceptance cases:** SCH01–SCH05、SCH07（G2）、SCH06（G3）；与 X01 共享 E2E07。
 
 **Files:**
 - Create: `internal/scheduler/types.go`

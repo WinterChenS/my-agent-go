@@ -26,6 +26,10 @@
 
 ### Task F08: Pi Discovery and Compatibility Negotiation
 
+**Dependencies:** F02、F03、F07。F08 是共享写点 `internal/app/desktop.go` 串行链的第一个写者（顺序见 master plan）。
+
+**Acceptance cases:** PI_DISC01–PI_DISC02、PI_COMP01–PI_COMP04；与 U06 共享 UI10。
+
 **Files:**
 - Modify: `internal/runtime/pi/locator.go`
 - Modify: `internal/runtime/pi/probe.go`
@@ -40,6 +44,7 @@
 **Interfaces:**
 - Consumes: existing `PiInstallation`, real Pi probe fixtures, isolated `AgentDir` and `WorkerSpec`.
 - Produces: `Discover(ctx, DiscoveryRequest) (DiscoveryResult, error)`, `Select(ctx, installationID string) error`, and `CompatibilityState` values `discovering`, `ready_verified`, `ready_compatible`, `upgrade_available`, `incompatible`, `missing`, `failed`.
+- App API (Wails): `Desktop.DiscoverPi() PiDiscoveryResult`, `Desktop.SelectPi(installationID string) PiDiscoveryResult`。
 
 - [ ] **Step 1: Write failing discovery-order and wrong-PATH tests**
 
@@ -74,7 +79,8 @@ type DiscoveryResult struct {
 
 type PiCandidate struct {
     Installation PiInstallation
-    Origin       string
+    Origin       string // preferred | saved | managed | path | common
+    Distribution string // standalone | npm；规格 §8.1 的“发行形式”
     ExecutableHash string
     Compatibility CompatibilityState
 }
@@ -133,8 +139,11 @@ git commit -m "F08: add Pi discovery and compatibility negotiation"
 
 **Dependencies:** F08、F09、F03、F07。F09 先完成共享启动/desktop 装配；F06 排在 G2 阶段后端功能之后。开发不依赖 G0 过闸；PI_INS/PI_UPG 的 PASS 仍需 G0→G1→G2 顺序。
 
+**Acceptance cases:** PI_INS01–PI_INS03、PI_UPG01–PI_UPG03（G2）；INS01–INS07、PI_PKG01–PI_PKG02（G4，与 X03 共享）。
+
 **Files:**
 - Create: `internal/piinstall/manifest.go`
+- Create: `internal/piinstall/manifest.json`（`go:embed` 嵌入；随签名的 Anvil 二进制发布，V1 不从远端更新该清单）
 - Create: `internal/piinstall/download.go`
 - Create: `internal/piinstall/extract.go`
 - Create: `internal/piinstall/activate.go`
@@ -143,12 +152,12 @@ git commit -m "F08: add Pi discovery and compatibility negotiation"
 - Create: `internal/piinstall/install_integration_test.go`
 - Create: `internal/app/pi_install_api.go`
 - Create: `internal/app/pi_install_api_test.go`
-- Create: `build/pi-manifest.json`
 - Modify: `internal/app/desktop.go`
 
 **Interfaces:**
-- Consumes: F08 compatibility probe, target ID, Anvil managed data root, signed Pi manifest.
+- Consumes: F08 compatibility probe, target ID, Anvil managed data root, embedded Pi manifest.
 - Produces: `Install(ctx, InstallRequest) (InstallID, error)`, `Cancel(ctx, InstallID) error`, `Rollback(ctx, installationID string) error`, and progress stages `download`, `verify`, `extract`, `probe`, `activate`.
+- App API (Wails): `Desktop.InstallPi(version string) PiInstallResult`, `Desktop.CancelPiInstall(installID string) PiInstallResult`, `Desktop.RollbackPi(installationID string) PiInstallResult`；进度以 `anvil:pi-install` 事件推送。
 
 - [ ] **Step 1: Write failing manifest, hash, redirect, and archive-boundary tests**
 
@@ -186,7 +195,9 @@ type ManifestEntry struct {
 }
 ```
 
-Allow only official HTTPS hosts, revalidate redirects, stream to a staging file, verify length/hash/signature, then extract with path and link checks.
+Allow only official HTTPS hosts, revalidate redirects, stream to a staging file, verify length and SHA-256, then extract with path and link checks.
+
+信任根：清单嵌入在 Anvil 二进制里，其中的 SHA-256 是下载包的权威，签名后的 Anvil 包（X05）保护清单不被篡改。若 Pi 上游提供发布签名，再额外校验；上游未提供时 `Signature` 为空，不自造签名字段充数。是否存在上游签名在本任务开始时核实，记入证据。
 
 - [ ] **Step 4: Write cancellation, active-worker, and rollback tests**
 
@@ -213,7 +224,7 @@ Expected: PASS with fixture counters and active-pointer hashes in evidence.
 Run: `powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 verify --suite=integration --target=win-x64`
 
 ```bash
-git add internal/piinstall internal/app/pi_install_api.go internal/app/pi_install_api_test.go internal/app/desktop.go build/pi-manifest.json
+git add internal/piinstall internal/app/pi_install_api.go internal/app/pi_install_api_test.go internal/app/desktop.go
 git commit -m "F06: add managed Pi install upgrade and rollback"
 ```
 
@@ -223,12 +234,15 @@ git commit -m "F06: add managed Pi install upgrade and rollback"
 
 **Dependencies:** C09、U00、F01、F07。U00 先完成 Anvil 启动入口与品牌迁移边界，C09 之后 F09 在同一入口加入 pending update；F06 再在 F09 之后接入。这些任务不得并行修改 `cmd/myagent/main.go` 或 `internal/app/desktop.go`。
 
+**Acceptance cases:** UPD01–UPD12（与 X04 共享）；UPD13 归 X04，UPD14 与 U06/U07 共享。
+
 **Files:**
 - Create: `internal/update/manifest.go`
 - Create: `internal/update/download.go`
 - Create: `internal/update/service.go`
+- Create: `internal/update/trustroot.go`（生产公钥在构建时由 `-ldflags -X` 注入；为空时更新功能处于 `blocked`，失败即关闭）
 - Create: `internal/update/service_test.go`
-- Create: `internal/update/fixture_test.go`
+- Create: `internal/update/fixture_test.go`（测试自生成临时密钥对，私钥不落盘、不进仓库）
 - Create: `internal/app/update_api.go`
 - Create: `internal/app/update_api_test.go`
 - Create: `cmd/anvil-updater/main.go`
@@ -236,11 +250,11 @@ git commit -m "F06: add managed Pi install upgrade and rollback"
 - Create: `internal/updater/transaction_test.go`
 - Modify: `cmd/myagent/main.go`
 - Modify: `internal/app/desktop.go`
-- Create: `build/update-public-key.pem`
 
 **Interfaces:**
-- Consumes: current version, channel, target ID, signed update manifest, platform updater adapter.
+- Consumes: current version, channel, target ID, signed update manifest, platform updater adapter, U00 `UnsavedScopes()`.
 - Produces: `Check(ctx) (UpdateStatus, error)`, `Download(ctx, version string) error`, `ApplyPending(ctx) error`, and states `idle`, `checking`, `update_available`, `downloading`, `verifying`, `ready`, `applying`, `health_checking`, `completed`, `rollback`, `failed`, `blocked`.
+- App API (Wails): `Desktop.UpdateStatus()`, `Desktop.CheckForUpdate()`, `Desktop.DownloadUpdate(version string)`, `Desktop.UpdateBlockers() []UpdateBlocker`, `Desktop.ExitAndUpdate()`。
 
 - [ ] **Step 1: Write failing selection and signature tests**
 
@@ -271,10 +285,14 @@ type UpdateManifest struct {
     PackageSignature string `json:"packageSignature"`
     DatabaseSchema int `json:"databaseSchema"`
     PiRange string `json:"piRange"`
+    ReleasedAt time.Time `json:"releasedAt"`
+    ReleaseNotes map[string]string `json:"releaseNotes"` // key: zh-CN / en-US
 }
 ```
 
-Persist download metadata and ETag. Resume only when the server validator still matches; otherwise discard partial bytes. Verification success writes a pending transaction, but never restarts the app.
+清单本身由独立的 `manifest.json.sig` 验签（与包签名分开）。缺语言的 release notes 回退到另一语言并标注，不为空串。
+
+Persist download metadata and ETag. Resume only when the server validator still matches; otherwise discard partial bytes. Verification success writes a pending transaction journal (`updates/pending.json`, atomic replace) outside SQLite, but never restarts the app. The journal, not the database, is the authority during apply: a failed migration must not hide the transaction from the helper. SQLite records update history only after commit or rollback.
 
 - [ ] **Step 4: Write failing next-launch, crash, and data-rollback tests**
 
@@ -287,11 +305,11 @@ func TestInterruptedSwapLeavesOneCompleteVersion(t *testing.T) { /* crash each t
 
 - [ ] **Step 5: Implement updater transaction and platform adapters**
 
-The helper reads a pre-verified pending transaction, backs up the application and database, atomically switches files, launches the candidate with a health-check nonce, and commits only after acknowledgement. Windows swaps the signed installation directory, macOS verifies Team ID/bundle ID, AppImage swaps the active file, and `.deb` enters the OS package authorization flow or returns `blocked`.
+The helper reads the pre-verified pending journal, backs up the application and database, atomically switches files, launches the candidate with a health-check nonce, and commits only after acknowledgement. Windows swaps the signed installation directory, macOS verifies Team ID/bundle ID, AppImage swaps the active file, and `.deb` enters the OS package authorization flow or returns `blocked`.
 
 - [ ] **Step 6: Wire startup and Wails API without forced restart**
 
-`cmd/myagent/main.go` checks for a pending transaction before normal app startup. The app API exposes status, check, download, retry, and “exit and update”; it refuses the latter while runs, approvals, Pi installs, browser takeover, unsaved edits, or cleanup failures are active.
+`cmd/myagent/main.go` checks for a pending journal before normal app startup. The app API exposes status, check, download, retry, and “exit and update”; it refuses the latter while runs, approvals, Pi installs, browser takeover, unsaved edits (U00 `UnsavedScopes()`), or cleanup failures are active.
 
 - [ ] **Step 7: Verify real old-to-new process transition**
 
@@ -302,7 +320,7 @@ Run the package fixture with two distinct binaries whose `--version` output and 
 - [ ] **Step 8: Commit F09 independently**
 
 ```bash
-git add internal/update internal/updater internal/app/update_api.go internal/app/update_api_test.go internal/app/desktop.go cmd/anvil-updater cmd/myagent/main.go build/update-public-key.pem
+git add internal/update internal/updater internal/app/update_api.go internal/app/update_api_test.go internal/app/desktop.go cmd/anvil-updater cmd/myagent/main.go
 git commit -m "F09: add signed staged Anvil updates"
 ```
 

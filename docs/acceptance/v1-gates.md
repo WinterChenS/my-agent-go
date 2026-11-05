@@ -68,7 +68,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | RPC02 | F03 | HOST | 并发乱序response按id匹配，重复/未知id不误归属，取消Call能结束 |
 | RPC03 | F03 | ALL | stderr持续洪泛不堵stdout，长输出/写背压不死锁，日志缓冲不无限增长 |
 | RPC04 | F03 | HOST | malformed/未知事件有明确诊断不崩溃，未知最终完成语义不报completed |
-| RPC05 | F03/X02 | ALL | 退出10秒内owned子孙均清理，无关Pi/Node进程仍在；CleanupFailed不会被显示成清理成功 |
+| RPC05 | F03 | ALL | 退出10秒内owned子孙均清理，无关Pi/Node进程仍在；CleanupFailed不会被显示成清理成功（真实模型下的复核归 E2E05） |
 | SEC01 | F04 | HOST | 许可绑定参数/范围/session/run/有效期，改变参数或重复消费拒绝；60秒到期有效 |
 | SEC02 | F04 | ALL | builtin write/edit/bash逐一拒绝时文件/命令marker为0；允许一次只产生一次副作用 |
 | SEC03 | F04/B05 | ALL | 自有和外部MCP、扩展、嵌套tool路径均执行前授权；未覆盖通道禁用且实际不能调用 |
@@ -93,7 +93,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | RUN02 | F05 | HOST | 关键事件seq递增；重连快照+游标无丢失/重复，50ms文本合并不丢工具结果 |
 | RUN03 | F05 | HOST | 仅2个活跃worker，第三个排队；排队取消不启动，slot释放后按FIFO启动 |
 | RUN04 | F05/C06 | ALL | stop≤2秒可见；5秒后升级终止、10秒后明确清理结果；取消后不发新写请求 |
-| RUN05 | F05/X02 | ALL | 工具已写后崩溃，恢复计数仍1；未知副作用结果不自动重放 |
+| RUN05 | F05 | ALL | 工具已写后崩溃，恢复计数仍1；未知副作用结果不自动重放（真实模型下的复核归 E2E05） |
 | RUN06 | F05/C07 | HOST | 第101个工具调用被拒、30分钟后不发下一请求；usage未知显示unavailable，不显示伪0 |
 | RUN07 | F05 | ALL | 重启可查Pi transcript和产品索引，单会话无并发writer，不常驻历史worker |
 
@@ -124,6 +124,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | RES02 | C03 | ALL | 纯托管skill禁用后新run不加载；同名自动发现副本按2026-11-04用户指令同步（禁用不保证消失、启用也不保证覆盖）；运行记录不得把托管清单冒充实际加载清单；旧run保持快照（ADR 0003） |
 | RES03 | C03 | HOST | skill依赖缺失显示原因；恶意路径/损坏frontmatter被拒；不自动安装外部工具 |
 | RES04 | C03/C04 | ALL | 系统policy扩展不可关闭；工具启停影响实际执行，不只是菜单可见性 |
+| RES05 | U04 | ALL | Skill 链接导入只解析清单不执行脚本，非 HTTPS/跨域重定向/超大/归档越界被拒且托管目录不变；隔离试运行用临时 agentDir 与只读工具，用户 agentDir hash 不变 |
 | MCP01 | C04 | ALL | stdio/HTTP两类经真实Pi发现与调用fixture工具，各一个成功 |
 | MCP02 | C04 | ALL | 断开/超时/鉴权失败/重连状态准确；未授权副作用计数0 |
 | MCP03 | C04 | ALL | server工具列表变化与暴露策略生效；禁用后不可调用，旧run变化策略明确 |
@@ -159,14 +160,18 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | UI03 | B07 | NATIVE | 右侧URL/tabId与agent工具相同；用户修改网页后agent能观察到同一修改 |
 | UI04 | B07 | NATIVE | dialog/命令面板/审批层不被native页遮挡；切换面板不销毁tab，紧急停止始终可达 |
 | UI05 | U01 | NATIVE | Anvil 壳层九个生产路由、历史、搜索和工作台均读真实 Go API；无原型固定数字或假 connected |
-| UI06 | U02 | NATIVE | Chat 的消息/工具/审批/停止/恢复、附件和右栏四分区由后端事件推进，点击不直接标成功 |
-| UI07 | U03 | NATIVE | 单 Agent/Profile 的模型、prompt、Skills、工具、权限和记忆真实保存；无子Agent/多运行时入口 |
+| UI06 | U02 | NATIVE | Chat 的消息/工具/审批/停止/恢复、附件和右栏四分区由后端事件推进，点击不直接标成功；内容澄清与工具审批分离，回答问题不授予任何权限 |
+| UI07 | U03 | NATIVE | 单 Agent/Profile 的模型、prompt、思考级别、Skills、工具、权限和记忆真实保存，且 system prompt 与思考级别实际进入 Pi 请求（fixture provider 记录）；无子Agent/多运行时入口 |
 | UI08 | U04 | NATIVE | Skills 创建/导入/编辑/启停/依赖/隔离试运行及 MCP stdio/HTTP 状态与真实 API/runtime 一致 |
 | UI09 | U05 | NATIVE | 资源库从文件/SQLite 核对 path/hash/size/source，记忆独立分区且删除只影响后续注入 |
 | UI10 | U06 | NATIVE | 设置显示全部 Pi 候选、安装升级回滚和应用更新真实状态；无 Codex/Claude 伪运行时选项 |
 | UI11 | U06 | NATIVE | 观测显示真实 usage/工具/审批/失败/run 链；缺 usage/价格为 unavailable，不显示伪0 |
 | UI12 | U07 | NATIVE | 880×600 至 1920×1080、Windows 100/150/200%、Retina、Linux X11/Wayland 无关键操作遮挡 |
 | UI13 | U07 | NATIVE | 键盘、焦点、accessible name、风险提示和 WCAG AA 对比度通过；built Wails 真机证据绑定 API/DB oracle |
+| SES01 | C06 | HOST | 会话目录改名/置顶/归档/删除走 CAS，并发写只有一个成功；分页稳定，重启后一致；删除不删产物；普通会话在 scratch 工作区且无用户目录访问 |
+| SES02 | C06 | ALL | 附件由 Go 解析真实路径；工作区外、symlink/junction 逃逸和 policy 拒绝的项逐项返回原因，run 上的引用不可变 |
+| SES03 | C06 | ALL | HTML/Markdown/JSON 导出与 Pi transcript 一致；HTML 转义且不含脚本；导出中 sentinel 秘密命中 0 |
+| SRCH01 | U01 | HOST | 全局搜索索引覆盖会话、Agent/Profile、Skill、产物，重启可重建；少于 3 字符返回 QueryTooShort，未建索引返回 unavailable；已删除和其它工作区的结果不出现 |
 | I18N01 | U00 | HOST | zh-CN/en-US key 集合完全一致，缺 key、废弃 key和生产组件硬编码产品文案使静态检查失败 |
 | I18N02 | U00/U07 | NATIVE | 切换语言即时更新静态/动态客户端文案并持久化；用户/模型/工具原文不被翻译 |
 | I18N03 | U00/U07 | NATIVE | 错误 code+参数、日期/时间/数字/文件大小/费用按 locale 正确格式化，不匹配 Go 中文文本 |
@@ -176,6 +181,9 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | THEME03 | U07 | NATIVE | 两主题 default/hover/focus/active/disabled/loading/empty/error/success/审批风险均满足对比度和可见性 |
 | THEME04 | U00/B07 | NATIVE | 切换主题不重建 browser tab、不丢会话/表单/下载、不改变人工接管或运行状态；远端网页不注入主题 |
 | THEME05 | U07 | NATIVE | 九页在构建后 Wails 中提供两主题截图与外部状态 oracle；浏览器页面截图不能替代 native 证据 |
+| BRAND01 | U00 | HOST | `ANVIL_*` 优先于 `MYAGENT_*`；只设旧变量时生效并记录弃用警告与配置来源；两者冲突时取 `ANVIL_*` |
+| BRAND02 | U00 | ALL | 首次启动从旧 MyAgent 目录迁移非敏感配置与数据库：staging → 校验 → 原子切换，原目录保留，重复启动幂等；注入失败时源目录不变且无半写入的新目录 |
+| BRAND03 | U00 | ALL | 迁移后已有 credentialRef 仍可解析；秘密不被复制到新目录、配置或日志（sentinel 命中 0） |
 | ART01 | C07 | HOST+ALL路径集成 | artifact只登记已授权路径，越界/丢失文件明确拒绝，无任意本机文件打开后门 |
 | ART02 | C07 | ALL | 产物hash/大小/来源run可核对，重启后可查，文件变化显示变化而不是旧hash有效 |
 | ART03 | C07 | ALL | 上下文来源/压缩/usage/费用呈现真实或明确unknown；诊断包可定位故障且脱敏 |
@@ -211,7 +219,9 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | E2E02 | X01/C07 | NATIVE | 实际Wails+Pi调用fixture MCP，结果/产物可核查，禁用后counter不再增长 |
 | E2E03 | X01/B07 | NATIVE | 右侧真实form由Pi操作、用户接管、恢复观察到人工修改，server提交次数准确 |
 | E2E04 | X02 | NATIVE | 真实模型完成最小工具闭环；每目标有真实请求/工具烟测；无key不改为fixture PASS |
-| E2E05 | X02 | NATIVE | worker/MCP/UI/provider/DB/凭证故障演练状态准确，无未知写重放，日志可定位 |
+| E2E05 | X02 | NATIVE | worker/MCP/UI/provider/DB/凭证故障演练状态准确，无未知写重放，日志可定位；在真实模型下复核 RPC05 的进程树清理和 RUN05 的未知写不重放 |
+| E2E06 | X01/C08 | NATIVE | 实际 Wails+Pi 通过 fixture 连接器完成读取→审批→写入，fixture 写计数精确为 1，拒绝时为 0；重启后定义仍在，秘密只在 OS 凭证库 |
+| E2E07 | X01/C09 | NATIVE | 实际 Wails 创建定时任务，可控时钟触发普通 RunService 会话并产出产物；重启后 next/last 与 occurrence 一致，无重复执行 |
 | PKG01 | X03 | ALL | 包名/arch/hash/revision/版本锁一致，解包无Pi/Node/npm/模型/独立Chromium，runtime依赖另报 |
 | PKG02 | X03 | ALL | 无开发工具环境安装/启动，不访问源码路径，缺Pi可一键安装后使用 |
 | PKG03 | X03 | NATIVE | 包内启动网页/模型/文件/MCP烟测均成功，浏览器不是开发模式专有功能 |
@@ -247,13 +257,13 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 - G0：ENV01–03、GOV01–04、PI01–04、PI_DISC01–02、PI_COMP01–04、RPC01–05、SEC01–06/SEC08 的 runtime 子case、CFG03.isolation。版本范围只允许探测，不能自动判兼容。
 - G1：BR00–BR07（BR07先用原生基础操作，B04再做完整工具语义）、UI04的最小dialog验证；六目标/LNX双display齐全。
 - G2：CFG01–04、DB01–03、RUN01–07、PI_INS01–03、PI_UPG01–03、MOD01–04、RES01–04、MCP01–05、MEM01–05、CONN01–06/CONN08、SCH01–05/SCH07、SEC01–08、BR08–BR17。旧 INS01–07 保留历史坐标，但不能替代新增原子 case。
-- G3：UI01–13、CONN07、SCH06、I18N01–04、THEME01–05、ART01–03、E2E01–05，并保留相关 G0–G2 通过证据。每个生产页至少有 zh-CN/en-US × Light/Dark，Playwright 网页截图不能替代 built Wails 证据。
+- G3：UI01–13、CONN07、SCH06、SES01–03、SRCH01、RES05、BRAND01–03、I18N01–04、THEME01–05、ART01–03、E2E01–07，并保留相关 G0–G2 通过证据。每个生产页至少有 zh-CN/en-US × Light/Dark，Playwright 网页截图不能替代 built Wails 证据。
 - G4：PKG01–07、PI_PKG01–02、UPD01–14、PERF01–04、INS01–07，外加当前候选包自身 PKG03 的 NATIVE 结果；必须使用真实旧/新包和干净目标环境，fixture 更新不替代包更新。
 - G5：REL01–04 及当前 revision 完整 G0–G4。
 
 ### 避免阶段依赖循环
 
-G1 的普通表单和dialog检查是B01–B03 spike中的原生验收，runner记录 BR07.native 和 UI04.native 子case。G3 再执行BR07.tool/E2E03、UI04.workbench，不能用spike通过替代成品集成。G0的SEC03/SEC04只要求F04已有runtime执行通道；G2补SEC03.browser/SEC04.browser。CFG03.isolation归F04/G0，CFG03.resources归C03/G2。RUN04.service归F05/G2，RUN04.ui归C06/G3；RUN06.service归F05/G2，RUN06.ui归C07/G3。F01清单必须明确子case、owner、阶段和不同artifact，不得把同一个ID的部分成功冒充全部通过。
+G1 的普通表单和dialog检查是B01–B03 spike中的原生验收，runner记录 BR07.native 和 UI04.native 子case。G3 再执行BR07.tool/E2E03、UI04.workbench，不能用spike通过替代成品集成。G0的SEC03/SEC04只要求F04已有runtime执行通道；G2补SEC03.browser/SEC04.browser。CFG03.isolation归F04/G0，CFG03.resources归C03/G2。RUN04.service归F05/G2，RUN04.ui归C06/G3；RUN06.service归F05/G2，RUN06.ui归C07/G3。RUN01.service归F05/G2，RUN01.ui归C06/G3；SEC07.store归F07/C02/G2，SEC07.diagnostics归C07/G3（2026-11-05 增加；此前 RUN01/SEC07 归 G2，但其 UI/诊断部分的 owner 要等 G2 过闸，G2 永远等不到它们）。F01清单必须明确子case、owner、阶段和不同artifact，不得把同一个ID的部分成功冒充全部通过。
 
 ## 4. 证据目录和格式
 

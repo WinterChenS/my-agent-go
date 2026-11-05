@@ -25,12 +25,14 @@
 **Interfaces：** `devtools verify --suite=e2e --target=<targetId>` 从构建后Wails程序启动，传隔离appData、fixture provider/MCP URLs、fixture workspace；提供 test-only结构化状态探针，release必须移除/禁用探针。不能开放生产任意调试/写数据库接口。
 
 - [ ] 编写三个初始失败旅程：本地文件读取→授权修改→产物核对；MCP发现→调用→结果→禁用再调用被拒；右侧网页观察→授权填写/提交→服务端counter→接管→恢复。
+- [ ] 编写连接器旅程（E2E06）：真实 Wails + Pi 通过 fixture 连接器完成读取 → 审批 → 写入，fixture 写计数精确为 1；拒绝审批时为 0；重启后定义仍在，秘密只在 OS 凭证库。
+- [ ] 编写调度旅程（E2E07）：真实 Wails 创建定时任务，可控时钟触发普通 RunService 会话并产出产物；重启后 next/last 与 occurrence 记录一致，没有重复执行。
 - [ ] 为每条旅程建立独立oracle：文件hash/内容、MCP server调用记录、网页server数据库/计数；UI文本不是唯一证据。
 - [ ] 连接真实Pi执行受控provider脚本，完成旅程；每条必须包含重启客户端后可查历史、配置revision和产物来源，不能依赖内存假数据。
 - [ ] 三端目标跑built app，UI自动化可用原生test driver/辅助功能，native区域步骤允许人工录制但必须逐步记录；React组件测试不覆盖此项。
 - [ ] 归档来源revision、版本/fixture hash、命令、计数、录屏、人工review，suite退出码一致后提交。
 
-**验收：** E2E01–E2E03。
+**验收：** E2E01–E2E03、E2E06–E2E07。
 
 ## X02：真实模型验收与故障演练
 
@@ -44,7 +46,7 @@
 - [ ] 进程树退出后10秒内owned workers/MCP/fixture计数=0；外部用户Pi/浏览器保持存活。不能按进程名批量杀所有node/pi。
 - [ ] 执行e2e+live suites、归档数据和费用usage可用性，提交。模型key/网络缺失记BLOCKED，不能改成本地fixture通过live。
 
-**验收：** E2E04/E2E05、RUN05、RPC05。
+**验收：** E2E04/E2E05。RUN05 与 RPC05 的服务语义归 F05/F03；X02 在真实模型下复核它们，结果计入 E2E05。
 
 ## X03：六目标安装包与干净机器
 
@@ -85,6 +87,8 @@
 **Interfaces：** `devtools gate --id=G5 --evidence=<root>`；release manifest只引用同revision已验收的包；签名密码和私钥来自runner安全存储，不能写仓库/日志。
 
 - [ ] Windows签名链/时间戳验证；macOS应用及内嵌native可执行签名、公证、staple与Gatekeeper验证；Linux发布校验和与签名清单并验证，实际发行渠道要求另记录。
+- [ ] 应用更新信任根：生成并托管更新签名密钥（私钥只在发布 runner 安全存储中，不进仓库或日志），构建时把公钥注入 F09 的 `trustroot`；签署更新清单 `manifest.json.sig` 与完整包签名；记录密钥轮换与注销流程，轮换的新公钥必须先随一个已签名版本发出。
+- [ ] 更新清单与包的托管地址写入 F09 的 HTTPS allowlist；托管不可用或未授权发布时，应用更新保持 `blocked`，UPD13 记 BLOCKED。
 - [ ] 校验签名后包若发生变化，hash更新且重新执行package安装验证；不能给未测旧包换名称冒充当前release。
 - [ ] 文档列出精确支持矩阵、Pi版本/安装方式、浏览器Unsupported场景、凭证归属、安装/恢复/卸载步骤；不能宣称任意网站或全平台通用。
 - [ ] 独立reviewer核对G0–G5原始证据及已知限制；没有独立review时G5不能由实现者自己填PASS。该要求适用于开发执行，不要求本轮计划编写启动子agent。

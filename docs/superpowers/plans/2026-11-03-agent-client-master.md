@@ -55,9 +55,40 @@
 | [Anvil 产品 UI](2026-11-05-anvil-ui.md) | U00–U07 | 已有域 API；F08/F09/C08/C09 分阶段接入 | 品牌、i18n、主题、九页生产 UI、无障碍与真机证据 |
 | [集成与发行](2026-11-03-integration-release.md) | X01–X05 | G1/G2/G3依次 | 真模型E2E、Anvil 安装包、迁移、更新与正式发行 |
 
-建议关键路径：保留已完成的 F/C/B 基础 → F08 → U00/U01 → C08→C09→F09→F06 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。U03–U05 不依赖 G2，可提前；U02 经 C06 依赖 G2。F06 是 G2 阶段最后一个后端功能，开发机上只用临时托管根（ADR 0002 安全约束）。共享文件 `internal/app/desktop.go`/`cmd/myagent/main.go` 按 F08→C08→C09→F09→F06 串行。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
+建议关键路径：保留已完成的 F/C/B 基础 → F08 → U00 → C06/C07 → U01 → C08→C09→F09→F06 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。U03–U05 不依赖 G2，可提前；U02 经 C06 依赖 G2。F06 是 G2 阶段最后一个后端功能，开发机上只用临时托管根（ADR 0002 安全约束）。共享文件 `internal/app/desktop.go`/`cmd/myagent/main.go` 按 F08→C08→C09→F09→F06 串行。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
 
 上表不授权自行使用多 agent。只有用户选择并行执行后，才按文件所有权委派；contracts/schema 和 master gate 由主执行者串行维护。每个任务的依赖以对应计划为准，不能把表内斜杠当成全部可以并行。
+
+### 依赖语义
+
+`v1-plan-index.json` 用两个字段区分两种关系。`dependsOn` 是开工前提：依赖任务在当前可用目标上已有证据后才开工；X03/X05 的打包与发行在这里直接写 gate，表示硬性等待。`acceptAfter` 是验收顺序：该任务的 case 只有在那个 gate 全矩阵通过后才能计为 PASS，但不阻止先在单机上开发并产出 win-x64 证据。这与 C01–C05 的实际做法一致；两种关系混在一个字段里会产生假环（2026-11-05 实测 F06→F09→C09→C08→U01→C06→G2→F06）。`internal/devtools` 的 `TestPlanIndexIsConsistent` 检查无环、每个 case 的 gate 确实等待其全部 owner、每个任务都有 case 且追踪到 R 需求。
+
+### 共享写点（单写者）
+
+| 文件 | 写者顺序 |
+|---|---|
+| `internal/app/desktop.go`、`cmd/myagent/main.go` | F08 → U00 → C06 → C08 → C09 → F09 → F06。新增 API 放在独立的 `internal/app/*_api.go`（同一 `Desktop` 服务会自动绑定），只有结构字段与启动/关闭装配才改 desktop.go |
+| `frontend/src/app/Router.tsx`、`navigation.ts` | U01 建立全部九个路由，C08/C09 只替换自己的占位页 |
+| `internal/contracts/*`、`schemas/*` | 当前持有任务独写（U00 改错误契约，U03 改 Profile），其余任务不碰 |
+| `tests/acceptance/cases.json`、`internal/devtools` | 主执行者串行；U07 期间归 U07 |
+
+### 数据库迁移登记
+
+| 编号 | 内容 | 任务 |
+|---|---|---|
+| 001 | workspace/session/run/memory 初始结构 | F07（已有） |
+| 002 | 记忆 scope 与检索 | C05（已有） |
+| 003 | 连接器定义 | C08 |
+| 004 | 调度与 occurrence | C09 |
+| 005 | 会话目录字段 | C06 |
+| 006 | 全局搜索索引 | U01 |
+| 007 | 产物索引与 run usage | C07 |
+
+编号按实际合入顺序仍顺序执行；任务顺序与编号不一致时由主执行者重编号未合入的迁移，已合入的迁移不得改号。
+
+### 外部依赖
+
+机器、账户、OAuth/应用注册、签名证书、更新托管与密钥的清单见 [v1-external-dependencies.md](../../acceptance/v1-external-dependencies.md)。缺失项对应的 case 记 BLOCKED，不删 case、不换口径。
 
 ## 门禁阶段
 

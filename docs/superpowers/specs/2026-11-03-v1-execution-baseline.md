@@ -70,7 +70,7 @@
 
 ## 5. 数据与配置权威
 
-- 用户级/工作区/Profile 配置以版本化 JSON 为权威；SQLite 是 workspace/session/run 索引、审批、记忆、产物、连接器、调度与更新事务记录的权威；skills/扩展和产物内容是文件权威；Pi transcript 是消息/分支历史权威。
+- 用户级/工作区/Profile 配置以版本化 JSON 为权威；SQLite 是 workspace/session/run 索引、审批、记忆、产物、连接器、调度与已提交更新历史的权威；进行中的应用更新事务以数据库之外的 updater 日志文件为权威，保证数据库迁移失败时仍可恢复；skills/扩展和产物内容是文件权威；Pi transcript 是消息/分支历史权威。
 - 合并优先级：默认 → 用户 → 工作区 → Profile → 会话覆盖。权限和凭证来源不允许项目扩大；数组型资源按稳定资源 ID 合并，同 ID 高层覆盖整项；显式 enabled=false 生效，不能用空数组歧义表达禁用。
 - JSON schemaVersion=1，带 revision；写入必须 CompareAndSwap(expectedRevision)，外部修改冲突返回 ConfigConflict，不覆盖。所有有效值可查询来源。
 - 独立 PI_CODING_AGENT_DIR；不修改 ~/.pi/agent。V1 首选在客户端重新输入 API key，写入 OS 凭证库；配置只存 credentialRef。非敏感 models/skills/MCP 显式导入。旧 Pi auth/OAuth 不自动读取或复制，保持清晰认证归属。
