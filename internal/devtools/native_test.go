@@ -8,6 +8,7 @@ package devtools
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -151,5 +152,28 @@ func TestIntegrationSelectsCasesByGate(t *testing.T) {
 	}
 	if _, err := selectedIntegrationCases(idx, "G9"); err == nil {
 		t.Error("未知 gate 应返回错误")
+	}
+}
+
+// TestGofmtScopeExcludesScratchDirs 钉住 static 检查的范围：
+// .tmp/ 是契约允许的临时目录，里面的探针代码不应让 static 变红。
+func TestGofmtScopeExcludesScratchDirs(t *testing.T) {
+	files, err := goSourceFiles()
+	if err != nil {
+		t.Fatalf("goSourceFiles: %v", err)
+	}
+	sawRepoGo := false
+	for _, f := range files {
+		norm := filepath.ToSlash(f)
+		if strings.HasPrefix(norm, ".tmp/") || strings.HasPrefix(norm, ".tools/") ||
+			strings.HasPrefix(norm, "build/") || strings.Contains(norm, "/node_modules/") {
+			t.Errorf("gofmt 检查不应包含被忽略路径: %s", f)
+		}
+		if strings.HasSuffix(norm, "/internal/devtools/runner.go") {
+			sawRepoGo = true
+		}
+	}
+	if !sawRepoGo {
+		t.Error("gofmt 文件列表缺少 internal/devtools/runner.go，说明 git ls-files 没工作")
 	}
 }

@@ -73,7 +73,16 @@ func runStatic() int {
 	code := 0
 
 	// 1) gofmt -l：列出未格式化文件；非空即失败（退出 1，断言类）。
-	c, out, _, _ := RunExternal("gofmt", "-l", ".")
+	//
+	// 只检查"仓库内、未被 gitignore"的 Go 文件：`gofmt -l .` 会把 .tmp/ 的临时
+	// 探针、.tools/ 的构建产物也算进去，于是本地 scratch 代码会让 static 变红——
+	// 那测的是工作习惯，不是产品代码。
+	files, ferr := goSourceFiles()
+	if ferr != nil {
+		fmt.Printf("[FAIL] 无法列出 Go 源文件（配置缺失）: %v\n", ferr)
+		return 2
+	}
+	c, out, _, _ := RunExternal("gofmt", append([]string{"-l"}, files...)...)
 	_ = c
 	if strings.TrimSpace(out) != "" {
 		fmt.Printf("[FAIL] gofmt 存在未格式化文件:\n%s\n", out)
@@ -240,4 +249,35 @@ func EnsureRepoRoot() error {
 		}
 		dir = parent
 	}
+}
+
+// goSourceFiles 列出仓库内应参与 gofmt 检查的 Go 文件。
+//
+// 用 git 的 ignore 规则（--cached --others --exclude-standard）而不是自己维护
+// 排除列表：.tmp/、.tools/、build/ 的规则已经在 .gitignore 里，重复一份必然分叉。
+// 未跟踪但未被忽略的新文件也会被包含——提交前就该被检查。
+func goSourceFiles() ([]string, error) {
+	// git 默认按当前目录输出相对路径；从 internal/xxx 调用时 gofmt 会找不到文件。
+	// 统一用仓库根 + 绝对路径，任何 cwd 都能用。
+	rootFile, err := repoFile("go.mod")
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Dir(rootFile)
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others",
+		"--exclude-standard", "--", "*.go").Output()
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, p := range bytes.Split(out, []byte{0}) {
+		if len(p) == 0 {
+			continue
+		}
+		files = append(files, filepath.Join(root, string(p)))
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("git ls-files 没有返回任何 .go 文件")
+	}
+	return files, nil
 }
