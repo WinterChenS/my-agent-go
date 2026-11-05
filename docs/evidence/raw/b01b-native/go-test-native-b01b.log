@@ -1,0 +1,120 @@
+=== RUN   TestNativeZoomFactor
+=== RUN   TestNativeZoomFactor/100
+    b01b_windows_test.go:303: zoom=1.00 zoomFactor(controller)=1.00 dpi=1.00 child=480x600@(728,151) viewportCSS=480x600 dpr=1.00 rectCSS=(24.00,146.33 95.98x23.00) centerCSS=(71.99,157.83) centerPhys=(799.99,308.83) physDiff=0.000px backErr=0.000px hit=trusted-target
+    b01b_windows_test.go:338: zoom=1.00 OS物理点击 (800,309) 命中 WebView 子窗口 0xdf043c → counter +1（按钮物理矩形 96.0x23.0，落点分辨力 ≤ 半宽）
+    b01b_windows_test.go:353: zoom=1.00 click counter 1 -> 2 (exactly +1)
+    b01b_windows_test.go:366: zoom=1.00 screenshot=480x600 css=480x600 scale=1.00 uniqueColors=30
+    b01b_windows_test.go:368: artifact: D:\project\my-agent-go\docs\evidence\raw\b01b-native\b01b-zoom-100.png bytes=14366
+=== RUN   TestNativeZoomFactor/150
+    b01b_windows_test.go:303: zoom=1.50 zoomFactor(controller)=1.50 dpi=1.00 child=480x600@(728,151) viewportCSS=320x400 dpr=1.50 rectCSS=(24.00,191.12 96.00x23.33) centerCSS=(72.00,202.79) centerPhys=(836.00,455.19) physDiff=0.000px backErr=0.000px hit=trusted-target
+    b01b_windows_test.go:338: zoom=1.50 OS物理点击 (836,455) 命中 WebView 子窗口 0xdf043c → counter +1（按钮物理矩形 144.0x35.0，落点分辨力 ≤ 半宽）
+    b01b_windows_test.go:353: zoom=1.50 click counter 3 -> 4 (exactly +1)
+    b01b_windows_test.go:366: zoom=1.50 screenshot=480x600 css=320x400 scale=1.50 uniqueColors=35
+    b01b_windows_test.go:368: artifact: D:\project\my-agent-go\docs\evidence\raw\b01b-native\b01b-zoom-150.png bytes=21503
+=== RUN   TestNativeZoomFactor/200
+    b01b_windows_test.go:303: zoom=2.00 zoomFactor(controller)=2.00 dpi=1.00 child=480x600@(728,151) viewportCSS=240x300 dpr=2.00 rectCSS=(24.00,157.55 95.98x23.50) centerCSS=(71.99,169.30) centerPhys=(871.98,489.59) physDiff=0.000px backErr=0.000px hit=trusted-target
+    b01b_windows_test.go:338: zoom=2.00 OS物理点击 (872,490) 命中 WebView 子窗口 0xdf043c → counter +1（按钮物理矩形 192.0x47.0，落点分辨力 ≤ 半宽）
+    b01b_windows_test.go:353: zoom=2.00 click counter 5 -> 6 (exactly +1)
+    b01b_windows_test.go:366: zoom=2.00 screenshot=480x600 css=240x300 scale=2.00 uniqueColors=113
+    b01b_windows_test.go:368: artifact: D:\project\my-agent-go\docs\evidence\raw\b01b-native\b01b-zoom-200.png bytes=41657
+--- PASS: TestNativeZoomFactor (4.38s)
+    --- PASS: TestNativeZoomFactor/100 (0.66s)
+    --- PASS: TestNativeZoomFactor/150 (0.72s)
+    --- PASS: TestNativeZoomFactor/200 (0.92s)
+=== RUN   TestNativeSplitter20Rounds
+    b01b_windows_test.go:457: round  1: slot w=320 -> child (488,151) 320x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  1: screenshot=320x600（跟随 slot）
+    b01b_windows_test.go:457: round  2: slot w=720 -> child (488,151) 720x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  2: screenshot=720x600（跟随 slot）
+    b01b_windows_test.go:457: round  3: slot w=400 -> child (488,151) 400x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  3: screenshot=400x600（跟随 slot）
+    b01b_windows_test.go:457: round  4: slot w=680 -> child (488,151) 680x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  4: screenshot=680x600（跟随 slot）
+    b01b_windows_test.go:457: round  5: slot w=360 -> child (488,151) 360x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  5: screenshot=360x600（跟随 slot）
+    b01b_windows_test.go:457: round  6: slot w=700 -> child (488,151) 700x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  6: screenshot=700x600（跟随 slot）
+    b01b_windows_test.go:457: round  7: slot w=440 -> child (488,151) 440x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  7: screenshot=440x600（跟随 slot）
+    b01b_windows_test.go:457: round  8: slot w=660 -> child (488,151) 660x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round  8: screenshot=660x600（跟随 slot）
+    b01b_windows_test.go:457: round  9: slot w=0 -> child (488,151) 0x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:462: round  9: 0 宽轮，跳过一次截图（viewport 为 0）
+    b01b_windows_test.go:457: round 10: slot w=620 -> child (488,151) 620x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 10: screenshot=620x600（跟随 slot）
+    b01b_windows_test.go:457: round 11: slot w=340 -> child (488,151) 340x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 11: screenshot=340x600（跟随 slot）
+    b01b_windows_test.go:457: round 12: slot w=720 -> child (488,151) 720x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 12: screenshot=720x600（跟随 slot）
+    b01b_windows_test.go:457: round 13: slot w=320 -> child (488,151) 320x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 13: screenshot=320x600（跟随 slot）
+    b01b_windows_test.go:457: round 14: slot w=600 -> child (488,151) 600x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 14: screenshot=600x600（跟随 slot）
+    b01b_windows_test.go:457: round 15: slot w=380 -> child (488,151) 380x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 15: screenshot=380x600（跟随 slot）
+    b01b_windows_test.go:457: round 16: slot w=700 -> child (488,151) 700x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 16: screenshot=700x600（跟随 slot）
+    b01b_windows_test.go:457: round 17: slot w=480 -> child (488,151) 480x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 17: screenshot=480x600（跟随 slot）
+    b01b_windows_test.go:457: round 18: slot w=560 -> child (488,151) 560x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 18: screenshot=560x600（跟随 slot）
+    b01b_windows_test.go:457: round 19: slot w=640 -> child (488,151) 640x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 19: screenshot=640x600（跟随 slot）
+    b01b_windows_test.go:457: round 20: slot w=520 -> child (488,151) 520x600 err=0.00px zoom=1.00
+    b01b_windows_test.go:473: round 20: screenshot=520x600（跟随 slot）
+    b01b_windows_test.go:500: splitter: 20 轮完成 maxRectErr=0.00px zeroWidthRound=9 收尾 click counter 0->1
+--- PASS: TestNativeSplitter20Rounds (4.86s)
+=== RUN   TestNativeFocusAndKeyboard
+    b01b_windows_test.go:541: focus: hasFocus=true active="" (Focus 之后)
+    b01b_windows_test.go:580: keyboard: input.value="abc" active="f-name" (CDP Input.dispatchKeyEvent)
+    b01b_windows_test.go:608: focus: 主窗口拿回焦点后 hasFocus=false active="f-name"
+--- PASS: TestNativeFocusAndKeyboard (2.65s)
+=== RUN   TestNativeMinimizeRestore
+    b01b_windows_test.go:639: minimize: main=(80,80 1180x820) -> (-32000,-32000 160x28) child=(728,151)-(1208,751) -> (-31360,-31960)-(-30880,-31360) iconic=true
+    b01b_windows_test.go:674: restore: main=(80,80 1180x820) rectEqual=true screenshot=480x600 uniqueColors=54->54
+    b01b_windows_test.go:678: artifact: D:\project\my-agent-go\docs\evidence\raw\b01b-native\b01b-after-restore.png bytes=26003
+--- PASS: TestNativeMinimizeRestore (3.34s)
+=== RUN   TestNativeClipboardSentinel
+    b01b_windows_test.go:706: clipboard: 授权前 permissions.query = write=granted read=prompt
+    b01b_windows_test.go:708: clipboard: 授权后 permissions.query = write=granted read=granted
+    b01b_windows_test.go:740: clipboard: writeText/readText 往返一致（sentinel 长度 43，值不落盘）
+    b01b_windows_test.go:753: clipboard: 撤销授权后 permissions.query = write=granted read=prompt
+    b01b_windows_test.go:754: clipboard: 撤销授权后 writeText 结果 = ok（clipboard-write 默认 granted）
+    b01b_windows_test.go:773: clipboard: 收尾清空并读回确认（长度 0）
+--- PASS: TestNativeClipboardSentinel (7.22s)
+=== RUN   TestNativeIMEComposition
+    b01b_windows_test.go:833: ime: 事件序列=[compositionstart compositionupdate input compositionupdate input compositionend]
+    b01b_windows_test.go:834: ime: 组合中 value="nihao" isComposing=true；提交后 value="你好"
+    b01b_windows_test.go:873: ime: 这是 CDP 模拟（Input.imeSetComposition + Input.insertText），不是 OS 级 IME；真机手输仍需人工验证
+--- PASS: TestNativeIMEComposition (3.77s)
+=== RUN   TestNativeCreateDestroy50Rounds
+    b01b_windows_test.go:1037: round  1: wsMB=30.2 peakMB=30.2 pagefileMB=55.5 handles=440 wv2During(6 procs, 308.4MB) wv2AfterDetach(3 procs, exitLatency=1.013s) roundTime=5.188s
+    b01b_windows_test.go:1037: round 10: wsMB=30.8 peakMB=30.8 pagefileMB=55.8 handles=442 wv2During(6 procs, 317.3MB) wv2AfterDetach(0 procs, exitLatency=0s) roundTime=3.116s
+    b01b_windows_test.go:1037: round 25: wsMB=30.5 peakMB=31.3 pagefileMB=55.3 handles=442 wv2During(6 procs, 326.2MB) wv2AfterDetach(0 procs, exitLatency=0s) roundTime=2.12s
+    b01b_windows_test.go:1037: round 50: wsMB=30.3 peakMB=31.7 pagefileMB=55.1 handles=442 wv2During(6 procs, 319.6MB) wv2AfterDetach(5 procs, exitLatency=1.521s) roundTime=6.249s
+    b01b_windows_test.go:1062: 50 轮完成 total=50.114s spike.exe before=0 after=0 childClassInstances=0 wv2Procs=0
+    b01b_windows_test.go:1065:   sample round= 1 t=5s wsMB=30.2 peakMB=30.2 handles=440 wv2During=6procs/308.4MB wv2After=3procs
+    b01b_windows_test.go:1065:   sample round=10 t=15s wsMB=30.8 peakMB=30.8 handles=442 wv2During=6procs/317.3MB wv2After=0procs
+    b01b_windows_test.go:1065:   sample round=25 t=26s wsMB=30.5 peakMB=31.3 handles=442 wv2During=6procs/326.2MB wv2After=0procs
+    b01b_windows_test.go:1065:   sample round=50 t=46s wsMB=30.3 peakMB=31.7 handles=442 wv2During=6procs/319.6MB wv2After=5procs
+--- PASS: TestNativeCreateDestroy50Rounds (52.38s)
+=== RUN   TestNativeRightPaneWindows
+    browser_windows_test.go:160: hwnd 关系: main=0xbe0434 child=0x7405c2 parent=0xbe0434 root=0xbe0434 class=MyAgentNativeHostChild
+    browser_windows_test.go:173: page: readyState=complete title="Browser fixture" url=http://127.0.0.1:65415/ counters=map[]
+    browser_windows_test.go:213: screenshot: 480x600 css=480x600 scale=1.00 bytes=25913 uniqueColors=54
+    browser_windows_test.go:244: act: delivered=true verified=true detail=观测到 url_equals="http://127.0.0.1:65415/form"
+    browser_windows_test.go:254: capabilities: navigate=true observe=true act=true screenshot=true unsupported=8
+--- PASS: TestNativeRightPaneWindows (2.00s)
+=== RUN   TestNativeWindowGeometry100
+    browser_windows_test.go:297: rev=2 css=640,40 480x600 -> screen 728,151 480x600
+    browser_windows_test.go:297: rev=3 css=700,60 420x560 -> screen 788,171 420x560
+--- PASS: TestNativeWindowGeometry100 (1.58s)
+=== RUN   TestNativeDialogOcclusionVisibility
+    browser_windows_test.go:354: visibility: hide/show 正常，controller 全程存活，title="Browser fixture"
+--- PASS: TestNativeDialogOcclusionVisibility (2.01s)
+=== RUN   TestNativeCreateDestroyRepeated
+    browser_windows_test.go:395: round 1: child=0x8404a8 ready
+    browser_windows_test.go:395: round 2: child=0x8504a8 ready
+--- PASS: TestNativeCreateDestroyRepeated (3.84s)
+PASS
+ok  	my-agent-go/tests/native	88.182s

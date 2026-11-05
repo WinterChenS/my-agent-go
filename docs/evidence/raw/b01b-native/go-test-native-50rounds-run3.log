@@ -1,0 +1,13 @@
+=== RUN   TestNativeCreateDestroy50Rounds
+    b01b_windows_test.go:1037: round  1: wsMB=23.8 peakMB=23.8 pagefileMB=51.3 handles=344 wv2During(6 procs, 311.7MB) wv2AfterDetach(0 procs, exitLatency=0s) roundTime=3.435s
+    b01b_windows_test.go:1037: round 10: wsMB=27.6 peakMB=27.8 pagefileMB=54.3 handles=347 wv2During(6 procs, 322.4MB) wv2AfterDetach(3 procs, exitLatency=6.373s) roundTime=9.55s
+    b01b_windows_test.go:1037: round 25: wsMB=28.5 peakMB=28.5 pagefileMB=54.8 handles=357 wv2During(6 procs, 324.9MB) wv2AfterDetach(0 procs, exitLatency=0s) roundTime=2.575s
+    b01b_windows_test.go:1037: round 50: wsMB=28.8 peakMB=29.2 pagefileMB=55.1 handles=358 wv2During(6 procs, 318.6MB) wv2AfterDetach(4 procs, exitLatency=836ms) roundTime=4.698s
+    b01b_windows_test.go:1062: 50 轮完成 total=53.985s spike.exe before=0 after=0 childClassInstances=0 wv2Procs=0
+    b01b_windows_test.go:1065:   sample round= 1 t=3s wsMB=23.8 peakMB=23.8 handles=344 wv2During=6procs/311.7MB wv2After=0procs
+    b01b_windows_test.go:1065:   sample round=10 t=19s wsMB=27.6 peakMB=27.8 handles=347 wv2During=6procs/322.4MB wv2After=3procs
+    b01b_windows_test.go:1065:   sample round=25 t=29s wsMB=28.5 peakMB=28.5 handles=357 wv2During=6procs/324.9MB wv2After=0procs
+    b01b_windows_test.go:1065:   sample round=50 t=51s wsMB=28.8 peakMB=29.2 handles=358 wv2During=6procs/318.6MB wv2After=4procs
+--- PASS: TestNativeCreateDestroy50Rounds (55.47s)
+PASS
+ok  	my-agent-go/tests/native	55.573s

@@ -77,6 +77,11 @@ type navArgsVtbl struct {
 	GetNavigationID                 edge.ComProc
 }
 
+// zoomToBits 把 float64 位模式塞进 uintptr：COM 的 double 参数按值传递。
+func zoomToBits(z float64) uintptr {
+	return uintptr(*(*uint64)(unsafe.Pointer(&z)))
+}
+
 func controllerVtblOf(c *edge.ICoreWebView2Controller) *controllerVtbl {
 	return *(**controllerVtbl)(unsafe.Pointer(c))
 }
@@ -113,6 +118,80 @@ func closeController(c *edge.ICoreWebView2Controller) error {
 	hr, _, _ := controllerVtblOf(c).Close.Call(uintptr(unsafe.Pointer(c)))
 	if int32(uint32(hr)) < 0 {
 		return appErr(contracts.CodeInternal, "ICoreWebView2Controller.Close HRESULT=0x%08x", uint32(hr))
+	}
+	return nil
+}
+
+// unknownVtbl 只声明 IUnknown 三槽：所有 COM 接口都从它们开始。
+type unknownVtbl struct {
+	QueryInterface, AddRef, Release edge.ComProc
+}
+
+// releaseCOM 调 IUnknown::Release，返回新引用计数。
+func releaseCOM(p uintptr) uint32 {
+	if p == 0 {
+		return 0
+	}
+	vt := *(**unknownVtbl)(ptrFromUintptr(p))
+	refs, _, _ := vt.Release.Call(p)
+	return uint32(refs)
+}
+
+// releaseOwnedWebViewRef 只释放**我们自己**拿的那个 ICoreWebView2 引用。
+//
+// 引用账目（同一个 tab 周期内）：
+//   - ICoreWebView2：edge 在 CreateCoreWebView2ControllerCompleted 里 AddRef 一次（它的，
+//     不是我们的）；getCoreWebView2 的出参又给我们一份（我们的，必须还）；
+//   - ICoreWebView2Controller / ICoreWebView2Environment：只有 edge 的 AddRef。
+//
+// 为什么不把 edge 欠的那几份也一并 Release：B01b 做过 A/B 实测（证据文档 §B01b 的
+// 进程表），关掉 controller 后浏览器进程无论我们是否额外 Release 都会退出
+// （`close` 之后 owned msedgewebview2.exe 都是 0），所以替 upstream 还债没有收益，
+// 只有“晚回调拿到已释放对象”的风险。这里只还自己的，不碰别人的。
+func releaseOwnedWebViewRef(cdp *cdpClient) (int, error) {
+	if cdp == nil || cdp.webview == nil {
+		return 0, nil
+	}
+	releaseCOM(uintptr(unsafe.Pointer(cdp.webview)))
+	return 1, nil
+}
+
+// getZoomFactor 读取 controller 当前的页面缩放因子（ICoreWebView2Controller.GetZoomFactor）。
+//
+// 这是 WebView2 的**页面缩放**（等价于浏览器的 Ctrl+±），不是 Windows 的 DPI 缩放：
+// DPI 缩放由 GetDpiForWindow 给出、只影响 CSS px → 物理 px 的换算；页面缩放只影响
+// 页面内部布局（window.innerWidth 变小、devicePixelRatio 变大）。两条换算不能混用。
+func getZoomFactor(c *edge.ICoreWebView2Controller) (float64, error) {
+	if c == nil {
+		return 0, appErr(contracts.CodeInternal, "controller 为空")
+	}
+	var zoom float64
+	hr, _, _ := controllerVtblOf(c).GetZoomFactor.Call(
+		uintptr(unsafe.Pointer(c)), uintptr(unsafe.Pointer(&zoom)))
+	if int32(uint32(hr)) < 0 {
+		return 0, appErr(contracts.CodeInternal, "ICoreWebView2Controller.GetZoomFactor HRESULT=0x%08x", uint32(hr))
+	}
+	if zoom <= 0 {
+		return 0, appErr(contracts.CodeInternal, "GetZoomFactor 返回非正值 %v", zoom)
+	}
+	return zoom, nil
+}
+
+// putZoomFactor 设置页面缩放因子（ICoreWebView2Controller.PutZoomFactor）。
+//
+// 只改页面缩放，不动 bounds、不改系统 DPI：系统 DPI 改了要注销/重启，测试里不能那么干。
+func putZoomFactor(c *edge.ICoreWebView2Controller, zoom float64) error {
+	if c == nil {
+		return appErr(contracts.CodeInternal, "controller 为空")
+	}
+	if !(zoom > 0) {
+		return appErr(contracts.CodeUnsupported, "缩放因子必须为正（收到 %v）", zoom)
+	}
+	hr, _, _ := controllerVtblOf(c).PutZoomFactor.Call(
+		uintptr(unsafe.Pointer(c)), uintptr(zoomToBits(zoom)))
+	if int32(uint32(hr)) < 0 {
+		return appErr(contracts.CodeInternal, "ICoreWebView2Controller.PutZoomFactor(%.2f) HRESULT=0x%08x",
+			zoom, uint32(hr))
 	}
 	return nil
 }

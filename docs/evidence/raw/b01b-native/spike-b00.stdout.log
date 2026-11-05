@@ -1,0 +1,23 @@
+B00|fixture|primary=http://127.0.0.1:61697
+B00|fixture|secondary=http://127.0.0.1:61698
+B00|shell|url=http://127.0.0.1:61699
+B00|env|goos=windows goarch=amd64 webview2="156.0.4314.58" native=false
+B00|autoquit|after=40s
+B00|probe|AS_EXPECTED|window.NativeWindow()|want=非空原生窗口句柄|got=非空句柄（已封装进 browser.NativeParent，不进 JSON）|code=
+B00|probe|AS_EXPECTED|browser.NativeParent|want=valid=true 且不可序列化|got=NativeParent(wails-main-window, valid=true)|code=
+B00|slot|rev=1 slotId="browser-slot" left=722.0 top=37.0 width=432.0 height=734.0 visible=true zoom=1.00 dpr=1.00 viewport=1164x781
+B00|probe|AS_EXPECTED|页面上报 SlotGeometry|want=壳页面 POST /slot 的实测几何|got=slot=browser-slot rev=1 left=722.0 top=37.0 w=432.0 h=734.0 visible=true zoom=1.00 dpr=1.00|code=
+B00|probe|AS_EXPECTED|surface.Attach(parent)|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser surface 未实现（B00）：右侧没有原生子视图，Attach(parent=wails-main-window) 无法挂载；B00 只做契约：没有 WebView2/WKWebView/WebKitGTK 子视图|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|surface.Present(tab, slot)|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser surface 未实现（B00）：没有原生视图可以摆到 slot "browser-slot"（tab "tab-b00"）；B00 只做契约：没有 WebView2/WKWebView/WebKitGTK 子视图|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|surface.SetVisible(true)|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser surface 未实现（B00）：没有原生视图可显示/隐藏；B00 只做契约：没有 WebView2/WKWebView/WebKitGTK 子视图|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|surface.Detach()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser surface 未实现（B00）：没有挂载过的容器可拆卸；B00 只做契约：没有 WebView2/WKWebView/WebKitGTK 子视图|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.Capabilities()|want=navigate/observe/act/screenshot 全为 false 并逐项给原因|got=navigate=false observe=false act=false screenshot=false unsupported=9 项|code=
+B00|probe|AS_EXPECTED|backend.CreateTab()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：CreateTab 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.Navigate()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：Navigate 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.Observe()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：Observe 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.Act()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：Act 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.Screenshot()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：Screenshot 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|AS_EXPECTED|backend.CloseTab()|want=NOT_IMPLEMENTED（明确失败，不能静默成功）|got=NOT_IMPLEMENTED: browser backend 未实现（B00）：CloseTab 需要 B01/B02/B03 的平台宿主；B00 只做契约：没有任何平台的 native backend|code=NOT_IMPLEMENTED
+B00|probe|done|verdict=AS_EXPECTED
+B00|shutdown|verdict=AS_EXPECTED
+B00|summary|verdict=AS_EXPECTED

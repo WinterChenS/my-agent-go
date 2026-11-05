@@ -42,6 +42,9 @@ type nativeCase struct {
 	Steps []nativeStep
 	// Blocked 非空表示当前实现还跑不了，值是原因（不许写成「跳过」当通过）。
 	Blocked string
+	// Limitation 会写进证据的 Limitations 字段：说明这条 case 只覆盖了哪个子集，
+	// 防止「跑了子集 = 整条通过」的误读。
+	Limitation string
 }
 
 // nativeStep 是一次 go test 调用。
@@ -79,6 +82,40 @@ func nativeCases() []nativeCase {
 				Package: "tests/native",
 				Run:     "TestNativeRightPaneWindows",
 			}},
+		},
+		{
+			// BR04：缩放 100/150/200%（页面缩放 = 平台等价分辨率下的 CSS/physical 比例）
+			// + 分栏 20 轮不漂移。系统 DPI 150/200% 本机无法改（需注销），写在 Limitation。
+			ID:      "BR04",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{
+				{Package: "tests/native", Run: "TestNativeZoomFactor|TestNativeSplitter20Rounds"},
+			},
+			Limitation: "页面缩放 1.00/1.50/2.00 已实测（devicePixelRatio 1/1.5/2，误差 0.000px，OS 物理点击命中）；" +
+				"Windows 系统显示缩放 150%/200%（GetDpiForWindow=144/192）未验证——本机 96 DPI，改显示缩放需注销/重启。",
+		},
+		{
+			// BR05：中文 IME（CDP 模拟组合/提交）、focus、clipboard、最小化恢复。
+			// dialog 层级遮挡属于 UI04.native/B07，不在这里冒充。
+			ID:      "BR05",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{
+				{Package: "tests/native", Run: "TestNativeFocusAndKeyboard|TestNativeMinimizeRestore|TestNativeClipboardSentinel|TestNativeIMEComposition"},
+			},
+			Limitation: "IME 用 CDP Input.imeSetComposition/insertText 模拟组合与提交，不是 OS 级真机手输；" +
+				"dialog 层级遮挡未覆盖（B07 的 BrowserOcclusionCoordinator / UI04.native）。",
+		},
+		{
+			// BR06：50 轮创建销毁 + 句柄/进程/working set 记录。
+			ID:      "BR06",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{
+				{Package: "tests/native", Run: "TestNativeCreateDestroy50Rounds|TestNativeCreateDestroyRepeated"},
+			},
+			Limitation: "50 轮子集；未做 >50 轮 soak 与分配级泄漏追踪（只记录 working set/句柄趋势）。",
 		},
 		{
 			// BR00：两个 origin 独立、server counter 可核对、trusted-only 负例。
@@ -321,6 +358,7 @@ func runNativeCase(c nativeCase, target, display, root string) caseOutcome {
 	cmdline := strings.Join(cmdlines, "\n")
 	ev.Command = cmdline
 	ev.ExitCode = exit
+	ev.Limitations = c.Limitation
 	ev.CaseResults = []contracts.CaseResult{cr}
 	ev.EndedAt = cr.EndedAt
 

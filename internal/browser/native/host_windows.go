@@ -41,6 +41,9 @@ type host struct {
 	controllerReady atomic.Bool
 	dpi             atomic.Uint32
 	childRect       atomic.Pointer[Rect]
+	// zoomBits 存页面缩放因子的 float64 位模式（WindowInfo 跨线程读）。
+	zoomBits atomic.Uint64
+	focused  atomic.Bool
 
 	caps struct {
 		navigate   atomic.Bool
@@ -209,16 +212,21 @@ func (h *host) Present(ctx context.Context, tab browser.TabID, slot browser.Slot
 		if h.chromium != nil {
 			h.chromium.Resize() // PutBounds = 子窗口客户区
 			h.webviewChild.Store(firstChildOf(child))
+			if err := h.applyZoom(slot.Zoom); err != nil {
+				return err
+			}
 		}
 		h.lastSlot = slot
 		if r, err := windowRect(child); err == nil {
 			h.childRect.Store(&Rect{Left: r.Left, Top: r.Top, Right: r.Right, Bottom: r.Bottom})
 		}
 		h.emit(BrowserEvent{TabID: tab, Type: "slot_presented", Payload: map[string]any{
-			"revision": slot.Revision,
-			"cssRect":  []float64{slot.Left, slot.Top, slot.Width, slot.Height},
-			"pxRect":   []int32{x, y, w, hgt},
-			"scale":    scale,
+			"revision":   slot.Revision,
+			"visible":    slot.Visible,
+			"cssRect":    []float64{slot.Left, slot.Top, slot.Width, slot.Height},
+			"pxRect":     []int32{x, y, w, hgt},
+			"scale":      scale,
+			"zoomFactor": h.zoom(),
 		}})
 		return nil
 	})
@@ -397,6 +405,11 @@ func (h *host) CreateTab(ctx context.Context, opts browser.TabOptions) (browser.
 		// 新建的 controller 默认 bounds 不是子窗口尺寸（实测 961×1040 这种奇怪值），
 		// 不调这一次 Resize 的话，第一次 Present 之前页面 viewport 都是错的。
 		chromium.Resize()
+		// Zoom 也要补一次：Present 可能发生在 controller 之前（那时只能记下
+		// lastSlot.Zoom），controller 就绪后必须把页面缩放对上。
+		if err := h.applyZoom(h.lastSlot.Zoom); err != nil {
+			return err
+		}
 		h.tab = browser.TabID("tab-1")
 		h.tabOpen = true
 		tab = h.tab
@@ -600,6 +613,42 @@ func (h *host) PageState(ctx context.Context, tab browser.TabID) (PageState, err
 	return PageState{ReadyState: payload.ReadyState, Title: payload.Title, URL: payload.URL, Counters: payload.Counters}, nil
 }
 
+// Focus 把键盘焦点交给原生视图。
+//
+// 必须在 UI 线程调用 MoveFocus：它会把焦点下发给 WebView2 内部的渲染窗口，
+// 页面里 document.hasFocus() 才会变 true（否则 CDP 的 key 事件只能改 DOM 而不能
+// 真正触发焦点相关行为，IME 也没地方提交）。
+func (h *host) Focus(ctx context.Context, tab browser.TabID) error {
+	return h.runOnUI(ctx, func() error {
+		if !h.tabOpen || h.tab != tab {
+			return appErr(contracts.CodeNotFound, "没有活跃 tab %q（当前 %q）", string(tab), string(h.tab))
+		}
+		if h.ctrl == nil {
+			return appErr(contracts.CodeInternal, "controller 尚未就绪")
+		}
+		if err := h.ctrl.MoveFocus(uintptr(edge.COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)); err != nil {
+			return appErr(contracts.CodeInternal, "ICoreWebView2Controller.MoveFocus 失败: %v", err)
+		}
+		h.focused.Store(true)
+		h.emit(BrowserEvent{TabID: tab, Type: "focus_moved", Payload: map[string]any{"reason": "programmatic"}})
+		return nil
+	})
+}
+
+// CallCDP 是证据通道：直接发一条 DevTools 协议命令并返回原始结果 JSON。
+//
+// 不是产品路径（不经过隔离世界与后置条件核验），只给 tests/native 与 spike 采集
+// “页面自己怎么说”的证据。超时后返回 OUTCOME_UNKNOWN 并且不重放调用。
+func (h *host) CallCDP(ctx context.Context, tab browser.TabID, method, params string, timeout time.Duration) (string, error) {
+	if err := h.requireTab(ctx, tab); err != nil {
+		return "", err
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return h.cdpRoundTrip(ctx, method, params, timeout)
+}
+
 // WindowInfo 返回原生窗口事实（证据与测试用）。
 func (h *host) WindowInfo() WindowInfo {
 	parent := h.parentHWND.Load()
@@ -611,6 +660,8 @@ func (h *host) WindowInfo() WindowInfo {
 		DPI:              h.dpi.Load(),
 		Scale:            h.scale(),
 		WebViewChildHWND: h.webviewChild.Load(),
+		ZoomFactor:       h.zoom(),
+		Focused:          h.focused.Load(),
 	}
 	if child != 0 {
 		info.ParentOfChild = parentOf(child)
@@ -633,11 +684,24 @@ func (h *host) closeTabOnUI() {
 				"error": err.Error(),
 			}})
 		}
+		// 只还我们自己的那一份 ICoreWebView2 引用（getCoreWebView2 出参），
+		// 不动 edge 自己 AddRef 的对象：见 releaseOwnedWebViewRef 的说明。
+		if released, err := releaseOwnedWebViewRef(h.cdp); err != nil {
+			h.emit(BrowserEvent{TabID: h.tab, Type: "com_release_failed", Payload: map[string]any{
+				"error": err.Error(),
+			}})
+		} else if released > 0 {
+			h.emit(BrowserEvent{TabID: h.tab, Type: "com_released", Payload: map[string]any{"count": released}})
+		}
 	}
 	h.ctrl = nil
 	h.chromium = nil
 	h.cdp = nil
 	h.controllerReady.Store(false)
+	h.focused.Store(false)
+	// 页面缩放跟着 controller 一起消失：回到 1 表示“没有活着的 controller”，
+	// 下一次 CreateTab 会按 lastSlot.Zoom 重新设置。
+	h.zoomBits.Store(math.Float64bits(1))
 	h.snaps = map[string]*snapshotRefs{}
 	if h.tabOpen {
 		h.emit(BrowserEvent{TabID: h.tab, Type: EventTabClosed})
@@ -667,6 +731,44 @@ func (h *host) scale() float64 {
 		return 1
 	}
 	return float64(dpi) / 96
+}
+
+// zoom 返回页面缩放因子（1 = 100%）。
+func (h *host) zoom() float64 {
+	bits := h.zoomBits.Load()
+	if bits == 0 {
+		return 1
+	}
+	z := math.Float64frombits(bits)
+	if !(z > 0) {
+		return 1
+	}
+	return z
+}
+
+// applyZoom 把页面缩放设成 zoom 并记下实测值（必须在 UI 线程调用）。
+//
+// 只改页面缩放：子窗口的物理尺寸仍然是 slot CSS 尺寸 × DPI/96，两者互不影响。
+func (h *host) applyZoom(zoom float64) error {
+	if h.ctrl == nil {
+		// controller 还没就绪：记下期望值，CreateTab 就绪后会补设。
+		if zoom > 0 {
+			h.zoomBits.Store(math.Float64bits(zoom))
+		}
+		return nil
+	}
+	if !(zoom > 0) {
+		return appErr(contracts.CodeUnsupported, "缩放因子必须为正（收到 %v）", zoom)
+	}
+	if err := putZoomFactor(h.ctrl, zoom); err != nil {
+		return err
+	}
+	got, err := getZoomFactor(h.ctrl)
+	if err != nil {
+		return err
+	}
+	h.zoomBits.Store(math.Float64bits(got))
+	return nil
 }
 
 func (h *host) requireTab(ctx context.Context, tab browser.TabID) error {
