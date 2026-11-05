@@ -129,3 +129,57 @@ $env:MYAGENT_SPIKE_AUTOQUIT_SECONDS='75'; .\.tmp\browser-spike.exe -native
 - 缺机器/凭证/签名/网络 → BLOCKED，不删目标、不改口径、不伪造证据；
 - 历史证据不可变：新运行写新文件，`docs/evidence/raw/` 里已有文件不改写；
 - 用户级技能同步不等于授权项目资源；`-na` 不能省（ADR 0003）。
+
+---
+
+## 追加：第三批（B01b + C05）与最终证据（2026-11-05）
+
+### 新增提交
+
+| commit | 内容 |
+|---|---|
+| `474562a` | 修 `--gate` 只改目录不改 case 列表（`TestIntegrationSelectsCasesByGate`） |
+| `3d82992` | gofmt 只查仓库内未被忽略的 Go 文件（`.tmp/` 探针不再让 static 变红） |
+| `607f384` | **C05**：长期记忆 + 中文 FTS5 trigram + 受控注入（MEM01–05） |
+| `2e1bcca` | integration 支持多步骤 case；接入 MEM01–05 / RES01–04（G2 可跑 14/50） |
+| `fa96b64` | **B01b**：缩放 100/150/200%、分栏 20 轮、焦点/最小化/剪贴板/IME、50 轮（BR04–06） |
+| `112fcae` | 收录 UI 设计交接包（`docs/ui/`，**输入材料，未实现**） |
+
+### 最终证据（HEAD `112fcae`，干净工作区）
+
+```text
+G0  verify --suite=integration --target=win-x64 → 0（24/24）
+    gate → 2；win-x64 14/14 ✓、HOST 10/10 ✓、其余五目标 0/14
+G1  verify --suite=native --target=win-x64 --display=desktop → 2
+    BR00/BR01/BR04/BR05/BR06 PASS（可跑 5/7）；缺 BR07.native、UI04.native
+    gate → 2；必需证据位 49，通过 5
+G2  verify --suite=integration --gate=G2 → 2
+    SEC01/02/05/06/08、RES01–04、MEM01–05 PASS（可跑 14/50）
+    gate → 2；必需证据位 240，通过 14
+```
+
+证据树在 `docs/evidence/runs/112fcae/{G0,G1,G2}/win-x64`（gitignore）。
+文档提交会改变 HEAD；要新的门禁结论就在新 HEAD 重跑，别手改证据里的 revision。
+
+### 仍未闭合（按优先级）
+
+1. **G2 还差 36 条 runner**：SEC03.browser、SEC04.browser、SEC07、CFG01/02/03.resources/04、
+   DB01–03、RUN01–07、MOD01–04、MCP01–05、BR08–17。多数已有单元测试，
+   需要逐条核对"测试真的断言了该 case 的通过条件"再接线——不要按名字硬塞。
+2. **B04**（DOM 引用注册表、select/checkbox/scroll/key、STALE_SNAPSHOT、trusted-only 语义）
+   → 解开 BR07.native/BR10。
+3. **B07**（工作台集成 + 遮挡协调器）→ 解开 UI04.native、BR07。
+4. **B02/B03**：需要 macOS（Intel/AS）与 Ubuntu（X11+Wayland）机器；没有就 BLOCKED。
+5. **C06/C07、X01–X05**：G3 之后才打包；F06 安装器仍按 ADR 0002 延后。
+6. **六目标 G0**：需要推送触发 CI，属于用户授权事项。
+
+### 新输入：UI 设计交接包（`docs/ui/Agent-客户端产品原型/`）
+
+2026-11-05 出现的 OpenDesign 导出（9 屏 HTML + 视觉契约）。已原样入库保存，
+**没有**被当前 React 前端采用。若要按它重构 UI：
+
+- 需要单独立项：它替换的是 C01–C05 的视觉系统与 9 个界面，现有 117 条前端用例要重写；
+- 先确认它与 R01（React + shadcn 为执行默认）的关系，若改用原型的技术路线（HTML/CSS/
+  localStorage）则属于"更换前端栈"，按基线要先写 ADR；
+- 建议顺序：先做视觉 token/布局骨架（不动业务接线）→ 再逐屏替换 → 每屏保留现有的
+  空/加载/失败三态与真实数据源，不允许把硬编码 mock 当实现。
