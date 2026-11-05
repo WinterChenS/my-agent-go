@@ -307,6 +307,103 @@ func testIndexOne(t *testing.T, c CaseEntry) *CasesIndex {
 	return &CasesIndex{SchemaVersion: 1, Cases: []CaseEntry{c}}
 }
 
+// rehashEvidence 在测试里修改证据文件后重算 reportHash，模拟“篡改后再伪造自洽”。
+func rehashEvidence(t *testing.T, dir string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "result.json"))
+	if err != nil {
+		t.Fatalf("读 result.json: %v", err)
+	}
+	var ev contracts.GateEvidence
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		t.Fatalf("解析 result.json: %v", err)
+	}
+	ev.ReportHash = ""
+	_ = os.WriteFile(filepath.Join(dir, "result.json"), mustJSON(t, ev), 0o644)
+	ev.ReportHash = ComputeEvidenceHash(dir)
+	_ = os.WriteFile(filepath.Join(dir, "result.json"), mustJSON(t, ev), 0o644)
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
+func writeExternalOracle(t *testing.T, dir, source string, observation any, artifacts []string) {
+	t.Helper()
+	oracle := externalOracle{
+		SchemaVersion: 1,
+		Kind:          "external-observation",
+		Source:        source,
+		Observation:   mustJSON(t, observation),
+		Artifacts:     artifacts,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "oracle.json"), mustJSON(t, oracle), 0o644); err != nil {
+		t.Fatalf("写 external oracle: %v", err)
+	}
+}
+
+// TestGateRequiresExternalOracleForSideEffectCases：副作用 case 不能用自己的输出自证。
+func TestGateRequiresExternalOracleForSideEffectCases(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{
+		ID: "CONN02", Owner: "C08", Required: true, Scope: "HOST",
+		Gates: []string{"G2"}, OracleKind: "external",
+	})
+	base := testBaseline()
+
+	t.Run("test-process-rejected", func(t *testing.T) {
+		root := t.TempDir()
+		writeEvidence(t, root, base.SourceRevision, "G2", "win-x64", "CONN02", base.VersionsLockHash, nil)
+		rep, err := EvaluateGate(idx, "G2", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "实现边界之外") {
+			t.Fatalf("副作用 case 用 test-process 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("missing-artifact-rejected", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G2", "win-x64", "CONN02", base.VersionsLockHash, nil)
+		writeExternalOracle(t, dir, "fixture-counter", map[string]int{"sends": 1}, []string{"counter.json"})
+		rehashEvidence(t, dir)
+		rep, err := EvaluateGate(idx, "G2", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "artifact") {
+			t.Fatalf("external oracle 缺 artifact 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("unsupported-source-rejected", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G2", "win-x64", "CONN02", base.VersionsLockHash, nil)
+		if err := os.WriteFile(filepath.Join(dir, "counter.json"), []byte(`{"sends":1}`), 0o644); err != nil {
+			t.Fatalf("写 counter: %v", err)
+		}
+		writeExternalOracle(t, dir, "vibes", map[string]int{"sends": 1}, []string{"counter.json"})
+		rehashEvidence(t, dir)
+		rep, err := EvaluateGate(idx, "G2", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "source") {
+			t.Fatalf("非法 source 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("external-ok", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G2", "win-x64", "CONN02", base.VersionsLockHash, nil)
+		if err := os.WriteFile(filepath.Join(dir, "counter.json"), []byte(`{"sends":1}`), 0o644); err != nil {
+			t.Fatalf("写 counter: %v", err)
+		}
+		writeExternalOracle(t, dir, "fixture-counter", map[string]int{"sends": 1}, []string{"counter.json"})
+		rehashEvidence(t, dir)
+		rep, err := EvaluateGate(idx, "G2", root, base)
+		if err != nil || !rep.Passed || rep.ExitCode != 0 {
+			t.Fatalf("合法的 external oracle 应通过（否则上面的判死可能只是永远判死），passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+}
+
 func TestGateAcceptsAllRequiredEvidence(t *testing.T) {
 	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
 	root := t.TempDir()

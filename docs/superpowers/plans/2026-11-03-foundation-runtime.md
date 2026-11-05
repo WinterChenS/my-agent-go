@@ -42,7 +42,7 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 `RunSnapshot{RunID,SessionID,WorkspaceID,State,LastSeq,ConfigRevision,PiVersion,Error}`；`ConfigDocument{SchemaVersion int, Revision uint64, Body json.RawMessage}`；`ExecutionContext{WorkspaceID,SessionID,RunID,ConfigRevision,ControlGeneration}`；工具参数为schema校验后的json.RawMessage。
 
-证据类型 `GateEvidence{SchemaVersion,GateID,TaskID,SourceRevision,VersionsLockHash,TargetID,StartedAt,EndedAt,Command,ExitCode,CaseResults,Artifacts,Limitations,Reviewer}`，完整JSON schema枚举状态，不允许null/缺字段作为通过。2026-11-05 增量：PASS case 必须给出证据目录内的 `oraclePath`，gate 哈希 result/command/stdout/stderr/environment/oracle/截图/录屏和其它附件；缺失、越界或篡改 oracle 判死。case ID 和 runner 名均必须唯一且在注册表中；注册名称不等于实现，缺 case 执行定义仍返回2。
+证据类型 `GateEvidence{SchemaVersion,GateID,TaskID,SourceRevision,VersionsLockHash,TargetID,StartedAt,EndedAt,Command,ExitCode,CaseResults,Artifacts,Limitations,Reviewer}`，完整JSON schema枚举状态，不允许null/缺字段作为通过。2026-11-05 增量：PASS case 必须给出证据目录内的 `oraclePath`，gate 哈希 result/command/stdout/stderr/environment/oracle/截图/录屏和其它附件；缺失、越界、空文件、symlink 或篡改 oracle 判死。oracle 分 `test-process`（命令/退出码/输出哈希）与 `external-observation`（source + observation + 目录内 artifact）；case 索引的 `oracleKind=external` 拒绝 test-process 自证，新 case 必须声明 external，旧 case 靠 `tests/acceptance/oracle-allowlist.json` 显式列欠账且只减不增。case ID 和 runner 名均必须唯一且在注册表中；注册名称不等于实现，缺 case 执行定义仍返回2。
 
 - [ ] 写 `TestGateRejectsMissingRequiredCase`、`TestGateRejectsStaleRevision`、`TestGateRejectsEmptyOrSkippedNativeSuite`：缺一必需case、旧revision、仅skip时返回非零；unknown target/suite返回2。
 - [ ] 先运行 `go test ./internal/devtools -run 'TestGateRejects' -count=1` 记录失败，再实现 runner 和 schema；子进程原始exit code和stdout/stderr持久化。

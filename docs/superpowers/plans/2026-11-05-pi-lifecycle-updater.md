@@ -18,6 +18,7 @@
 - Anvil 更新自动检查和下载，但不主动重启；只在用户下次正常启动时应用。
 - 清单与包分别验签，信任根编译进当前应用；远端内容不能替换信任根。
 - `internal/contracts`、`schemas`、`cmd/devtools` 与 case 索引由单一写者串行修改。
+- 本计划的 case 在索引中声明 `oracleKind=external`。新增 runner 必须写 `kind=external-observation` 的 `oracle.json`：`source` + 结构化 `observation` + 目录内非空 artifact（active 指针快照、候选 hash、进程版本输出至少其一）。用 `test-process` 自证会让 G0/G2 判死。
 
 ---
 

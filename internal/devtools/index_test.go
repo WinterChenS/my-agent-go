@@ -8,6 +8,7 @@ package devtools
 // 而不是靠人对照文档。
 
 import (
+	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
@@ -125,6 +126,61 @@ func TestIndexEntriesAreActionable(t *testing.T) {
 		}
 		if _, ok := targetsForScope(c.Scope); !ok {
 			t.Errorf("必需原子 case %s 的 scope %q 无法解析", c.ID, c.Scope)
+		}
+	}
+}
+
+// TestOracleKindIsDeclaredOrGrandfathered：新 case 不能用 test-process 自证。
+//
+// 背景（2026-11-05 复核）：test-process oracle 只能证明「报告与子进程输出一致」，
+// 无法证明 fixture 真收到请求、数据库真写入、进程真退出。所以副作用与真实包类
+// case 必须使用 external-observation（source + observation + 目录内 artifact）。
+// 加固前已存在的 case 暂时保留在 allowlist 中，作为可见且只减不增的欠账。
+func TestOracleKindIsDeclaredOrGrandfathered(t *testing.T) {
+	idx := loadRealIndex(t)
+	allowPath, err := repoFile("tests/acceptance/oracle-allowlist.json")
+	if err != nil {
+		t.Fatalf("定位 oracle allowlist: %v", err)
+	}
+	raw, err := os.ReadFile(allowPath)
+	if err != nil {
+		t.Fatalf("读取 oracle allowlist: %v", err)
+	}
+	var allow struct {
+		SchemaVersion  int      `json:"schemaVersion"`
+		ProcessAllowed []string `json:"processAllowed"`
+	}
+	if err := json.Unmarshal(raw, &allow); err != nil {
+		t.Fatalf("解析 oracle allowlist: %v", err)
+	}
+	if allow.SchemaVersion != 1 {
+		t.Fatalf("oracle allowlist schemaVersion=%d，期望 1", allow.SchemaVersion)
+	}
+	allowed := map[string]bool{}
+	for _, id := range allow.ProcessAllowed {
+		allowed[id] = true
+	}
+
+	known := map[string]bool{}
+	for _, c := range idx.Cases {
+		known[c.ID] = true
+	}
+
+	for _, c := range idx.Cases {
+		if c.OracleKind == "external" {
+			if allowed[c.ID] {
+				t.Errorf("case %s 已声明 external oracle，但仍留在 allowlist；改完必须移除，避免欠账表只增不减", c.ID)
+			}
+			continue
+		}
+		if !allowed[c.ID] {
+			t.Errorf("case %s 未声明 oracleKind=external 且不在 allowlist：新 case 必须用实现边界之外的 oracle", c.ID)
+		}
+	}
+
+	for id := range allowed {
+		if !known[id] {
+			t.Errorf("oracle allowlist 里的 %s 已不在用例索引中（悬空条目会掩盖删除）", id)
 		}
 	}
 }

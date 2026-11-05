@@ -19,6 +19,7 @@
 - 写请求返回未知结果时标记 `OutcomeUnknown`，除非平台幂等键证明安全，否则不自动重放。
 - 调度器全局同时运行上限为 2；无人值守运行不能绕过审批。
 - 任务时区使用 IANA 名称，测试必须覆盖 DST 和系统时钟跳变。
+- 本计划的 case 声明 `oracleKind=external`：runner 的 `oracle.json` 必须是 `external-observation`，`source` 取 `fixture-counter`/`database`/`filesystem`，并附目录内非空 artifact（fixture 计数快照、occurrence 行导出、adapter 服务端日志）。`test-process` 自证会被门禁判死。
 
 ---
 

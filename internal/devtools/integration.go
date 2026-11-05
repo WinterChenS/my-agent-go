@@ -87,11 +87,11 @@ func integrationCases() []integrationCase {
 		// 而完整的六目标证据必须能通过（否则「全判死」也能让上面几条绿）。
 		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
 		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/oracle 缺失或篡改/串用阶段/重复证据/dirty 工作区均拒绝。
-		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsMissingOrTamperedOracle|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
+		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsMissingOrTamperedOracle|TestGateRequiresExternalOracleForSideEffectCases|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestIntegrationSelectsCasesByGate|TestGofmtScopeExcludesScratchDirs|TestReviewGate"},
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestOracleKindIsDeclaredOrGrandfathered|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestIntegrationSelectsCasesByGate|TestGofmtScopeExcludesScratchDirs|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},

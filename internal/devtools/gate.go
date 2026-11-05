@@ -30,16 +30,22 @@ const (
 
 // CaseEntry 是机器索引中的单条用例记录。
 type CaseEntry struct {
-	ID        string   `json:"id"`
-	Owner     string   `json:"owner"`
-	Runner    string   `json:"runner"`
-	Required  bool     `json:"required"`
-	Scope     string   `json:"scope"`
-	Phase     string   `json:"phase"`
-	Gates     []string `json:"gates"`
-	Composite bool     `json:"composite,omitempty"`
-	Subcases  []string `json:"subcases,omitempty"`
-	Manual    bool     `json:"manual,omitempty"`
+	ID       string   `json:"id"`
+	Owner    string   `json:"owner"`
+	Runner   string   `json:"runner"`
+	Required bool     `json:"required"`
+	Scope    string   `json:"scope"`
+	Phase    string   `json:"phase"`
+	Gates    []string `json:"gates"`
+	// OracleKind 声明该 case 需要的证据强度：
+	//   - "external"：必须提供实现边界之外的观察（fixture counter/DB/文件/进程），
+	//     不接受 test-process 自证；副作用与真实包类 case 必须用它；
+	//   - "" 或 "process"：断言本身就是子进程结果，允许 test-process。
+	// 缺省值是有意保守的：新加的副作用 case 必须显式声明，否则不得降级。
+	OracleKind string   `json:"oracleKind,omitempty"`
+	Composite  bool     `json:"composite,omitempty"`
+	Subcases   []string `json:"subcases,omitempty"`
+	Manual     bool     `json:"manual,omitempty"`
 }
 
 // CasesIndex 是 tests/acceptance/cases.json 的解析结构。
@@ -355,6 +361,10 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 
 	requiredCases := map[string]bool{}
 	requiredKeys := map[string]bool{}
+	entryByID := map[string]CaseEntry{}
+	for _, c := range idx.Cases {
+		entryByID[c.ID] = c
+	}
 	for _, r := range reqs {
 		requiredCases[r.CaseID] = true
 		requiredKeys[r.CaseID+"\x00"+r.Target+"\x00"+r.Display] = true
@@ -377,7 +387,7 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 		eval.Found = true
 		var probs []string
 		for _, ev := range hits {
-			probs = append(probs, validateEvidence(ev, r.CaseID, gateID, base)...)
+			probs = append(probs, validateEvidence(ev, r.CaseID, gateID, base, entryByID[r.CaseID])...)
 		}
 		probs = append(probs, caseProblems[r.CaseID]...)
 		if len(probs) > 0 {
@@ -406,7 +416,7 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 			if requiredKeys[key] {
 				continue // 必需位已单独校验，不重复报
 			}
-			if probs := validateEvidence(ev, caseID, gateID, base); len(probs) > 0 {
+			if probs := validateEvidence(ev, caseID, gateID, base, entryByID[caseID]); len(probs) > 0 {
 				reason := strings.Join(dedupe(probs), "; ")
 				rep.PerRequirement = append(rep.PerRequirement, RequirementEval{
 					Requirement: Requirement{CaseID: caseID, Target: target, Display: normalizeDisplay(target, ev.Display)},
@@ -540,7 +550,7 @@ func failGate(rep *GateReport, reason string) {
 // validateEvidence 校验单条证据的完整性。
 //
 // 注意：gate 只能校验人工证据的结构完整性；结构通过不等于事实审查通过。
-func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline) []string {
+func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline, entry CaseEntry) []string {
 	var p []string
 	if ev.GateID != gateID {
 		p = append(p, fmt.Sprintf("证据的 gateId=%q 与请求的 %s 不一致（目录 %s）",
@@ -578,7 +588,7 @@ func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline)
 	if evidenceAllSkippedOrEmpty(ev.GateEvidence) {
 		p = append(p, "报告为空或全部 SKIP，不能冒充通过")
 	}
-	p = append(p, validateCaseStatuses(ev.GateEvidence, caseID, ev.dir)...)
+	p = append(p, validateCaseStatuses(ev.GateEvidence, caseID, ev.dir, entry)...)
 	return p
 }
 
@@ -600,7 +610,7 @@ func caseResultMatches(caseID string, cr contracts.CaseResult) bool {
 // validateCaseStatuses 校验用例状态。
 // 这是最容易漏的一环：命令 exitCode=0 但用例状态是 FAIL/BLOCKED/NOT_RUN 的报告，
 // 不得因"非空且非全 SKIP"就被判通过。必需 case 只认 PASS。
-func validateCaseStatuses(ev contracts.GateEvidence, caseID, evidenceDir string) []string {
+func validateCaseStatuses(ev contracts.GateEvidence, caseID, evidenceDir string, entry CaseEntry) []string {
 	var p []string
 	matched := 0
 	passed := 0
@@ -619,7 +629,7 @@ func validateCaseStatuses(ev contracts.GateEvidence, caseID, evidenceDir string)
 				strings.TrimSpace(cr.StartedAt) == "" || strings.TrimSpace(cr.EndedAt) == "" {
 				p = append(p, "PASS case 缺 expected/actual/startedAt/endedAt，属于不可审计的自报成功")
 			}
-			p = append(p, validateOraclePath(evidenceDir, cr.OraclePath, ev.Command, ev.ExitCode)...)
+			p = append(p, validateOraclePath(evidenceDir, cr.OraclePath, ev.Command, ev.ExitCode, entry.OracleKind == "external")...)
 		} else {
 			p = append(p, fmt.Sprintf("必需 case 状态为 %s（只认 PASS）", cr.Status))
 		}
@@ -632,7 +642,7 @@ func validateCaseStatuses(ev contracts.GateEvidence, caseID, evidenceDir string)
 	return p
 }
 
-func validateOraclePath(evidenceDir, oraclePath, command string, exitCode int) []string {
+func validateOraclePath(evidenceDir, oraclePath, command string, exitCode int, wantExternal bool) []string {
 	if strings.TrimSpace(oraclePath) == "" {
 		return []string{"PASS case 缺 oraclePath，不能只由实现自身报告成功"}
 	}
@@ -670,8 +680,28 @@ func validateOraclePath(evidenceDir, oraclePath, command string, exitCode int) [
 	if info.Size() == 0 {
 		return []string{"oraclePath 是空文件，不能证明外部结果"}
 	}
-	if err := validateProcessOracle(evidenceDir, clean, command, exitCode); err != nil {
-		return []string{"oracle 无法独立核对子测试进程: " + err.Error()}
+	raw, err := os.ReadFile(full)
+	if err != nil {
+		return []string{"oraclePath 不可读: " + err.Error()}
+	}
+	var header oracleHeader
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return []string{"oracle 不是合法 JSON: " + err.Error()}
+	}
+	switch header.Kind {
+	case "test-process":
+		if wantExternal {
+			return []string{"case 要求实现边界之外的 oracle，test-process 自证不满足"}
+		}
+		if err := validateProcessOracle(evidenceDir, clean, command, exitCode); err != nil {
+			return []string{"oracle 无法独立核对子测试进程: " + err.Error()}
+		}
+	case "external-observation":
+		if err := validateExternalOracle(evidenceDir, clean); err != nil {
+			return []string{"external oracle 不成立: " + err.Error()}
+		}
+	default:
+		return []string{fmt.Sprintf("未知 oracle kind: %q", header.Kind)}
 	}
 	return nil
 }

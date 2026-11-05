@@ -46,9 +46,9 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | ENV02 | F00 | ALL | 矩阵中每目标有可访问的真实运行环境和架构证据；Linux两个display有检查资源；资源缺失保持BLOCKED |
 | ENV03 | F00 | HOST | frontend lock/go.sum/versions.lock一致，依赖来源可追溯；重复安装构建不漂移版本 |
 | GOV01 | F01 | HOST | 必需case缺失/空suite/unknown target返回2，不能PASS |
-| GOV02 | F01 | HOST | 旧版本锁/错误revision/报告或 oracle/artifact hash 篡改被拒；PASS 缺目录内 oracle、oracle 越界或人工证据缺真实机器/review字段被拒 |
+| GOV02 | F01 | HOST | 旧版本锁/错误revision/报告或 artifact hash 篡改被拒；PASS 缺目录内 oracle、oracle 越界或 symlink、副作用 case 用 test-process 自证、external oracle 缺 artifact/非法 source 均被拒；人工证据缺真实机器/review字段被拒 |
 | GOV03 | F01 | HOST | 命令断言失败返回1、配置缺失返回2、成功0；子进程失败不会被日志成功覆盖 |
-| GOV04 | F01 | HOST | 所有本矩阵case都在机器索引且有owner/已注册runner；重复 case ID 被拒；未实现 case runner 使 suite 非零；仅SKIP的native报告不能通过 |
+| GOV04 | F01 | HOST | 所有本矩阵case都在机器索引且有owner/已注册runner；重复 case ID 被拒；新 case 未声明 external oracle 或已声明仍留在 allowlist 被拒；未实现 case runner 使 suite 非零；仅SKIP的native报告不能通过 |
 
 ### Pi、RPC、权限
 
@@ -275,7 +275,14 @@ artifacts/evidence/<source-revision>/<gate>/<targetId>/<caseId>/
 artifacts/evidence/<source-revision>/<gate>/<targetId>/<display>/<caseId>/
 ```
 
-oracle 按 case 包含文件 hash、服务器 counter、DB 查询、进程树、坐标/时间/RSS 原始样本。PASS 的 `oraclePath` 必须指向证据目录内非空、无 symlink 的结构化 `oracle.json`；不得直接指向 result/command/stdout/stderr。当前自动 runner 使用 `kind=test-process`，记录子测试命令、退出码及 stdout/stderr hash，gate 独立重算；副作用 case 的子测试仍必须从 fixture counter、文件系统、进程或数据库读取实现边界之外的事实。证据目录中的 environment、oracle、截图、录屏和附件都进入 reportHash。原始证据可保留在CI artifact或用户指定本地目录，仓库只提交索引与脱敏摘要；禁止提交真实凭证、个人网页/cookies、模型私密对话。对外分享诊断前由用户决定。
+oracle 分两类，由 `tests/acceptance/cases.json` 的 `oracleKind` 声明：
+
+- `external`（实现边界之外）：`oracle.json` 必须为 `kind=external-observation`，含合法 `source`（`fixture-counter` / `http-server` / `database` / `filesystem` / `process-tree` / `os-signature` / `manual-review`）、非空 `observation` 和至少一个目录内非空 artifact（文件 hash、服务器 counter、DB 查询、进程树、坐标/时间/RSS 原始样本）。`test-process` 在此类 case 上被判死。
+- 缺省/`process`：断言本身就是子进程结果，允许 `kind=test-process`（命令、退出码、stdout/stderr 哈希由 gate 重算）。
+
+2026-11-05 新增的 61 条 case（Pi 生命周期、连接器、调度、UI、i18n、主题、更新）全部声明 `external`。加固前已存在且已有 runner 的 case 暂列入 `tests/acceptance/oracle-allowlist.json`，作为可见欠账；该表只允许缩小，`TestOracleKindIsDeclaredOrGrandfathered` 会拒绝“新 case 不声明 external”和“已声明 external 却仍留在 allowlist”。改造这些旧 runner 时必须改用外部观察。
+
+结构校验只能证明证据自洽与未被篡改；artifact 是否真由外部系统产生，仍由 case 断言和独立审查保证。原始证据可保留在 CI artifact 或用户指定本地目录，仓库只提交索引与脱敏摘要；禁止提交真实凭证、个人网页/cookies、模型私密对话。对外分享诊断前由用户决定。
 
 result.json字段见F01 GateEvidence schema；每个CaseResult含id/subcase/status/expected/actual/oraclePath/startedAt/endedAt；GateEvidence另含targetId、display（Linux: x11/wayland；Windows/macOS: desktop 或空）、worktreeDirty（必须为 false）、sourceRevision、versionsLockHash、reportHash、reviewer。截图只能证明视觉状态，不能独自证明后台调用被拒或不存在数据泄漏。
 

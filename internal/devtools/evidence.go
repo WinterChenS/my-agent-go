@@ -23,6 +23,38 @@ type processOracle struct {
 	StderrSHA256  string `json:"stderrSha256"`
 }
 
+// externalOracle 表示由被测系统边界之外产生的观察结果。
+//
+// 为什么需要第二种 oracle：test-process 只能证明「报告与子进程一致」，无法证明
+// 真的发生了外部副作用（fixture 收到几次请求、数据库里有没有记录、进程是否退出）。
+// 对于副作用类 case，必须给出 source + observation + 证据目录内的原始 artifact；
+// 否则 runner 只要自报 PASS 就能自证。
+//
+// kind 目前支持：
+//   - test-process：子进程命令/退出码/输出哈希，适用于「断言就是子进程结果」的 case；
+//   - external-observation：source（fixture-counter/http-server/database/filesystem/
+//     process-tree/os-signature）+ 结构化观察值 + 目录内非空 artifact。
+//
+// gate 只校验结构与完整性；artifact 内容是否真由外部系统产生，仍由 case 断言和
+// 独立审查保证，不由这个结构自动证明。
+type externalOracle struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Kind          string          `json:"kind"`
+	Source        string          `json:"source"`
+	Observation   json.RawMessage `json:"observation"`
+	Artifacts     []string        `json:"artifacts"`
+}
+
+var externalOracleSources = map[string]bool{
+	"fixture-counter": true,
+	"http-server":     true,
+	"database":        true,
+	"filesystem":      true,
+	"process-tree":    true,
+	"os-signature":    true,
+	"manual-review":   true,
+}
+
 func bytesSHA256(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -69,6 +101,80 @@ func validateProcessOracle(dir, oraclePath, command string, exitCode int) error 
 	}
 	if oracle.StdoutSHA256 != bytesSHA256(stdout) || oracle.StderrSHA256 != bytesSHA256(stderr) {
 		return fmt.Errorf("oracle 的子进程输出哈希不匹配")
+	}
+	return nil
+}
+
+// oracleHeader 只解析公共头，用于选择结构。
+type oracleHeader struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+}
+
+// validateExternalOracle 校验实现边界之外的观察证据。
+// wantExternal 为 true 时，test-process 不被接受。
+func validateExternalOracle(dir, oraclePath string) error {
+	raw, err := os.ReadFile(filepath.Join(dir, oraclePath))
+	if err != nil {
+		return err
+	}
+	var oracle externalOracle
+	if err := json.Unmarshal(raw, &oracle); err != nil {
+		return fmt.Errorf("external oracle 不是合法 JSON: %w", err)
+	}
+	if oracle.SchemaVersion != 1 {
+		return fmt.Errorf("external oracle schemaVersion 不支持: %d", oracle.SchemaVersion)
+	}
+	if oracle.Kind != "external-observation" {
+		return fmt.Errorf("oracle kind=%q，期望 external-observation", oracle.Kind)
+	}
+	if !externalOracleSources[oracle.Source] {
+		return fmt.Errorf("external oracle source 不合法或缺失: %q", oracle.Source)
+	}
+	if len(oracle.Observation) == 0 || string(oracle.Observation) == "null" {
+		return fmt.Errorf("external oracle 缺 observation 观察值")
+	}
+	if len(oracle.Artifacts) == 0 {
+		return fmt.Errorf("external oracle 未附任何原始 artifact，无法核对副作用")
+	}
+	for _, artifact := range oracle.Artifacts {
+		if err := validateEvidenceArtifact(dir, artifact); err != nil {
+			return fmt.Errorf("external oracle artifact %q: %w", artifact, err)
+		}
+	}
+	return nil
+}
+
+func validateEvidenceArtifact(dir, artifact string) error {
+	clean := filepath.Clean(artifact)
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("必须是证据目录内的相对路径")
+	}
+	full := filepath.Join(dir, clean)
+	rel, err := filepath.Rel(dir, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("越出证据目录")
+	}
+	current := dir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			return fmt.Errorf("不可读: %w", statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("或其父目录是符号链接")
+		}
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return fmt.Errorf("不可读: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("不是常规文件")
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("是空文件")
 	}
 	return nil
 }
