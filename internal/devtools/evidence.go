@@ -4,30 +4,92 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"my-agent-go/internal/contracts"
 )
 
-// ComputeEvidenceHash 计算证据目录的规范化哈希，覆盖命令、输出与结果文件。
-// 门禁据此重新计算并比对 result.json.reportHash，用于发现报告被篡改（GOV02）。
-// 任一文件缺失也参与哈希，保证缺失本身可被检测。
+type processOracle struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+	Command       string `json:"command"`
+	ExitCode      int    `json:"exitCode"`
+	StdoutSHA256  string `json:"stdoutSha256"`
+	StderrSHA256  string `json:"stderrSha256"`
+}
+
+func bytesSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func writeProcessOracle(dir, command string, exitCode int, stdout, stderr []byte) error {
+	oracle := processOracle{
+		SchemaVersion: 1,
+		Kind:          "test-process",
+		Command:       command,
+		ExitCode:      exitCode,
+		StdoutSHA256:  bytesSHA256(stdout),
+		StderrSHA256:  bytesSHA256(stderr),
+	}
+	data, err := json.MarshalIndent(oracle, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "oracle.json"), data, 0o644)
+}
+
+func validateProcessOracle(dir, oraclePath, command string, exitCode int) error {
+	raw, err := os.ReadFile(filepath.Join(dir, oraclePath))
+	if err != nil {
+		return err
+	}
+	var oracle processOracle
+	if err := json.Unmarshal(raw, &oracle); err != nil {
+		return fmt.Errorf("oracle 不是合法 JSON: %w", err)
+	}
+	if oracle.SchemaVersion != 1 || oracle.Kind != "test-process" {
+		return fmt.Errorf("oracle schema/kind 不受支持: %d/%q", oracle.SchemaVersion, oracle.Kind)
+	}
+	if oracle.Command != command || oracle.ExitCode != exitCode {
+		return fmt.Errorf("oracle 命令或退出码与 result 不一致")
+	}
+	stdout, err := os.ReadFile(filepath.Join(dir, "stdout.log"))
+	if err != nil {
+		return fmt.Errorf("读取 stdout: %w", err)
+	}
+	stderr, err := os.ReadFile(filepath.Join(dir, "stderr.log"))
+	if err != nil {
+		return fmt.Errorf("读取 stderr: %w", err)
+	}
+	if oracle.StdoutSHA256 != bytesSHA256(stdout) || oracle.StderrSHA256 != bytesSHA256(stderr) {
+		return fmt.Errorf("oracle 的子进程输出哈希不匹配")
+	}
+	return nil
+}
+
+// ComputeEvidenceHash 计算证据目录的规范化哈希，覆盖 result.json 与目录中全部
+// 其它常规文件（命令、输出、环境、oracle、截图、录屏和附件）。门禁据此重新计算
+// 并比对 result.json.reportHash，用于发现报告或外部判据被篡改（GOV02）。
 //
-// 关键点：result.json 自身包含 reportHash 字段，直接哈希原始字节会形成自引用
-// （写入哈希后文件就变了，哈希永远对不上）。因此对 result.json 采用"清空
-// reportHash 后的规范 JSON"参与哈希；其余文件按原始字节参与。
+// 关键点：result.json 自身包含 reportHash 字段，直接哈希原始字节会形成自引用。
+// 因此 result.json 清空 reportHash 后按规范 JSON 参与；其它文件按相对路径排序，
+// 同时哈希路径和原始字节，避免文件重命名或拼接碰撞逃过检查。
 func ComputeEvidenceHash(dir string) string {
 	h := sha256.New()
-	raw, err := os.ReadFile(filepath.Join(dir, "result.json"))
+	resultPath := filepath.Join(dir, "result.json")
+	raw, err := os.ReadFile(resultPath)
+	h.Write([]byte("result.json\x00"))
 	if err != nil {
-		h.Write([]byte("result.json MISSING "))
+		h.Write([]byte("MISSING\x00"))
 	} else {
 		var ev contracts.GateEvidence
 		if err := json.Unmarshal(raw, &ev); err != nil {
-			// 无法解析时退回原始字节，至少保持可检测性。
 			h.Write(raw)
 		} else {
 			ev.ReportHash = ""
@@ -35,13 +97,30 @@ func ComputeEvidenceHash(dir string) string {
 			h.Write(canon)
 		}
 	}
-	for _, name := range []string{"command.txt", "stdout.log", "stderr.log"} {
-		b, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			h.Write([]byte(name + " MISSING "))
-			continue
+
+	var files []string
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() || path == resultPath {
+			return nil
 		}
-		h.Write(b)
+		if info, infoErr := entry.Info(); infoErr == nil && info.Mode().IsRegular() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	sort.Slice(files, func(i, j int) bool {
+		ri, _ := filepath.Rel(dir, files[i])
+		rj, _ := filepath.Rel(dir, files[j])
+		return filepath.ToSlash(ri) < filepath.ToSlash(rj)
+	})
+	for _, path := range files {
+		rel, _ := filepath.Rel(dir, path)
+		h.Write([]byte(filepath.ToSlash(rel) + "\x00"))
+		if b, readErr := os.ReadFile(path); readErr == nil {
+			h.Write(b)
+		} else {
+			h.Write([]byte("UNREADABLE\x00"))
+		}
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }

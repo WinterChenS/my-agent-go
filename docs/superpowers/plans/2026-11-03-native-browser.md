@@ -8,11 +8,11 @@
 
 **Tech Stack:** Wails、WebView2、WKWebView、GTK/WebKitGTK、Go MCP，与执行基线一致。
 
-**Spec:** V1执行基线；`docs/wails-browser-design.md`；master plan；验收矩阵。
+**Spec:** V1 执行基线；Anvil V1 产品/UI/生命周期设计；`docs/wails-browser-design.md`；master plan；验收矩阵。
 
 ## Global Constraints
 
-基线R01–R10和浏览器固定值不可改变；截图流/浮窗不满足原生嵌入；不使用私有API。普通DOM交互是V1共同能力，trusted-only/canvas/复杂frame明确报告Unsupported，不能默认成功。
+基线 R01–R14 和浏览器固定值不可改变；截图流/浮窗不满足原生嵌入；不使用私有 API。普通 DOM 交互是 V1 共同能力，trusted-only/canvas/复杂 frame 明确报告 Unsupported，不能默认成功。主题切换、语言切换和窄窗右栏抽屉不得重建 native tab、丢失登录态或改变控制权。
 
 ## Review Focus
 
@@ -121,12 +121,14 @@ Snapshot{ID,TabID,NavigationID,ControlGeneration,Viewport,Elements,Text,Unsuppor
 
 ## B07：右侧面板与弹层集成
 
+> 2026-11-05 增量：B07 继续拥有 native slot、遮挡和接管协调；U02 拥有 Chat 四分区右栏的产品页面，U00/U07 拥有主题、语言、窄窗和真机 UI 门禁。B07 的旧证据不能证明这些新增维度通过。
+
 **依赖：** B05/B06/C01，G1。**Files：** `frontend/src/features/browser/{BrowserPanel,BrowserToolbar,BrowserTabs,BrowserSlot,useBrowserState}.tsx`、`frontend/src/app/BrowserOcclusionCoordinator.tsx`、`internal/app/browser_api.go`；测试 `BrowserPanel.test.tsx`、`tests/e2e/browser_workbench.md`。
 
 **Interfaces：** Wails应用API `UpdateBrowserSlot(ctx,SlotGeometry) error`、`SelectBrowserTab(ctx,TabID) error`、TakeOver/Resume封装；React只传事件与几何，不能拿native handle。所有app overlay通过统一coordinator报告遮挡。
 
 - [ ] 前端测试geometry revision、去重、resize每帧合并、tab状态不由React重建；先运行失败用例。
-- [ ] 实现地址栏/回退/刷新、tab选择/关闭、接管/恢复、可见控制状态、失败/Unsupported操作提示；停止按钮始终位于native网页区域外。
+- [ ] 实现地址栏/回退/刷新、tab选择/关闭、接管/恢复、可见控制状态、失败/Unsupported操作提示；停止按钮始终位于native网页区域外。浏览器工具栏、tabs 和遮挡层跟随 Anvil 主题，远端网页内容不注入主题。
 - [ ] native窗口打开时依次弹设置dialog、命令面板、审批框，网页必须正确隐藏/恢复；Agent pause与面板隐藏不是同一概念，隐藏前不能静默终止run。
 - [ ] 同tab由agent填入文本，用户直接看到并修改；恢复后agent观察到人工修改。截图预览页面不能替代此步骤。
 - [ ] 执行frontend suite + target native E2E，归档录屏和fixture计数，提交。

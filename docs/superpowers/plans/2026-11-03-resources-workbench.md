@@ -8,11 +8,13 @@
 
 **Tech Stack:** 执行基线固定版本；按需shadcn组件，未需要时不引入完整聊天框架/Monaco/终端。
 
-**Spec:** V1执行基线、master plan、验收矩阵。
+**Spec:** V1 执行基线、Anvil V1 产品/UI/生命周期设计、master plan、验收矩阵。
 
 ## Global Constraints
 
-所有页面必须有真实Go数据源或明确未连接状态；禁止把硬编码model/tools/MCP列表当实现。UI主题统一明暗色，中文为初始界面语言，错误码/稳定test id不依赖中文文案。持久配置归属与F07一致。
+所有页面必须有真实 Go 数据源或明确未连接状态；禁止把硬编码 model/tools/MCP 列表、统计、连接状态或成功 toast 当实现。所有页面覆盖 zh-CN/en-US × Light/Dark，错误码和稳定 test id 不依赖翻译文案。持久配置归属与 F07 一致。
+
+**2026-11-05 增量责任：** C01–C07 的历史任务、勾选状态与证据保持不变。生产页面迁移由 [Anvil UI 计划](2026-11-05-anvil-ui.md) 负责；C08/C09 由 [连接器与调度计划](2026-11-05-connectors-scheduler.md) 负责。旧任务证据不能证明新增页面、连接器或调度已完成。
 
 ## Review Focus
 
@@ -94,7 +96,7 @@
 
 ## C05：长期记忆、中文检索与注入
 
-**依赖：** F07/F04/C01。**Files：** `internal/memory/{service,search,inject}.go`、`internal/storage/migrations/003_memory.sql`、`internal/app/memory_api.go`、`internal/harnessmcp/memory_tools.go`、`frontend/src/features/memory/`；测试 `memory_test.go`、`search_test.go`、`memory_integration_test.go`。
+**依赖：** F07/F04/C01。**Files：** `internal/memory/{service,search,inject}.go`、`internal/storage/migrations/002_memory.sql`、`internal/app/memory_api.go`、`internal/harnessmcp/memory_tools.go`、`frontend/src/features/memory/`；测试 `memory_test.go`、`search_test.go`、`memory_integration_test.go`。
 
 **Interfaces：** `Save(ctx,MemoryDraft)(Memory,error)`、`Confirm(ctx,id string) error`、`Delete(ctx,id string) error`、`Search(ctx,MemoryQuery)([]Memory,error)`、`BuildContext(ctx,MemoryQuery)(MemoryContext,error)`；Memory{ID,Scope,WorkspaceID,Kind,Content,SourceSessionID,Status,CreatedAt,UpdatedAt,ExpiresAt}；Query{WorkspaceID,Text,Limit}，Limit≤5；Context{Entries,Bytes,Provenance}。
 
@@ -107,6 +109,8 @@
 **验收：** MEM01–MEM05。
 
 ## C06：聊天、审批、停止和历史 UI
+
+> 本任务继续负责聊天域行为与已有 UI 契约；U02 负责按批准原型迁移生产 Chat、附件和四分区右栏。C06 通过不自动使 U02 通过。
 
 **依赖：** C01/F05/F04/C02，G2。**Files：** `internal/app/session_api.go`、`frontend/src/features/chat/{Transcript,Composer,ToolCard,ApprovalCard,useRunEvents}.tsx`、`frontend/src/features/history/`；测试 `RunEvents.test.tsx`、`ApprovalCard.test.tsx`。
 
@@ -121,6 +125,8 @@
 **验收：** UI02、RUN01/RUN04、E2E01。
 
 ## C07：上下文、产物、预算和诊断
+
+> 本任务继续负责产物、预算和诊断域能力；U05/U06 负责资源库、记忆和观测页面。C07 证据只能覆盖其原子 case，不覆盖新增 UI/I18N/THEME case。
 
 **依赖：** C03–C06/F05/F07。**Files：** `internal/artifact/service.go`、`internal/diagnostics/{export,redact}.go`、`internal/app/details_api.go`、`frontend/src/features/{details,artifacts,diagnostics}/`；测试 `artifacts_test.go`、`redact_test.go`、`RunDetails.test.tsx`。
 

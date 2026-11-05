@@ -86,8 +86,8 @@ func integrationCases() []integrationCase {
 		// GOV01：缺证据/未知 gate/未知 target 返回 2；目标×显示维度缺失也判死，
 		// 而完整的六目标证据必须能通过（否则「全判死」也能让上面几条绿）。
 		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
-		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/串用阶段/重复证据/dirty 工作区均拒绝。
-		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
+		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/oracle 缺失或篡改/串用阶段/重复证据/dirty 工作区均拒绝。
+		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsMissingOrTamperedOracle|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
@@ -208,7 +208,7 @@ func selectedIntegrationCases(idx *CasesIndex, gate string) ([]string, error) {
 // gate 与 display 都不能省：同一个 case 可能同时属于两个 gate（SEC05），
 // Linux 的 X11/Wayland 也必须各存一份，省掉任一层都会互相覆盖。
 func evidenceRoot(rev, gate, target, display string) string {
-	parts := []string{"docs", "evidence", "runs", rev, gate, target}
+	parts := []string{"artifacts", "evidence", rev, gate, target}
 	if display != "" {
 		parts = append(parts, display)
 	}
@@ -358,9 +358,10 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 	}
 
 	cr := contracts.CaseResult{
-		ID:        c.ID,
-		Expected:  "命令退出码 0，且输出不含失败断言",
-		StartedAt: started.Format(time.RFC3339),
+		ID:         c.ID,
+		Expected:   "命令退出码 0，且输出不含失败断言",
+		OraclePath: "oracle.json",
+		StartedAt:  started.Format(time.RFC3339),
 	}
 
 	var cmdline, stdout, stderr string
@@ -436,6 +437,7 @@ func writeEvidenceDir(dir string, ev *contracts.GateEvidence, cmdline, stdout, s
 	_ = os.WriteFile(filepath.Join(dir, "command.txt"), []byte(cmdline+"\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "stdout.log"), []byte(stdout), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "stderr.log"), []byte(stderr), 0o644)
+	_ = writeProcessOracle(dir, cmdline, ev.ExitCode, []byte(stdout), []byte(stderr))
 
 	ev.ReportHash = ""
 	if b, err := json.MarshalIndent(ev, "", "  "); err == nil {
@@ -493,6 +495,12 @@ func taskForCase(id string) string {
 		return "F00"
 	case strings.HasPrefix(id, "GOV"):
 		return "F01"
+	case strings.HasPrefix(id, "PI_DISC"), strings.HasPrefix(id, "PI_COMP"):
+		return "F08"
+	case strings.HasPrefix(id, "PI_INS"), strings.HasPrefix(id, "PI_UPG"):
+		return "F06"
+	case strings.HasPrefix(id, "PI_PKG"):
+		return "F06/X03"
 	case strings.HasPrefix(id, "PI"):
 		return "F02"
 	case strings.HasPrefix(id, "RPC"):
@@ -501,6 +509,12 @@ func taskForCase(id string) string {
 		return "F04"
 	case strings.HasPrefix(id, "CFG"):
 		return "F07"
+	case strings.HasPrefix(id, "CONN"):
+		return "C08"
+	case strings.HasPrefix(id, "SCH"):
+		return "C09"
+	case strings.HasPrefix(id, "UPD"):
+		return "F09/X04"
 	}
 	return "unknown"
 }

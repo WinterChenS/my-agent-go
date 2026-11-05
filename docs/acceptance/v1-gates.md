@@ -1,6 +1,6 @@
-# V1 验收矩阵与门禁
+# Anvil V1 验收矩阵与门禁
 
-日期：2026-11-03。当前状态：全部 NOT_RUN，产品和门禁runner均未实现。本文件是待开发测试的规范，不是测试报告。
+日期：2026-11-05。当前状态：增量矩阵；各 case 状态以绑定当前 revision 的原始证据为准。新增 F08/F09/C08/C09/U00–U07 case 初始均为 NOT_RUN，历史任务证据不得自动覆盖。
 
 ## 1. 判定规则
 
@@ -46,9 +46,9 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | ENV02 | F00 | ALL | 矩阵中每目标有可访问的真实运行环境和架构证据；Linux两个display有检查资源；资源缺失保持BLOCKED |
 | ENV03 | F00 | HOST | frontend lock/go.sum/versions.lock一致，依赖来源可追溯；重复安装构建不漂移版本 |
 | GOV01 | F01 | HOST | 必需case缺失/空suite/unknown target返回2，不能PASS |
-| GOV02 | F01 | HOST | 旧版本锁/错误revision/报告hash篡改被拒；人工证据缺真实机器信息或review字段被拒 |
+| GOV02 | F01 | HOST | 旧版本锁/错误revision/报告或 oracle/artifact hash 篡改被拒；PASS 缺目录内 oracle、oracle 越界或人工证据缺真实机器/review字段被拒 |
 | GOV03 | F01 | HOST | 命令断言失败返回1、配置缺失返回2、成功0；子进程失败不会被日志成功覆盖 |
-| GOV04 | F01 | HOST | 所有本矩阵case都在机器索引且有owner/runner；未实现runner非零；仅SKIP的native报告不能通过 |
+| GOV04 | F01 | HOST | 所有本矩阵case都在机器索引且有owner/已注册runner；重复 case ID 被拒；未实现 case runner 使 suite 非零；仅SKIP的native报告不能通过 |
 
 ### Pi、RPC、权限
 
@@ -57,7 +57,13 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | PI01 | F02 | ALL | 精确路径优先、中文/空格/npm shim正确、多Pi不静默切换、失效路径报NotFound |
 | PI02 | F02 | ALL | probe用隔离agentDir，不访问真实provider、不启动用户MCP，用户配置marker和hash不变 |
 | PI03 | F02 | ALL | 真实Pi认证版本完成RPC/MCP/extension探测，行为与release契约一致；原始流可追溯，mock不得替代 |
-| PI04 | F02 | ALL | 无Node环境的官方独立Pi包通过探测；未知版本unverified不自动运行；npm安装形式单独记录 |
+| PI04 | F02 | ALL | 无Node环境的官方独立Pi包通过最低版本基线探测；其它候选在 F08 兼容协商前不得自动运行；npm安装形式单独记录 |
+| PI_DISC01 | F08 | ALL | 用户指定、保存路径、托管目录、PATH、常见目录的候选全部列出实际路径/version/origin/hash，确定优先级且不静默切换 |
+| PI_DISC02 | F08 | ALL | 错误 PATH、微信 Node/Pi shim、失效保存路径和架构错误候选不被选中；外部文件与 PATH 不被修改 |
+| PI_COMP01 | F08 | ALL | 最低 1.5.0 与认证 fixture/hash 一致，完整 RPC/MCP/extension/停止/清理探测后为 ready_verified |
+| PI_COMP02 | F08 | ALL | 范围内新补丁版本只有在隔离契约探测全部通过后为 ready_compatible，版本号本身不能放行 |
+| PI_COMP03 | F08 | ALL | 范围内但 settled/MCP/hook/abort 任一不兼容时为 incompatible，真实 run 不启动且修复信息准确 |
+| PI_COMP04 | F08 | ALL | 低于 1.5.0 显示 upgrade_available；2.x 和未知主版本在无新清单前保持 incompatible |
 | RPC01 | F03 | HOST | LF随机分块/CRLF/U+2028/UTF8/128KiB记录完整，16MiB允许、超1字节失败，不截断JSON |
 | RPC02 | F03 | HOST | 并发乱序response按id匹配，重复/未知id不误归属，取消Call能结束 |
 | RPC03 | F03 | ALL | stderr持续洪泛不堵stdout，长输出/写背压不死锁，日志缓冲不无限增长 |
@@ -102,6 +108,14 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | INS05 | F06 | ALL | 激活中断可恢复，保留1个旧版可回滚；活跃worker继续使用原路径 |
 | INS06 | F06 | ALL | 外部Pi不可被客户端卸载/覆盖；默认不改系统PATH、不要求系统目录写权限 |
 | INS07 | F06 | ALL | 无Node真实独立包可用，基础包未藏Node；如果不成立整项FAIL/BLOCKED而非换口径 |
+| PI_INS01 | F06 | ALL | 受信清单、HTTPS allowlist、重定向、size/hash/signature、归档边界和目标架构全部验证后才进入 staging probe |
+| PI_INS02 | F06 | ALL | 缺失 Pi 一键安装到 Anvil 托管目录并通过 F08 探测；不需要管理员、不改 PATH、不写外部 Pi |
+| PI_INS03 | F06 | ALL | 取消、断网、校验/解压/probe 失败时 active 与旧版本 hash 不变，半成品不被发现为可用 |
+| PI_UPG01 | F06 | ALL | 空闲时升级原子切换 active，活跃 worker 继续使用原可执行路径，新 run 才使用新版本 |
+| PI_UPG02 | F06 | ALL | 候选 probe 或切换失败自动回滚；保留一个已验证旧版并可由 UI 执行回滚 |
+| PI_UPG03 | F06 | ALL | 外部 Pi 从不覆盖/卸载；升级默认创建托管版本，回滚不改变外部安装 hash |
+| PI_PKG01 | F06/X03 | ALL | Anvil 基础包内容扫描不存在 Pi/Node/npm/模型/独立 Chromium，Pi 只从独立受信包安装 |
+| PI_PKG02 | F06/X03 | ALL | 六目标无 Pi/Node 的干净机器从安装后的 Anvil 完成一键安装、probe、重启后复用 |
 | MOD01 | C02 | HOST | model schema、ID、API、context/output校验准确，秘密只有credentialRef |
 | MOD02 | C02 | ALL | 临时Pi连接测试实际调用fixture provider；401/429/超时/有效响应分类准确 |
 | MOD03 | C02 | ALL | 旧Pi auth无读取/修改，客户端key显式输入OS库；未知模型能力标unknown |
@@ -115,6 +129,21 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | MCP03 | C04 | ALL | server工具列表变化与暴露策略生效；禁用后不可调用，旧run变化策略明确 |
 | MCP04 | C04 | HOST | command/args分开、秘密env/header引用、拒绝SSE或无效配置；保存不执行未知脚本 |
 | MCP05 | C04 | ALL | 只由Pi管理外部MCP连接，退出清理其owned进程；OAuth未支持时不显示connected |
+| CONN01 | C08 | ALL | 六类 connector 各有真实 authenticated health 与最小读取动作；缺 OAuth/测试账户为 BLOCKED，不显示 connected |
+| CONN02 | C08 | ALL | 六类写入/外发动作各自经过统一 policy；拒绝/超时前 fixture 或专用账户副作用计数为0，允许一次为1 |
+| CONN03 | C08 | ALL | connector 配置、日志、导出只含 credentialRef，OS库失效时不落明文 sentinel |
+| CONN04 | C08 | ALL | action catalog 的风险、资源范围、capability、schema、幂等性准确，driver 不能自行降级风险 |
+| CONN05 | C08 | ALL | 禁用/撤权后 app-owned MCP 工具从新 run 消失且实际不能调用，旧 run 策略明确 |
+| CONN06 | C08 | ALL | 发送后断线/超时返回 OutcomeUnknown；非幂等动作不自动重放，幂等键可从外部 oracle 核对 |
+| CONN07 | C08/U01 | NATIVE | Connectors 页面列出真实定义、权限、健康、错误和修复动作；刷新/重启后与 API/凭证库一致 |
+| CONN08 | C08 | ALL | 邮箱附件与各平台允许资源范围不可越权；伪造 session/workspace/origin 到不了 adapter handler |
+| SCH01 | C09 | HOST | cron 与 IANA 时区校验正确；DST 春跳/秋回、系统时钟前后跳不漏跑或重复同一 occurrence |
+| SCH02 | C09 | HOST | 定义 CAS、暂停/恢复/删除/立即运行和重启恢复持久化；唯一 occurrence 键防重复 |
+| SCH03 | C09 | ALL | 触发只创建普通 RunService session/run，遵守全局并发2和 FIFO，不存在第二套 Pi runtime |
+| SCH04 | C09 | ALL | 同任务禁止重入；漏跑策略只补规定次数；连续两次失败自动暂停并记录原因 |
+| SCH05 | C09 | ALL | 无人值守写入/外发仍 waiting_approval；拒绝/过期后副作用为0，未知结果不重放 |
+| SCH06 | C09/U01 | NATIVE | Schedules 页面真实显示 next/last/run/session/status；编辑与暂停经 API/DB/重启复核 |
+| SCH07 | C09 | ALL | 输出目标、workspace/Profile/权限引用越界被拒；删除任务不删除已产生的 run、会话或产物 |
 
 ### 记忆、界面和产物
 
@@ -129,6 +158,24 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | UI02 | C06 | NATIVE | streaming/工具/审批/停止/历史与真实后端一致；重放无重复，Markdown不执行注入HTML |
 | UI03 | B07 | NATIVE | 右侧URL/tabId与agent工具相同；用户修改网页后agent能观察到同一修改 |
 | UI04 | B07 | NATIVE | dialog/命令面板/审批层不被native页遮挡；切换面板不销毁tab，紧急停止始终可达 |
+| UI05 | U01 | NATIVE | Anvil 壳层九个生产路由、历史、搜索和工作台均读真实 Go API；无原型固定数字或假 connected |
+| UI06 | U02 | NATIVE | Chat 的消息/工具/审批/停止/恢复、附件和右栏四分区由后端事件推进，点击不直接标成功 |
+| UI07 | U03 | NATIVE | 单 Agent/Profile 的模型、prompt、Skills、工具、权限和记忆真实保存；无子Agent/多运行时入口 |
+| UI08 | U04 | NATIVE | Skills 创建/导入/编辑/启停/依赖/隔离试运行及 MCP stdio/HTTP 状态与真实 API/runtime 一致 |
+| UI09 | U05 | NATIVE | 资源库从文件/SQLite 核对 path/hash/size/source，记忆独立分区且删除只影响后续注入 |
+| UI10 | U06 | NATIVE | 设置显示全部 Pi 候选、安装升级回滚和应用更新真实状态；无 Codex/Claude 伪运行时选项 |
+| UI11 | U06 | NATIVE | 观测显示真实 usage/工具/审批/失败/run 链；缺 usage/价格为 unavailable，不显示伪0 |
+| UI12 | U07 | NATIVE | 880×600 至 1920×1080、Windows 100/150/200%、Retina、Linux X11/Wayland 无关键操作遮挡 |
+| UI13 | U07 | NATIVE | 键盘、焦点、accessible name、风险提示和 WCAG AA 对比度通过；built Wails 真机证据绑定 API/DB oracle |
+| I18N01 | U00 | HOST | zh-CN/en-US key 集合完全一致，缺 key、废弃 key和生产组件硬编码产品文案使静态检查失败 |
+| I18N02 | U00/U07 | NATIVE | 切换语言即时更新静态/动态客户端文案并持久化；用户/模型/工具原文不被翻译 |
+| I18N03 | U00/U07 | NATIVE | 错误 code+参数、日期/时间/数字/文件大小/费用按 locale 正确格式化，不匹配 Go 中文文本 |
+| I18N04 | U07 | NATIVE | 九页中英文在规定窗口/缩放下无截断、重叠或不可达操作；每页有两语言截图与交互证据 |
+| THEME01 | U00 | HOST | 生产组件只用语义 token；直接主题色、缺状态 token 或 React 渲染后才应用主题使静态检查失败 |
+| THEME02 | U00/U07 | NATIVE | Light/Dark/跟随系统选择正确且持久化，无启动闪烁；跟随系统不是第三套视觉主题 |
+| THEME03 | U07 | NATIVE | 两主题 default/hover/focus/active/disabled/loading/empty/error/success/审批风险均满足对比度和可见性 |
+| THEME04 | U00/B07 | NATIVE | 切换主题不重建 browser tab、不丢会话/表单/下载、不改变人工接管或运行状态；远端网页不注入主题 |
+| THEME05 | U07 | NATIVE | 九页在构建后 Wails 中提供两主题截图与外部状态 oracle；浏览器页面截图不能替代 native 证据 |
 | ART01 | C07 | HOST+ALL路径集成 | artifact只登记已授权路径，越界/丢失文件明确拒绝，无任意本机文件打开后门 |
 | ART02 | C07 | ALL | 产物hash/大小/来源run可核对，重启后可查，文件变化显示变化而不是旧hash有效 |
 | ART03 | C07 | ALL | 上下文来源/压缩/usage/费用呈现真实或明确unknown；诊断包可定位故障且脱敏 |
@@ -172,6 +219,20 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | PKG05 | X03 | ALL | 安装包/解包/安装后尺寸报告齐全；预算Win/Mac60MiB、deb80MiB、AppImage220MiB，不含后下载Pi |
 | PKG06 | X04 | ALL | 从真实旧installer升级保留非空配置/记忆/会话/cookie/凭证引用，迁移失败有可验证恢复 |
 | PKG07 | X04 | ALL | 卸载默认保留数据/外部Pi；托管清理不越界；不兼容schema降级明确拒绝或恢复 |
+| UPD01 | F09/X04 | ALL | 只选择匹配 stable channel、target、arch 且高于当前版本的清单；未知 schema/普通降级拒绝 |
+| UPD02 | F09/X04 | ALL | 清单和完整包分别验签并核对 size/SHA-256；任一失败不进入 ready，旧程序不变 |
+| UPD03 | F09/X04 | ALL | 非官方源及跨 allowlist 重定向拒绝；TLS/代理错误可诊断，不执行网页脚本 |
+| UPD04 | F09/X04 | ALL | 断点续传只在 ETag/validator 匹配时继续；不匹配时丢弃 partial，最终 hash 唯一 |
+| UPD05 | F09/X04 | ALL | 后台下载和 ready 不主动重启，当前 PID/版本保持；下次正常启动前才应用 |
+| UPD06 | F09/X04 | ALL | 从旧真实二进制经 updater 启动新真实二进制，进程/API 版本和 hash 均发生预期变化 |
+| UPD07 | F09/X04 | ALL | 活跃 run/审批/Pi安装/接管/未保存编辑/清理失败时退出更新被阻止，并列出真实 blocker |
+| UPD08 | F09/X04 | ALL | 新程序启动或健康检查失败恢复旧程序；active 指针、版本和 hash 与更新前一致 |
+| UPD09 | F09/X04 | ALL | 非空 workspace/Profile/session/memory/artifact/connector/schedule 数据升级后保持且关联一致 |
+| UPD10 | F09/X04 | ALL | 数据库迁移失败恢复程序和数据备份；不兼容降级拒绝，不以空库重建冒充恢复 |
+| UPD11 | F09/X04 | ALL | 在每个交换事务阶段模拟中断后只留下一个完整 active 版本；下次启动可确定恢复 |
+| UPD12 | F09/X04 | ALL | 应用更新前后外部与托管 Pi 路径/version/hash 均不变；更新包不含 Pi/Node/npm/模型/Chromium |
+| UPD13 | X04 | ALL | 六目标用真实旧/新签名候选包完成升级；Linux deb 无权限时保留包并明确 BLOCKED/授权流程 |
+| UPD14 | U06/U07/X04 | NATIVE | 更新检查/下载/验证/ready/apply/rollback/blocked 在中英文×浅深主题中显示真实状态和修复动作 |
 | PERF01 | X04 | NATIVE | 参考环境记录完整；10次冷启动p95≤5s，到主界面可交互，不包含模型时间 |
 | PERF02 | X04 | NATIVE | 100events/s×60s，后端接收至UI显示p95≤200ms，关键事件序号无丢失 |
 | PERF03 | X04 | NATIVE | 预热5轮后开关tab50轮，等30秒owned进程总RSS增长≤100MiB；统计包括网页子进程 |
@@ -183,12 +244,12 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 
 ## 3. Gate 的必需用例集合
 
-- G0：ENV01–03、GOV01–04、PI01–04、RPC01–05、SEC01–06/SEC08的runtime子case、CFG03.isolation（F04项目执行隔离）。SEC07/配置存储可独立完成，但不能用未实现的明文fallback暂过门禁。
+- G0：ENV01–03、GOV01–04、PI01–04、PI_DISC01–02、PI_COMP01–04、RPC01–05、SEC01–06/SEC08 的 runtime 子case、CFG03.isolation。版本范围只允许探测，不能自动判兼容。
 - G1：BR00–BR07（BR07先用原生基础操作，B04再做完整工具语义）、UI04的最小dialog验证；六目标/LNX双display齐全。
-- G2：CFG01–04、DB01–03、RUN01–07、MOD01–04、RES01–04、MCP01–05、MEM01–05、SEC01–08、BR08–BR17。（INS01–07 于 2026-11-04 移到 G4，见 ADR 0002；G2 对 Pi 来源只要求记录外部已装版本与hash，不要求自研安装器。）
-- G3：UI01–04、ART01–03、E2E01–05，并保留相关G0–G2通过证据。
-- G4：PKG01–07、PERF01–04、INS01–07，外加当前候选包自身PKG03的NATIVE结果；不能仅沿用开发二进制G3证据。INS 是 F06 安装器的验收，与安装包在同一阶段：安装器会改写 active Pi 指针并清理旧版，不在功能开发期执行（ADR 0002）。
-- G5：REL01–04及当前revision完整G0–G4。
+- G2：CFG01–04、DB01–03、RUN01–07、PI_INS01–03、PI_UPG01–03、MOD01–04、RES01–04、MCP01–05、MEM01–05、CONN01–06/CONN08、SCH01–05/SCH07、SEC01–08、BR08–BR17。旧 INS01–07 保留历史坐标，但不能替代新增原子 case。
+- G3：UI01–13、CONN07、SCH06、I18N01–04、THEME01–05、ART01–03、E2E01–05，并保留相关 G0–G2 通过证据。每个生产页至少有 zh-CN/en-US × Light/Dark，Playwright 网页截图不能替代 built Wails 证据。
+- G4：PKG01–07、PI_PKG01–02、UPD01–14、PERF01–04、INS01–07，外加当前候选包自身 PKG03 的 NATIVE 结果；必须使用真实旧/新包和干净目标环境，fixture 更新不替代包更新。
+- G5：REL01–04 及当前 revision 完整 G0–G4。
 
 ### 避免阶段依赖循环
 
@@ -214,7 +275,7 @@ artifacts/evidence/<source-revision>/<gate>/<targetId>/<caseId>/
 artifacts/evidence/<source-revision>/<gate>/<targetId>/<display>/<caseId>/
 ```
 
-oracle按case包含文件hash、服务器counter、DB查询、进程树、坐标/时间/RSS原始样本。原始证据可保留在CI artifact或用户指定本地目录，仓库只提交索引与脱敏摘要；禁止提交真实凭证、个人网页/cookies、模型私密对话。对外分享诊断前由用户决定。
+oracle 按 case 包含文件 hash、服务器 counter、DB 查询、进程树、坐标/时间/RSS 原始样本。PASS 的 `oraclePath` 必须指向证据目录内非空、无 symlink 的结构化 `oracle.json`；不得直接指向 result/command/stdout/stderr。当前自动 runner 使用 `kind=test-process`，记录子测试命令、退出码及 stdout/stderr hash，gate 独立重算；副作用 case 的子测试仍必须从 fixture counter、文件系统、进程或数据库读取实现边界之外的事实。证据目录中的 environment、oracle、截图、录屏和附件都进入 reportHash。原始证据可保留在CI artifact或用户指定本地目录，仓库只提交索引与脱敏摘要；禁止提交真实凭证、个人网页/cookies、模型私密对话。对外分享诊断前由用户决定。
 
 result.json字段见F01 GateEvidence schema；每个CaseResult含id/subcase/status/expected/actual/oraclePath/startedAt/endedAt；GateEvidence另含targetId、display（Linux: x11/wayland；Windows/macOS: desktop 或空）、worktreeDirty（必须为 false）、sourceRevision、versionsLockHash、reportHash、reviewer。截图只能证明视觉状态，不能独自证明后台调用被拒或不存在数据泄漏。
 

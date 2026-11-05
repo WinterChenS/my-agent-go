@@ -312,9 +312,10 @@ func runNativeCase(c nativeCase, target, display, root string) caseOutcome {
 	}
 
 	cr := contracts.CaseResult{
-		ID:        c.ID,
-		Expected:  "每个步骤的 go test 都退出 0",
-		StartedAt: started.Format(time.RFC3339),
+		ID:         c.ID,
+		Expected:   "每个步骤的 go test 都退出 0",
+		OraclePath: "oracle.json",
+		StartedAt:  started.Format(time.RFC3339),
 	}
 
 	var cmdlines, stdouts, stderrs []string

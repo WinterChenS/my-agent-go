@@ -1,21 +1,21 @@
-# Agent Client Implementation Plan
+# Anvil V1 Implementation Master Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 交付使用宿主 Pi、支持本地资源管理及右侧可操作浏览器的跨平台 Go 桌面 Agent。
+**Goal:** 交付正式品牌 Anvil：使用宿主 Pi、覆盖本地核心工作流、真实连接器/调度/资源管理、签名应用更新及右侧可操作原生浏览器的跨平台桌面 Agent。
 
 **Architecture:** Wails 承载 React，Go 管 Harness 和自有 MCP，Pi RPC 子进程负责执行。独立 NativeBrowserHost 显示网页，六目标分开打包并在目标系统验收。
 
-**Tech Stack:** Go 1.27.3、Node 24.16.0/npm 11.13.0、Wails v3.0.0 初始基线、React/TS/Vite/Tailwind/shadcn、SQLite、Pi v1.5.0 初始认证版本。
+**Tech Stack:** Go 1.27.3、Node 24.16.0/npm 11.13.0、Wails v3.0.0 初始基线、React/TS/Vite/Tailwind/shadcn、SQLite、Pi `>=1.5.0 <2.0.0` 候选范围 + 隔离契约探测。
 
-**Spec:** `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`；参考 `docs/wails-browser-design.md`、`docs/gooeypi-browser-review.md`。
+**Spec:** `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`、`docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md`；参考 `docs/wails-browser-design.md`、`docs/gooeypi-browser-review.md`。
 
 ## Global Constraints
 
-- R01–R10 与基线所有数值、状态、排除项适用于全部子任务。
-- 初始只有文档；下文命令、路径和类型是待实现契约，不是已存在的工具或通过记录。
-- 用户未要求本轮实现，交付任务书后停止，不自动执行开发。
-- agent 禁止自行更换 Wails/Pi、扩大功能、删除平台、放宽验收或将当前文档描述成实测。
+- R01–R14 与基线所有数值、状态、排除项适用于全部子任务。
+- 这是增量计划：已有代码、任务提交和证据保持原义；新增范围必须产生自己的测试和证据，旧 PASS 不自动覆盖新 case。
+- 静态 UI 原型仅是视觉输入，不是生产实现或验收证据。
+- agent 禁止自行更换 Wails/Pi、扩大功能、删除平台、放宽验收或将文档描述成实测。
 - 同一字段/类型以 `internal/contracts` 为唯一 Go 定义；前端从应用 DTO 生成/导出 TS 类型，不手写另一套同名协议。
 
 ## Review Focus
@@ -32,24 +32,30 @@
 |---|---|---|---|
 | UI 未单独冻结 | React/shadcn 为执行默认 | F00/C01 | 提交 ADR，不自换库 |
 | Wails 右侧真实浏览器 | NativeBrowserHost 三端同窗口 | B01–B03 | G1 BLOCKED，不改成浮窗/截图流 |
-| Pi RPC 文档与 release 可能不一致 | 精确认证 v1.5.0，捕获真实协议 fixtures | F02/F03 | 修正适配，保留失败证据 |
-| Pi 自动安装是否依赖 Node | 独立包先验证，基础包不带 Node | F02/F06 | G0 BLOCKED，提出替代方案 |
+| Pi RPC 文档与 release 可能不一致 | 1.5.0 为最低版本，`>=1.5.0 <2.0.0` 只进入隔离契约探测；2.x 默认拒绝 | F02/F08 | 探测失败标 incompatible，不凭版本号放行 |
+| Pi 自动安装是否依赖 Node | 独立包先验证，基础包不带 Node；外部 Pi 不覆盖 | F06/F08 | G2/G4 BLOCKED，提出替代方案 |
 | 原有 Pi 登录如何复用 | 不隐式迁移；V1 客户端 API key | C02 | 缺 OAuth 明确列为未支持 |
 | 工具权限是否完整 | 所有可执行通道必须执行前检查 | F04 | 未覆盖工具禁用，不给全通过 |
 | 记忆是否自动写入 | 手动/明确请求保存，候选确认；默认不自动抽取 | C05 | 不增加背景模型调用 |
 | 跨平台范围 | 六目标 + Ubuntu双会话 | F00/X03 | 缺环境 BLOCKED，不删目标 |
-| 应用升级与 Pi 升级 | 应用手动覆盖保留数据，Pi 独立版本切换 | F06/X04 | 数据损坏/回滚失败禁止发行 |
+| 应用升级与 Pi 升级 | 两套独立事务；应用后台下载、下次启动安装，Pi 使用托管 active 指针 | F06/F09/X04 | 任一回滚失败禁止发行 |
+| UI 原型如何落地 | Anvil 生产组件 + Go API，zh-CN/en-US × Light/Dark | U00–U07 | 只有静态页或 mock 状态时 G3 失败 |
+| 外部协作能力 | 六类 connector 走 app-owned MCP 与统一 policy | C08 | 缺 OAuth/账户标 BLOCKED，不显示已连接 |
+| 无人值守任务 | 调度器创建普通 RunService 会话，审批规则不变 | C09 | DST/重入/越权任一失败阻断 G2 |
 
 ## 执行顺序与模块所有权
 
 | 计划 | 任务 | 输入门禁 | 允许产物 |
 |---|---|---|---|
-| [基础与 Pi](2026-11-03-foundation-runtime.md) | F00–F07 | 文档基线 | 工具链、契约、协议、进程、权限、安装、存储 |
-| [浏览器](2026-11-03-native-browser.md) | B00–B07 | F00/F01；B04以后需F04/F07 | 原生host、DOM工具、接管、下载、UI集成 |
-| [资源与工作台](2026-11-03-resources-workbench.md) | C01–C07 | G0；写操作依赖F04；集成浏览器需G1 | 页面、模型、skills/MCP/工具、记忆、上下文/产物 |
-| [集成与发行](2026-11-03-integration-release.md) | X01–X05 | G1/G2/G3依次 | 真模型E2E、安装包、迁移、正式发行 |
+| [基础与 Pi](2026-11-03-foundation-runtime.md) | F00–F07 | 文档基线 | 已有工具链、契约、协议、进程、权限、存储基线 |
+| [Pi 生命周期与应用更新](2026-11-05-pi-lifecycle-updater.md) | F08、重定范围 F06、F09 | F02/F03/F04/F07 | 多来源发现、兼容协商、Pi 安装回滚、Anvil 更新 |
+| [浏览器](2026-11-03-native-browser.md) | B00–B07 | F00/F01；B04以后需F04/F07 | 原生host、DOM工具、接管、下载、Chat 右栏集成 |
+| [资源与工作台](2026-11-03-resources-workbench.md) | C01–C07 | G0；写操作依赖F04；集成浏览器需G1 | 已有资源域与工作台能力，按 U 任务接入新页面 |
+| [连接器与调度](2026-11-05-connectors-scheduler.md) | C08–C09 | F04/F05/F07；UI 依赖U00/U01 | 六类真实 adapter、自有 MCP 工具、本地调度器及页面 |
+| [Anvil 产品 UI](2026-11-05-anvil-ui.md) | U00–U07 | 已有域 API；F08/F09/C08/C09 分阶段接入 | 品牌、i18n、主题、九页生产 UI、无障碍与真机证据 |
+| [集成与发行](2026-11-03-integration-release.md) | X01–X05 | G1/G2/G3依次 | 真模型E2E、Anvil 安装包、迁移、更新与正式发行 |
 
-建议关键路径：F00 → F01 → F02/F03 → F04 → G0；随后 B00→B01→B02→B03→G1。原生风险先消除，再补完整工作台；不要先做一套精美 UI 后发现三端浏览器无法交付。
+建议关键路径：保留已完成的 F/C/B 基础 → F08 → U00/U01 → F06→F09→C08→C09 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
 
 上表不授权自行使用多 agent。只有用户选择并行执行后，才按文件所有权委派；contracts/schema 和 master gate 由主执行者串行维护。每个任务的依赖以对应计划为准，不能把表内斜杠当成全部可以并行。
 
@@ -57,12 +63,12 @@
 
 | Gate | 通过条件 | 必要证据 | 失败阻断 |
 |---|---|---|---|
-| G0 | F00–F04 的版本、契约、真实Pi/RPC/权限前置均通过；六目标资源可用性记录 | 锁文件、真实Pi协议记录、hook副作用计数、环境清单 | 产品功能集成；基础模块可独立补齐 |
-| G1 | B00–B03 三端真实网页与最低DOM操作、焦点/弹层/截图通过 | 目标系统日志、录屏、平台与引擎版本、native fixture结果 | 浏览器完成声明、G3/G4 |
-| G2 | F05、F07、C02–C05、B04–B06 deterministic suites全通过（F06 安装器推迟到 G4，见 ADR 0002） | Go/TS报告、负例副作用计数 | 完整UI/E2E验收 |
-| G3 | C01/C06/C07/B07、X01/X02 真实端到端闭环和故障演练通过 | UI证据、真实Pi+模型结果、受控网页结果 | 打包候选版本验收 |
-| G4 | X03/X04 六目标安装包在干净目标环境安装、升级/恢复、启动使用通过；F06 的 INS01–07（下载/校验/激活/回滚/不覆盖外部Pi）通过 | 包哈希、安装后清单、屏幕/日志、数据校验、安装器拒绝负例记录 | 宣称V1可交付 |
-| G5 | X05 正式签名/公证/来源校验完成 | 签名验证、公证/staple、发布清单 | 面向用户公开正式发行 |
+| G0 | 工具链/隔离、Pi 多来源发现、版本识别、兼容探测、RPC/扩展/MCP/权限契约通过；六目标资源可用性记录 | 锁文件、候选路径/version/hash、探测原始记录、hook副作用计数、环境清单 | 产品功能集成；独立模块可继续补齐 |
+| G1 | 六目标原生浏览器真实网页、DOM、截图、焦点、缩放、接管和弹层协调通过 | 目标系统日志、录屏、平台与引擎版本、native fixture结果 | 浏览器完成声明、G3/G4 |
+| G2 | F05/F06/F07、C02–C05、C08/C09、B04–B06 的必需原子 case 全通过 | Go/TS报告、Pi 安装/回滚、连接器副作用计数、调度可控时钟与负例 oracle | 完整UI/E2E验收 |
+| G3 | C01/C06/C07/B07、U00–U07、X01/X02 的 Anvil UI、i18n、主题、资源库、观测和真实闭环通过 | 构建后 Wails UI、真实 Go API/DB/文件/进程 oracle、真实Pi+模型结果 | 打包候选版本验收 |
+| G4 | X03/X04 六目标干净环境安装、首次 Pi 安装、真实应用更新、升级恢复和数据保留通过；PI_PKG/UPD/PKG/PERF 必需 case 齐全 | 旧/新包版本与hash、包内容扫描、安装后清单、屏幕/日志、数据校验、回滚记录 | 宣称V1可交付 |
+| G5 | X05 正式签名/公证/来源校验和发布清单完成 | 签名验证、公证/staple、同 revision 发布清单 | 面向用户公开正式发行 |
 
 G4 可以出内部测试候选包，不能声称已过 G5。未签名测试包必须标 internal，不能用用户关闭系统保护后的运行结果替代正式发行验收。
 
@@ -105,9 +111,10 @@ native/e2e 必须实际启动构建后的 Wails 程序，不是 Playwright 浏�
 
 ## 实施前自检
 
-- [ ] 执行者已阅读本基线、对应子计划、验收矩阵及现场AGENTS.md。
-- [ ] 清楚当前任务的唯一产物和明确排除项。
-- [ ] 明确所需目标机器、模型凭证和签名资源是否具备。
-- [ ] 确认本轮只是计划；只有进入开发执行时才安装依赖、初始化工程或修改产品代码。
+- [ ] 执行者已阅读两份 V1 规格、对应子计划、验收矩阵及现场 AGENTS.md。
+- [ ] 已检查工作树，保护用户现有和未提交改动；已完成任务不因 UI 重构退回 TODO。
+- [ ] 清楚当前 Task 的唯一写者、产物、依赖、原子 case 和明确排除项。
+- [ ] 明确所需目标机器、OAuth/模型凭证、测试账户和签名资源是否具备；缺失时预先标 BLOCKED。
+- [ ] 新增共享契约、schema、case 或 gate 改动由主执行者串行完成。
 
-本轮已做文档自审，尚无任何开发 gate 通过；详细用例见 `docs/acceptance/v1-gates.md`，任务/依赖/需求追踪机器索引见 `docs/acceptance/v1-plan-index.json`。索引是计划元数据，不是已实现测试runner或完成状态。
+当前仓库有代码和部分任务证据，但新增 F08/F09/C08/C09/U00–U07 及扩展 case 均不得借用旧证据判 PASS。详细用例见 `docs/acceptance/v1-gates.md`，任务/依赖/需求追踪索引见 `docs/acceptance/v1-plan-index.json`。索引是计划元数据，不是完成状态。

@@ -8,7 +8,7 @@
 
 **Tech Stack:** 基线锁定版本、各平台native SDK与打包/签名工具。
 
-**Spec:** V1执行基线、master plan、`docs/acceptance/v1-gates.md`。
+**Spec:** V1 执行基线、Anvil V1 产品/UI/生命周期设计、master plan、`docs/acceptance/v1-gates.md`。
 
 ## Global Constraints
 
@@ -20,7 +20,7 @@
 
 ## X01：三条 deterministic 完整使用旅程
 
-**依赖：** C01–C07/B07、G2。**Files：** `tests/e2e/{filesystem,mcp,browser}_journey.*`、`tests/e2e/fixtures/`、`internal/devtools/e2e.go`、`docs/evidence/e2e/`。
+**依赖：** C01–C09/B07/U00–U07、G2。**Files：** `tests/e2e/{filesystem,mcp,browser,connector,schedule}_journey.*`、`tests/e2e/fixtures/`、`internal/devtools/e2e.go`、`docs/evidence/e2e/`。
 
 **Interfaces：** `devtools verify --suite=e2e --target=<targetId>` 从构建后Wails程序启动，传隔离appData、fixture provider/MCP URLs、fixture workspace；提供 test-only结构化状态探针，release必须移除/禁用探针。不能开放生产任意调试/写数据库接口。
 
@@ -50,7 +50,7 @@
 
 **依赖：** G3。**Files：** `packaging/{windows,macos,linux}/`、`.github/workflows/{verify,package}.yml` 或等价所选CI、`internal/devtools/{package,packageverify}.go`、`tests/package/`、`docs/evidence/packages/`。
 
-**Interfaces：** master package/verify命令；产物命名 `MyAgent-<version>-<targetId>.<ext>`，manifest字段version/sourceRevision/versionsLockHash/target/hash/sizeBytes/files/runtimeDependencies/channel。版本初始0.1.0-internal.1，后续按实际release记录递增；不可上传未经用户授权的公开release。
+**Interfaces：** master package/verify 命令；产物命名 `Anvil-<version>-<targetId>.<ext>`，manifest 字段 version/sourceRevision/versionsLockHash/target/hash/sizeBytes/files/runtimeDependencies/channel。版本初始 0.1.0-internal.1，后续按实际 release 记录递增；不可上传未经用户授权的公开 release。
 
 - [ ] 编写 `MissingNativeEvidenceFailsGate`、`PackageRuntimeScanFindsPiNode`：缺目标报告或包里含Pi/Node/runtime必须失败。扫描解包内容/文件清单，不只文件名搜字面字符串；验证构建脚本未下载并捆绑这些runtime。
 - [ ] 原生runner生成win两架构NSIS、mac两架构DMG、Linux两架构deb/AppImage；保留构建工具版本与依赖清单。交叉编译允许作为构建方式，运行验收仍在对应目标上执行。
@@ -61,20 +61,22 @@
 
 **验收：** PKG01–PKG05；CI账号未配置可先产本地证据，不虚构绿色CI链接。
 
-## X04：升级、数据保留、回滚与性能
+## X04：Anvil 品牌迁移、应用更新、数据保留、回滚与性能
 
-**依赖：** X03/F06/F07。**Files：** `tests/package/{upgrade,rollback,uninstall,performance}.*`、`docs/evidence/performance/`、必要迁移修复；不在此任务增加应用在线自动更新。
+**依赖：** X03/F06/F07/F09。**Files：** `tests/package/{brand_migration,update,upgrade,rollback,uninstall,performance}.*`、`docs/evidence/performance/`、`docs/evidence/update/`、必要迁移修复。
 
-**Interfaces：** 升级用两份真实installer（baseline与candidate），app data schema版本、Pi active指针、memory/artifact/session索引hash作为前后对照。升级前fixture记录明确预期，不用空数据库验收迁移。
+**Interfaces：** 更新验收使用两份真实 Anvil 安装包（baseline 与 candidate），其二进制 `--version` 与 SHA-256 必须不同；app data schema、Pi active 指针、memory/artifact/session/schedule/connector 索引 hash 作为前后对照。`ANVIL_*` 优先，`MYAGENT_*` 仅保留一个开发兼容周期。升级前 fixture 记录明确预期，不用空数据库验收迁移。
 
-- [ ] 建立上一内部版本数据：两个workspace、两个Profile、active/candidate记忆、会话、浏览器cookie、凭证引用和外部Pi路径。升级后字段和关联保持，安装目录改变不改变数据归属。
-- [ ] 模拟DB迁移中断和Pi激活失败：数据库事务回滚/备份恢复可用；降级到不兼容schema必须明确拒绝或走已验证恢复路径，不能直接启动后丢表。
-- [ ] 卸载默认保留用户数据/外部Pi；选择清理托管Pi不删除外部安装或超出目标目录；所有递归删除先解析并验证预期产品根目录。
-- [ ] 性能采用统一fixture：至少4核/8GB/SSD，记录实际CPU/RAM/OS/引擎和样本数；不含模型响应时间。冷启动到可交互10次p95≤5秒；100事件/秒持续60秒，Go事件接收到UI显示p95≤200ms；收集状态序号保证关键事件不丢。
-- [ ] 预热5轮后开关native tab50次，关闭后等待30秒，产品拥有的进程总RSS相对预热基线增长≤100MiB；native tab/handle计数归零，10秒后owned子进程为0。RSS统计含浏览器子进程并说明共享页口径。失败报告不以“框架缓存”直接豁免。
-- [ ] package/performance suites及迁移验证通过，产出G4证据，提交。
+- [ ] 建立上一内部版本数据：两个 workspace、两个 Profile、active/candidate 记忆、会话、浏览器 cookie、连接器定义、调度任务、凭证引用和外部 Pi 路径。Anvil 首次启动读取并事务迁移旧 MyAgent 数据；保留来源/备份，不修改秘密或外部 Pi。
+- [ ] 执行 F09 的真实更新流程：检查 → 后台下载 → 双层验签 → ready（当前 PID 不变）→ 正常退出 → 下次启动 helper 应用 → 新版本健康检查。证据同时记录旧/新进程版本和 hash。
+- [ ] 模拟 DB 迁移中断、helper 交换中断、健康检查失败和 Pi 激活失败：数据库/程序备份恢复可用；任何阶段只留下一个完整 active 版本。降级到不兼容 schema 必须拒绝或走已验证恢复路径。
+- [ ] 逐目标验证错误 channel/target/arch/source/redirect/schema/hash/signature/降级均被拒；断点续传只在 ETag/validator 不变时继续。应用更新前后外部和托管 Pi 的路径/hash 不变。
+- [ ] 卸载默认保留用户数据/外部 Pi；选择清理托管 Pi 不删除外部安装或超出目标目录；所有递归删除先解析并验证预期 Anvil 根目录。
+- [ ] 性能采用统一 fixture：至少4核/8GB/SSD，记录实际 CPU/RAM/OS/引擎和样本数；不含模型响应时间。冷启动到可交互10次 p95≤5秒；100事件/秒持续60秒，Go事件接收到UI显示 p95≤200ms；收集状态序号保证关键事件不丢。
+- [ ] 预热5轮后开关 native tab 50次，关闭后等待30秒，产品拥有的进程总 RSS 相对预热基线增长≤100MiB；native tab/handle计数归零，10秒后 owned 子进程为0。RSS统计含浏览器子进程并说明共享页口径。
+- [ ] package/update/performance suites 及迁移验证通过，产出 G4 原始证据并提交。缺签名、机器或基线包时对应 case 为 BLOCKED，不能用 fixture 更新冒充真实包升级。
 
-**验收：** PKG06/PKG07、PERF01–PERF04。
+**验收：** PKG06/PKG07、UPD01–UPD14、PERF01–PERF04。
 
 ## X05：正式发行门禁和最终交接
 

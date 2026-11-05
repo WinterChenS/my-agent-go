@@ -561,6 +561,9 @@ func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline)
 	if ev.Reviewer.Name == "" || ev.Reviewer.Machine == "" {
 		p = append(p, "缺审查人/机器信息（reviewer.name 或 reviewer.machine 为空）")
 	}
+	if symlink := evidenceTreeSymlink(ev.dir); symlink != "" {
+		p = append(p, "证据目录包含符号链接，不能引用目录外可变内容: "+symlink)
+	}
 	if ev.ReportHash == "" {
 		p = append(p, "reportHash 缺失，无法校验报告完整性")
 	} else {
@@ -575,7 +578,7 @@ func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline)
 	if evidenceAllSkippedOrEmpty(ev.GateEvidence) {
 		p = append(p, "报告为空或全部 SKIP，不能冒充通过")
 	}
-	p = append(p, validateCaseStatuses(ev.GateEvidence, caseID)...)
+	p = append(p, validateCaseStatuses(ev.GateEvidence, caseID, ev.dir)...)
 	return p
 }
 
@@ -597,7 +600,7 @@ func caseResultMatches(caseID string, cr contracts.CaseResult) bool {
 // validateCaseStatuses 校验用例状态。
 // 这是最容易漏的一环：命令 exitCode=0 但用例状态是 FAIL/BLOCKED/NOT_RUN 的报告，
 // 不得因"非空且非全 SKIP"就被判通过。必需 case 只认 PASS。
-func validateCaseStatuses(ev contracts.GateEvidence, caseID string) []string {
+func validateCaseStatuses(ev contracts.GateEvidence, caseID, evidenceDir string) []string {
 	var p []string
 	matched := 0
 	passed := 0
@@ -612,6 +615,11 @@ func validateCaseStatuses(ev contracts.GateEvidence, caseID string) []string {
 		matched++
 		if cr.Status == contracts.StatusPass {
 			passed++
+			if strings.TrimSpace(cr.Expected) == "" || strings.TrimSpace(cr.Actual) == "" ||
+				strings.TrimSpace(cr.StartedAt) == "" || strings.TrimSpace(cr.EndedAt) == "" {
+				p = append(p, "PASS case 缺 expected/actual/startedAt/endedAt，属于不可审计的自报成功")
+			}
+			p = append(p, validateOraclePath(evidenceDir, cr.OraclePath, ev.Command, ev.ExitCode)...)
 		} else {
 			p = append(p, fmt.Sprintf("必需 case 状态为 %s（只认 PASS）", cr.Status))
 		}
@@ -622,6 +630,68 @@ func validateCaseStatuses(ev contracts.GateEvidence, caseID string) []string {
 		p = append(p, "该 case 没有任何 PASS 结果")
 	}
 	return p
+}
+
+func validateOraclePath(evidenceDir, oraclePath, command string, exitCode int) []string {
+	if strings.TrimSpace(oraclePath) == "" {
+		return []string{"PASS case 缺 oraclePath，不能只由实现自身报告成功"}
+	}
+	clean := filepath.Clean(oraclePath)
+	switch clean {
+	case "result.json", "command.txt", "stdout.log", "stderr.log":
+		return []string{"oraclePath 不能指向 runner 自报结果、命令或输出文件"}
+	}
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return []string{"oraclePath 必须是证据目录内的相对路径"}
+	}
+	full := filepath.Join(evidenceDir, clean)
+	rel, err := filepath.Rel(evidenceDir, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return []string{"oraclePath 越出证据目录"}
+	}
+	current := evidenceDir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			return []string{fmt.Sprintf("oraclePath 不可读: %s", oraclePath)}
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return []string{"oraclePath 或其父目录是符号链接"}
+		}
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return []string{fmt.Sprintf("oraclePath 不可读: %s", oraclePath)}
+	}
+	if !info.Mode().IsRegular() {
+		return []string{"oraclePath 不是常规文件"}
+	}
+	if info.Size() == 0 {
+		return []string{"oraclePath 是空文件，不能证明外部结果"}
+	}
+	if err := validateProcessOracle(evidenceDir, clean, command, exitCode); err != nil {
+		return []string{"oracle 无法独立核对子测试进程: " + err.Error()}
+	}
+	return nil
+}
+
+func evidenceTreeSymlink(dir string) string {
+	var found string
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || found != "" {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if rel, err := filepath.Rel(dir, path); err == nil {
+				found = filepath.ToSlash(rel)
+			} else {
+				found = path
+			}
+		}
+		return nil
+	})
+	return found
 }
 
 // evidenceAllSkippedOrEmpty 判断报告是否为空或全部 SKIP。

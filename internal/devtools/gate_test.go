@@ -57,7 +57,7 @@ func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash stri
 		Command:          "echo ok",
 		ExitCode:         0,
 		CaseResults: []contracts.CaseResult{
-			{ID: caseID, Status: contracts.StatusPass, Expected: "0", Actual: "0", StartedAt: "s", EndedAt: "e"},
+			{ID: caseID, Status: contracts.StatusPass, Expected: "0", Actual: "0", OraclePath: "oracle.json", StartedAt: "s", EndedAt: "e"},
 		},
 		Reviewer: contracts.Reviewer{Name: "ci", Machine: "host-x", ReviewedAt: "2026-11-03T00:02:00Z"},
 	}
@@ -69,10 +69,14 @@ func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash stri
 		t.Fatalf("write result.json: %v", err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "command.txt"), []byte(ev.Command), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "stdout.log"), []byte("ok"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "stderr.log"), []byte(""), 0o644)
+	stdout := []byte("ok")
+	stderr := []byte("")
+	_ = os.WriteFile(filepath.Join(dir, "stdout.log"), stdout, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "stderr.log"), stderr, 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "environment.json"), []byte("{}"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "oracle.json"), []byte("{}"), 0o644)
+	if err := writeProcessOracle(dir, ev.Command, ev.ExitCode, stdout, stderr); err != nil {
+		t.Fatalf("write oracle: %v", err)
+	}
 	// 重新计算并写入报告哈希（伪造哈希测试在返回后另行覆盖字段）。
 	ev.ReportHash = ComputeEvidenceHash(dir)
 	b2, _ := json.MarshalIndent(ev, "", "  ")
@@ -419,6 +423,131 @@ func TestGateRejectsSameCaseOneTargetFails(t *testing.T) {
 	if rep.Passed || rep.ExitCode != 2 {
 		t.Fatalf("win-arm64 失败必须判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
 	}
+}
+
+// TestGateRejectsMissingOrTamperedOracle：PASS 必须绑定目录内且被哈希覆盖的外部判据。
+func TestGateRejectsMissingOrTamperedOracle(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	base := testBaseline()
+
+	t.Run("missing", func(t *testing.T) {
+		root := t.TempDir()
+		writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+			e.CaseResults[0].OraclePath = "missing-oracle.json"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "oraclePath") {
+			t.Fatalf("缺 oracle 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("traversal", func(t *testing.T) {
+		root := t.TempDir()
+		writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+			e.CaseResults[0].OraclePath = "../outside.json"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "相对路径") {
+			t.Fatalf("越界 oracle 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("self-report", func(t *testing.T) {
+		root := t.TempDir()
+		writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
+			e.CaseResults[0].OraclePath = "result.json"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "自报结果") {
+			t.Fatalf("result.json 不能作为 oracle，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+		if err := os.WriteFile(filepath.Join(dir, "oracle.json"), nil, 0o644); err != nil {
+			t.Fatalf("清空 oracle: %v", err)
+		}
+		raw, _ := os.ReadFile(filepath.Join(dir, "result.json"))
+		var ev contracts.GateEvidence
+		_ = json.Unmarshal(raw, &ev)
+		ev.ReportHash = ComputeEvidenceHash(dir)
+		updated, _ := json.MarshalIndent(ev, "", "  ")
+		_ = os.WriteFile(filepath.Join(dir, "result.json"), updated, 0o644)
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "空文件") {
+			t.Fatalf("空 oracle 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("symlink", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+		outside := filepath.Join(t.TempDir(), "outside.json")
+		if err := os.WriteFile(outside, []byte(`{"outside":true}`), 0o644); err != nil {
+			t.Fatalf("写外部 oracle: %v", err)
+		}
+		link := filepath.Join(dir, "linked-oracle.json")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("当前环境不能创建 symlink: %v", err)
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, "result.json"))
+		if err != nil {
+			t.Fatalf("读 result: %v", err)
+		}
+		var ev contracts.GateEvidence
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			t.Fatalf("解析 result: %v", err)
+		}
+		ev.CaseResults[0].OraclePath = "linked-oracle.json"
+		ev.ReportHash = ""
+		updated, _ := json.MarshalIndent(ev, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "result.json"), updated, 0o644); err != nil {
+			t.Fatalf("改 result: %v", err)
+		}
+		ev.ReportHash = ComputeEvidenceHash(dir)
+		updated, _ = json.MarshalIndent(ev, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "result.json"), updated, 0o644); err != nil {
+			t.Fatalf("回填 hash: %v", err)
+		}
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "符号链接") {
+			t.Fatalf("symlink oracle 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("forged-process", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+		forged := processOracle{SchemaVersion: 1, Kind: "test-process", Command: "echo ok", ExitCode: 0, StdoutSHA256: bytesSHA256([]byte("forged")), StderrSHA256: bytesSHA256(nil)}
+		oracleRaw, _ := json.Marshal(forged)
+		if err := os.WriteFile(filepath.Join(dir, "oracle.json"), oracleRaw, 0o644); err != nil {
+			t.Fatalf("伪造 oracle: %v", err)
+		}
+		resultRaw, _ := os.ReadFile(filepath.Join(dir, "result.json"))
+		var ev contracts.GateEvidence
+		_ = json.Unmarshal(resultRaw, &ev)
+		ev.ReportHash = ComputeEvidenceHash(dir)
+		updated, _ := json.MarshalIndent(ev, "", "  ")
+		_ = os.WriteFile(filepath.Join(dir, "result.json"), updated, 0o644)
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "输出哈希") {
+			t.Fatalf("伪造进程 oracle 应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
+
+	t.Run("tampered", func(t *testing.T) {
+		root := t.TempDir()
+		dir := writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+		if err := os.WriteFile(filepath.Join(dir, "oracle.json"), []byte(`{"tampered":true}`), 0o644); err != nil {
+			t.Fatalf("篡改 oracle: %v", err)
+		}
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil || rep.Passed || !reasonMentions(rep, "哈希") {
+			t.Fatalf("oracle 篡改应判死，passed=%v reasons=%v err=%v", rep.Passed, rep.Reasons, err)
+		}
+	})
 }
 
 // TestGateRejectsDuplicateEvidence：同一必需位出现两份，结论不确定，不能挑一份绿的。

@@ -1,27 +1,30 @@
-# AGENTS.md — 现场作业规则（MyAgent V1）
+# AGENTS.md — 现场作业规则（Anvil V1）
 
 本文件是执行 Agent 的现场契约。动手前必读，与本文件冲突的临时便利一律让步。
 
 ## 1. 权威顺序
 
-用户明确指令 > `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`（执行基线）
+用户明确指令 > `docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md`（用户已确认的增量规格）
+> `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`（未被增量规格替换的执行基线）
 > 分模块计划 `docs/superpowers/plans/*.md` > 验收矩阵 `docs/acceptance/v1-gates.md`
 > 历史方案（`docs/agent-client-proposal.md`、`docs/technical-decisions.md`、
 > `docs/wails-browser-design.md`、`docs/gooeypi-browser-review.md`）。
 
 历史方案里的时间估算、候选方案、"后续可选"不是任务。调研结论不是实现完成证据。
 
-## 2. 仓库现状（2026-11-03 实测）
+## 2. 仓库现状（2026-11-05 增量基线）
 
-- Git 仓库已存在，仅 `Initial commit`；产品代码为零，`docs/` 是唯一既有内容。
+- Git 仓库已有 F00–F05/F07、C01–C05、B00/B01 等实现、提交与证据；不得再按空仓库初始化、覆盖或重写历史。
+- 新增 F08/F09/C08/C09/U00–U07 均须独立实现和取证；旧 PASS 不自动覆盖新范围。
 - 不存在 `.codegraph`。若后续出现，按 CodeGraph 方式索引后再改代码。
-- 本文件此前缺失，由执行阶段补建；它不是对产品的承诺。
+- 工作树可能包含用户的 B01b、UI 原型或其它未提交工作；每次任务前先查 `git status --short`，只纳入本 Task 文件。
 
 ## 3. 技术选型（不可自行更换）
 
 Go 1.27.3（Harness 主体）+ Wails v3.0.0（桌面宿主）+ React/TS/Vite/Tailwind/shadcn（前端）
-+ SQLite（`modernc.org/sqlite`，需 FTS5 trigram）+ 宿主 Pi v1.5.0（agent loop 由 Pi 负责）。
-六目标：win-x64、win-arm64、mac-x64、mac-arm64、linux-x64、linux-arm64。
++ SQLite（`modernc.org/sqlite`，需 FTS5 trigram）+ 宿主 Pi（最低 1.5.0，候选范围 `>=1.5.0 <2.0.0`，必须经能力协商和隔离契约探测；agent loop 由 Pi 负责）。六目标：win-x64、win-arm64、mac-x64、mac-arm64、linux-x64、linux-arm64。
+
+正式产品名为 Anvil。用户可见可执行文件、安装包、数据目录、URI 和环境变量迁移到 `Anvil` / `anvil://` / `ANVIL_*`；仓库目录与 Go module 本轮不改名。`MYAGENT_*` 仅保留一个开发兼容周期，冲突时 `ANVIL_*` 优先。
 
 换桌面壳、换浏览器承载方式、把 Pi/Node/Chromium 塞进基础包、删平台、迁移用户旧凭证、
 放宽门禁阈值、增加后置功能 —— 一律先写 ADR，不静默执行。
@@ -36,7 +39,7 @@ Go 1.27.3（Harness 主体）+ Wails v3.0.0（桌面宿主）+ React/TS/Vite/Tai
 | `npm.ps1` 被执行策略禁止 | `npm -v` 报脚本无法运行 | 用 `D:\Program Files\nodejs\npm.cmd` |
 | 无 gcc/cc/clang/mingw | cgo 相关构建可能不可用 | 需要 cgo 时先探测再决定，不假设。**2026-11-04 复核**：本机存在 MinGW-W64 gcc 16.2.0（`mingw64in\gcc.exe`），`CGO_ENABLED=1` 的 Wails 构建与 `go test -race` 均成功；仍是"先探测"，不要假设每台机器都有 |
 | WebView2 运行时 156.0.4314.58 已装 | Windows WebView 可用 | 记录进环境证据 |
-| PATH 上 Pi 为 1.4.0，基线认证 1.5.0 | 版本不匹配即 unverified | 不把 1.4.0 当通过 |
+| PATH 上 Pi 为 1.4.0，低于最低支持版本 1.5.0 | 不可进入兼容探测，状态应为 upgrade_available/incompatible | 不把 1.4.0 当通过；用应用托管安装/升级流程，不覆盖外部 Pi |
 | PowerShell 标准输出有时不回显 | 误判"命令没跑" | 结果写文件再 `Read` 读回 |
 | `wmic` 被安全策略拉黑 | 取进程信息失败 | 用 `Get-CimInstance Win32_Process` |
 | `Start-Process -PassThru` 的 `ExitCode` 读不到（返回空） | 会误判 GUI 进程"没跑过" | GUI 退出码用 `cmd //c "程序 & echo %ERRORLEVEL%"` 包装采集 |
@@ -84,5 +87,4 @@ PASS 由证据确定，不由"看起来能用"确定。缺机器/凭证/签名/�
 
 ## 8. 报告口径
 
-逐 Task/目标给 PASS/FAIL/BLOCKED/NOT_RUN、实际命令与退出码、产物路径/hash、限制。
-未过 G4 不称 V1 可交付；未过 G5 不称正式发行完成。
+逐 Task/目标给 PASS/FAIL/BLOCKED/NOT_RUN、实际命令与退出码、产物路径/hash、限制。新增 F08/F09/C08/C09/U00–U07 必须使用自己的 case 和证据；旧任务 PASS 不能自动覆盖新增范围。缺 OAuth 客户端、连接器测试账户、目标机器、签名或网络时写 BLOCKED，不使用 mock 或静态 UI 冒充。未过 G4 不称 Anvil V1 可交付；未过 G5 不称正式发行完成。

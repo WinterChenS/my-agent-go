@@ -1,10 +1,21 @@
 {
   "schemaVersion": 1,
-  "status": "PLAN_ONLY_NOT_RUN",
+  "status": "INCREMENTAL_EXECUTION_PLAN",
   "spec": "docs/superpowers/specs/2026-11-03-v1-execution-baseline.md",
+  "additiveSpec": "docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md",
   "master": "docs/superpowers/plans/2026-11-03-agent-client-master.md",
   "acceptance": "docs/acceptance/v1-gates.md",
+  "note": "历史任务状态和证据保持原义；新增 F08/F09/C08/C09/U00-U07 与扩展 case 初始 NOT_RUN，不能由旧证据自动覆盖。",
   "targets": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
+  "plans": [
+    "docs/superpowers/plans/2026-11-03-foundation-runtime.md",
+    "docs/superpowers/plans/2026-11-03-native-browser.md",
+    "docs/superpowers/plans/2026-11-03-resources-workbench.md",
+    "docs/superpowers/plans/2026-11-05-pi-lifecycle-updater.md",
+    "docs/superpowers/plans/2026-11-05-connectors-scheduler.md",
+    "docs/superpowers/plans/2026-11-05-anvil-ui.md",
+    "docs/superpowers/plans/2026-11-03-integration-release.md"
+  ],
   "tasks": [
     {"id":"F00","plan":"2026-11-03-foundation-runtime.md","dependsOn":[]},
     {"id":"F01","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F00"]},
@@ -12,8 +23,11 @@
     {"id":"F03","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F02"]},
     {"id":"F04","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F03","F07"]},
     {"id":"F05","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F04","F07"]},
-    {"id":"F06","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F02","F03","F07","G0"]},
+    {"id":"F06","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F03","F07","F08","G0"]},
     {"id":"F07","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F00","F01"]},
+    {"id":"F08","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F02","F03","F07"]},
+    {"id":"F09","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F01","F06","F07","U00"]},
+
     {"id":"B00","plan":"2026-11-03-native-browser.md","dependsOn":["F00","F01"]},
     {"id":"B01","plan":"2026-11-03-native-browser.md","dependsOn":["B00"]},
     {"id":"B02","plan":"2026-11-03-native-browser.md","dependsOn":["B00"]},
@@ -22,6 +36,7 @@
     {"id":"B05","plan":"2026-11-03-native-browser.md","dependsOn":["B04","F04","F05"]},
     {"id":"B06","plan":"2026-11-03-native-browser.md","dependsOn":["B05","F07"]},
     {"id":"B07","plan":"2026-11-03-native-browser.md","dependsOn":["B05","B06","C01","G1"]},
+
     {"id":"C01","plan":"2026-11-03-resources-workbench.md","dependsOn":["F05","F07","G0"]},
     {"id":"C02","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F04","F07"]},
     {"id":"C03","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F04","F07"]},
@@ -29,24 +44,46 @@
     {"id":"C05","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F04","F07"]},
     {"id":"C06","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F05","F04","C02","G2"]},
     {"id":"C07","plan":"2026-11-03-resources-workbench.md","dependsOn":["C03","C04","C05","C06","F05","F07"]},
-    {"id":"X01","plan":"2026-11-03-integration-release.md","dependsOn":["C01","C02","C03","C04","C05","C06","C07","B07","G2"]},
+    {"id":"C08","plan":"2026-11-05-connectors-scheduler.md","dependsOn":["F04","F07","F09","U00","U01"]},
+    {"id":"C09","plan":"2026-11-05-connectors-scheduler.md","dependsOn":["C08","F04","F05","F07","U00","U01"]},
+
+    {"id":"U00","plan":"2026-11-05-anvil-ui.md","dependsOn":["F00","F01"]},
+    {"id":"U01","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","C01"]},
+    {"id":"U02","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C06","C07","B07"]},
+    {"id":"U03","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C01","C02","C03","C04","C05"]},
+    {"id":"U04","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C03","C04"]},
+    {"id":"U05","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C05","C07"]},
+    {"id":"U06","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","F08","F09","C02","C07"]},
+    {"id":"U07","plan":"2026-11-05-anvil-ui.md","dependsOn":["U01","U02","U03","U04","U05","U06","C08","C09","B07"]},
+
+    {"id":"X01","plan":"2026-11-03-integration-release.md","dependsOn":["C01","C02","C03","C04","C05","C06","C07","C08","C09","B07","U07","G2"]},
     {"id":"X02","plan":"2026-11-03-integration-release.md","dependsOn":["X01","F03","F04","F05"]},
     {"id":"X03","plan":"2026-11-03-integration-release.md","dependsOn":["G3"]},
-    {"id":"X04","plan":"2026-11-03-integration-release.md","dependsOn":["X03","F06","F07"]},
+    {"id":"X04","plan":"2026-11-03-integration-release.md","dependsOn":["X03","F06","F07","F09"]},
     {"id":"X05","plan":"2026-11-03-integration-release.md","dependsOn":["G4"]}
   ],
   "gates": [
-    {"id":"G0","dependsOn":["F00","F01","F02","F03","F04"],"state":"NOT_RUN"},
+    {"id":"G0","dependsOn":["F00","F01","F02","F03","F04","F08"],"state":"NOT_RUN"},
     {"id":"G1","dependsOn":["G0","B00","B01","B02","B03"],"state":"NOT_RUN"},
-    {"id":"G2","dependsOn":["G1","F05","F07","C02","C03","C04","C05","B04","B05","B06"],"state":"NOT_RUN"},
-    {"id":"G3","dependsOn":["G2","C01","C06","C07","B07","X01","X02"],"state":"NOT_RUN"},
-    {"id":"G4","dependsOn":["G3","F06","X03","X04"],"state":"NOT_RUN"},
+    {"id":"G2","dependsOn":["G1","F05","F06","F07","C02","C03","C04","C05","C08","C09","B04","B05","B06"],"state":"NOT_RUN"},
+    {"id":"G3","dependsOn":["G2","C01","C06","C07","B07","U00","U01","U02","U03","U04","U05","U06","U07","X01","X02"],"state":"NOT_RUN"},
+    {"id":"G4","dependsOn":["G3","F09","X03","X04"],"state":"NOT_RUN"},
     {"id":"G5","dependsOn":["G4","X05"],"state":"NOT_RUN"}
   ],
   "requirements": {
-    "R01":["F00","C01"],"R02":["B01","B02","B03","X03"],
-    "R03":["F06","X03"],"R04":["F02","F06"],"R05":["F03","F04","C04"],
-    "R06":["B01","B02","B03","B07"],"R07":["F04","B01","B02","B03"],
-    "R08":["F04","F07","X01"],"R09":["F04","B05","X02"],"R10":["F02","X01","X02","X03"]
+    "R01":["F00","U00"],
+    "R02":["B01","B02","B03","X03"],
+    "R03":["F06","F09","X03"],
+    "R04":["F02","F06","F08"],
+    "R05":["F03","F04","C04","C08","C09"],
+    "R06":["B01","B02","B03","B07","U02"],
+    "R07":["F04","B01","B02","B03"],
+    "R08":["F04","F07","X01"],
+    "R09":["F04","B05","C08","C09","X02"],
+    "R10":["F02","F08","X01","X02","X03"],
+    "R11":["U00","U07","X03","X04"],
+    "R12":["C08","C09","U01","X01"],
+    "R13":["F09","U06","X04","X05"],
+    "R14":["F01","U01","U02","U03","U04","U05","U06","U07"]
   }
 }

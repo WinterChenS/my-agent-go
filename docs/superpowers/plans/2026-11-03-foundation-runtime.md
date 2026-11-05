@@ -8,11 +8,13 @@
 
 **Tech Stack:** 版本、依赖与平台矩阵严格来自执行基线。
 
-**Spec:** `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`、master plan、`docs/acceptance/v1-gates.md`。
+**Spec:** `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`、`docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md`、master plan、`docs/acceptance/v1-gates.md`。
 
 ## Global Constraints
 
-基线 R01–R10 全部适用；未通过 G0 的 Pi 能力不能向产品宣称可用；不修改全局宿主 Pi 与 auth。文件为建议新建路径，现场有同职责代码时先核查后映射并记录，不另写一套。
+基线 R01–R14 全部适用；未通过 G0 的 Pi 能力不能向产品宣称可用；不修改全局宿主 Pi 与 auth。文件为建议新建路径，现场有同职责代码时先核查后映射并记录，不另写一套。
+
+**2026-11-05 增量责任：** 本文保留 F00–F07 的历史任务与证据。F08、F09 以及 F06 的新执行步骤由 [Pi 生命周期与应用更新计划](2026-11-05-pi-lifecycle-updater.md) 唯一负责；本文旧 F06 段落只保留历史背景，不再作为当前执行指令。
 
 ## Review Focus
 
@@ -22,7 +24,7 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **依赖：** 无。**Files：** `.nvmrc`、`go.mod`、`go.sum`、`frontend/package.json`、`frontend/package-lock.json`、`build/versions.lock.json`、`build/platforms.json`、`docs/evidence/environment.md`；测试 `scripts/check-toolchain.ps1` / `.sh`。
 
-**Interfaces：** 输出版本锁 JSON：schemaVersion、go、node、npm、wails、piValidated、directDependencies（name/version/source/hash/license）、nativeToolchains、targetMatrix。命令检查退出0成功/2配置缺失。包名/模块初始 `my-agent-go`，产品名 `MyAgent`；公开产品名称与module仓库路径以后统一更名，不自行猜远程组织或发布账户。
+**Interfaces：** 输出版本锁 JSON：schemaVersion、go、node、npm、wails、piValidated、directDependencies（name/version/source/hash/license）、nativeToolchains、targetMatrix。命令检查退出0成功/2配置缺失。包名/模块保持 `my-agent-go`；正式产品名为 `Anvil`，用户可见名称、包、数据目录、URI 和环境变量按 U00/X04 迁移。
 
 - [ ] 收集现场状态、验证六目标资源，写失败检查 `ToolchainRejectsWechatNode`：PATH首个node=16时拒绝，输出实际路径而不是自行调用任意npm。
 - [ ] 运行脚本确认旧环境或缺依赖会非零，记录前置缺口；不要为了测试破坏系统 PATH，用子进程环境构造。
@@ -40,7 +42,7 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 `RunSnapshot{RunID,SessionID,WorkspaceID,State,LastSeq,ConfigRevision,PiVersion,Error}`；`ConfigDocument{SchemaVersion int, Revision uint64, Body json.RawMessage}`；`ExecutionContext{WorkspaceID,SessionID,RunID,ConfigRevision,ControlGeneration}`；工具参数为schema校验后的json.RawMessage。
 
-证据类型 `GateEvidence{SchemaVersion,GateID,TaskID,SourceRevision,VersionsLockHash,TargetID,StartedAt,EndedAt,Command,ExitCode,CaseResults,Artifacts,Limitations,Reviewer}`，完整JSON schema枚举状态，不允许null/缺字段作为通过。
+证据类型 `GateEvidence{SchemaVersion,GateID,TaskID,SourceRevision,VersionsLockHash,TargetID,StartedAt,EndedAt,Command,ExitCode,CaseResults,Artifacts,Limitations,Reviewer}`，完整JSON schema枚举状态，不允许null/缺字段作为通过。2026-11-05 增量：PASS case 必须给出证据目录内的 `oraclePath`，gate 哈希 result/command/stdout/stderr/environment/oracle/截图/录屏和其它附件；缺失、越界或篡改 oracle 判死。case ID 和 runner 名均必须唯一且在注册表中；注册名称不等于实现，缺 case 执行定义仍返回2。
 
 - [ ] 写 `TestGateRejectsMissingRequiredCase`、`TestGateRejectsStaleRevision`、`TestGateRejectsEmptyOrSkippedNativeSuite`：缺一必需case、旧revision、仅skip时返回非零；unknown target/suite返回2。
 - [ ] 先运行 `go test ./internal/devtools -run 'TestGateRejects' -count=1` 记录失败，再实现 runner 和 schema；子进程原始exit code和stdout/stderr持久化。
@@ -52,6 +54,8 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 ## F02：本地 Pi 定位、能力探测与真实协议基线
 
+> F02 的既有协议 fixture 和最低版本认证继续有效；多来源候选选择、版本范围协商与产品状态机由 F08 增量实现，F02 旧证据不能证明 F08 完成。
+
 **依赖：** F01。**Files：** `internal/runtime/pi/{locator,probe,compatibility}.go`、`internal/runtime/pi/testdata/v1.5.0/`、`tests/fixtures/provider/main.go`、`tests/fixtures/mcp/main.go`、`docs/evidence/pi-compatibility.md`；测试 `locator_test.go`、`probe_integration_test.go`。
 
 **Interfaces：** `Locate(ctx context.Context, preferred string) ([]PiInstallation,error)`；`Probe(ctx context.Context, installation PiInstallation) (ProbeResult,error)`；`PiInstallation{ID,Executable,Args,Version,Origin,Architecture}`；`ProbeResult{State,Capabilities,Version,ProtocolFixtureHash,Diagnostics}`。Origin=external/managed，State沿用基线。
@@ -59,7 +63,7 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 - [ ] 写 `TestLocateWindowsShimWithSpaces`：中文/空格目录、npm .cmd/.ps1、多个版本、无Pi、失效保存路径；不把用户字符串拼接成通用shell命令，shell alias返回不可直接执行。
 - [ ] 写并运行 `TestProbeHasNoUserConfigSideEffects`：临时HOME/agentDir，用户marker文件hash不变；probe不得请求真实模型或启动用户MCP。
 - [ ] 从精确tag收集RPC/extension定义，启动真实Pi v1.5.0；接本地脚本化provider/MCP，捕获accepted、delta、tool、compaction/错误/最终idle等实际记录。记录无法诱发的事件，不编造fixture；用合成记录单独标 synthetic。
-- [ ] 在无Node目标环境验证独立发行包加载本项目薄extension与MCP。独立包/宿主npm两种形式分别记录；确实支持才列Ready。未知版本默认unverified且禁止自动运行。
+- [ ] 在无Node目标环境验证独立发行包加载本项目薄extension与MCP。独立包/宿主npm两种形式分别记录；确实支持才列 `ready_verified`。范围内未知补丁版本交给 F08 契约探测；2.x 未有新清单前保持 `incompatible`。
 - [ ] 运行 `go test ./internal/runtime/pi -run 'TestLocate|TestProbe' -count=1` 及integration suite；提交版本/安装形式矩阵与原始协议。不能仅用fake-pi通过此任务。
 
 **验收：** PI01–PI04；G0前置。该阶段provider是受控fixture，不冒称真实云模型通过。
@@ -108,22 +112,9 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 ## F06：Pi 一键安装、升级与回滚
 
-**状态：延后（2026-11-04，用户决策）。** 安装器会改写本机 active Pi 指针、清理旧版本，
-在功能开发期间执行有破坏现有 Pi 环境的风险，因此推迟到全部功能完成之后。
-连带影响与门禁调整见 [ADR 0002](../../adr/0002-defer-f06-pi-installer.md)：
-INS01–07 的验收阶段由 G2 移到 G4。**任务与 R03 需求本身不删除。**
+**2026-11-05 状态：V1 核心能力，旧延期决策被已批准规格取代。** ADR 0002 继续作为历史决策记录，但不再决定当前范围或 gate。当前依赖、测试、文件和提交步骤以 [Pi 生命周期与应用更新计划的 F06](2026-11-05-pi-lifecycle-updater.md#task-f06-managed-pi-install-upgrade-and-rollback) 为唯一执行入口；INS01–07 保留历史 case 坐标，并新增 PI_INS/PI_UPG/PI_PKG 原子 case 防止组合 case 假通过。
 
-**依赖：** F02/F03/F07；可先定义测试，不得在G0前认证安装渠道。**Files：** `internal/piinstall/{manifest,download,extract,activate,service}.go`、`build/pi-manifest.json`、`internal/app/pi_api.go`；测试 `extract_test.go`、`activate_test.go`、`install_integration_test.go`。
-
-**Interfaces：** `Install(ctx, InstallRequest)(InstallID,error)`、`Cancel(ctx,InstallID) error`、`Rollback(ctx,InstallationID) error`；InstallRequest只含已认证version/target，URL不由前端任意指定；Progress事件stage=download/verify/extract/probe/activate，明确bytesDownloaded/total与错误。
-
-- [ ] 构造本地下载fixture，写 `TestInstallCancellationPreservesActive`、`TestHashMismatchNeverActivates`、`TestArchiveTraversalRejected`（../、绝对路径、symlink/hardlink逃逸）、`TestUnsupportedArchitectureRejected`；先观察失败。
-- [ ] 实现manifest固定源/版本/hash、下载校验与staging；下载/解压/探测任一步失败，active及已有Pi hash不变。重定向不可跳出source allowlist；无网络不自动跑网页脚本。
-- [ ] 写 `TestAtomicActivationAndRollback`：激活前崩溃后仍指向旧版，激活成功保留1个旧版；外部Pi不可卸载；更新等待活跃worker退出，现有worker路径固定。
-- [ ] 在干净目标机真实安装官方Pi包，完成probe和最小MCP/extension回归；无Node也必须运行认证独立包。基础客户端包不增加runtime。
-- [ ] 跑piinstall unit/integration、归档源/hash/目标版本/日志并提交。
-
-**验收：** INS01–INS07。
+外部 Pi 永不覆盖；升级默认安装应用托管版本。功能正确性进入 G2，六目标真实包和干净机器首次安装进入 G4。
 
 ## F07：配置 CAS、SQLite 与凭证存储
 
