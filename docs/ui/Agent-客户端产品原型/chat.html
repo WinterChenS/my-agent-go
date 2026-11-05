@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对话 · API 迁移评估 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="chat">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <a class="iconbtn" href="index.html" aria-label="返回工作台"><span data-icon="arrowLeft" data-size="16"></span></a>
+      <div class="chat-head-main">
+        <div class="chat-title">API 迁移评估：v1 → v2 兼容性</div>
+        <div class="chat-subline">
+          <span class="chat-project-mark"><span data-icon="folder" data-size="10"></span>my-agent-go-ui</span><span class="sep">/</span>
+          <span>迁移工程师</span><span class="sep">/</span>
+          <span class="mono">claude-sonnet-4.5</span><span class="sep">/</span>
+          <span class="mono">思考 · 中</span><span class="sep">/</span>
+          <span class="mono">权限 · 中风险确认</span>
+        </div>
+      </div>
+      <div class="chat-head-actions">
+        <button class="badge thil-trigger" type="button" data-dialog-open="thil-dialog" data-od-id="chat-thil-badge"><span data-icon="message" data-size="11"></span><span data-i18n="clarifications">1 项待澄清</span></button>
+        <span class="badge badge-warn" data-od-id="chat-pending-badge"><i class="dot"></i><span data-i18n="pendingAuth">1 项待授权</span></span>
+        <label class="locale-compact" title="界面语言"><span data-icon="globe" data-size="12"></span><select id="chat-language" aria-label="界面语言"><option value="zh-CN">中文</option><option value="en-US">EN</option></select></label>
+        <button class="btn btn-sm" data-dialog-open="export-dialog"><span data-icon="download" data-size="13"></span><span data-i18n="exportChat">导出</span></button>
+        <button class="iconbtn is-on" id="rail-toggle" aria-label="折叠右侧面板" aria-pressed="true"><span data-icon="panel" data-size="16"></span></button>
+        <button class="iconbtn" data-dialog-open="thread-menu" aria-label="更多操作"><span data-icon="more" data-size="16"></span></button>
+      </div>
+    </header>
+
+    <div class="chat-page">
+      <div class="chat-layout rail-open" id="chat-layout">
+
+        <!-- ============ 会话主线程 ============ -->
+        <div class="thread-col">
+          <div class="thread" id="thread">
+            <div class="thread-inner" id="thread-inner">
+
+              <div class="msg msg-user" data-od-id="msg-user-1">
+                <div class="bubble">读一下 <code>api/v1/handlers</code> 下的所有入口，评估升级到 v2 会破坏哪些调用点。重点关注鉴权和分页签名。</div>
+                <div class="msg-meta"><span>陈羽</span><span>·</span><span>16:02</span></div>
+              </div>
+
+              <div class="msg" data-od-id="msg-agent-1">
+                <div class="agent-head">
+                  <span class="agent-badge">迁</span>
+                  <span class="agent-name">迁移工程师</span>
+                  <span class="agent-model">claude-sonnet-4.5</span>
+                </div>
+
+                <div class="thinking">
+                  <div class="thinking-head" data-thinking>
+                    <span data-icon="brain" data-size="14"></span>
+                    <span>已思考 5 步 · 8.2 秒</span>
+                    <span class="tw"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="thinking-body">
+                    <div class="thinking-step"><span class="thinking-step-num">1</span><span>先确认仓库里 v1 的实际调用面，而不是只看 handler 定义——真正的破坏点在调用方。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">2</span><span>鉴权中间件从 <code>X-Api-Key</code> 换成 <code>Authorization: Bearer</code>，所有自带 header 的客户端都会失败。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">3</span><span>分页从 <code>page/size</code> 改成游标，返回值里 <code>total</code> 被移除，前端分页器会拿到 undefined。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">4</span><span>读取类型定义，核对 3 处 caller 的签名是否兼容。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">5</span><span>结论需要可执行，所以直接产出迁移计划文档，而不是只列风险。</span></div>
+                  </div>
+                </div>
+
+                <div class="tool" data-tool>
+                  <div class="tool-row" data-tool-toggle>
+                    <span class="tool-ico"><span data-icon="search" data-size="12"></span></span>
+                    <span class="tool-name">search_files</span>
+                    <span class="tool-arg">pattern="api/v1/**" · 命中 3 个调用点</span>
+                    <span class="tool-dur">1.4s</span>
+                    <span class="tool-caret"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="tool-body">src/api/v1/handlers/auth.ts
+src/api/v1/handlers/orders.ts
+src/api/v1/handlers/reports.ts
+web/src/lib/api-client.ts        ← 唯一的跨端调用方</div>
+                </div>
+
+                <div class="tool" data-tool>
+                  <div class="tool-row" data-tool-toggle>
+                    <span class="tool-ico"><span data-icon="file" data-size="12"></span></span>
+                    <span class="tool-name">read_file</span>
+                    <span class="tool-arg">web/src/lib/api-client.ts · 214 行</span>
+                    <span class="tool-dur">0.6s</span>
+                    <span class="tool-caret"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="tool-body">import { request } from './transport'
+
+export async function listOrders(page: number, size: number) {
+  // v2 移除了 total 字段，分页改为游标
+  return request(`/v1/orders?page=${page}&amp;size=${size}`)
+}</div>
+                </div>
+
+                <div class="prose">
+                  <p>有 3 处会真正断掉，其余是编译期就能发现的重命名：</p>
+                  <ul>
+                    <li><strong>鉴权头</strong>：<code>X-Api-Key</code> 在 v2 被删除，客户端必须改用 <code>Authorization: Bearer</code>。<span class="cite" data-od-id="cite-1">1</span></li>
+                    <li><strong>分页契约</strong>：<code>page/size</code> 换成 <code>cursor/limit</code>，响应体不再返回 <code>total</code>，前端分页器会读到 <code>undefined</code>。<span class="cite" data-od-id="cite-2">2</span></li>
+                    <li><strong>错误结构</strong>：<code>{ error: "..." }</code> 变更为 <code>{ error: { code, message } }</code>，现有 <code>catch</code> 分支会拿到对象。<span class="cite" data-od-id="cite-3">3</span></li>
+                  </ul>
+                  <p>建议先在 <code>api-client.ts</code> 加一层适配，把游标包装成旧的 page/size 语义，这样 web 端可以独立上线，不依赖后端灰度窗口。</p>
+                </div>
+
+                <div class="msg-meta">
+                  <span class="mono">2,180 tokens</span><span>·</span><span>16:02</span>
+                  <span class="msg-actions">
+                    <button class="iconbtn" data-copy="有 3 处会真正断掉：鉴权头、分页契约、错误结构。" aria-label="复制"><span data-icon="copy" data-size="13"></span></button>
+                    <button class="iconbtn" aria-label="重新生成" data-toast="正在重新生成"><span data-icon="refresh" data-size="13"></span></button>
+                  </span>
+                </div>
+                <button class="turn-artifacts" type="button" data-open-rail="artifacts" data-artifact-turn="analysis-1" data-od-id="turn-artifacts-1">
+                  <span class="turn-artifacts-icon"><span data-icon="file" data-size="13"></span></span>
+                  <span><b>本轮输出物 · 2</b><small>callers-inventory.csv、api-client.adapter.ts</small></span>
+                  <span class="turn-artifacts-open">输出物 <span data-icon="chevron" data-size="11"></span></span>
+                </button>
+              </div>
+
+              <div class="msg" data-od-id="inline-thil-card">
+                <div class="agent-head">
+                  <span class="agent-badge">迁</span><span class="agent-name">迁移工程师</span><span class="agent-model">需要业务判断</span>
+                </div>
+                <div class="inline-thil">
+                  <div class="inline-thil-mark"><span data-icon="message" data-size="15"></span></div>
+                  <div class="inline-thil-main">
+                    <div class="inline-thil-kicker">THIL · 内容确认</div>
+                    <h3>灰度方案按什么口径推进？</h3>
+                    <p>仓库没有流量分组规则。请选择按租户白名单、10% 随机流量或仅预发布环境验证。</p>
+                    <div class="inline-thil-note"><span data-icon="shield" data-size="11"></span>只确认业务内容，不会授予工具权限</div>
+                  </div>
+                  <button class="btn btn-sm" type="button" data-dialog-open="thil-dialog">查看 3 个方案</button>
+                </div>
+              </div>
+
+              <div class="msg msg-user" data-od-id="msg-user-2">
+                <div class="bubble">按这个结论写一份迁移计划，保存到 <code>docs/migration/</code>，要包含回滚步骤。</div>
+                <div class="msg-meta"><span>陈羽</span><span>·</span><span>16:09</span></div>
+              </div>
+
+              <div class="conversation-state recovery-card" data-od-id="recovery-card">
+                <span class="state-icon"><span data-icon="refresh" data-size="14"></span></span>
+                <div><b>运行时已从检查点恢复</b><span>Pi Agent 在读取目录后异常退出；已恢复上下文和 2 个工具结果，未重复执行写操作。</span></div>
+                <button class="btn btn-sm btn-ghost" type="button" data-toast="已打开恢复详情">查看详情</button>
+              </div>
+
+              <div class="msg" id="live-msg" data-od-id="msg-agent-live">
+                <div class="agent-head">
+                  <span class="agent-badge">迁</span>
+                  <span class="agent-name">迁移工程师</span>
+                  <span class="agent-model">claude-sonnet-4.5</span>
+                  <span class="badge"><i class="dot"></i>生成中</span>
+                </div>
+
+                <div class="thinking is-open">
+                  <div class="thinking-head" data-thinking>
+                    <span class="live-dot"></span>
+                    <span>思考中 · 第 4 步 / 共 6 步</span>
+                    <span class="tw"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="thinking-body">
+                    <div class="thinking-step"><span class="thinking-step-num">1</span><span>文档需要三部分：影响面、分阶段上线、回滚。回滚必须具体到命令。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">2</span><span>灰度窗口按订单量取值，仓库里没有真实数据，因此写清「待填」而不是编造。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">3</span><span>写文件属于中风险操作，按当前权限设置需要用户确认。</span></div>
+                    <div class="thinking-step"><span class="thinking-step-num">4</span><span>准备写入 1 个新文件，不覆盖已有文档。</span></div>
+                  </div>
+                </div>
+
+                <div class="tool" data-tool>
+                  <div class="tool-row" data-tool-toggle>
+                    <span class="tool-ico"><span data-icon="folder" data-size="12"></span></span>
+                    <span class="tool-name">list_dir</span>
+                    <span class="tool-arg">docs/migration/ · 0 个文件</span>
+                    <span class="tool-dur">0.2s</span>
+                    <span class="tool-caret"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="tool-body">docs/migration/  (empty)</div>
+                </div>
+
+                <div class="tool is-open" data-tool>
+                  <div class="tool-row" data-tool-toggle>
+                    <span class="tool-ico"><span data-icon="file" data-size="12"></span></span>
+                    <span class="tool-name">write_file</span>
+                    <span class="tool-arg">docs/migration/v1-to-v2-plan.md · 新建</span>
+                    <span class="badge badge-warn" style="margin-left:auto">待确认</span>
+                    <span class="tool-caret"><span data-icon="chevron" data-size="12"></span></span>
+                  </div>
+                  <div class="tool-body">+ # API v1 → v2 迁移计划
++ 1. 影响面：鉴权头 / 分页契约 / 错误结构
++ 2. 分阶段：适配层 → 灰度 10% → 全量
++ 3. 回滚：api-client 切回 v1 路由，保留 7 天</div>
+                </div>
+
+                <div class="prose">
+                  <p>已按三部分起草，回滚写到命令级。写入 <code>docs/migration/</code> 需要你确认后才会执行。</p>
+                </div>
+
+                <div class="confirm" data-confirm-card data-od-id="confirm-write">
+                  <div class="confirm-head">
+                    <span data-icon="shield" data-size="14"></span>
+                    <span class="confirm-title">需要确认：写入 1 个文件</span>
+                    <span class="badge badge-warn" style="margin-left:auto">中风险</span>
+                  </div>
+                  <div class="confirm-body">
+                    <div class="confirm-desc">Agent 想要在仓库中创建 <code>docs/migration/v1-to-v2-plan.md</code>。该目录当前为空，不会覆盖已有内容；操作可通过 <code>git checkout</code> 撤销。</div>
+                    <div class="confirm-code">write  docs/migration/v1-to-v2-plan.md   3.4 KB
+scope docs/**                               允许
+副作用 新增文件（无覆盖）</div>
+                  </div>
+                  <div class="confirm-foot">
+                    <span class="hint">本次会话内有效 · 可撤销</span>
+                    <button class="btn btn-sm" data-confirm="deny">拒绝</button>
+                    <button class="btn btn-sm" data-confirm="always">总是允许</button>
+                    <button class="btn btn-sm btn-primary" data-confirm="approve">允许本次</button>
+                  </div>
+                </div>
+
+                <div class="stream-status" id="stream-status" aria-live="polite">
+                  <span class="live-dot"></span>
+                  <span>已暂停，等待你的确认 · 已生成 412 tokens</span>
+                  <span class="caret-blink"></span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ============ 输入区 ============ -->
+          <div class="composer-wrap">
+            <div class="composer-project-row">
+              <div class="current-project-control">
+                <button class="current-project-trigger" id="current-project-trigger" type="button" aria-haspopup="menu" aria-controls="current-project-menu" aria-expanded="false">
+                  <span data-icon="folder" data-size="12"></span><span id="composer-project-name">my-agent-go-ui</span><span data-icon="chevDown" data-size="11"></span>
+                </button>
+                <div class="current-project-menu" id="current-project-menu" role="menu" aria-label="当前项目" hidden>
+                  <div class="current-project-summary"><span class="project-logo"><span data-icon="folder" data-size="14"></span></span><span><b id="composer-project-menu-name">my-agent-go-ui</b><small class="mono" id="composer-project-menu-path">~/work/my-agent-go-ui</small></span></div>
+                  <div class="menu-separator"></div>
+                  <button type="button" role="menuitem" data-project-action="change"><span data-icon="folder" data-size="14"></span><span><b>更换项目目录</b><small>选择现有项目或新的本地目录</small></span></button>
+                  <button type="button" role="menuitem" class="is-danger" data-project-action="detach"><span data-icon="x" data-size="14"></span><span><b>取消项目</b><small>会话保留并移入普通会话</small></span></button>
+                </div>
+              </div>
+            </div>
+            <form class="composer" id="composer">
+              <textarea id="composer-input" rows="2" placeholder="继续追问，或 @ 引用文件与 Agent…" data-i18n-placeholder="composerPlaceholder">确认后继续，并把回滚步骤单独抽成一节。</textarea>
+              <div class="composer-attachments" id="composer-attachments" aria-live="polite" hidden></div>
+              <div class="attachment-drawer" id="attachment-drawer" role="menu" aria-label="添加上下文" tabindex="-1" hidden>
+                <div class="attachment-menu-group">
+                  <button class="attachment-menu-item" type="button" role="menuitem" data-attachment-action="files" aria-haspopup="menu">
+                    <span class="attachment-menu-icon"><span data-icon="paperclip" data-size="14"></span></span><span><b>文件或目录</b><small>添加本机上下文</small></span><span data-icon="chevron" data-size="12"></span>
+                  </button>
+                  <div class="attachment-submenu" role="menu" aria-label="文件或目录">
+                    <button type="button" role="menuitem" data-file-source="files"><span data-icon="file" data-size="14"></span><span><b>选择文件</b><small>支持多选</small></span></button>
+                    <button type="button" role="menuitem" data-file-source="directory"><span data-icon="folder" data-size="14"></span><span><b>选择目录</b><small>添加整个文件夹</small></span></button>
+                  </div>
+                </div>
+                <div class="attachment-menu-group">
+                  <button class="attachment-menu-item" type="button" role="menuitem" data-attachment-action="skills" aria-haspopup="menu">
+                    <span class="attachment-menu-icon"><span data-icon="puzzle" data-size="14"></span></span><span><b>Skill</b><small>调用已安装能力</small></span><span data-icon="chevron" data-size="12"></span>
+                  </button>
+                  <div class="attachment-submenu" role="menu" aria-label="已安装 Skill">
+                    <button type="button" role="menuitem" data-skill-name="代码审查"><span class="skill-dot">审</span><span><b>代码审查</b><small>检查变更与风险</small></span></button>
+                    <button type="button" role="menuitem" data-skill-name="竞品调研"><span class="skill-dot">研</span><span><b>竞品调研</b><small>搜索、对比与引用</small></span></button>
+                    <button type="button" role="menuitem" data-skill-name="文档写作"><span class="skill-dot">文</span><span><b>文档写作</b><small>整理结构与语气</small></span></button>
+                    <button type="button" role="menuitem" data-skill-name="依赖扫描"><span class="skill-dot">扫</span><span><b>依赖扫描</b><small>检查依赖与许可</small></span></button>
+                  </div>
+                </div>
+              </div>
+              <input id="attachment-file-input" type="file" multiple hidden aria-label="选择文件">
+              <input id="attachment-directory-input" type="file" webkitdirectory multiple hidden aria-label="选择目录">
+              <div class="composer-bar">
+                <button type="button" class="composer-plus" id="project-trigger" aria-label="添加文件、目录或 Skill" title="添加上下文" aria-controls="attachment-drawer" aria-expanded="false"><span data-icon="plus" data-size="14"></span></button>
+                <label class="ctl" title="选择模型">
+                  <span data-icon="sparkle" data-size="13"></span>
+                  <select aria-label="模型">
+                    <option>claude-sonnet-4.5</option>
+                    <option>gpt-5.1</option>
+                    <option>gemini-3-pro</option>
+                    <option>deepseek-v3.2</option>
+                    <option>qwen3-max</option>
+                  </select>
+                </label>
+                <label class="ctl" title="思考深度">
+                  <span data-icon="brain" data-size="13"></span>
+                  <select aria-label="思考深度">
+                    <option>思考 · 关</option>
+                    <option>思考 · 低</option>
+                    <option selected>思考 · 中</option>
+                    <option>思考 · 高</option>
+                  </select>
+                </label>
+                <label class="ctl" title="权限模式">
+                  <span data-icon="shield" data-size="13"></span>
+                  <select aria-label="权限模式">
+                    <option>只读</option>
+                    <option selected>中风险确认</option>
+                    <option>高风险确认</option>
+                    <option>完全控制</option>
+                  </select>
+                </label>
+                <button type="button" class="ctl" data-toast="已附加 2 个上下文文件"><span data-icon="paperclip" data-size="13"></span><span data-i18n="contextCount">上下文 2</span></button>
+                <div class="composer-actions">
+                  <button type="button" class="btn btn-sm" id="stop-btn"><span data-icon="pause" data-size="12"></span><span data-i18n="stop">停止</span></button>
+                  <button type="submit" class="send" id="send-btn" aria-label="发送" data-i18n-aria-label="send"><span data-icon="send" data-size="14"></span></button>
+                </div>
+              </div>
+            </form>
+            <div class="composer-foot">
+              <span>1 项操作等待确认。允许后 Agent 会继续生成。</span>
+              <span class="kbdset" style="margin-left:auto"><span class="kbd">⌘</span><span class="kbd">↵</span> 发送</span>
+              <span class="kbdset"><span class="kbd">⇧</span><span class="kbd">↵</span> 换行</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 右侧面板 ============ -->
+        <!-- 小屏下作为输出物抽屉遮罩 -->
+        <button class="rail-scrim" id="rail-scrim" type="button" aria-label="关闭输出物面板" tabindex="-1"></button>
+        <aside class="rail" id="rail" data-od-id="chat-rail" aria-label="会话详情面板">
+          <div class="rail-drawer-handle" aria-hidden="true"><span></span></div>
+          <div class="rail-head">
+            <button class="rail-tab is-active" data-tab="browser" data-tab-group="rail" data-od-id="rail-tab-browser"><span data-icon="globe" data-size="13"></span><span data-i18n="browser">浏览器</span></button>
+            <button class="rail-tab" data-tab="artifacts" data-tab-group="rail" data-od-id="rail-tab-artifacts"><span data-icon="file" data-size="13"></span><span data-i18n="artifacts">输出物 3</span></button>
+            <button class="rail-tab" data-tab="sources" data-tab-group="rail" data-od-id="rail-tab-sources"><span data-icon="link" data-size="13"></span><span data-i18n="sources">引用 4</span></button>
+            <button class="rail-tab" data-tab="exec" data-tab-group="rail" data-od-id="rail-tab-exec"><span data-icon="terminal" data-size="13"></span><span data-i18n="execution">执行</span></button>
+            <button class="iconbtn" id="rail-close" style="margin-left:auto" aria-label="关闭面板"><span data-icon="x" data-size="14"></span></button>
+          </div>
+
+          <div class="rail-body">
+            <!-- 浏览器 -->
+            <div class="rail-pane is-active" data-pane="browser" data-pane-group="rail">
+              <div class="browser-frame">
+                <div class="browser-chrome">
+                  <span class="browser-dots"><i></i><i></i><i></i></span>
+                  <span class="browser-url"><span data-icon="file" data-size="10"></span>anvil://repo/docs/migration/v1-to-v2-plan.md</span>
+                </div>
+                <div class="browser-page">
+                  <h4>API v1 → v2 迁移计划</h4>
+                  <div class="doc-meta">docs/migration/v1-to-v2-plan.md · 草稿 · 3.4 KB</div>
+                  <p><strong>1. 影响面</strong></p>
+                  <p>鉴权头 <code>X-Api-Key</code> 删除；分页由 <code>page/size</code> 改为 <code>cursor/limit</code>；错误结构变为嵌套对象。共 3 处调用点需要改动。</p>
+                  <hr>
+                  <p><strong>2. 分阶段上线</strong></p>
+                  <p>适配层合入 → 灰度 10% 流量 → 观察 48 小时 → 全量。灰度窗口按订单量决定，待填实测值。</p>
+                  <hr>
+                  <p><strong>3. 回滚</strong></p>
+                  <p><code>api-client.ts</code> 切回 <code>/v1</code> 路由，保留双写 7 天；文档级回滚使用 <code>git revert</code>。</p>
+                  <p class="muted" style="font-size:10px;margin-top:12px">预览由 Agent 在本地产出，尚未写入仓库。</p>
+                </div>
+                <div class="browser-actions">
+                  <button class="btn btn-sm" data-toast="已在新标签打开"><span data-icon="external" data-size="12"></span>打开</button>
+                  <button class="btn btn-sm" data-copy="docs/migration/v1-to-v2-plan.md"><span data-icon="copy" data-size="12"></span>复制路径</button>
+                  <span style="margin-left:auto" class="mono tiny muted">渲染于 16:09</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 输出物 -->
+            <div class="rail-pane" data-pane="artifacts" data-pane-group="rail">
+              <div class="rail-section-label artifact-pane-head"><span id="artifact-pane-label">本次会话产出 · 3</span><button class="btn btn-sm btn-ghost" type="button" id="artifact-return"><span data-icon="arrowLeft" data-size="11"></span><span data-i18n="returnTurn">返回原始轮次</span></button></div>
+              <div class="file-row" data-artifact-turn="plan-2">
+                <span class="file-ext">MD</span>
+                <div class="row-main">
+                  <div class="file-name">v1-to-v2-plan.md</div>
+                  <div class="file-sub">3.4 KB · 待确认写入</div>
+                </div>
+                <span class="badge badge-warn">待确认</span>
+              </div>
+              <div class="file-row" data-artifact-turn="analysis-1">
+                <span class="file-ext">CSV</span>
+                <div class="row-main">
+                  <div class="file-name">callers-inventory.csv</div>
+                  <div class="file-sub">2.1 KB · 16:04</div>
+                </div>
+                <span class="badge badge-success">已保存</span>
+              </div>
+              <div class="file-row" data-artifact-turn="analysis-1">
+                <span class="file-ext">TS</span>
+                <div class="row-main">
+                  <div class="file-name">api-client.adapter.ts</div>
+                  <div class="file-sub">1.8 KB · 16:06</div>
+                </div>
+                <span class="badge badge-success">已保存</span>
+              </div>
+              <div class="file-row" data-artifact-turn="complete-1">
+                <span class="file-ext">MD</span><div class="row-main"><div class="file-name">weekly-summary.md</div><div class="file-sub">4.8 KB · 1 小时前</div></div><span class="badge badge-success">已保存</span>
+              </div>
+              <div class="file-row" data-artifact-turn="complete-1">
+                <span class="file-ext">CSV</span><div class="row-main"><div class="file-name">weekly-chart.csv</div><div class="file-sub">6.2 KB · 1 小时前</div></div><span class="badge badge-success">已保存</span>
+              </div>
+              <div class="rail-foot">
+                <span>产出会同步到资源库</span>
+                <a class="btn btn-sm btn-ghost spacer" href="library.html">资源库</a>
+              </div>
+            </div>
+
+            <!-- 引用 -->
+            <div class="rail-pane" data-pane="sources" data-pane-group="rail">
+              <div class="rail-section-label">引用来源 · 4</div>
+              <div class="source">
+                <div class="source-head">
+                  <span class="source-num">1</span>
+                  <span class="source-title">v2 鉴权迁移说明（内部文档）</span>
+                </div>
+                <div class="source-url">confluence/eng/api-v2-auth</div>
+                <div class="source-snippet">「v2 起不再接受 X-Api-Key，统一使用 Authorization: Bearer。」</div>
+              </div>
+              <div class="source">
+                <div class="source-head">
+                  <span class="source-num">2</span>
+                  <span class="source-title">分页契约变更 RFC-118</span>
+                </div>
+                <div class="source-url">github/eng/rfcs/blob/main/118-pagination.md</div>
+                <div class="source-snippet">「游标分页移除 total 字段，客户端需自行累计或改用 has_more。」</div>
+              </div>
+              <div class="source">
+                <div class="source-head">
+                  <span class="source-num">3</span>
+                  <span class="source-title">错误响应结构对齐</span>
+                </div>
+                <div class="source-url">github/eng/api-spec/errors.yaml</div>
+                <div class="source-snippet">「error 对象包含 code 与 message，http status 保持不变。」</div>
+              </div>
+              <div class="source">
+                <div class="source-head">
+                  <span class="source-num">4</span>
+                  <span class="source-title">web/src/lib/api-client.ts</span>
+                </div>
+                <div class="source-url">repo · 本地文件 · L42-L88</div>
+                <div class="source-snippet">listOrders / listReports 使用 page、size 参数，并读取响应中的 total。</div>
+              </div>
+              <div class="rail-foot">
+                <span>引用来自 3 个来源</span>
+                <button class="btn btn-sm btn-ghost spacer" data-toast="已导出引用清单">导出</button>
+              </div>
+            </div>
+
+            <!-- 执行 -->
+            <div class="rail-pane" data-pane="exec" data-pane-group="rail">
+              <div class="rail-section-label">本轮执行 · 5 步</div>
+              <div class="exec-row">
+                <span class="exec-t">0.0s</span>
+                <div>
+                  <div class="exec-name">规划</div>
+                  <div class="exec-sub">planner · 3 tool calls</div>
+                </div>
+                <span class="badge badge-success">完成</span>
+              </div>
+              <div class="exec-row">
+                <span class="exec-t">0.4s</span>
+                <div>
+                  <div class="exec-name">search_files</div>
+                  <div class="exec-sub">api/v1/** · 3 hits</div>
+                </div>
+                <span class="mono tiny muted">1.4s</span>
+              </div>
+              <div class="exec-row">
+                <span class="exec-t">1.9s</span>
+                <div>
+                  <div class="exec-name">read_file</div>
+                  <div class="exec-sub">api-client.ts · 214 行</div>
+                </div>
+                <span class="mono tiny muted">0.6s</span>
+              </div>
+              <div class="exec-row">
+                <span class="exec-t">2.6s</span>
+                <div>
+                  <div class="exec-name">write_file</div>
+                  <div class="exec-sub">docs/migration/v1-to-v2-plan.md</div>
+                </div>
+                <span class="badge badge-warn">待确认</span>
+              </div>
+              <div class="exec-row">
+                <span class="exec-t">—</span>
+                <div>
+                  <div class="exec-name">继续生成</div>
+                  <div class="exec-sub">等待用户授权</div>
+                </div>
+                <span class="badge">已暂停</span>
+              </div>
+              <div class="rail-section-label">本会话用量</div>
+              <div class="card" style="margin:0 14px 14px">
+                <div class="card-pad stack" style="gap:8px">
+                  <div class="row"><span class="small muted">输入</span><span class="mono tiny" style="margin-left:auto">18,420</span></div>
+                  <div class="row"><span class="small muted">输出</span><span class="mono tiny" style="margin-left:auto">2,940</span></div>
+                  <div class="row"><span class="small muted">缓存命中</span><span class="mono tiny" style="margin-left:auto">12,100</span></div>
+                  <div class="hairline" style="margin:2px 0"></div>
+                  <div class="row"><span class="small muted">预估成本</span><span class="mono tiny" style="margin-left:auto">$0.31</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 独立历史会话场景：通过 ?scenario=... 路由加载 -->
+<template data-scenario-template="tool-failure" data-scenario-title="CLI 运行时健康检查">
+  <div class="msg msg-user"><div class="bubble">检查本机三个 Agent 运行时，并修复无法启动的那个。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>10:14</span></div></div>
+  <div class="msg"><div class="agent-head"><span class="agent-badge">系</span><span class="agent-name">系统工程师</span><span class="agent-model">Pi Agent</span><span class="badge badge-danger">工具失败</span></div><div class="prose"><p>Codex CLI 健康检查失败，命令退出码为 <code>127</code>。没有执行安装或修改环境变量。</p></div><div class="scenario-card is-danger"><span class="state-icon"><span data-icon="alert" data-size="14"></span></span><div><b>找不到 codex 可执行文件</b><span><code>/usr/local/bin</code> 和当前 PATH 中均未发现。可以重新检测，或打开运行时设置指定路径。</span></div><button class="btn btn-sm" data-scenario-action="retry">重新检测</button><a class="btn btn-sm btn-primary" href="settings.html#runtime">运行时设置</a></div></div>
+</template>
+
+<template data-scenario-template="model-fallback" data-scenario-title="前端响应式回归">
+  <div class="msg msg-user"><div class="bubble">检查聊天页在小屏幕下的输出物交互。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>昨天</span></div></div>
+  <div class="conversation-state"><span class="state-icon"><span data-icon="refresh" data-size="14"></span></span><div><b>模型已自动切换</b><span>claude-sonnet-4.5 达到速率限制，已切换到 gpt-5.1；上下文和工具结果保持不变。</span></div><button class="btn btn-sm btn-ghost" data-scenario-action="details">查看路由详情</button></div>
+  <div class="msg"><div class="agent-head"><span class="agent-badge">设</span><span class="agent-name">设计工程师</span><span class="agent-model">gpt-5.1 · 故障转移</span></div><div class="prose"><p>已继续完成检查。小屏输出物现在通过底部抽屉展示，不会丢失当前阅读位置。</p></div></div>
+</template>
+
+<template data-scenario-template="connector-expired" data-scenario-title="连接器授权已过期">
+  <div class="msg msg-user"><div class="bubble">把整理结果同步到飞书文档。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>周一</span></div></div>
+  <div class="msg"><div class="agent-head"><span class="agent-badge">文</span><span class="agent-name">文档助手</span><span class="badge badge-warn">等待登录</span></div><div class="scenario-card is-warn"><span class="state-icon"><span data-icon="link" data-size="14"></span></span><div><b>飞书连接器授权已过期</b><span>草稿已保存在本地，重新登录前不会上传任何内容。</span></div><a class="btn btn-sm btn-primary" href="connectors.html">重新授权</a></div></div>
+</template>
+
+<template data-scenario-template="stopped" data-scenario-title="竞品定价页差异整理">
+  <div class="msg msg-user"><div class="bubble">继续抓取剩余 8 个定价页。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>昨天</span></div></div>
+  <div class="conversation-state is-stopped"><span class="state-icon"><span data-icon="pause" data-size="14"></span></span><div><b>生成已由你停止</b><span>已保留 12 个页面结果和当前检查点，可继续执行或从这里分叉。</span></div><button class="btn btn-sm btn-primary" data-scenario-action="continue">继续</button><button class="btn btn-sm" data-scenario-action="branch">分叉</button></div>
+</template>
+
+<template data-scenario-template="context-limit" data-scenario-title="整理本周阅读笔记">
+  <div class="msg msg-user"><div class="bubble">把今年的阅读笔记按主题重新整理。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>周一</span></div></div>
+  <div class="msg"><div class="agent-head"><span class="agent-badge">知</span><span class="agent-name">知识管家</span><span class="badge badge-warn">上下文 92%</span></div><div class="scenario-card is-warn"><span class="state-icon"><span data-icon="brain" data-size="14"></span></span><div><b>当前上下文接近上限</b><span>可以压缩早期工具结果后继续，或创建分支保留完整上下文。</span></div><button class="btn btn-sm btn-primary" data-scenario-action="compress">压缩并继续</button><button class="btn btn-sm" data-scenario-action="branch">新建分支</button></div></div>
+</template>
+
+<template data-scenario-template="complete" data-scenario-title="任务已完成">
+  <div class="msg msg-user"><div class="bubble">核对本周数据并生成摘要。</div><div class="msg-meta"><span>陈羽</span><span>·</span><span>1 小时前</span></div></div>
+  <div class="msg"><div class="agent-head"><span class="agent-badge">数</span><span class="agent-name">数据分析师</span><span class="badge badge-success">已完成</span></div><div class="prose"><p>已核对 4 个数据源，未发现口径冲突；摘要和图表已保存到资源库。</p></div><button class="turn-artifacts" type="button" data-open-rail="artifacts" data-artifact-turn="complete-1"><span class="turn-artifacts-icon"><span data-icon="file" data-size="13"></span></span><span><b>本轮输出物 · 2</b><small>weekly-summary.md、weekly-chart.csv</small></span><span class="turn-artifacts-open">输出物 <span data-icon="chevron" data-size="11"></span></span></button></div>
+</template>
+
+<!-- THIL 内容确认：与工具权限授权分离 -->
+<div class="backdrop" id="thil-dialog" hidden>
+  <div class="dialog dialog-wide thil-dialog" role="dialog" aria-modal="true" aria-labelledby="thil-title">
+    <div class="thil-head">
+      <div class="thil-kicker"><span data-icon="message" data-size="13"></span><span data-i18n="thilKicker">THIL · 内容确认</span></div>
+      <h2 id="thil-title" data-i18n="thilTitle">灰度方案需要你做一个业务判断</h2>
+      <p data-i18n="thilDesc">Agent 已完成技术分析，但仓库中没有流量分组规则。请选择迁移计划采用的灰度口径。</p>
+    </div>
+    <div class="thil-context">
+      <span class="agent-badge">迁</span>
+      <div><b>迁移工程师</b><span>为了避免替你猜测业务约束，我会用你的选择更新计划中的“分阶段上线”与“回滚阈值”。</span></div>
+    </div>
+    <div class="dialog-body thil-body">
+      <div class="field-label" data-i18n="thilChoose">选择一个方案</div>
+      <div class="thil-options" role="radiogroup" aria-label="灰度方案">
+        <button class="thil-option is-selected" role="radio" aria-checked="true" data-thil-choice="tenant">
+          <span class="thil-radio"></span><span><b>按租户白名单</b><small>先选择 3–5 个内部租户，最容易回滚和对账</small></span><span class="badge">推荐</span>
+        </button>
+        <button class="thil-option" role="radio" aria-checked="false" data-thil-choice="traffic">
+          <span class="thil-radio"></span><span><b>按 10% 随机流量</b><small>覆盖更广，但需要稳定的用户分桶与指标看板</small></span>
+        </button>
+        <button class="thil-option" role="radio" aria-checked="false" data-thil-choice="environment">
+          <span class="thil-radio"></span><span><b>先仅在预发布环境验证</b><small>不进入生产流量，计划中保留生产灰度为待定项</small></span>
+        </button>
+      </div>
+      <div class="field">
+        <label class="field-label" for="thil-note" data-i18n="thilNote">补充约束（可选）</label>
+        <textarea class="textarea" id="thil-note" rows="2" placeholder="例如：支付链路不能进入第一批；错误率超过 0.5% 自动回滚" data-i18n-placeholder="thilPlaceholder"></textarea>
+      </div>
+      <div class="thil-scope"><span data-icon="shield" data-size="13"></span><span data-i18n="thilScope">这只确认任务内容，不会授予文件、终端或外部连接器权限；相关操作仍会单独请求授权。</span></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn spread" data-dialog-close data-i18n="thilLater">稍后处理</button>
+      <button class="btn btn-primary" id="thil-submit" data-i18n="thilContinue">确认并继续</button>
+    </div>
+  </div>
+</div>
+
+<!-- 项目选择：项目决定会话工作目录与历史归属 -->
+<div class="backdrop" id="project-picker" hidden>
+  <div class="dialog project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-picker-title">
+    <div class="dialog-head project-dialog-head">
+      <div><h2 id="project-picker-title" data-i18n="projectTitle">为当前对话选择项目</h2><p data-i18n="projectDesc">项目会绑定本地目录，并将会话归入侧栏中的项目分组。</p></div>
+      <button class="iconbtn" type="button" data-dialog-close aria-label="关闭"><span data-icon="x" data-size="14"></span></button>
+    </div>
+    <div class="dialog-body">
+      <div class="project-current"><span class="project-logo"><span data-icon="folder" data-size="15"></span></span><div><small data-i18n="currentProject">当前项目</small><b id="current-project-name">my-agent-go-ui</b><span class="mono" id="current-project-path">~/work/my-agent-go-ui</span></div><span class="badge badge-success"><i class="dot"></i><span data-i18n="opened">已打开</span></span></div>
+      <div class="field-label project-section-label" data-i18n="recentProjects">最近项目</div>
+      <div class="project-options" role="radiogroup" aria-label="最近项目">
+        <button class="project-option is-selected" type="button" role="radio" aria-checked="true" data-project-name="my-agent-go-ui" data-project-path="~/work/my-agent-go-ui"><span class="project-logo">M</span><span><b>my-agent-go-ui</b><small class="mono">~/work/my-agent-go-ui · 3 个会话</small></span><span class="project-check"><span data-icon="check" data-size="12"></span></span></button>
+        <button class="project-option" type="button" role="radio" aria-checked="false" data-project-name="个人知识库" data-project-path="~/Documents/notes"><span class="project-logo">知</span><span><b>个人知识库</b><small class="mono">~/Documents/notes · 2 个会话</small></span><span class="project-check"><span data-icon="check" data-size="12"></span></span></button>
+      </div>
+      <div class="project-actions-grid">
+        <button class="project-action" type="button" id="open-project-directory"><span data-icon="folder" data-size="15"></span><span><b data-i18n="openLocalProject">打开本地项目</b><small data-i18n="openLocalDesc">选择已有目录并开始对话</small></span></button>
+        <button class="project-action" type="button" id="new-project-directory"><span data-icon="plus" data-size="15"></span><span><b data-i18n="newProject">新建项目</b><small data-i18n="newProjectDesc">选择目录并以文件夹名创建</small></span></button>
+      </div>
+      <input id="project-directory-input" type="file" webkitdirectory hidden aria-label="选择项目目录">
+      <div class="project-security"><span data-icon="shield" data-size="13"></span><span data-i18n="projectSecurity">选择目录只建立本地引用；Agent 仍受当前会话的读取与写入权限约束。</span></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close data-i18n="projectCancel">取消</button><button class="btn btn-primary" id="project-apply" data-i18n="projectContinue">在此项目中继续</button></div>
+  </div>
+</div>
+
+<!-- 本地导出与可选云端分享 -->
+<div class="backdrop" id="export-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+    <div class="dialog-head">
+      <h2 id="export-title" data-i18n="exportChat">导出会话</h2>
+      <p data-i18n="exportDesc">默认在本机生成快照，不上传会话、文件路径或工具输出。</p>
+    </div>
+    <div class="dialog-body">
+      <div class="field"><label class="field-label" for="export-format" data-i18n="exportFormat">导出格式</label><select class="select" id="export-format"><option value="html">HTML · 可交互快照</option><option value="markdown">Markdown · 纯文本</option><option value="json">JSON · 完整记录</option></select></div>
+      <div class="check-row"><input class="checkbox" aria-checked="true" type="button" role="checkbox"><div class="check-main"><div class="check-title" data-i18n="includeThinking">包含思考摘要</div><div class="check-sub" data-i18n="includeThinkingDesc">仅导出折叠后的摘要，不包含隐藏推理</div></div></div>
+      <div class="check-row"><input class="checkbox" aria-checked="false" type="button" role="checkbox"><div class="check-main"><div class="check-title" data-i18n="includeToolOutput">包含工具原始输出</div><div class="check-sub" data-i18n="includeToolOutputDesc">可能包含本地路径、命令参数和内部链接</div></div></div>
+      <details class="cloud-share-disclosure">
+        <summary><span data-icon="external" data-size="13"></span><span data-i18n="cloudShare">创建云端只读链接</span><span class="badge" data-i18n="optional">可选</span></summary>
+        <div><p data-i18n="cloudShareDesc">启用后会将经过脱敏的会话副本上传到分享服务。默认 7 天失效，可随时撤销。</p><label class="check-row"><input class="checkbox" aria-checked="false" type="button" role="checkbox"><span class="check-main"><span class="check-title" data-i18n="confirmUpload">我确认上传脱敏后的会话副本</span></span></label><button class="btn btn-sm" type="button" data-toast="云端分享需要先确认上传" data-i18n="createLink">创建链接</button></div>
+      </details>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close data-i18n="cancel">取消</button><button class="btn btn-primary" data-dialog-close data-toast="本地会话快照已生成"><span data-icon="download" data-size="12"></span><span data-i18n="exportLocal">导出到本机</span></button></div>
+  </div>
+</div>
+
+<!-- 会话更多 -->
+<div class="backdrop" id="thread-menu" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="会话操作">
+    <div class="dialog-head"><h2 data-i18n="threadActions">会话操作</h2><p>API 迁移评估：v1 → v2 兼容性</p></div>
+    <div class="dialog-body stack" style="gap:8px">
+      <button class="btn" style="justify-content:flex-start"><span data-icon="branch" data-size="14"></span><span data-i18n="branchThread">从这条消息分叉新会话</span></button>
+      <button class="btn" style="justify-content:flex-start"><span data-icon="archive" data-size="14"></span><span data-i18n="archiveLibrary">归档到资源库</span></button>
+      <button class="btn" style="justify-content:flex-start"><span data-icon="download" data-size="14"></span><span data-i18n="exportMarkdown">导出为 Markdown</span></button>
+      <button class="btn btn-danger" style="justify-content:flex-start"><span data-icon="trash" data-size="14"></span><span data-i18n="deleteThread">删除会话</span></button>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close data-i18n="close">关闭</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  if (window.Anvil && window.Anvil.addTranslations) {
+    window.Anvil.addTranslations('zh-CN', {
+      exportChat: '导出', exportDesc: '默认在本机生成快照，不上传会话、文件路径或工具输出。', exportFormat: '导出格式',
+      includeThinking: '包含思考摘要', includeThinkingDesc: '仅导出折叠后的摘要，不包含隐藏推理', includeToolOutput: '包含工具原始输出', includeToolOutputDesc: '可能包含本地路径、命令参数和内部链接',
+      cloudShare: '创建云端只读链接', optional: '可选', cloudShareDesc: '启用后会将经过脱敏的会话副本上传到分享服务。默认 7 天失效，可随时撤销。', confirmUpload: '我确认上传脱敏后的会话副本', createLink: '创建链接', exportLocal: '导出到本机',
+      cancel: '取消', close: '关闭', stop: '停止', send: '发送', contextCount: '上下文 2', returnTurn: '返回原始轮次',
+      addContext: '添加上下文', addContextDesc: '发送前可检查并移除，不会自动授予 Agent 权限', uploadFiles: '上传文件', uploadFilesDesc: '从本机选择一个或多个文件', localOnly: '仅本机', existingProjects: '现有项目', chooseProjectDesc: '选择后确认当前会话的工作目录与历史归属',
+      thilLater: '稍后处理', thilContinue: '确认并继续', projectContinue: '在此项目中继续', projectCancel: '取消',
+      threadActions: '会话操作', branchThread: '从这条消息分叉新会话', archiveLibrary: '归档到资源库', exportMarkdown: '导出为 Markdown', deleteThread: '删除会话',
+      projectTitle: '为当前对话选择项目', projectDesc: '项目会绑定本地目录，并将会话归入侧栏中的项目分组。', currentProject: '当前项目', opened: '已打开', recentProjects: '最近项目', openLocalProject: '打开本地项目', openLocalDesc: '选择已有目录并开始对话', newProject: '新建项目', newProjectDesc: '选择目录并以文件夹名创建', projectSecurity: '选择目录只建立本地引用；Agent 仍受当前会话的读取与写入权限约束。',
+      thilKicker: 'THIL · 内容确认', thilTitle: '灰度方案需要你做一个业务判断', thilDesc: 'Agent 已完成技术分析，但仓库中没有流量分组规则。请选择迁移计划采用的灰度口径。', thilChoose: '选择一个方案', thilNote: '补充约束（可选）', thilPlaceholder: '例如：支付链路不能进入第一批；错误率超过 0.5% 自动回滚', thilScope: '这只确认任务内容，不会授予文件、终端或外部连接器权限；相关操作仍会单独请求授权。'
+    });
+    window.Anvil.addTranslations('en-US', {
+      exportChat: 'Export', exportDesc: 'Create a local snapshot by default. No chat, file path, or tool output is uploaded.', exportFormat: 'Export format',
+      includeThinking: 'Include thinking summaries', includeThinkingDesc: 'Exports collapsed summaries only, never hidden reasoning', includeToolOutput: 'Include raw tool output', includeToolOutputDesc: 'May contain local paths, command arguments, and internal links',
+      cloudShare: 'Create a cloud read-only link', optional: 'Optional', cloudShareDesc: 'Uploads a redacted copy to the sharing service. It expires after 7 days by default and can be revoked.', confirmUpload: 'I confirm uploading a redacted chat copy', createLink: 'Create link', exportLocal: 'Export locally',
+      cancel: 'Cancel', close: 'Close', stop: 'Stop', send: 'Send', contextCount: 'Context 2', returnTurn: 'Return to turn',
+      addContext: 'Add context', addContextDesc: 'Review or remove items before sending. Agent permissions stay separate.', uploadFiles: 'Upload files', uploadFilesDesc: 'Choose one or more files from this device', localOnly: 'Local only', existingProjects: 'Existing projects', chooseProjectDesc: 'Confirm the working directory and chat history group after choosing',
+      thilLater: 'Later', thilContinue: 'Confirm and continue', projectContinue: 'Continue in project', projectCancel: 'Cancel',
+      threadActions: 'Chat actions', branchThread: 'Branch from this message', archiveLibrary: 'Archive to library', exportMarkdown: 'Export as Markdown', deleteThread: 'Delete chat',
+      projectTitle: 'Choose a project for this chat', projectDesc: 'A project binds a local folder and groups related chats in the sidebar.', currentProject: 'Current project', opened: 'Open', recentProjects: 'Recent projects', openLocalProject: 'Open local project', openLocalDesc: 'Choose an existing folder and start chatting', newProject: 'New project', newProjectDesc: 'Choose a folder and create from its name', projectSecurity: 'Choosing a folder creates a local reference only. Agent read and write permissions still apply.',
+      thilKicker: 'THIL · Content decision', thilTitle: 'Choose a rollout approach', thilDesc: 'The technical analysis is complete, but the repository has no traffic segmentation rules. Choose how the migration plan should roll out.', thilChoose: 'Choose an option', thilNote: 'Additional constraints (optional)', thilPlaceholder: 'Example: exclude payments from the first cohort; roll back above 0.5% errors', thilScope: 'This confirms task content only. File, terminal, and connector permissions remain separate.'
+    });
+  }
+
+  var activeScenario = new URLSearchParams(location.search).get('scenario') || 'main';
+  if (activeScenario !== 'main') {
+    var scenarioTemplate = document.querySelector('[data-scenario-template="' + activeScenario + '"]');
+    if (scenarioTemplate) {
+      var scenarioThread = document.getElementById('thread-inner');
+      scenarioThread.replaceChildren(scenarioTemplate.content.cloneNode(true));
+      var scenarioTitle = scenarioTemplate.dataset.scenarioTitle;
+      document.querySelector('.chat-title').textContent = scenarioTitle;
+      document.title = '对话 · ' + scenarioTitle + ' · Anvil';
+      document.querySelector('[data-od-id="chat-thil-badge"]').hidden = true;
+      document.querySelector('[data-od-id="chat-pending-badge"]').hidden = true;
+      if (window.Anvil) window.Anvil.hydrate(scenarioThread);
+    }
+  }
+
+  var thread = document.getElementById('thread');
+  var layout = document.getElementById('chat-layout');
+  var railToggle = document.getElementById('rail-toggle');
+  var railClose = document.getElementById('rail-close');
+  var railScrim = document.getElementById('rail-scrim');
+  var artifactReturn = document.getElementById('artifact-return');
+  var activeArtifactTurn = null;
+  var sendBtn = document.getElementById('send-btn');
+  var stopBtn = document.getElementById('stop-btn');
+  var input = document.getElementById('composer-input');
+  var card = document.querySelector('[data-confirm-card]');
+  var status = document.getElementById('stream-status');
+  var pending = activeScenario === 'main' ? 1 : 0;
+  var thilChoice = 'tenant';
+  var selectedProject = { name: 'my-agent-go-ui', path: '~/work/my-agent-go-ui' };
+  var languageSelect = document.getElementById('chat-language');
+  var attachmentTrigger = document.getElementById('project-trigger');
+  var attachmentDrawer = document.getElementById('attachment-drawer');
+  var attachmentFileInput = document.getElementById('attachment-file-input');
+  var attachmentDirectoryInput = document.getElementById('attachment-directory-input');
+  var attachmentFiles = [];
+  var attachmentSkills = [];
+  var currentProjectTrigger = document.getElementById('current-project-trigger');
+  var currentProjectMenu = document.getElementById('current-project-menu');
+
+  if (languageSelect && window.Anvil) {
+    languageSelect.value = window.Anvil.getLocale();
+    languageSelect.addEventListener('change', function () { window.Anvil.setLocale(languageSelect.value); });
+    document.addEventListener('anvil:localechange', function (event) {
+      languageSelect.value = event.detail.locale;
+      renderProjectOptions();
+      renderAttachmentFiles();
+    });
+  }
+
+  /* 输入框轻量上下文菜单：文件 / 目录 / Skill */
+  function setAttachmentDrawer(open, restoreFocus) {
+    attachmentDrawer.hidden = !open;
+    attachmentTrigger.setAttribute('aria-expanded', String(open));
+    attachmentTrigger.classList.toggle('is-open', open);
+    if (open) attachmentDrawer.focus();
+    else if (restoreFocus) attachmentTrigger.focus();
+  }
+
+  function setCurrentProjectMenu(open, restoreFocus) {
+    currentProjectMenu.hidden = !open;
+    currentProjectTrigger.setAttribute('aria-expanded', String(open));
+    if (open) currentProjectMenu.querySelector('[role="menuitem"]').focus();
+    else if (restoreFocus) currentProjectTrigger.focus();
+  }
+
+  function updateCurrentProjectControl(project) {
+    var name = project ? project.name : '无项目';
+    var path = project ? project.path : '普通会话';
+    document.getElementById('composer-project-name').textContent = name;
+    document.getElementById('composer-project-menu-name').textContent = name;
+    document.getElementById('composer-project-menu-path').textContent = path;
+    document.getElementById('current-project-name').textContent = name;
+    document.getElementById('current-project-path').textContent = path;
+  }
+
+  function renderAttachmentFiles() {
+    var host = document.getElementById('composer-attachments');
+    var items = attachmentFiles.map(function (file, index) {
+      var icon = file.isDirectory ? 'folder' : 'file';
+      return '<span class="composer-attachment"><span>' + window.Anvil.svg(icon, 12) + '</span><b>' + safe(file.name) + '</b><small>' + Math.max(1, Math.round(file.size / 1024)) + ' KB</small><button type="button" data-remove-attachment="file:' + index + '" aria-label="移除 ' + safe(file.name) + '">' + window.Anvil.svg('x', 11) + '</button></span>';
+    }).concat(attachmentSkills.map(function (name, index) {
+      return '<span class="composer-attachment is-skill"><span>' + window.Anvil.svg('puzzle', 12) + '</span><b>' + safe(name) + '</b><small>Skill</small><button type="button" data-remove-attachment="skill:' + index + '" aria-label="移除 ' + safe(name) + '">' + window.Anvil.svg('x', 11) + '</button></span>';
+    }));
+    host.hidden = items.length === 0;
+    host.innerHTML = items.join('');
+    var context = document.querySelector('[data-i18n="contextCount"]');
+    if (context) context.textContent = (window.Anvil && window.Anvil.getLocale() === 'en-US' ? 'Context ' : '上下文 ') + (2 + items.length);
+  }
+
+  function addSelectedFiles(files, directory) {
+    var selected = Array.from(files || []);
+    if (!selected.length) return;
+    if (directory) {
+      var relative = selected[0].webkitRelativePath || selected[0].name;
+      attachmentFiles.push({ name: relative.split('/')[0], size: selected.reduce(function (sum, file) { return sum + file.size; }, 0), isDirectory: true });
+    } else attachmentFiles = attachmentFiles.concat(selected);
+    renderAttachmentFiles();
+    setAttachmentDrawer(false, true);
+    if (window.Anvil) window.Anvil.toast('已添加到当前对话上下文');
+  }
+
+  function detachCurrentProject() {
+    if (window.Anvil && window.Anvil.getHistoryState) {
+      var state = window.Anvil.getHistoryState();
+      var detached = null;
+      state.projects.forEach(function (project) {
+        var index = project.sessions.findIndex(function (session) { return session.id === 'session-api-migration'; });
+        if (index >= 0) detached = project.sessions.splice(index, 1)[0];
+      });
+      if (detached && !state.personal.some(function (session) { return session.id === detached.id; })) state.personal.unshift(detached);
+      window.Anvil.saveHistoryState(state);
+      window.Anvil.renderSidebar();
+    }
+    selectedProject = null;
+    updateCurrentProjectControl(null);
+    var mark = document.querySelector('.chat-project-mark');
+    if (mark) mark.innerHTML = '<span data-icon="message" data-size="10"></span>普通会话';
+    if (window.Anvil) { window.Anvil.hydrate(mark); window.Anvil.toast('已取消项目，会话已移入普通会话'); }
+    setCurrentProjectMenu(false, true);
+  }
+
+  attachmentTrigger.addEventListener('click', function (event) {
+    event.stopPropagation();
+    setCurrentProjectMenu(false, false);
+    setAttachmentDrawer(attachmentDrawer.hidden, false);
+  });
+  attachmentDrawer.querySelector('[data-file-source="files"]').addEventListener('click', function () { attachmentFileInput.click(); });
+  attachmentDrawer.querySelector('[data-file-source="directory"]').addEventListener('click', function () { attachmentDirectoryInput.click(); });
+  attachmentFileInput.addEventListener('change', function () { addSelectedFiles(attachmentFileInput.files, false); attachmentFileInput.value = ''; });
+  attachmentDirectoryInput.addEventListener('change', function () { addSelectedFiles(attachmentDirectoryInput.files, true); attachmentDirectoryInput.value = ''; });
+  attachmentDrawer.addEventListener('click', function (event) {
+    var skill = event.target.closest('[data-skill-name]');
+    if (!skill) return;
+    if (attachmentSkills.indexOf(skill.dataset.skillName) < 0) attachmentSkills.push(skill.dataset.skillName);
+    renderAttachmentFiles();
+    setAttachmentDrawer(false, true);
+    if (window.Anvil) window.Anvil.toast('已添加 Skill：' + skill.dataset.skillName);
+  });
+  document.getElementById('composer-attachments').addEventListener('click', function (event) {
+    var remove = event.target.closest('[data-remove-attachment]');
+    if (!remove) return;
+    var parts = remove.dataset.removeAttachment.split(':');
+    (parts[0] === 'skill' ? attachmentSkills : attachmentFiles).splice(Number(parts[1]), 1);
+    renderAttachmentFiles();
+  });
+  currentProjectTrigger.addEventListener('click', function (event) {
+    event.stopPropagation();
+    setAttachmentDrawer(false, false);
+    setCurrentProjectMenu(currentProjectMenu.hidden, false);
+  });
+  currentProjectMenu.querySelector('[data-project-action="change"]').addEventListener('click', function () {
+    setCurrentProjectMenu(false, false);
+    renderProjectOptions();
+    if (window.Anvil && window.Anvil.openDialog) window.Anvil.openDialog(document.getElementById('project-picker'), currentProjectTrigger);
+  });
+  currentProjectMenu.querySelector('[data-project-action="detach"]').addEventListener('click', detachCurrentProject);
+  document.addEventListener('click', function (event) {
+    if (!attachmentDrawer.hidden && !event.target.closest('#attachment-drawer') && !event.target.closest('#project-trigger')) setAttachmentDrawer(false, false);
+    if (!currentProjectMenu.hidden && !event.target.closest('#current-project-menu') && !event.target.closest('#current-project-trigger')) setCurrentProjectMenu(false, false);
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if (!attachmentDrawer.hidden) { event.preventDefault(); setAttachmentDrawer(false, true); }
+    else if (!currentProjectMenu.hidden) { event.preventDefault(); setCurrentProjectMenu(false, true); }
+  });
+
+  /* THIL 内容确认 */
+  document.querySelectorAll('[data-thil-choice]').forEach(function (option) {
+    option.addEventListener('click', function (event) {
+      event.stopPropagation();
+      thilChoice = option.dataset.thilChoice;
+      document.querySelectorAll('[data-thil-choice]').forEach(function (item) {
+        var selected = item === option;
+        item.classList.toggle('is-selected', selected);
+        item.setAttribute('aria-checked', String(selected));
+      });
+    });
+  });
+  document.getElementById('thil-submit').addEventListener('click', function () {
+    var labels = { tenant: '按租户白名单灰度', traffic: '按 10% 随机流量灰度', environment: '先仅在预发布环境验证' };
+    var note = document.getElementById('thil-note').value.trim();
+    var result = document.createElement('div');
+    result.className = 'msg msg-user';
+    result.innerHTML = '<div class="bubble"></div><div class="msg-meta"><span>内容确认</span><span>·</span><span>刚刚</span></div>';
+    result.querySelector('.bubble').textContent = labels[thilChoice] + (note ? '；补充：' + note : '');
+    document.getElementById('thread-inner').appendChild(result);
+    document.getElementById('thil-dialog').hidden = true;
+    var badge = document.querySelector('[data-od-id="chat-thil-badge"]');
+    if (badge) { badge.className = 'badge badge-success'; badge.innerHTML = '<span data-icon="check" data-size="11"></span>内容已确认'; }
+    var inlineCard = document.querySelector('[data-od-id="inline-thil-card"] .inline-thil');
+    if (inlineCard) {
+      inlineCard.classList.add('is-done');
+      inlineCard.querySelector('.inline-thil-kicker').textContent = 'THIL · 已确认';
+      inlineCard.querySelector('h3').textContent = labels[thilChoice];
+      inlineCard.querySelector('p').textContent = note || '该业务判断已加入任务上下文，后续工具权限仍会单独确认。';
+      var inlineButton = inlineCard.querySelector('.btn');
+      if (inlineButton) { inlineButton.textContent = '已确认'; inlineButton.disabled = true; }
+    }
+    if (window.Anvil) { window.Anvil.hydrate(badge); window.Anvil.toast('业务约束已加入当前任务'); }
+    scrollBottom();
+  });
+
+  function scrollBottom() { if (thread) thread.scrollTop = thread.scrollHeight; }
+
+  /* 右侧面板开合 */
+  var savedRail = localStorage.getItem('anvil.rail') || 'open';
+  function applyRail(open) {
+    layout.classList.toggle('rail-open', open);
+    railToggle.classList.toggle('is-on', open);
+    railToggle.setAttribute('aria-pressed', String(open));
+    localStorage.setItem('anvil.rail', open ? 'open' : 'closed');
+  }
+  applyRail(savedRail === 'open' && !window.matchMedia('(max-width: 900px)').matches);
+  railToggle.addEventListener('click', function () { applyRail(!layout.classList.contains('rail-open')); });
+  railClose.addEventListener('click', function () { applyRail(false); });
+  if (railScrim) railScrim.addEventListener('click', function () { applyRail(false); });
+
+  document.querySelectorAll('[data-open-rail]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      applyRail(true);
+      activeArtifactTurn = button.dataset.artifactTurn || null;
+      var tab = document.querySelector('[data-tab="' + button.dataset.openRail + '"][data-tab-group="rail"]');
+      if (tab) tab.click();
+      document.querySelectorAll('.file-row[data-artifact-turn]').forEach(function (row) {
+        row.classList.toggle('is-related', !activeArtifactTurn || row.dataset.artifactTurn === activeArtifactTurn);
+        row.classList.toggle('is-dimmed', Boolean(activeArtifactTurn) && row.dataset.artifactTurn !== activeArtifactTurn);
+      });
+      var label = document.getElementById('artifact-pane-label');
+      if (label && activeArtifactTurn) label.textContent = '当前轮次输出物 · ' + document.querySelectorAll('.file-row[data-artifact-turn="' + activeArtifactTurn + '"]').length;
+    });
+  });
+  if (artifactReturn) artifactReturn.addEventListener('click', function () {
+    var origin = activeArtifactTurn && document.querySelector('[data-artifact-turn="' + activeArtifactTurn + '"][data-open-rail]');
+    if (origin) { origin.scrollIntoView({ behavior: 'smooth', block: 'center' }); origin.focus(); }
+    if (window.matchMedia('(max-width: 900px)').matches) applyRail(false);
+  });
+
+  /* 项目选择与本地目录绑定 */
+  function safe(value) { return String(value || '').replace(/[&<>"']/g, function (char) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]; }); }
+  function bindProjectOptions() {
+    document.querySelectorAll('[data-project-name]').forEach(function (option) {
+      option.addEventListener('click', function () {
+        selectedProject = { name: option.dataset.projectName, path: option.dataset.projectPath };
+        document.querySelectorAll('[data-project-name]').forEach(function (item) {
+          var selected = item === option;
+          item.classList.toggle('is-selected', selected);
+          item.setAttribute('aria-checked', String(selected));
+        });
+      });
+    });
+  }
+  function renderProjectOptions() {
+    if (!window.Anvil || !window.Anvil.getHistoryState) { bindProjectOptions(); return; }
+    var state = window.Anvil.getHistoryState();
+    var options = document.querySelector('.project-options');
+    if (!options) return;
+    var currentProject = state.projects.find(function (project) {
+      return project.sessions.some(function (session) { return session.id === 'session-api-migration'; });
+    });
+    var english = window.Anvil.getLocale() === 'en-US';
+    options.innerHTML = state.projects.map(function (project) {
+      var selected = currentProject && project.id === currentProject.id;
+      var sessionCountLabel = project.sessions.length + (english ? (project.sessions.length === 1 ? ' chat' : ' chats') : ' 个会话');
+      return '<button class="project-option' + (selected ? ' is-selected' : '') + '" type="button" role="radio" aria-checked="' + String(selected) + '" data-project-name="' + safe(project.name) + '" data-project-path="' + safe(project.path) + '"><span class="project-logo">' + safe(project.name.slice(0, 1)) + '</span><span><b>' + safe(project.name) + '</b><small class="mono">' + safe(project.path) + ' · ' + sessionCountLabel + '</small></span><span class="project-check">' + window.Anvil.svg('check', 12) + '</span></button>';
+    }).join('');
+    if (currentProject) {
+      selectedProject = { name: currentProject.name, path: currentProject.path };
+      document.getElementById('current-project-name').textContent = currentProject.name;
+      document.getElementById('current-project-path').textContent = currentProject.path;
+      var projectMark = document.querySelector('.chat-project-mark');
+      if (projectMark) projectMark.innerHTML = window.Anvil.svg('folder', 10) + safe(currentProject.name);
+      updateCurrentProjectControl(selectedProject);
+    } else {
+      selectedProject = null;
+      updateCurrentProjectControl(null);
+    }
+    bindProjectOptions();
+  }
+  renderProjectOptions();
+  var directoryInput = document.getElementById('project-directory-input');
+  document.getElementById('open-project-directory').addEventListener('click', function () {
+    directoryInput.dataset.mode = 'open';
+    directoryInput.click();
+  });
+  document.getElementById('new-project-directory').addEventListener('click', function () {
+    directoryInput.dataset.mode = 'new';
+    directoryInput.click();
+  });
+  directoryInput.addEventListener('change', function () {
+    if (!directoryInput.files.length) return;
+    var relative = directoryInput.files[0].webkitRelativePath || directoryInput.files[0].name;
+    var folder = relative.split('/')[0];
+    selectedProject = { name: directoryInput.dataset.mode === 'new' ? folder + '（新项目）' : folder, path: '本地目录/' + folder };
+    document.getElementById('current-project-name').textContent = selectedProject.name;
+    document.getElementById('current-project-path').textContent = selectedProject.path;
+    if (window.Anvil) window.Anvil.toast('已选择目录：' + folder);
+  });
+  document.getElementById('project-apply').addEventListener('click', function () {
+    document.getElementById('current-project-name').textContent = selectedProject.name;
+    document.getElementById('current-project-path').textContent = selectedProject.path;
+    var mark = document.querySelector('.chat-project-mark');
+    if (mark) {
+      mark.innerHTML = '<span data-icon="folder" data-size="10"></span>' + selectedProject.name;
+      if (window.Anvil) window.Anvil.hydrate(mark);
+    }
+    updateCurrentProjectControl(selectedProject);
+    if (window.Anvil && window.Anvil.assignSessionToProject) {
+      window.Anvil.assignSessionToProject(selectedProject, { id: 'session-api-migration', title: 'API 迁移评估：v1 → v2', meta: '迁移工程师 · 刚刚', scenario: 'main', state: 'pending' });
+      renderProjectOptions();
+    }
+    if (window.Anvil && window.Anvil.closeDialog) window.Anvil.closeDialog(document.getElementById('project-picker'));
+    else document.getElementById('project-picker').hidden = true;
+    if (window.Anvil) window.Anvil.toast('当前对话已归入「' + selectedProject.name + '」');
+  });
+
+  /* 思考块 / 工具块折叠 */
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest('[data-thinking]');
+    if (th) { th.parentElement.classList.toggle('is-open'); return; }
+    var tt = e.target.closest('[data-tool-toggle]');
+    if (tt) { tt.parentElement.classList.toggle('is-open'); }
+  });
+
+  /* 独立场景卡片动作 */
+  document.addEventListener('click', function (event) {
+    var action = event.target.closest('[data-scenario-action]');
+    if (!action) return;
+    var messages = {
+      retry: '正在重新检测本地运行时', details: '已打开模型路由详情', continue: '已从检查点继续执行',
+      branch: '已从当前检查点创建分支', compress: '已压缩早期工具结果并继续'
+    };
+    if (window.Anvil) window.Anvil.toast(messages[action.dataset.scenarioAction] || '操作已执行');
+    action.disabled = true;
+    if (action.dataset.scenarioAction === 'retry') action.textContent = '检测中…';
+    if (action.dataset.scenarioAction === 'continue' || action.dataset.scenarioAction === 'compress') action.textContent = '已继续';
+  });
+
+  /* 确认卡片 */
+  function resolveCard(kind) {
+    if (!card) return;
+    var label = kind === 'deny' ? '已拒绝：文件未写入，Agent 已改为输出草稿到对话'
+      : kind === 'always' ? '已允许：写入 docs/ 的同类操作本次会话内不再询问'
+      : '已允许：文件已写入 docs/migration/v1-to-v2-plan.md';
+    card.classList.add('is-done');
+    var foot = card.querySelector('.confirm-foot');
+    if (foot) foot.remove();
+    var res = document.createElement('div');
+    res.className = 'confirm-result';
+    res.innerHTML = '<span data-icon="' + (kind === 'deny' ? 'x' : 'check') + '" data-size="12"></span><span>' + label + '</span>';
+    card.appendChild(res);
+    if (window.Anvil) { window.Anvil.hydrate(card); window.Anvil.toast(kind === 'deny' ? '操作已拒绝' : '已允许，继续生成', kind === 'deny' ? 'warn' : 'ok'); }
+    pending = 0;
+    document.querySelector('[data-od-id="chat-pending-badge"]').outerHTML = '<span class="badge badge-success" data-od-id="chat-pending-badge"><i class="dot"></i>已确认</span>';
+    if (status) status.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span><span>Agent 继续生成…</span>';
+    setTimeout(finishTurn, 1400);
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-confirm]');
+    if (btn) resolveCard(btn.dataset.confirm);
+  });
+
+  /* 生成结束 */
+  function finishTurn() {
+    var live = document.getElementById('live-msg');
+    if (!live) return;
+    var badge = live.querySelector('.agent-head .badge');
+    if (badge) { badge.className = 'badge badge-success'; badge.innerHTML = '<i class="dot"></i>已完成'; }
+    var th = live.querySelector('.thinking');
+    if (th) {
+      th.classList.remove('is-open');
+      var head = th.querySelector('.thinking-head');
+      if (head) head.innerHTML = '<span data-icon="brain" data-size="14"></span><span>已思考 6 步 · 11.4 秒</span><span class="tw"><span data-icon="chevron" data-size="12"></span></span>';
+    }
+    if (status) status.innerHTML = '<span data-icon="check" data-size="13"></span><span>完成 · 本轮 1,284 tokens · 9.6 秒</span>';
+    stopBtn.style.display = 'none';
+    sendBtn.disabled = false;
+    if (window.Anvil) window.Anvil.hydrate(live);
+    if (window.Anvil) window.Anvil.hydrate(status);
+    scrollBottom();
+  }
+
+  /* 发送 */
+  document.getElementById('composer').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = input.value.trim();
+    if (!text) return;
+    if (pending) { if (window.Anvil) window.Anvil.toast('请先处理待确认的操作', 'warn'); return; }
+
+    var userMsg = document.createElement('div');
+    userMsg.className = 'msg msg-user';
+    userMsg.innerHTML = '<div class="bubble"></div><div class="msg-meta"><span>陈羽</span><span>·</span><span>刚刚</span></div>';
+    userMsg.querySelector('.bubble').textContent = text;
+    document.getElementById('thread-inner').appendChild(userMsg);
+    input.value = '';
+    scrollBottom();
+
+    var reply = document.createElement('div');
+    reply.className = 'msg';
+    reply.innerHTML =
+      '<div class="agent-head"><span class="agent-badge">迁</span><span class="agent-name">迁移工程师</span>' +
+      '<span class="agent-model">claude-sonnet-4.5</span><span class="badge"><i class="dot"></i>生成中</span></div>' +
+      '<div class="prose"><p><span class="typing-dots"><span></span><span></span><span></span></span></p></div>';
+    document.getElementById('thread-inner').appendChild(reply);
+    stopBtn.style.display = '';
+    sendBtn.disabled = true;
+    scrollBottom();
+
+    var full = '收到。回滚步骤已单独成节，并补上了双写期的数据对账说明。文档等待你确认后写入，本地预览已同步到右侧浏览器面板。';
+    var p = reply.querySelector('.prose p');
+    var i = 0;
+    setTimeout(function () {
+      var timer = setInterval(function () {
+        i += 2;
+        p.textContent = full.slice(0, i);
+        if (i >= full.length) {
+          clearInterval(timer);
+          reply.querySelector('.agent-head .badge').className = 'badge badge-success';
+          reply.querySelector('.agent-head .badge').innerHTML = '<i class="dot"></i>已完成';
+          p.innerHTML = full + ' <span class="badge badge-warn">文档待确认</span>';
+          stopBtn.style.display = 'none';
+          sendBtn.disabled = false;
+          pending = 1;
+          if (window.Anvil) window.Anvil.hydrate(reply);
+          scrollBottom();
+        } else {
+          scrollBottom();
+        }
+      }, 28);
+      stopBtn.onclick = function () { clearInterval(timer); sendBtn.disabled = false; stopBtn.style.display = 'none'; if (window.Anvil) window.Anvil.toast('已停止生成', 'warn'); };
+    }, 650);
+  });
+
+  /* 发送快捷键 */
+  input.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendBtn.click(); }
+  });
+
+  /* 打开时贴底 */
+  scrollBottom();
+  window.addEventListener('load', scrollBottom);
+})();
+</script>
+</body>
+</html>

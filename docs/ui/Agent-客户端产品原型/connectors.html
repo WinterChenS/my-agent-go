@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>连接器 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="connectors">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>智能体</span><span class="sep">/</span><span style="color:var(--fg)">连接器</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>连接器</h1>
+            <p class="page-desc">把邮箱、即时通讯与文档系统接进 Agent。每个连接器只暴露你授权的动作，写操作与对外发送一律走确认卡片。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-toast="正在校验全部连接器凭证"><span data-icon="shield" data-size="14"></span>校验凭证</button>
+            <button class="btn btn-primary" data-dialog-open="new-connector"><span data-icon="plus" data-size="14"></span>添加连接器</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px" data-od-id="connector-stats">
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">已连接</div>
+              <div class="stat-value nums">5</div>
+              <div class="stat-delta">1 个需重新授权</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">可用动作</div>
+              <div class="stat-value nums">28</div>
+              <div class="stat-delta">其中 9 个需确认</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">本周调用</div>
+              <div class="stat-value nums">1,284</div>
+              <div class="stat-delta">失败 11 · 成功率 99.1%</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">最近同步</div>
+              <div class="stat-value nums">2 分钟前</div>
+              <div class="stat-delta">邮箱增量同步</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <input class="input" placeholder="按名称或动作搜索" aria-label="搜索连接器">
+          <select class="select select-sm" aria-label="类别">
+            <option>全部类别</option><option>邮箱</option><option>即时通讯</option><option>文档</option><option>代码托管</option>
+          </select>
+          <select class="select select-sm" aria-label="状态">
+            <option>全部状态</option><option>已连接</option><option>需授权</option><option>未连接</option>
+          </select>
+          <span class="toolbar-spacer"></span>
+          <span class="tiny muted">凭证保存在本地钥匙串，不随会话上传</span>
+        </div>
+
+        <div class="connector-grid" style="margin-bottom:18px">
+
+          <section class="card connector-card" data-od-id="connector-mail">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="mail" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">邮箱</h3>
+                  <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                </div>
+                <div class="connector-desc">IMAP 收信 · SMTP 发信</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">chen.yu@anvil.dev · imap.anvil.dev:993</div>
+              <div class="connector-scopes">
+                <span class="tag">搜索邮件</span><span class="tag">读取附件</span><span class="tag">发信需确认</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono">同步 09:41</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-dialog-open="mail-settings">配置</button>
+            </div>
+          </section>
+
+          <section class="card connector-card" data-od-id="connector-dingtalk">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="message" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">钉钉</h3>
+                  <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                </div>
+                <div class="connector-desc">群机器人 + 工作通知</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">应用 · Anvil 值班助手</div>
+              <div class="connector-scopes">
+                <span class="tag">发送群消息</span><span class="tag">读取会话</span><span class="tag">@ 成员</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono">3 个群</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-dialog-open="dingtalk-settings">配置</button>
+            </div>
+          </section>
+
+          <section class="card connector-card" data-od-id="connector-feishu">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="layers" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">飞书</h3>
+                  <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                </div>
+                <div class="connector-desc">文档读写 + 机器人消息</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">租户 · anvil.feishu.cn</div>
+              <div class="connector-scopes">
+                <span class="tag">读文档</span><span class="tag">写文档需确认</span><span class="tag">发消息</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono">12 个文档</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-dialog-open="feishu-settings">配置</button>
+            </div>
+          </section>
+
+          <section class="card connector-card" data-od-id="connector-slack">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="zap" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">Slack</h3>
+                  <span class="badge badge-warn"><i class="dot"></i>需重新授权</span>
+                </div>
+                <div class="connector-desc">频道消息 + 线程回复</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">工作区 · anvil-hq</div>
+              <div class="connector-scopes">
+                <span class="tag">读取频道</span><span class="tag">回复线程</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono" style="color:var(--warn)">令牌已过期 2 天</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-toast="已重新发起 Slack 授权">重新授权</button>
+            </div>
+          </section>
+
+          <section class="card connector-card" data-od-id="connector-notion">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="file" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">Notion</h3>
+                  <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                </div>
+                <div class="connector-desc">页面与数据库条目</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">集成 · Anvil Workspace</div>
+              <div class="connector-scopes">
+                <span class="tag">查询数据库</span><span class="tag">创建页面需确认</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono">4 个数据库</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-dialog-open="notion-settings">配置</button>
+            </div>
+          </section>
+
+          <section class="card connector-card" data-od-id="connector-github">
+            <div class="connector-head">
+              <div class="connector-logo"><span data-icon="branch" data-size="16"></span></div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h3 style="margin:0;font-size:13px">GitHub</h3>
+                  <span class="badge">未连接</span>
+                </div>
+                <div class="connector-desc">仓库、Issue 与 PR</div>
+              </div>
+            </div>
+            <div class="connector-body">
+              <div class="tiny muted mono">尚未配置访问令牌</div>
+              <div class="connector-scopes">
+                <span class="tag">只读仓库</span><span class="tag">评论 PR</span>
+              </div>
+            </div>
+            <div class="connector-foot">
+              <span class="mono">连接后可分配 6 个动作</span>
+              <button class="btn btn-sm" style="margin-left:auto" data-dialog-open="new-connector">去连接</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="grid-2" style="align-items:start;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)">
+
+          <section class="card" data-od-id="connector-policy">
+            <div class="card-head">
+              <h3>动作与确认策略</h3>
+              <span class="card-head-sub">按连接器逐项授权</span>
+            </div>
+            <table class="table">
+              <thead>
+                <tr><th>连接器 / 动作</th><th>权限</th><th>确认</th><th style="text-align:right">本周调用</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><div class="row-title">邮箱 · 搜索与读取</div><div class="row-sub mono">mail.search_messages</div></td>
+                  <td><span class="badge badge-mono">只读</span></td>
+                  <td><span class="tiny muted">无需确认</span></td>
+                  <td class="nums" style="text-align:right">486</td>
+                </tr>
+                <tr>
+                  <td><div class="row-title">邮箱 · 发送邮件</div><div class="row-sub mono">mail.send_message</div></td>
+                  <td><span class="badge badge-mono">写入</span></td>
+                  <td><span class="badge badge-warn">高风险确认</span></td>
+                  <td class="nums" style="text-align:right">37</td>
+                </tr>
+                <tr>
+                  <td><div class="row-title">钉钉 · 发送群消息</div><div class="row-sub mono">dingtalk.send_group</div></td>
+                  <td><span class="badge badge-mono">对外发送</span></td>
+                  <td><span class="badge badge-warn">中风险确认</span></td>
+                  <td class="nums" style="text-align:right">214</td>
+                </tr>
+                <tr>
+                  <td><div class="row-title">飞书 · 写文档</div><div class="row-sub mono">feishu.update_doc</div></td>
+                  <td><span class="badge badge-mono">写入</span></td>
+                  <td><span class="badge badge-warn">中风险确认</span></td>
+                  <td class="nums" style="text-align:right">92</td>
+                </tr>
+                <tr>
+                  <td><div class="row-title">飞书 · 读取文档</div><div class="row-sub mono">feishu.get_doc</div></td>
+                  <td><span class="badge badge-mono">只读</span></td>
+                  <td><span class="tiny muted">无需确认</span></td>
+                  <td class="nums" style="text-align:right">341</td>
+                </tr>
+                <tr>
+                  <td><div class="row-title">Notion · 创建页面</div><div class="row-sub mono">notion.create_page</div></td>
+                  <td><span class="badge badge-mono">写入</span></td>
+                  <td><span class="badge badge-warn">中风险确认</span></td>
+                  <td class="nums" style="text-align:right">58</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="card-pad" style="border-top:1px solid var(--border)">
+              <div class="notice">
+                <span data-icon="shield" data-size="15"></span>
+                <span>权限低于当前会话设置的连接器动作会被直接拦截，并记录在审计日志里。</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="stack" style="gap:16px">
+            <section class="card" data-od-id="connector-activity">
+              <div class="card-head">
+                <h3>最近活动</h3>
+                <span class="card-head-sub">近 2 小时</span>
+              </div>
+              <div class="card-pad">
+                <div class="timeline">
+                  <div class="tl-item is-done">
+                    <div class="tl-time">09:41</div>
+                    <div class="tl-title">邮箱增量同步</div>
+                    <div class="tl-sub">新增 6 封，其中 2 封进入摘要</div>
+                  </div>
+                  <div class="tl-item is-done">
+                    <div class="tl-time">09:18</div>
+                    <div class="tl-title">钉钉群消息已发送</div>
+                    <div class="tl-sub">#值班 · 依赖漏洞扫描结果 · 已确认</div>
+                  </div>
+                  <div class="tl-item is-done">
+                    <div class="tl-time">08:52</div>
+                    <div class="tl-title">飞书文档写入</div>
+                    <div class="tl-sub">周报 2025-W45 · 追加「风险」章节</div>
+                  </div>
+                  <div class="tl-item is-now">
+                    <div class="tl-time">08:30</div>
+                    <div class="tl-title">Slack 授权失败</div>
+                    <div class="tl-sub">令牌过期 · 相关任务已暂停 1 个</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="card" data-od-id="connector-health">
+              <div class="card-head"><h3>凭证健康</h3></div>
+              <div class="card-pad stack" style="gap:12px">
+                <div>
+                  <div class="row"><span class="small fg2">邮箱 OAuth</span><span class="tiny muted mono" style="margin-left:auto">53 天后续期</span></div>
+                  <div class="meter is-accent"><span style="width:72%"></span></div>
+                </div>
+                <div>
+                  <div class="row"><span class="small fg2">飞书 token</span><span class="tiny muted mono" style="margin-left:auto">6 天后续期</span></div>
+                  <div class="meter is-accent"><span style="width:34%"></span></div>
+                </div>
+                <div>
+                  <div class="row"><span class="small fg2">Slack token</span><span class="tiny muted mono" style="margin-left:auto">已过期</span></div>
+                  <div class="meter is-warn"><span style="width:4%"></span></div>
+                </div>
+                <div class="hairline"></div>
+                <div class="row">
+                  <span class="small muted">自动续期</span>
+                  <button class="switch" role="switch" aria-checked="true" aria-label="自动续期" data-toast="凭证自动续期{state}" style="margin-left:auto"></button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="new-connector" hidden>
+  <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="添加连接器">
+    <div class="dialog-head">
+      <h2>添加连接器</h2>
+      <p>选择一类服务，填写凭证后先以只读模式接入，确认无误再放开写操作。</p>
+    </div>
+    <div class="dialog-body">
+      <div class="grid-2">
+        <div class="field">
+          <label class="field-label">连接器类型</label>
+          <select class="select">
+            <option>邮箱（IMAP / SMTP）</option>
+            <option>钉钉</option>
+            <option>飞书</option>
+            <option>Slack</option>
+            <option>Notion</option>
+            <option>GitHub</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">显示名称</label>
+          <input class="input" placeholder="例如 团队共享邮箱">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">凭证</label>
+        <textarea class="textarea mono" rows="3" placeholder="access_token=…&#10;refresh_token=…"></textarea>
+        <div class="field-hint">凭证写入本地钥匙串，仅在运行时注入，不进入会话记录。</div>
+      </div>
+      <div class="field">
+        <label class="field-label">初始权限</label>
+        <div class="stack" style="gap:8px">
+          <div class="check-row"><span class="checkbox" role="checkbox" aria-checked="true"></span><span class="small">只读（搜索与读取）</span></div>
+          <div class="check-row"><span class="checkbox" role="checkbox" aria-checked="false"></span><span class="small">写入（创建与修改内容）</span></div>
+          <div class="check-row"><span class="checkbox" role="checkbox" aria-checked="false"></span><span class="small">对外发送（消息、邮件、评论）</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="连接器已添加，正在验证凭证">添加并验证</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="mail-settings" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="邮箱连接器设置">
+    <div class="dialog-head"><h2>邮箱</h2><p>chen.yu@anvil.dev</p></div>
+    <div class="dialog-body stack" style="gap:14px">
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">发信前确认</div>
+          <div class="setting-sub">Agent 起草的邮件必须先经过确认卡片才会发出。</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="true" aria-label="发信前确认" data-toast="发信前确认{state}"></button>
+      </div>
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">增量同步间隔</div>
+          <div class="setting-sub">同步只读取最近 30 天的邮件，附件按需下载。</div>
+        </div>
+        <select class="select" style="width:140px"><option>5 分钟</option><option>15 分钟</option><option>手动</option></select>
+      </div>
+      <div class="field">
+        <label class="field-label">允许访问的文件夹</label>
+        <input class="input mono" value="INBOX, Archive/Sent">
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn btn-danger" data-dialog-close data-toast="已断开邮箱连接">断开连接</button>
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="邮箱设置已保存">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="dingtalk-settings" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="钉钉连接器设置">
+    <div class="dialog-head"><h2>钉钉</h2><p>应用 · Anvil 值班助手</p></div>
+    <div class="dialog-body stack" style="gap:14px">
+      <div class="field"><label class="field-label">AppKey</label><input class="input mono" value="ding7xk2m9qpl0" readonly></div>
+      <div class="field"><label class="field-label">可发送的群</label><input class="input mono" value="#值班, #发布通知, #数据日报"></div>
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">@ 成员需确认</div>
+          <div class="setting-sub">涉及点名提醒时，先展示接收人再发送。</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="true" aria-label="@ 成员需确认" data-toast="点名提醒确认{state}"></button>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="钉钉设置已保存">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="feishu-settings" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="飞书连接器设置">
+    <div class="dialog-head"><h2>飞书</h2><p>租户 · anvil.feishu.cn</p></div>
+    <div class="dialog-body stack" style="gap:14px">
+      <div class="field"><label class="field-label">默认知识库</label><input class="input" value="产品与工程 / 研发知识库"></div>
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">写文档前确认</div>
+          <div class="setting-sub">展示将要修改的段落摘要与变更行数。</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="true" aria-label="写文档前确认" data-toast="写文档前确认{state}"></button>
+      </div>
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">允许创建新页面</div>
+          <div class="setting-sub">关闭后 Agent 只能在既有文档内追加内容。</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="false" aria-label="允许创建新页面" data-toast="新建页面权限{state}"></button>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="飞书设置已保存">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="notion-settings" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Notion 连接器设置">
+    <div class="dialog-head"><h2>Notion</h2><p>集成 · Anvil Workspace</p></div>
+    <div class="dialog-body stack" style="gap:14px">
+      <div class="field"><label class="field-label">可访问数据库</label><input class="input mono" value="竞品追踪, 需求池, 周报归档, 招聘看板"></div>
+      <div class="setting-row" style="padding:0;border:0">
+        <div class="setting-main">
+          <div class="setting-title">允许修改数据库属性</div>
+          <div class="setting-sub">关闭后只允许追加页面，不改变既有字段值。</div>
+        </div>
+        <button class="switch" role="switch" aria-checked="false" aria-label="允许修改数据库属性" data-toast="数据库写入权限{state}"></button>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="Notion 设置已保存">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="search-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="全局搜索">
+    <div class="dialog-head"><h2>全局搜索</h2><p>跨会话、Agent、Skill 与产出物检索。</p></div>
+    <div class="dialog-body">
+      <input class="input" placeholder="输入关键词，例如「钉钉」「发信」「OAuth」" autofocus>
+      <div class="field-hint">按 <span class="kbd">⌘</span> <span class="kbd">K</span> 可在任意页面唤起。</div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>关闭</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+</body>
+</html>

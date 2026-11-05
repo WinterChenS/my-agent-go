@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 管理 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="agents">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>智能体</span><span class="sep">/</span><span style="color:var(--fg)">Agent</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>Agent 管理</h1>
+            <p class="page-desc">配置主 Agent 与子 Agent 的模型、system prompt、可用工具与权限边界。子 Agent 继承主 Agent 的权限上限。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-dialog-open="import-dialog"><span data-icon="upload" data-size="14"></span>导入</button>
+            <button class="btn btn-primary" data-dialog-open="new-agent"><span data-icon="plus" data-size="14"></span>新建 Agent</button>
+          </div>
+        </div>
+
+        <div class="agent-layout">
+          <!-- 列表 -->
+          <section class="card agent-list" data-od-id="agent-list">
+            <div class="agent-group-label">主 Agent · 4</div>
+            <div class="agent-nav-item is-active" data-agent data-name="迁移工程师" data-runtime="pi-agent" data-model="claude-sonnet-4.5" data-desc="负责代码库迁移、依赖升级与兼容性评估。" data-badge="迁">
+              <span class="agent-badge">迁</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">迁移工程师 <span class="badge badge-success"><i class="dot"></i>就绪</span></div>
+                <div class="agent-nav-sub">claude-sonnet-4.5 · 4 skills</div>
+              </div>
+            </div>
+            <div class="agent-nav-item" data-agent data-name="数据分析师" data-runtime="codex-cli" data-model="gpt-5.1" data-desc="负责 SQL 查询、指标口径核对与图表化输出。" data-badge="数">
+              <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">数</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">数据分析师</div>
+                <div class="agent-nav-sub">gpt-5.1 · 6 skills</div>
+              </div>
+            </div>
+            <div class="agent-nav-item" data-agent data-name="研究员" data-runtime="pi-agent" data-model="gemini-3-pro" data-desc="负责公开资料检索、网页阅读与引用整理。" data-badge="研">
+              <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">研</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">研究员</div>
+                <div class="agent-nav-sub">gemini-3-pro · 3 skills</div>
+              </div>
+            </div>
+            <div class="agent-nav-item" data-agent data-name="文档助手" data-runtime="claude-code" data-model="claude-haiku-4.5" data-desc="负责文档结构整理、摘要与格式统一。" data-badge="文">
+              <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">文</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">文档助手</div>
+                <div class="agent-nav-sub">claude-haiku-4.5 · 2 skills</div>
+              </div>
+            </div>
+
+            <div class="agent-group-label" style="display:flex;align-items:center;gap:6px;border-top:1px solid var(--border);margin-top:4px">子 Agent · 2
+              <button class="iconbtn" style="margin-left:auto;width:22px;height:22px" data-dialog-open="new-agent" aria-label="添加子 Agent"><span data-icon="plus" data-size="13"></span></button>
+            </div>
+            <div class="agent-nav-item" data-agent data-name="代码审计员" data-runtime="pi-agent" data-model="claude-sonnet-4.5" data-desc="由迁移工程师委派，只读审查改动并出具风险清单。" data-badge="审">
+              <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">审</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">代码审计员 <span class="badge">子</span></div>
+                <div class="agent-nav-sub">只读 · 委派自 迁移工程师</div>
+              </div>
+            </div>
+            <div class="agent-nav-item" data-agent data-name="测试生成器" data-runtime="codex-cli" data-model="gpt-5.1-mini" data-desc="由迁移工程师委派，根据 diff 生成回归测试。" data-badge="测">
+              <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">测</span>
+              <div class="agent-nav-main">
+                <div class="agent-nav-name">测试生成器 <span class="badge">子</span></div>
+                <div class="agent-nav-sub">gpt-5.1-mini · 委派自 迁移工程师</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 详情 -->
+          <section class="card" data-od-id="agent-detail">
+            <div class="agent-hero">
+              <span class="agent-badge" id="hero-badge">迁</span>
+              <div class="agent-hero-main">
+                <h2 id="hero-name">迁移工程师</h2>
+                <div class="agent-hero-meta">
+                  <span id="hero-desc">负责代码库迁移、依赖升级与兼容性评估。</span>
+                </div>
+                <div class="agent-hero-meta" style="margin-top:8px">
+                  <span class="tag" id="hero-runtime">Pi Agent</span>
+                  <span class="tag" id="hero-model">claude-sonnet-4.5</span>
+                  <span class="tag">思考 · 中</span>
+                  <span class="tag">权限 · 中风险确认</span>
+                  <span class="tag">4 skills</span>
+                </div>
+              </div>
+              <div class="agent-hero-actions">
+                <a class="btn btn-sm" href="chat.html"><span data-icon="message" data-size="13"></span>发起对话</a>
+                <button class="btn btn-sm btn-primary" data-toast="配置已保存">保存</button>
+              </div>
+            </div>
+
+            <div style="padding:0 16px">
+              <div class="tabs" style="margin-bottom:0">
+                <button class="tab is-active" data-tab="basic" data-tab-group="agent">基础配置</button>
+                <button class="tab" data-tab="prompt" data-tab-group="agent">指令与工具</button>
+                <button class="tab" data-tab="sub" data-tab-group="agent">子 Agent <span class="tab-count">2</span></button>
+                <button class="tab" data-tab="perm" data-tab-group="agent">权限边界</button>
+                <button class="tab" data-tab="runs" data-tab-group="agent">运行记录</button>
+              </div>
+            </div>
+
+            <!-- 基础配置 -->
+            <div class="pane is-active" data-pane="basic" data-pane-group="agent">
+              <div class="card-pad stack" style="gap:16px">
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="field-label">名称</label>
+                    <input class="input" value="迁移工程师">
+                  </div>
+                  <div class="field">
+                    <label class="field-label">标识</label>
+                    <input class="input mono" value="migration-engineer">
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="field-label">简介</label>
+                  <textarea class="textarea" rows="2" style="min-height:56px">负责代码库迁移、依赖升级与兼容性评估。产出迁移计划、改动清单与回滚步骤。</textarea>
+                </div>
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="field-label" for="agent-runtime">Agent 运行时</label>
+                    <select class="select" id="agent-runtime" data-runtime-models="bound">
+                      <option value="pi-agent" selected>Pi Agent · 默认</option>
+                      <option value="codex-cli">Codex CLI</option>
+                      <option value="claude-code">Claude Code</option>
+                    </select>
+                    <div class="field-hint">运行时决定可用工具协议、模型与子 Agent 能力。</div>
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="agent-model">运行时模型</label>
+                    <select class="select" id="agent-model">
+                      <option selected>claude-sonnet-4.5</option>
+                      <option>gpt-5.1</option>
+                      <option>gemini-3-pro</option>
+                    </select>
+                    <div class="field-hint" id="agent-model-hint">显示 Pi Agent 当前可用的模型。</div>
+                  </div>
+                </div>
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="field-label">思考深度</label>
+                    <select class="select"><option>关闭</option><option>低</option><option selected>中</option><option>高</option></select>
+                    <div class="field-hint">深度思考会增加延迟与 token 消耗。</div>
+                  </div>
+                  <div class="field">
+                    <label class="field-label">上下文窗口</label>
+                    <select class="select"><option>200K</option><option selected>400K</option><option>1M</option></select>
+                    <div class="field-hint">上限同时受运行时与模型能力约束。</div>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-row" style="border-top:1px solid var(--border)">
+                <div class="setting-main">
+                  <div class="setting-title">跨会话记忆</div>
+                  <div class="setting-sub">在新会话中自动带入此 Agent 的历史结论摘要。</div>
+                </div>
+                <div class="setting-control"><button class="switch" role="switch" aria-checked="true" data-toast="跨会话记忆{state}"></button></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-main">
+                  <div class="setting-title">自动压缩上下文</div>
+                  <div class="setting-sub">超过 80% 上下文窗口时，自动摘要早期轮次。</div>
+                </div>
+                <div class="setting-control"><button class="switch" role="switch" aria-checked="true" data-toast="自动压缩{state}"></button></div>
+              </div>
+            </div>
+
+            <!-- 指令与工具 -->
+            <div class="pane" data-pane="prompt" data-pane-group="agent">
+              <div class="card-pad stack" style="gap:14px">
+                <div class="field">
+                  <label class="field-label">System prompt</label>
+                  <textarea class="textarea mono" rows="9" style="font-size:12px;line-height:1.75">你是一名代码迁移工程师。在改动任何文件前：
+1. 先定位真实调用面，而不是只看定义；
+2. 把风险按「会断掉 / 编译期可见 / 仅命名变化」分级；
+3. 产出必须可执行，包含验证步骤与回滚方式；
+4. 没有实测数据时写「待填」，不要编造数值。
+
+引用仓库文件时使用 camelCase 路径，引用外部资料时给出可点击链接。</textarea>
+                </div>
+                <div class="pill-row">
+                  <span class="tag mono">{{repo_path}}</span>
+                  <span class="tag mono">{{target_version}}</span>
+                  <span class="tag mono">{{owner}}</span>
+                  <button class="btn btn-sm btn-ghost" data-toast="已插入变量"><span data-icon="plus" data-size="12"></span>变量</button>
+                </div>
+                <div class="hairline"></div>
+                <div>
+                  <div class="section-label">可用工具</div>
+                  <div class="card" style="overflow:hidden">
+                    <table class="table">
+                      <thead><tr><th>工具</th><th>说明</th><th>风险</th><th style="text-align:right">启用</th></tr></thead>
+                      <tbody>
+                        <tr><td class="mono">read_file</td><td class="muted">读取仓库文件</td><td><span class="badge">低</span></td><td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="read_file {state}"></button></td></tr>
+                        <tr><td class="mono">search_files</td><td class="muted">按模式检索调用点</td><td><span class="badge">低</span></td><td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="search_files {state}"></button></td></tr>
+                        <tr><td class="mono">write_file</td><td class="muted">创建或修改文件</td><td><span class="badge badge-warn">中</span></td><td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="write_file {state}"></button></td></tr>
+                        <tr><td class="mono">run_shell</td><td class="muted">执行构建与测试命令</td><td><span class="badge badge-warn">中</span></td><td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="run_shell {state}"></button></td></tr>
+                        <tr><td class="mono">git_push</td><td class="muted">推送到远端分支</td><td><span class="badge badge-danger">高</span></td><td style="text-align:right"><button class="switch" role="switch" aria-checked="false" data-toast="git_push {state}"></button></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <div class="section-label">挂载 Skill · 4</div>
+                  <div class="grid-2">
+                    <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="true"><div class="check-main"><div class="check-title">代码审查</div><div class="check-sub">按 diff 出具风险分级</div></div></div>
+                    <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="true"><div class="check-main"><div class="check-title">依赖扫描</div><div class="check-sub">识别已知漏洞与许可冲突</div></div></div>
+                    <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="true"><div class="check-main"><div class="check-title">文档写作</div><div class="check-sub">统一标题层级与语气</div></div></div>
+                    <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="false"><div class="check-main"><div class="check-title">竞品调研</div><div class="check-sub">需要浏览器权限</div></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 子 Agent -->
+            <div class="pane" data-pane="sub" data-pane-group="agent">
+              <div class="card-pad stack" style="gap:14px">
+                <div class="notice">
+                  <span data-icon="branch" data-size="14"></span>
+                  <span>子 Agent 继承主 Agent 的权限上限：即使子 Agent 配置了「完全控制」，实际仍受主 Agent 的中风险确认约束。</span>
+                </div>
+                <div class="card" style="overflow:hidden">
+                  <table class="table">
+                    <thead><tr><th>子 Agent</th><th>运行时</th><th>模型</th><th>委派条件</th><th>并发</th><th style="text-align:right">启用</th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="row"><span class="agent-badge" style="width:20px;height:20px;font-size:10px">审</span><span>代码审计员</span></div></td>
+                        <td>Pi Agent</td><td class="mono">claude-sonnet-4.5</td>
+                        <td class="muted">diff &gt; 200 行或涉及鉴权</td>
+                        <td class="mono">2</td>
+                        <td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="代码审计员 {state}"></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="row"><span class="agent-badge" style="width:20px;height:20px;font-size:10px;background:var(--surface-3);color:var(--fg-2)">测</span><span>测试生成器</span></div></td>
+                        <td>Codex CLI</td><td class="mono">gpt-5.1-mini</td>
+                        <td class="muted">改动命中测试覆盖目录</td>
+                        <td class="mono">3</td>
+                        <td style="text-align:right"><button class="switch" role="switch" aria-checked="true" data-toast="测试生成器 {state}"></button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="field-label">委派策略</label>
+                    <select class="select">
+                      <option selected>按条件自动委派</option>
+                      <option>仅在我明确要求时</option>
+                      <option>禁止委派</option>
+                    </select>
+                    <div class="field-hint">自动委派会并行消耗 token，可在观测页查看分支用量。</div>
+                  </div>
+                  <div class="field">
+                    <label class="field-label">全局并发上限</label>
+                    <select class="select"><option>2</option><option selected>4</option><option>8</option></select>
+                    <div class="field-hint">超过上限时，委派任务排队执行。</div>
+                  </div>
+                </div>
+                <button class="btn" style="align-self:flex-start" data-dialog-open="new-agent"><span data-icon="plus" data-size="13"></span>新建子 Agent</button>
+              </div>
+            </div>
+
+            <!-- 权限 -->
+            <div class="pane" data-pane="perm" data-pane-group="agent">
+              <div class="card-pad stack" style="gap:14px">
+                <div class="section-label" style="margin:0">权限模式</div>
+                <div class="grid-2">
+                  <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="false"><div class="check-main"><div class="check-title">只读</div><div class="check-sub">仅读取与检索，不产生任何写入</div></div></div>
+                  <div class="check-row" style="border-color:var(--border-strong);background:var(--surface-2)"><input class="checkbox" type="button" role="checkbox" aria-checked="true"><div class="check-main"><div class="check-title">中风险确认</div><div class="check-sub">写入、执行命令需逐次确认（当前）</div></div></div>
+                  <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="false"><div class="check-main"><div class="check-title">高风险确认</div><div class="check-sub">仅推送、删除、外发数据时确认</div></div></div>
+                  <div class="check-row"><input class="checkbox" type="button" role="checkbox" aria-checked="false"><div class="check-main"><div class="check-title">完全控制</div><div class="check-sub">不再确认，权限等同当前登录用户</div></div></div>
+                </div>
+                <div class="hairline"></div>
+                <div class="field">
+                  <label class="field-label">可写目录</label>
+                  <input class="input mono" value="docs/**  src/api/**">
+                  <div class="field-hint">留空表示整个工作区可写。支持 glob。</div>
+                </div>
+                <div class="field">
+                  <label class="field-label">命令白名单</label>
+                  <input class="input mono" value="pnpm test, pnpm lint, git diff, git status">
+                </div>
+                <div class="setting-row" style="padding-left:0;padding-right:0">
+                  <div class="setting-main">
+                    <div class="setting-title">允许访问网络</div>
+                    <div class="setting-sub">关闭后，http_fetch 与浏览器工具将被禁用。</div>
+                  </div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" data-toast="网络访问{state}"></button></div>
+                </div>
+                <div class="setting-row" style="padding-left:0;padding-right:0">
+                  <div class="setting-main">
+                    <div class="setting-title">高危操作二次确认</div>
+                    <div class="setting-sub">推送、删除分支、外发邮件时，强制要求输入确认短语。</div>
+                  </div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" data-toast="二次确认{state}"></button></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 运行记录 -->
+            <div class="pane" data-pane="runs" data-pane-group="agent">
+              <div class="card-pad">
+                <table class="table">
+                  <thead><tr><th>时间</th><th>会话</th><th>轮次</th><th>工具调用</th><th>Token</th><th>状态</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono tiny">今天 16:02</td><td>API 迁移评估：v1 → v2</td><td class="num">18</td><td class="num">26</td><td class="num">21.4K</td><td><span class="badge badge-warn">待确认</span></td></tr>
+                    <tr><td class="mono tiny">今天 11:20</td><td>依赖升级：pnpm 9 → 10</td><td class="num">9</td><td class="num">14</td><td class="num">12.8K</td><td><span class="badge badge-success">完成</span></td></tr>
+                    <tr><td class="mono tiny">昨天 18:40</td><td>旧接口下线影响面</td><td class="num">24</td><td class="num">31</td><td class="num">38.2K</td><td><span class="badge badge-success">完成</span></td></tr>
+                    <tr><td class="mono tiny">11 月 1 日</td><td>Node 20 → 22 兼容性</td><td class="num">15</td><td class="num">22</td><td class="num">26.1K</td><td><span class="badge">已归档</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="new-agent" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="新建 Agent">
+    <div class="dialog-head"><h2>新建 Agent</h2><p>创建后可继续配置工具、Skill 与子 Agent。</p></div>
+    <div class="dialog-body">
+      <div class="field"><label class="field-label">名称</label><input class="input" placeholder="例如：发布检查员"></div>
+      <div class="field"><label class="field-label">类型</label><select class="select"><option>主 Agent</option><option>子 Agent（由主 Agent 委派）</option></select></div>
+      <div class="field"><label class="field-label" for="new-agent-runtime">Agent 运行时</label><select class="select" id="new-agent-runtime"><option value="pi-agent">Pi Agent · 默认</option><option value="codex-cli">Codex CLI</option><option value="claude-code">Claude Code</option></select><div class="field-hint">运行时决定 Agent 可使用的模型和工具能力。</div></div>
+      <div class="field"><label class="field-label" for="new-agent-model">运行时模型</label><select class="select" id="new-agent-model"><option>claude-sonnet-4.5</option><option>gpt-5.1</option><option>gemini-3-pro</option></select></div>
+      <div class="field"><label class="field-label">简介</label><textarea class="textarea" rows="2" placeholder="一句话说明这个 Agent 负责什么"></textarea></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="Agent 已创建">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="import-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="导入 Agent">
+    <div class="dialog-head"><h2>导入 Agent</h2><p>支持 Anvil 导出的 JSON，或包含 <code>agent.yaml</code> 的目录。</p></div>
+    <div class="dialog-body">
+      <div class="field"><label class="field-label">选择文件</label><input class="input" type="file"></div>
+      <div class="notice"><span data-icon="alert" data-size="14"></span><span>导入会覆盖同名 Agent 的工具配置，但不会改动权限边界。</span></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>取消</button><button class="btn btn-primary" data-dialog-close data-toast="已导入 1 个 Agent">导入</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+  var MODEL_MAP = {
+    'pi-agent': ['claude-sonnet-4.5', 'gpt-5.1', 'gemini-3-pro'],
+    'codex-cli': ['gpt-5.1', 'gpt-5.1-mini', 'gpt-5-mini'],
+    'claude-code': ['claude-sonnet-4.5', 'claude-haiku-4.5']
+  };
+  var RUNTIME_LABELS = { 'pi-agent': 'Pi Agent', 'codex-cli': 'Codex CLI', 'claude-code': 'Claude Code' };
+
+  function bindRuntime(runtimeSelect, modelSelect, selectedModel) {
+    var models = MODEL_MAP[runtimeSelect.value] || [];
+    modelSelect.innerHTML = models.map(function (model) { return '<option' + (model === selectedModel ? ' selected' : '') + '>' + model + '</option>'; }).join('');
+    if (selectedModel && models.indexOf(selectedModel) < 0 && models.length) modelSelect.value = models[0];
+  }
+
+  var runtimeSelect = document.getElementById('agent-runtime');
+  var modelSelect = document.getElementById('agent-model');
+  runtimeSelect.addEventListener('change', function () {
+    bindRuntime(runtimeSelect, modelSelect);
+    document.getElementById('hero-runtime').textContent = RUNTIME_LABELS[runtimeSelect.value];
+    document.getElementById('hero-model').textContent = modelSelect.value;
+    document.getElementById('agent-model-hint').textContent = '显示 ' + RUNTIME_LABELS[runtimeSelect.value] + ' 当前可用的模型。';
+  });
+  modelSelect.addEventListener('change', function () { document.getElementById('hero-model').textContent = modelSelect.value; });
+
+  var newRuntime = document.getElementById('new-agent-runtime');
+  var newModel = document.getElementById('new-agent-model');
+  newRuntime.addEventListener('change', function () { bindRuntime(newRuntime, newModel); });
+
+  document.querySelectorAll('[data-agent]').forEach(function (item) {
+    item.addEventListener('click', function () {
+      document.querySelectorAll('[data-agent]').forEach(function (i) { i.classList.remove('is-active'); });
+      item.classList.add('is-active');
+      document.getElementById('hero-name').textContent = item.dataset.name;
+      document.getElementById('hero-desc').textContent = item.dataset.desc;
+      document.getElementById('hero-model').textContent = item.dataset.model;
+      document.getElementById('hero-runtime').textContent = RUNTIME_LABELS[item.dataset.runtime];
+      runtimeSelect.value = item.dataset.runtime;
+      bindRuntime(runtimeSelect, modelSelect, item.dataset.model);
+      document.getElementById('agent-model-hint').textContent = '显示 ' + RUNTIME_LABELS[item.dataset.runtime] + ' 当前可用的模型。';
+      var badge = document.getElementById('hero-badge');
+      badge.textContent = item.dataset.badge;
+      badge.style.background = item.querySelector('.agent-badge').style.background;
+      badge.style.color = item.querySelector('.agent-badge').style.color;
+    });
+  });
+})();
+</script>
+</body>
+</html>

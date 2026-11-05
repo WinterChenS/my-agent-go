@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>定时任务 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="schedules">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>自动化</span><span class="sep">/</span><span style="color:var(--fg)">定时任务</span></div>
+      <div class="topbar-spacer"></div>
+      <span class="tiny muted mono" style="margin-right:10px">Asia/Shanghai · UTC+8</span>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>定时任务</h1>
+            <p class="page-desc">按 cron 表达式周期性唤起 Agent。每次运行都写入独立会话，产出物自动归档到资源库，跳过的运行会记录原因。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-toast="已暂停全部 5 个启用中的任务"><span data-icon="pause" data-size="14"></span>全部暂停</button>
+            <button class="btn btn-primary" data-dialog-open="new-schedule"><span data-icon="plus" data-size="14"></span>新建任务</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px" data-od-id="sched-stats">
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">启用中</div>
+              <div class="stat-value nums">5</div>
+              <div class="stat-delta">共 6 个任务 · 1 个已暂停</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">今日运行</div>
+              <div class="stat-value nums">11</div>
+              <div class="stat-delta">失败 1 · 跳过 0</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">成功率（30 天）</div>
+              <div class="stat-value nums">98.2%</div>
+              <div class="stat-delta">171 次运行 / 3 次失败</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">平均运行时长</div>
+              <div class="stat-value nums">1m52s</div>
+              <div class="stat-delta">最长 6m08s · 漏洞扫描</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <input class="input" placeholder="按任务名或 Agent 搜索" aria-label="搜索定时任务" id="sched-search">
+          <select class="select select-sm" style="width:auto" aria-label="执行 Agent">
+            <option>全部 Agent</option><option>文档助手</option><option>安全审计</option>
+            <option>研究员</option><option>数据分析师</option><option>系统任务</option>
+          </select>
+          <select class="select select-sm" style="width:auto" aria-label="状态">
+            <option>全部状态</option><option>启用中</option><option>已暂停</option><option>上次失败</option>
+          </select>
+          <span class="toolbar-spacer"></span>
+          <span class="tiny muted">同时运行上限 <span class="mono">2</span> · 超出时排队</span>
+        </div>
+
+        <div class="split split-wide">
+
+          <section class="card" data-od-id="sched-list" style="overflow:hidden">
+            <div class="card-head">
+              <h3>任务列表</h3>
+              <span class="card-head-sub">点击一行查看运行详情</span>
+              <div class="card-head-actions">
+                <button class="btn btn-sm btn-ghost" data-toast="已按下次运行时间排序"><span data-icon="filter" data-size="13"></span>排序</button>
+              </div>
+            </div>
+            <table class="table sched-table">
+              <thead>
+                <tr>
+                  <th style="width:38%">任务</th>
+                  <th style="width:20%">计划</th>
+                  <th style="width:17%">执行 Agent</th>
+                  <th style="width:17%">上次运行</th>
+                  <th style="width:52px;text-align:right">启用</th>
+                </tr>
+              </thead>
+              <tbody id="sched-rows">
+                <tr data-schedule="standup" class="is-active">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">每日站会纪要汇总</div>
+                      <div class="sched-meta">读取飞书会议记录 → 产出摘要与待办</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">0 9 * * 1-5</code></span><span class="sched-meta">工作日 09:00</span></div></td>
+                  <td><div class="sched-cell"><span>文档助手</span><span class="sched-meta mono">claude-haiku-4.5</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-success"><i class="dot"></i>成功</span><span class="mono">1m42s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="true" aria-label="启用每日站会纪要汇总" data-toast="每日站会纪要汇总 {state}"></button></td>
+                </tr>
+                <tr data-schedule="vuln-scan">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">依赖漏洞扫描 <span class="badge badge-accent">待运行</span></div>
+                      <div class="sched-meta">扫描 work/ 下 4 个仓库的 lockfile</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">30 16 * * *</code></span><span class="sched-meta">每天 16:30</span></div></td>
+                  <td><div class="sched-cell"><span>安全审计</span><span class="sched-meta mono">gpt-5.1</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-warn"><i class="dot"></i>失败</span><span class="mono">6m08s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="true" aria-label="启用依赖漏洞扫描" data-toast="依赖漏洞扫描 {state}"></button></td>
+                </tr>
+                <tr data-schedule="pricing-watch">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">竞品定价页巡检</div>
+                      <div class="sched-meta">抓取 5 家定价页，变更超过 2% 时告警</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">0 10 * * 1</code></span><span class="sched-meta">每周一 10:00</span></div></td>
+                  <td><div class="sched-cell"><span>研究员</span><span class="sched-meta mono">gemini-3-pro</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-success"><i class="dot"></i>成功</span><span class="mono">3m10s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="true" aria-label="启用竞品定价页巡检" data-toast="竞品定价页巡检 {state}"></button></td>
+                </tr>
+                <tr data-schedule="feishu-sync">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">飞书文档同步</div>
+                      <div class="sched-meta">拉取「产品/需求池」到本地索引</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">0 21 * * 1-5</code></span><span class="sched-meta">工作日 21:00</span></div></td>
+                  <td><div class="sched-cell"><span>文档助手</span><span class="sched-meta mono">claude-haiku-4.5</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-success"><i class="dot"></i>成功</span><span class="mono">48s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="true" aria-label="启用飞书文档同步" data-toast="飞书文档同步 {state}"></button></td>
+                </tr>
+                <tr data-schedule="weekly-report">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">周报数据核对 <span class="badge badge-warn">部分失败</span></div>
+                      <div class="sched-meta">对比埋点与数据仓库的 DAU 口径</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">30 17 * * 5</code></span><span class="sched-meta">每周五 17:30</span></div></td>
+                  <td><div class="sched-cell"><span>数据分析师</span><span class="sched-meta mono">gpt-5.1</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-warn"><i class="dot"></i>部分失败</span><span class="mono">2m35s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="true" aria-label="启用周报数据核对" data-toast="周报数据核对 {state}"></button></td>
+                </tr>
+                <tr data-schedule="archive">
+                  <td>
+                    <div class="sched-cell">
+                      <div class="sched-name">会话产出归档</div>
+                      <div class="sched-meta">把 30 天前的产出物移入冷存储</div>
+                    </div>
+                  </td>
+                  <td><div class="sched-cell"><span><code class="cron">0 2 * * *</code></span><span class="sched-meta">每天 02:00</span></div></td>
+                  <td><div class="sched-cell"><span>系统任务</span><span class="sched-meta mono">无模型</span></div></td>
+                  <td><div class="sched-result"><span class="badge badge-success"><i class="dot"></i>成功</span><span class="mono">12s</span></div></td>
+                  <td class="sched-switch"><button class="switch" role="switch" aria-checked="false" aria-label="启用会话产出归档" data-toast="会话产出归档 {state}"></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <div class="stack" style="gap:16px">
+
+            <section class="card" data-od-id="sched-detail">
+              <div class="sched-detail-head">
+                <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)" id="detail-badge">文</span>
+                <div style="flex:1;min-width:0">
+                  <h2 id="detail-name">每日站会纪要汇总</h2>
+                  <div class="sched-meta" id="detail-when">工作日 09:00 · 下次 明天 09:00</div>
+                </div>
+                <span class="badge badge-success" id="detail-state"><i class="dot"></i>启用</span>
+              </div>
+              <div class="sched-detail-body">
+                <dl class="dl" style="grid-template-columns:74px minmax(0,1fr);font-size:12px">
+                  <dt>Agent</dt><dd id="detail-agent">文档助手</dd>
+                  <dt>模型</dt><dd class="mono" id="detail-model">claude-haiku-4.5</dd>
+                  <dt>权限</dt><dd id="detail-perm">中风险确认</dd>
+                  <dt>时区</dt><dd class="mono">Asia/Shanghai</dd>
+                </dl>
+
+                <div style="margin-top:14px">
+                  <div class="section-label" style="margin-bottom:0">执行指令</div>
+                  <div class="prompt-box" id="detail-prompt">读取「产品/站会」下今天的三份会议记录，按项目分组提炼：结论、待办、阻塞。待办需标注负责人与截止日期，缺省时写「未指派」。输出 Markdown 到资源库，并把未指派的待办发到邮箱。</div>
+                </div>
+
+                <div style="margin-top:14px">
+                  <div class="section-label" style="margin-bottom:0">输出位置</div>
+                  <div class="row" style="gap:6px;margin-top:4px">
+                    <span class="tag" id="detail-output">资源库 / 会议纪要</span>
+                    <span class="tag">邮件通知</span>
+                  </div>
+                </div>
+
+                <div style="margin-top:16px">
+                  <div class="section-label" style="margin-bottom:2px">最近运行</div>
+                  <div id="detail-runs">
+                    <div class="run-line"><span class="run-time">今天 09:00</span><span class="badge badge-success"><i class="dot"></i>成功</span><span class="run-dur">1m42s</span></div>
+                  </div>
+                </div>
+
+                <div class="row" style="gap:6px;margin-top:14px;flex-wrap:wrap">
+                  <button class="btn btn-sm" data-toast="已加入运行队列，排队 1 个任务"><span data-icon="play" data-size="12"></span>立即运行</button>
+                  <button class="btn btn-sm btn-ghost" data-dialog-open="new-schedule"><span data-icon="settings" data-size="12"></span>编辑配置</button>
+                  <button class="btn btn-sm btn-ghost" data-copy="0 9 * * 1-5" style="margin-left:auto"><span data-icon="copy" data-size="12"></span>cron</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="card" data-od-id="sched-trend">
+              <div class="card-head">
+                <h3>近 7 日运行</h3>
+                <div class="card-head-actions"><span class="keyline">次 / 日</span></div>
+              </div>
+              <div class="card-pad">
+                <div class="chart" role="img" aria-label="近七日定时任务运行次数：3、4、2、5、4、3、3">
+                  <div class="chart-col"><b class="seg-in" style="height:30%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:40%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:20%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:50%"></b><b class="seg-out" style="height:0%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:40%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:30%"></b></div>
+                  <div class="chart-col"><b class="seg-in" style="height:15%"></b></div>
+                </div>
+                <div class="chart-axis">
+                  <span>11/02</span><span>11/03</span><span>11/04</span><span>11/05</span><span>11/06</span><span>11/07</span><span>今天</span>
+                </div>
+                <div class="hairline" style="margin:12px 0 10px"></div>
+                <div class="legend"><span><i style="background:var(--fg-2)"></i>按计划运行</span><span><i style="background:oklch(78% 0.03 255)"></i>手动触发</span></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="new-schedule" hidden>
+  <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="新建定时任务">
+    <form id="sched-form">
+      <div class="dialog-head">
+        <h2>新建定时任务</h2>
+        <p>任务会以独立会话运行，可使用当前 Agent 的工具与 Skill 权限。</p>
+      </div>
+      <div class="dialog-body">
+        <div class="grid-2">
+          <div class="field">
+            <label class="field-label" for="sched-name">任务名称</label>
+            <input class="input" id="sched-name" placeholder="例如：每日竞品价格巡检" required>
+          </div>
+          <div class="field">
+            <label class="field-label" for="sched-agent">执行 Agent</label>
+            <select class="select" id="sched-agent">
+              <option>文档助手</option><option>研究员</option><option>数据分析师</option>
+              <option>迁移工程师</option><option>安全审计</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="field-label" for="sched-cron">计划（cron）</label>
+            <input class="input mono" id="sched-cron" value="0 9 * * 1-5">
+            <span class="field-hint">分 时 日 月 周 · 下次运行：明天 09:00</span>
+          </div>
+          <div class="field">
+            <label class="field-label" for="sched-tz">时区</label>
+            <select class="select" id="sched-tz">
+              <option>Asia/Shanghai (UTC+8)</option>
+              <option>UTC</option>
+              <option>America/Los_Angeles (UTC-8)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="sched-prompt">执行指令</label>
+          <textarea class="textarea" id="sched-prompt" placeholder="写清输入来源、处理规则与输出位置。"></textarea>
+          <span class="field-hint">留空时使用 Agent 的默认任务模板。</span>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="field-label" for="sched-perm">权限模式</label>
+            <select class="select" id="sched-perm">
+              <option>中风险确认 · 无人值守时阻塞</option>
+              <option>高风险确认</option>
+              <option>完全控制</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="sched-out">输出位置</label>
+            <select class="select" id="sched-out">
+              <option>资源库（自动归档）</option>
+              <option>会话内联</option>
+              <option>发送到邮箱</option>
+            </select>
+          </div>
+        </div>
+        <div class="check-row">
+          <input class="checkbox" type="button" role="checkbox" aria-checked="true" aria-label="失败时通知">
+          <div class="check-main">
+            <div class="check-title">失败时通知我</div>
+            <div class="check-sub">连续两次失败后自动暂停任务，避免重复消耗配额。</div>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <span class="tiny muted spread">创建后可随时暂停</span>
+        <button type="button" class="btn" data-dialog-close>取消</button>
+        <button type="submit" class="btn btn-primary">创建任务</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="backdrop" id="search-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="全局搜索">
+    <div class="dialog-head">
+      <h2>全局搜索</h2>
+      <p>跨会话、Agent、Skill 与产出物检索。</p>
+    </div>
+    <div class="dialog-body">
+      <input class="input" placeholder="输入关键词，例如「扫描」「归档」" autofocus>
+      <div class="field-hint">按 <span class="kbd">⌘</span> <span class="kbd">K</span> 可在任意页面唤起。</div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>关闭</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var DATA = {
+    standup: {
+      badge: '文', name: '每日站会纪要汇总', when: '工作日 09:00 · 下次 明天 09:00', state: '启用', ok: true,
+      agent: '文档助手', model: 'claude-haiku-4.5', perm: '中风险确认', output: '资源库 / 会议纪要',
+      prompt: '读取「产品/站会」下今天的三份会议记录，按项目分组提炼：结论、待办、阻塞。待办需标注负责人与截止日期，缺省时写「未指派」。输出 Markdown 到资源库，并把未指派的待办发到邮箱。',
+      runs: [['今天 09:00', '成功', '1m42s'], ['昨天 09:00', '成功', '1m38s'], ['周一 09:00', '成功', '2m05s']]
+    },
+    'vuln-scan': {
+      badge: '安', name: '依赖漏洞扫描', when: '每天 16:30 · 下次 16 分钟后', state: '启用', ok: true,
+      agent: '安全审计', model: 'gpt-5.1', perm: '完全控制', output: '资源库 / 安全报告',
+      prompt: '扫描 ~/work 下 4 个仓库的 package-lock.json 与 go.sum，对比 OSV 数据库。按严重度排序输出表格：包名、当前版本、修复版本、可利用条件。发现 critical 时直接创建 issue 并 @ 值班人。',
+      runs: [['昨天 16:30', '失败', '6m08s'], ['前天 16:30', '成功', '4m51s'], ['11/03 16:30', '成功', '5m12s']]
+    },
+    'pricing-watch': {
+      badge: '研', name: '竞品定价页巡检', when: '每周一 10:00 · 下次 11/10 10:00', state: '启用', ok: true,
+      agent: '研究员', model: 'gemini-3-pro', perm: '高风险确认', output: '资源库 / 竞品研究',
+      prompt: '抓取 Figma、Notion、Linear、Airtable、Miro 的定价页，截取团队版区块。与上周快照逐项对比价格、席位阶梯与功能裁剪，变化超过 2% 时生成变更摘要并发到 #product-intel。',
+      runs: [['11/03 10:00', '成功', '3m10s'], ['10/27 10:00', '成功', '2m58s'], ['10/20 10:00', '跳过', '—']]
+    },
+    'feishu-sync': {
+      badge: '文', name: '飞书文档同步', when: '工作日 21:00 · 下次 今天 21:00', state: '启用', ok: true,
+      agent: '文档助手', model: 'claude-haiku-4.5', perm: '中风险确认', output: '本地索引',
+      prompt: '拉取飞书「产品/需求池」下所有文档，抽取标题、状态、负责人、最近编辑时间，写入 ~/.anvil/index/feishu.json。仅读取，不修改远端内容。',
+      runs: [['昨天 21:00', '成功', '48s'], ['周一 21:00', '成功', '52s'], ['上周五 21:00', '成功', '51s']]
+    },
+    'weekly-report': {
+      badge: '数', name: '周报数据核对', when: '每周五 17:30 · 下次 11/14 17:30', state: '启用', ok: false,
+      agent: '数据分析师', model: 'gpt-5.1', perm: '中风险确认', output: '资源库 / 数据核对',
+      prompt: '对比埋点表与数据仓库的 DAU、留存与转化口径，列出差异超过 5% 的指标。对差异给出可能原因（去重口径、时区、埋点缺失）。生成核对表并附 SQL 片段。',
+      runs: [['11/07 17:30', '部分失败', '2m35s'], ['10/31 17:30', '成功', '2m12s'], ['10/24 17:30', '成功', '2m28s']]
+    },
+    archive: {
+      badge: '系', name: '会话产出归档', when: '每天 02:00 · 已暂停', state: '已暂停', ok: true,
+      agent: '系统任务', model: '无模型', perm: '系统内置', output: '冷存储',
+      prompt: '把 30 天前未被引用的产出物移入冷存储，保留元数据与引用关系。仅移动文件，不删除。',
+      runs: [['今天 02:00', '成功', '12s'], ['昨天 02:00', '成功', '11s'], ['11/04 02:00', '成功', '13s']]
+    }
+  };
+
+  var rows = document.querySelectorAll('#sched-rows tr');
+  var badgeEl = document.getElementById('detail-badge');
+  var nameEl = document.getElementById('detail-name');
+  var whenEl = document.getElementById('detail-when');
+  var stateEl = document.getElementById('detail-state');
+  var agentEl = document.getElementById('detail-agent');
+  var modelEl = document.getElementById('detail-model');
+  var permEl = document.getElementById('detail-perm');
+  var promptEl = document.getElementById('detail-prompt');
+  var outputEl = document.getElementById('detail-output');
+  var runsEl = document.getElementById('detail-runs');
+
+  function badgeClass(status) {
+    if (status === '成功') return 'badge badge-success';
+    if (status === '失败' || status === '部分失败') return 'badge badge-warn';
+    return 'badge';
+  }
+
+  function select(key) {
+    var d = DATA[key];
+    if (!d) return;
+    rows.forEach(function (row) {
+      row.classList.toggle('is-active', row.dataset.schedule === key);
+    });
+    badgeEl.textContent = d.badge;
+    nameEl.textContent = d.name;
+    whenEl.textContent = d.when;
+    stateEl.className = 'badge ' + (d.state === '已暂停' ? 'badge-warn' : 'badge-success');
+    stateEl.innerHTML = '<i class="dot"></i>' + d.state;
+    agentEl.textContent = d.agent;
+    modelEl.textContent = d.model;
+    permEl.textContent = d.perm;
+    promptEl.textContent = d.prompt;
+    outputEl.textContent = d.output;
+    runsEl.innerHTML = d.runs.map(function (r) {
+      return '<div class="run-line"><span class="run-time">' + r[0] + '</span>' +
+        '<span class="' + badgeClass(r[1]) + '"><i class="dot"></i>' + r[1] + '</span>' +
+        '<span class="run-dur">' + r[2] + '</span></div>';
+    }).join('');
+  }
+
+  rows.forEach(function (row) {
+    row.addEventListener('click', function (e) {
+      if (e.target.closest('.switch')) return;
+      select(row.dataset.schedule);
+    });
+  });
+
+  var form = document.getElementById('sched-form');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    document.getElementById('new-schedule').hidden = true;
+    window.Anvil.toast('任务已创建 · 下次运行 明天 09:00');
+  });
+
+  var search = document.getElementById('sched-search');
+  search.addEventListener('input', function () {
+    var q = search.value.trim().toLowerCase();
+    rows.forEach(function (row) {
+      var text = row.textContent.toLowerCase();
+      row.style.display = !q || text.indexOf(q) > -1 ? '' : 'none';
+    });
+  });
+})();
+</script>
+</body>
+</html>

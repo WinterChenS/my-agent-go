@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资源库 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="library">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>工作区</span><span class="sep">/</span><span style="color:var(--fg)">资源库</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>资源库</h1>
+            <p class="page-desc">每个会话产出的文件、网页与图表都归档在这里。按会话或类型回溯，也可以直接拖进新对话作为输入。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-dialog-open="import-asset"><span data-icon="upload" data-size="14"></span>上传</button>
+            <button class="btn btn-primary" data-dialog-open="export-asset"><span data-icon="download" data-size="14"></span>导出所选</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px" data-od-id="library-stats">
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">产出物</div>
+              <div class="stat-value nums">28</div>
+              <div class="stat-delta">本周新增 7</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">占用存储</div>
+              <div class="stat-value nums">184 MB</div>
+              <div class="stat-delta">配额 2 GB · 9%</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">被引用</div>
+              <div class="stat-delta" style="margin-top:14px">23 次挂在 6 个会话</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">自动清理</div>
+              <div class="stat-value nums">90 天</div>
+              <div class="stat-delta">未引用文件到期归档</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-od-id="library-browser">
+          <div class="lib-toolbar">
+            <input class="input" style="width:260px" placeholder="按文件名或会话搜索" aria-label="搜索产出物">
+            <select class="select select-sm" style="width:auto" aria-label="类型筛选">
+              <option>全部类型</option><option>文档</option><option>表格</option><option>网页</option><option>图表</option><option>代码</option>
+            </select>
+            <select class="select select-sm" style="width:auto" aria-label="会话筛选">
+              <option>全部会话</option>
+              <option>API 迁移评估</option>
+              <option>周报数据核对</option>
+              <option>竞品定价整理</option>
+              <option>客户工单聚类</option>
+            </select>
+            <span class="pill-row" style="margin-left:4px">
+              <span class="tag">最近 7 天</span>
+            </span>
+            <span class="toolbar-spacer" style="margin-left:auto"></span>
+            <div class="segmented" role="tablist" aria-label="视图">
+              <button class="is-active" aria-pressed="true">网格</button>
+              <button aria-pressed="false">列表</button>
+            </div>
+          </div>
+
+          <div class="tabs" style="padding:0 14px">
+            <button class="tab is-active" data-tab="all" data-tab-group="lib">全部 <span class="tab-count">28</span></button>
+            <button class="tab" data-tab="doc" data-tab-group="lib">文档 <span class="tab-count">11</span></button>
+            <button class="tab" data-tab="sheet" data-tab-group="lib">表格 <span class="tab-count">6</span></button>
+            <button class="tab" data-tab="page" data-tab-group="lib">网页 <span class="tab-count">5</span></button>
+            <button class="tab" data-tab="chart" data-tab-group="lib">图表 <span class="tab-count">4</span></button>
+            <button class="tab" data-tab="code" data-tab-group="lib">代码 <span class="tab-count">2</span></button>
+          </div>
+
+          <div class="pane is-active" data-pane="all" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+
+              <article class="card lib-card" data-od-id="asset-migration-plan" data-dialog-open="asset-detail">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>v1 → v2 迁移计划</h6>
+                    <div class="l w70"></div><div class="l w85"></div><div class="l w50"></div>
+                    <div class="l w70" style="margin-top:6px"></div><div class="l w85"></div><div class="l w50"></div>
+                    <div class="l w70"></div><div class="l w50"></div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">v1-to-v2-migration-plan.md</div>
+                  <div class="lib-sub">API 迁移评估 · 18.4 KB · 7 分钟前</div>
+                  <div class="lib-tags"><span class="tag">MD</span><span class="tag">草稿</span><span class="badge" style="margin-left:auto">引用 3</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-compat-matrix">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>字段兼容性矩阵</h6>
+                    <table class="mini-table">
+                      <tr><td>字段</td><td>v1</td><td>v2</td></tr>
+                      <tr><td>owner_id</td><td>int</td><td>str</td></tr>
+                      <tr><td>state</td><td>enum</td><td>enum</td></tr>
+                      <tr><td>meta</td><td>json</td><td>jsonb</td></tr>
+                    </table>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">compat-matrix.csv</div>
+                  <div class="lib-sub">API 迁移评估 · 42 行 · 22 分钟前</div>
+                  <div class="lib-tags"><span class="tag">CSV</span><span class="tag">已核对</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-weekly-chart">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>本周留存率</h6>
+                    <div class="mini-bars">
+                      <i style="height:38%"></i><i style="height:52%"></i><i style="height:46%"></i>
+                      <i style="height:64%"></i><i style="height:58%"></i><i class="light" style="height:72%"></i><i class="light" style="height:66%"></i>
+                    </div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">retention-weekly.png</div>
+                  <div class="lib-sub">周报数据核对 · 2400×1350 · 1 小时前</div>
+                  <div class="lib-tags"><span class="tag">PNG</span><span class="tag">图表</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-pricing-page">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>竞品定价对比</h6>
+                    <div class="l w85"></div><div class="l w70"></div>
+                    <table class="mini-table">
+                      <tr><td>Linear</td><td>$8</td><td>$14</td></tr>
+                      <tr><td>Notion</td><td>$10</td><td>$18</td></tr>
+                    </table>
+                    <div class="l w50" style="margin-top:5px"></div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">pricing-comparison.html</div>
+                  <div class="lib-sub">竞品定价整理 · 6 个竞品 · 昨天 18:52</div>
+                  <div class="lib-tags"><span class="tag">HTML</span><span class="tag">可分享</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-ticket-cluster">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>工单聚类摘要</h6>
+                    <div class="mini-code">cluster 0 · 412 条<em>  登录失败 / SSO</em>
+cluster 1 · 238 条<em>  计费口径</em>
+cluster 2 · 155 条<em>  导出超时</em></div>
+                    <div class="mini-bars" style="height:22px">
+                      <i style="height:80%"></i><i style="height:52%"></i><i style="height:34%"></i><i class="light" style="height:20%"></i>
+                    </div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">ticket-clusters.json</div>
+                  <div class="lib-sub">客户工单聚类 · 1.2 MB · 昨天 14:06</div>
+                  <div class="lib-tags"><span class="tag">JSON</span><span class="tag">中间产物</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-migration-script">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>backfill.ts</h6>
+                    <div class="mini-code"><em>// 回填 owner_id 类型</em>
+export async function run(db) {
+  await db.tx(async (t) =&gt; {
+    await t.exec(<em>`alter...</em>);
+  });
+}</div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">backfill-owner-id.ts</div>
+                  <div class="lib-sub">API 迁移评估 · 3.1 KB · 昨天 11:20</div>
+                  <div class="lib-tags"><span class="tag">TS</span><span class="tag">待审查</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-weekly-report">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>第 45 周经营周报</h6>
+                    <div class="l w70"></div><div class="l w85"></div>
+                    <div class="l w85"></div><div class="l w50"></div>
+                    <div class="l w70" style="margin-top:6px"></div><div class="l w50"></div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">weekly-report-w45.md</div>
+                  <div class="lib-sub">周报数据核对 · 9.7 KB · 2 小时前</div>
+                  <div class="lib-tags"><span class="tag">MD</span><span class="tag">已发布</span></div>
+                </div>
+              </article>
+
+              <article class="card lib-card" data-od-id="asset-schema-diff">
+                <div class="lib-thumb">
+                  <div class="thumb-page">
+                    <h6>OpenAPI 结构差异</h6>
+                    <div class="mini-code">- GET  /v1/orders/:id
++ GET  /v2/orders/{order_id}
++ POST /v2/orders/{id}:cancel
+<em>- GET  /v1/refunds  (deprecated)</em></div>
+                  </div>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-name">openapi-diff.txt</div>
+                  <div class="lib-sub">API 迁移评估 · 14 增 9 删 · 3 天前</div>
+                  <div class="lib-tags"><span class="tag">TXT</span><span class="tag">来源 2 处</span></div>
+                </div>
+              </article>
+
+            </div>
+          </div>
+
+          <div class="pane" data-pane="doc" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>v1 → v2 迁移计划</h6><div class="l w70"></div><div class="l w85"></div><div class="l w50"></div></div></div>
+                <div class="lib-meta"><div class="lib-name">v1-to-v2-migration-plan.md</div><div class="lib-sub">API 迁移评估 · 18.4 KB</div><div class="lib-tags"><span class="tag">MD</span><span class="tag">草稿</span></div></div>
+              </article>
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>第 45 周经营周报</h6><div class="l w70"></div><div class="l w85"></div><div class="l w50"></div></div></div>
+                <div class="lib-meta"><div class="lib-name">weekly-report-w45.md</div><div class="lib-sub">周报数据核对 · 9.7 KB</div><div class="lib-tags"><span class="tag">MD</span><span class="tag">已发布</span></div></div>
+              </article>
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>值班交接单</h6><div class="l w85"></div><div class="l w70"></div><div class="l w50"></div></div></div>
+                <div class="lib-meta"><div class="lib-name">handover-2024-11-08.md</div><div class="lib-sub">值班交接 · 4.2 KB</div><div class="lib-tags"><span class="tag">MD</span><span class="tag">定时产出</span></div></div>
+              </article>
+            </div>
+          </div>
+          <div class="pane" data-pane="sheet" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>字段兼容性矩阵</h6><table class="mini-table"><tr><td>字段</td><td>v1</td><td>v2</td></tr><tr><td>owner_id</td><td>int</td><td>str</td></tr></table></div></div>
+                <div class="lib-meta"><div class="lib-name">compat-matrix.csv</div><div class="lib-sub">API 迁移评估 · 42 行</div><div class="lib-tags"><span class="tag">CSV</span></div></div>
+              </article>
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>工单分类明细</h6><table class="mini-table"><tr><td>cluster</td><td>占比</td></tr><tr><td>登录失败</td><td>42%</td></tr></table></div></div>
+                <div class="lib-meta"><div class="lib-name">ticket-labels.csv</div><div class="lib-sub">客户工单聚类 · 1,043 行</div><div class="lib-tags"><span class="tag">CSV</span></div></div>
+              </article>
+            </div>
+          </div>
+          <div class="pane" data-pane="page" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>竞品定价对比</h6><div class="l w85"></div><div class="l w70"></div><table class="mini-table"><tr><td>Linear</td><td>$8</td></tr></table></div></div>
+                <div class="lib-meta"><div class="lib-name">pricing-comparison.html</div><div class="lib-sub">竞品定价整理 · 可分享</div><div class="lib-tags"><span class="tag">HTML</span></div></div>
+              </article>
+            </div>
+          </div>
+          <div class="pane" data-pane="chart" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>本周留存率</h6><div class="mini-bars"><i style="height:38%"></i><i style="height:52%"></i><i style="height:64%"></i><i class="light" style="height:72%"></i></div></div></div>
+                <div class="lib-meta"><div class="lib-name">retention-weekly.png</div><div class="lib-sub">周报数据核对 · 2400×1350</div><div class="lib-tags"><span class="tag">PNG</span></div></div>
+              </article>
+            </div>
+          </div>
+          <div class="pane" data-pane="code" data-pane-group="lib" style="padding:16px">
+            <div class="lib-grid">
+              <article class="card lib-card">
+                <div class="lib-thumb"><div class="thumb-page"><h6>backfill.ts</h6><div class="mini-code"><em>// 回填 owner_id</em>
+export async function run(db) {}</div></div></div>
+                <div class="lib-meta"><div class="lib-name">backfill-owner-id.ts</div><div class="lib-sub">API 迁移评估 · 待审查</div><div class="lib-tags"><span class="tag">TS</span></div></div>
+              </article>
+            </div>
+          </div>
+        </div>
+
+        <div class="notice" style="margin-top:18px">
+          <span data-icon="alert" data-size="14"></span>
+          <span>产出物保存在本机工作目录，删除会话不会删除文件。超过 90 天且未被引用的文件会自动转入冷存储，仍可在筛选器中找回。</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="asset-detail" hidden>
+  <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="产出物详情">
+    <div class="dialog-head">
+      <h2>v1-to-v2-migration-plan.md</h2>
+      <p>由「API 迁移评估：v1 → v2 兼容性」在 7 分钟前生成 · 18.4 KB</p>
+    </div>
+    <div class="dialog-body">
+      <div class="grid-2">
+        <div>
+          <div class="section-label">属性</div>
+          <dl class="dl">
+            <dt>类型</dt><dd>Markdown 文档</dd>
+            <dt>来源会话</dt><dd><a href="chat.html" style="text-decoration:underline">API 迁移评估</a></dd>
+            <dt>生成方式</dt><dd>写文件工具 · 2 次修订</dd>
+            <dt>被引用</dt><dd>3 个会话</dd>
+          </dl>
+        </div>
+        <div>
+          <div class="section-label">操作</div>
+          <div class="stack" style="gap:8px">
+            <button class="btn" data-toast="已在新标签页打开"><span data-icon="external" data-size="14"></span>在新标签页打开</button>
+            <button class="btn" data-toast="已复制到剪贴板"><span data-icon="copy" data-size="14"></span>复制链接给同事</button>
+            <button class="btn" data-toast="已加入对话上下文"><span data-icon="message" data-size="14"></span>加入新对话</button>
+          </div>
+        </div>
+      </div>
+      <div class="section-label" style="margin-top:4px">内容预览</div>
+      <div class="codeblock"># v1 → v2 迁移计划
+
+## 1. 会断掉的变更（必须处理）
+- owner_id 由 int 改为 str：影响 14 处调用
+- /v2/orders/{order_id} 路径参数重命名
+
+## 2. 编译期可见
+- Refund.state 枚举新增 partial_refund
+
+## 3. 仅命名变化
+- OrderMeta → OrderMetadata</div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn spread" data-dialog-close>关闭</button>
+      <button class="btn" data-dialog-close data-toast="已下载"><span data-icon="download" data-size="14"></span>下载</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="已归档到项目">归档</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="import-asset" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="上传文件">
+    <div class="dialog-head"><h2>上传到资源库</h2><p>上传的文件可以在任意会话中被 Agent 读取。</p></div>
+    <div class="dialog-body">
+      <div class="field"><label class="field-label">选择文件</label><input class="input" type="file" multiple></div>
+      <div class="field"><label class="field-label">归属会话</label><select class="select"><option>不归属，仅存资源库</option><option>API 迁移评估</option><option>周报数据核对</option></select></div>
+      <div class="notice"><span data-icon="shield" data-size="14"></span><span>文件仅在本机索引，不会上传到模型供应商。引用时只发送被选中的片段。</span></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>取消</button><button class="btn btn-primary" data-dialog-close data-toast="已上传 3 个文件">上传</button></div>
+  </div>
+</div>
+
+<div class="backdrop" id="export-asset" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="导出">
+    <div class="dialog-head"><h2>导出所选产出物</h2><p>当前已选中 2 项，合计 60.4 KB。</p></div>
+    <div class="dialog-body">
+      <div class="check-row"><span class="checkbox" aria-checked="true" role="checkbox"></span><div class="check-main"><div class="check-title">v1-to-v2-migration-plan.md</div><div class="check-sub">18.4 KB</div></div></div>
+      <div class="check-row"><span class="checkbox" aria-checked="true" role="checkbox"></span><div class="check-main"><div class="check-title">compat-matrix.csv</div><div class="check-sub">42 行</div></div></div>
+      <div class="field" style="margin-top:12px"><label class="field-label">打包格式</label><select class="select"><option>ZIP 压缩包</option><option>单个文件夹</option></select></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>取消</button><button class="btn btn-primary" data-dialog-close data-toast="已导出到下载目录">导出</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+</body>
+</html>

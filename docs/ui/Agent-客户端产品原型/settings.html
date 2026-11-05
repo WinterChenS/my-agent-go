@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>系统设置 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="settings">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>系统</span><span class="sep">/</span><span style="color:var(--fg)">设置</span></div>
+      <div class="topbar-spacer"></div>
+      <span class="badge badge-success"><i class="dot"></i>服务正常</span>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1 data-od-id="settings-title">系统设置</h1>
+            <p class="page-desc">管理本机模型供应商、Agent 运行时、权限策略与观测数据。全局配置用于新建 Agent，单个 Agent 的显式绑定优先。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-toast="配置检查完成：未发现冲突"><span data-icon="check" data-size="14"></span>检查配置</button>
+            <button class="btn btn-primary" data-toast="所有设置已保存"><span data-icon="check" data-size="14"></span>保存更改</button>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label="设置分区" data-od-id="settings-navigation">
+            <div class="settings-search">
+              <input class="input" id="settings-search" type="search" placeholder="筛选设置" aria-label="筛选设置分区">
+            </div>
+            <button class="is-active" data-settings-target="general" data-label="通用 工作区 外观 通知" aria-current="page"><span data-icon="settings" data-size="14"></span>通用</button>
+            <button data-settings-target="models" data-label="模型 供应商 API 密钥 目录"><span data-icon="brain" data-size="14"></span>模型管理</button>
+            <button data-settings-target="runtime" data-label="运行时 并发 环境 权限 沙箱"><span data-icon="terminal" data-size="14"></span>运行时</button>
+            <button data-settings-target="observability" data-label="观测 Token 用量 审计 链路 执行"><span data-icon="zap" data-size="14"></span>观测</button>
+            <div class="nav-divider"></div>
+            <button data-settings-target="security" data-label="安全 权限 确认 审计 数据"><span data-icon="shield" data-size="14"></span>安全与权限</button>
+            <div class="nav-empty" id="settings-nav-empty" hidden>没有匹配的设置分区</div>
+          </nav>
+
+          <div class="settings-content">
+            <section class="settings-pane pane is-active" data-settings-pane="general" data-od-id="settings-general">
+              <div class="card">
+                <div class="card-head">
+                  <h3><span data-icon="settings" data-size="15"></span>工作区</h3>
+                  <span class="card-head-sub">当前本地客户端的默认配置</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">本地工作区名称</div><div class="setting-sub">显示在侧栏、导出文件与本机用量报表中。</div></div>
+                  <div class="setting-control"><input class="input" value="Anvil 个人工作区" aria-label="本地工作区名称" style="width:220px"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">界面语言</div><div class="setting-sub">切换客户端导航与系统控件语言；会话内容保持原始语言。</div></div>
+                  <div class="setting-control"><select class="select" id="interface-language" aria-label="界面语言"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">Agent 默认回复语言</div><div class="setting-sub">用于新建 Agent 的 system prompt 与系统生成内容，可与界面语言不同。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="Agent 默认回复语言"><option>简体中文</option><option>English</option><option>跟随会话</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">默认时区</div><div class="setting-sub">定时任务、审计日志与执行时间统一使用此时区。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="默认时区"><option>Asia/Shanghai · UTC+8</option><option>UTC</option><option>America/Los_Angeles</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">自动归档产出物</div><div class="setting-sub">Agent 生成的文件自动写入资源库，并保留会话与工具调用来源。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="自动归档产出物" data-toast="自动归档 {state}"></button></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3><span data-icon="mail" data-size="15"></span>通知</h3></div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">待确认操作</div><div class="setting-sub">Agent 发起中风险或高风险操作时，通过桌面与邮件通知。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="待确认操作通知"></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">定时任务失败</div><div class="setting-sub">连续两次失败后暂停任务，并向任务创建者发送摘要。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="定时任务失败通知"></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">每周用量摘要</div><div class="setting-sub">每周一发送 Token、成本、模型与 Agent 的用量拆分。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="false" aria-label="每周用量摘要"></button></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane pane" data-settings-pane="models" data-od-id="settings-models">
+              <div class="card">
+                <div class="card-head">
+                  <h3><span data-icon="brain" data-size="15"></span>模型供应商</h3>
+                  <span class="card-head-sub">3 个供应商 · 8 个可用模型</span>
+                  <div class="card-head-actions">
+                    <input class="input catalog-search" id="model-search" type="search" placeholder="搜索供应商或模型" aria-label="搜索模型">
+                    <button class="btn btn-sm" data-dialog-open="provider-dialog"><span data-icon="plus" data-size="12"></span>添加供应商</button>
+                  </div>
+                </div>
+                <table class="table" aria-label="模型供应商列表">
+                  <thead><tr><th>供应商</th><th>可用模型</th><th>凭据</th><th>状态</th><th style="text-align:right">操作</th></tr></thead>
+                  <tbody id="model-table">
+                    <tr data-model-row="OpenAI gpt-5.1 gpt-5-mini">
+                      <td><div class="provider-cell"><span class="provider-mark">O</span><div><div class="p-name">OpenAI</div><div class="p-sub">api.openai.com</div></div></div></td>
+                      <td><div class="chip-list"><span class="tag mono">gpt-5.1</span><span class="tag mono">gpt-5-mini</span></div></td>
+                      <td><span class="mono tiny">sk-proj-••••7K2P</span></td>
+                      <td><span class="badge badge-success"><i class="dot"></i>可用</span></td>
+                      <td style="text-align:right"><button class="btn btn-sm btn-ghost" data-toast="OpenAI 连接测试通过">测试</button><button class="iconbtn" aria-label="OpenAI 更多操作"><span data-icon="more" data-size="14"></span></button></td>
+                    </tr>
+                    <tr data-model-row="Anthropic claude-sonnet-4.5 claude-haiku-4.5">
+                      <td><div class="provider-cell"><span class="provider-mark">A</span><div><div class="p-name">Anthropic</div><div class="p-sub">api.anthropic.com</div></div></div></td>
+                      <td><div class="chip-list"><span class="tag mono">claude-sonnet-4.5</span><span class="tag mono">claude-haiku-4.5</span></div></td>
+                      <td><span class="mono tiny">sk-ant-••••B91M</span></td>
+                      <td><span class="badge badge-success"><i class="dot"></i>可用</span></td>
+                      <td style="text-align:right"><button class="btn btn-sm btn-ghost" data-toast="Anthropic 连接测试通过">测试</button><button class="iconbtn" aria-label="Anthropic 更多操作"><span data-icon="more" data-size="14"></span></button></td>
+                    </tr>
+                    <tr data-model-row="Google Gemini gemini-3-pro gemini-3-flash">
+                      <td><div class="provider-cell"><span class="provider-mark">G</span><div><div class="p-name">Google AI</div><div class="p-sub">generativelanguage.googleapis.com</div></div></div></td>
+                      <td><div class="chip-list"><span class="tag mono">gemini-3-pro</span><span class="tag mono">gemini-3-flash</span></div></td>
+                      <td><span class="mono tiny">AIza••••C4Q</span></td>
+                      <td><span class="badge badge-success"><i class="dot"></i>可用</span></td>
+                      <td style="text-align:right"><button class="btn btn-sm btn-ghost" data-toast="Google AI 连接测试通过">测试</button><button class="iconbtn" aria-label="Google AI 更多操作"><span data-icon="more" data-size="14"></span></button></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="empty" id="model-empty" hidden><span data-icon="search" data-size="18"></span><span>没有匹配的供应商或模型</span></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3>默认模型路由</h3><span class="card-head-sub">Agent 未指定模型时使用</span></div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">复杂任务</div><div class="setting-sub">长上下文、代码修改、多工具协作与深度推理。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="复杂任务模型"><option>gpt-5.1</option><option>claude-sonnet-4.5</option><option>gemini-3-pro</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">快速任务</div><div class="setting-sub">摘要、分类、字段提取与低延迟交互。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="快速任务模型"><option>claude-haiku-4.5</option><option>gpt-5-mini</option><option>gemini-3-flash</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">模型故障转移</div><div class="setting-sub">供应商超时或配额耗尽时自动切换，并在会话中标记。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="模型故障转移"></button></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane pane" data-settings-pane="runtime" data-od-id="settings-runtime">
+              <div class="card">
+                <div class="card-head"><h3><span data-icon="terminal" data-size="15"></span>本地 Agent 运行时</h3><span class="card-head-sub">Agent 实际使用的 CLI 与进程宿主</span><div class="card-head-actions"><button class="btn btn-sm" data-toast="已打开自定义运行时配置"><span data-icon="plus" data-size="12"></span>添加运行时</button></div></div>
+                <div class="runtime-grid">
+                  <article class="runtime-card is-default" data-runtime-card="pi-agent">
+                    <div class="runtime-card-head"><span class="runtime-logo">π</span><div><h4>Pi Agent</h4><span class="mono">pi · v0.48.2</span></div><span class="badge badge-success"><i class="dot"></i>运行中</span></div>
+                    <p>当前默认运行时。支持工具调用、子 Agent、Skill、MCP 与流式思考。</p>
+                    <div class="runtime-models"><span class="tag mono">claude-sonnet-4.5</span><span class="tag mono">gpt-5.1</span><span class="tag mono">gemini-3-pro</span></div>
+                    <div class="runtime-card-foot"><span>4 个会话使用</span><button class="btn btn-sm btn-ghost" data-toast="Pi Agent 健康检查通过">检查</button><button class="btn btn-sm">配置</button></div>
+                  </article>
+                  <article class="runtime-card" data-runtime-card="codex-cli">
+                    <div class="runtime-card-head"><span class="runtime-logo">C</span><div><h4>Codex CLI</h4><span class="mono">codex · v0.77.0</span></div><span class="badge"><i class="dot"></i>已安装</span></div>
+                    <p>适合代码编辑、终端执行与仓库级任务，可绑定 OpenAI 模型。</p>
+                    <div class="runtime-models"><span class="tag mono">gpt-5.1</span><span class="tag mono">gpt-5-mini</span></div>
+                    <div class="runtime-card-foot"><span>1 个 Agent 使用</span><button class="btn btn-sm btn-ghost" data-toast="Codex CLI 健康检查通过">检查</button><button class="btn btn-sm">配置</button></div>
+                  </article>
+                  <article class="runtime-card" data-runtime-card="claude-code">
+                    <div class="runtime-card-head"><span class="runtime-logo">A</span><div><h4>Claude Code</h4><span class="mono">claude · v2.0.8</span></div><span class="badge"><i class="dot"></i>已安装</span></div>
+                    <p>用于长上下文代码理解与多文件修改，仅显示兼容的 Anthropic 模型。</p>
+                    <div class="runtime-models"><span class="tag mono">claude-sonnet-4.5</span><span class="tag mono">claude-haiku-4.5</span></div>
+                    <div class="runtime-card-foot"><span>尚未绑定</span><button class="btn btn-sm btn-ghost" data-toast="Claude Code 健康检查通过">检查</button><button class="btn btn-sm">配置</button></div>
+                  </article>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3>运行时默认项</h3><span class="card-head-sub">新建 Agent 时可覆盖</span></div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">默认运行时</div><div class="setting-sub">决定 Agent 的工具协议、可用模型与进程管理方式。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="默认 Agent 运行时"><option>Pi Agent</option><option>Codex CLI</option><option>Claude Code</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">默认工作目录</div><div class="setting-sub">运行时启动时挂载的目录；Agent 可绑定其它本地项目。</div></div>
+                  <div class="setting-control"><input class="input mono" value="~/work" aria-label="默认工作目录" style="width:220px"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">最大并发进程</div><div class="setting-sub">主 Agent、子 Agent 与定时任务共享本机并发额度。</div></div>
+                  <div class="setting-control"><select class="select" aria-label="最大并发进程"><option>4 个进程</option><option>2 个进程</option><option>8 个进程</option></select></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-main"><div class="setting-title">异常退出自动恢复</div><div class="setting-sub">保存会话检查点；运行时重启后可从最近一次工具调用继续。</div></div>
+                  <div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="异常退出自动恢复"></button></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3><span data-icon="shield" data-size="15"></span>默认权限模式</h3><span class="card-head-sub">新会话与定时任务的初始策略</span></div>
+                <div class="perm-list" role="radiogroup" aria-label="默认权限模式">
+                  <button class="check-row perm-option" role="radio" aria-checked="false" data-permission-mode="ask-all">
+                    <span class="checkbox" aria-hidden="true"></span><span class="check-main"><span class="perm-title"><span class="check-title">所有写操作确认</span><span class="badge">最谨慎</span></span><span class="check-sub">读取可直接执行；写文件、发消息、调用外部系统均需确认。</span></span>
+                  </button>
+                  <button class="check-row perm-option is-selected" role="radio" aria-checked="true" data-permission-mode="balanced">
+                    <span class="checkbox" aria-checked="true" aria-hidden="true"></span><span class="check-main"><span class="perm-title"><span class="check-title">中风险与高风险确认</span><span class="badge badge-accent">推荐</span></span><span class="check-sub">允许低风险本地修改；外部写入、删除和提权操作前确认。</span></span>
+                  </button>
+                  <button class="check-row perm-option" role="radio" aria-checked="false" data-permission-mode="high-only">
+                    <span class="checkbox" aria-hidden="true"></span><span class="check-main"><span class="perm-title"><span class="check-title">仅高风险确认</span></span><span class="check-sub">文件修改和已授权连接器可直接执行；删除、付费和提权操作确认。</span></span>
+                  </button>
+                  <button class="check-row perm-option" role="radio" aria-checked="false" data-permission-mode="full-control">
+                    <span class="checkbox" aria-hidden="true"></span><span class="check-main"><span class="perm-title"><span class="check-title">完全控制</span><span class="badge badge-warn">谨慎使用</span></span><span class="check-sub">不显示确认卡片，仅保留审计记录；定时任务可无人值守运行。</span></span>
+                  </button>
+                </div>
+                <div class="perm-foot"><span data-icon="shield" data-size="13"></span><span id="permission-summary">当前：中风险与高风险确认</span><span class="spread"></span><a href="#security" class="tiny">查看风险规则</a></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3>环境变量</h3><span class="card-head-sub">4 个变量 · 值已加密</span><div class="card-head-actions"><button class="btn btn-sm" data-toast="已添加空白环境变量"><span data-icon="plus" data-size="12"></span>添加</button></div></div>
+                <table class="table"><thead><tr><th>键</th><th>作用域</th><th>最近更新</th><th style="text-align:right">操作</th></tr></thead><tbody>
+                  <tr><td class="mono">GITHUB_TOKEN</td><td>全部 Agent</td><td class="muted">3 天前</td><td style="text-align:right"><button class="btn btn-sm btn-ghost">编辑</button></td></tr>
+                  <tr><td class="mono">DATABASE_URL</td><td>数据分析师</td><td class="muted">8 天前</td><td style="text-align:right"><button class="btn btn-sm btn-ghost">编辑</button></td></tr>
+                  <tr><td class="mono">SENTRY_AUTH_TOKEN</td><td>安全审计</td><td class="muted">11 天前</td><td style="text-align:right"><button class="btn btn-sm btn-ghost">编辑</button></td></tr>
+                  <tr><td class="mono">HTTP_PROXY</td><td>浏览器工具</td><td class="muted">21 天前</td><td style="text-align:right"><button class="btn btn-sm btn-ghost">编辑</button></td></tr>
+                </tbody></table>
+              </div>
+            </section>
+
+            <section class="settings-pane pane" data-settings-pane="observability" data-od-id="settings-observability">
+              <div class="tabs" role="tablist" aria-label="观测分类">
+                <button class="tab is-active" data-tab="usage" data-tab-group="obs" role="tab">Token 用量</button>
+                <button class="tab" data-tab="traces" data-tab-group="obs" role="tab">链路</button>
+                <button class="tab" data-tab="executions" data-tab-group="obs" role="tab">执行</button>
+              </div>
+
+              <div class="pane is-active" data-pane="usage" data-pane-group="obs">
+                <div class="card">
+                  <div class="card-head"><h3>最近 7 天用量</h3><span class="card-head-sub">当前工作区</span><div class="card-head-actions"><select class="select select-sm" aria-label="用量周期"><option>最近 7 天</option><option>最近 30 天</option><option>本月</option></select><button class="btn btn-sm btn-ghost" data-toast="CSV 报表已生成"><span data-icon="download" data-size="12"></span>导出</button></div></div>
+                  <div class="stat-grid">
+                    <div class="stat"><div class="stat-label">总 Token</div><div class="stat-value nums">6.2M</div><div class="stat-delta">输入 4.8M · 输出 1.4M</div></div>
+                    <div class="stat"><div class="stat-label">估算费用</div><div class="stat-value nums">$58.40</div><div class="stat-delta">预算 $100 · 已使用 58%</div></div>
+                    <div class="stat"><div class="stat-label">模型调用</div><div class="stat-value nums">1,284</div><div class="stat-delta">缓存命中 31.6%</div></div>
+                    <div class="stat"><div class="stat-label">工具执行</div><div class="stat-value nums">846</div><div class="stat-delta">成功率 97.4%</div></div>
+                  </div>
+                  <div class="card-pad">
+                    <div class="chart" role="img" aria-label="最近七天 Token 用量柱状图">
+                      <div class="chart-col"><b class="seg-in" style="height:36%"></b><b class="seg-out" style="height:12%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:48%"></b><b class="seg-out" style="height:16%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:42%"></b><b class="seg-out" style="height:14%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:62%"></b><b class="seg-out" style="height:20%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:54%"></b><b class="seg-out" style="height:18%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:67%"></b><b class="seg-out" style="height:22%"></b></div>
+                      <div class="chart-col"><b class="seg-in" style="height:44%"></b><b class="seg-out" style="height:15%"></b></div>
+                    </div>
+                    <div class="chart-axis"><span>11/02</span><span>11/03</span><span>11/04</span><span>11/05</span><span>11/06</span><span>11/07</span><span>今天</span></div>
+                    <div class="legend" style="margin-top:12px"><span><i style="background:var(--fg-2)"></i>输入</span><span><i style="background:oklch(78% 0.03 255)"></i>输出</span></div>
+                  </div>
+                </div>
+                <div class="obs-cards">
+                  <div class="card"><div class="card-head"><h3>按模型</h3></div><div class="card-pad usage-split">
+                    <div class="bar-row"><span class="mono tiny">gpt-5.1</span><div class="meter"><span style="width:78%"></span></div><span class="mono tiny" style="text-align:right">2.8M · $31.20</span></div>
+                    <div class="bar-row"><span class="mono tiny">claude-sonnet-4.5</span><div class="meter"><span style="width:52%"></span></div><span class="mono tiny" style="text-align:right">1.9M · $18.60</span></div>
+                    <div class="bar-row"><span class="mono tiny">gemini-3-pro</span><div class="meter"><span style="width:28%"></span></div><span class="mono tiny" style="text-align:right">0.9M · $6.40</span></div>
+                    <div class="bar-row"><span class="mono tiny">其它</span><div class="meter"><span style="width:18%"></span></div><span class="mono tiny" style="text-align:right">0.6M · $2.20</span></div>
+                  </div></div>
+                  <div class="card"><div class="card-head"><h3>按 Agent</h3></div><div class="card-pad usage-split">
+                    <div class="bar-row"><span>迁移工程师</span><div class="meter"><span style="width:72%"></span></div><span class="mono tiny" style="text-align:right">2.3M</span></div>
+                    <div class="bar-row"><span>数据分析师</span><div class="meter"><span style="width:49%"></span></div><span class="mono tiny" style="text-align:right">1.6M</span></div>
+                    <div class="bar-row"><span>研究员</span><div class="meter"><span style="width:37%"></span></div><span class="mono tiny" style="text-align:right">1.2M</span></div>
+                    <div class="bar-row"><span>其它 Agent</span><div class="meter"><span style="width:34%"></span></div><span class="mono tiny" style="text-align:right">1.1M</span></div>
+                  </div></div>
+                </div>
+              </div>
+
+              <div class="pane" data-pane="traces" data-pane-group="obs">
+                <div class="card" id="trace-table">
+                  <div class="card-head"><h3>最近链路</h3><span class="card-head-sub">模型、工具与子 Agent 的端到端耗时</span><div class="card-head-actions"><input class="input catalog-search" placeholder="筛选 trace id 或会话" aria-label="筛选链路"></div></div>
+                  <table class="table"><thead><tr><th>链路</th><th>会话 / Agent</th><th>步骤</th><th>耗时</th><th>状态</th></tr></thead><tbody>
+                    <tr><td class="mono">tr_8f2c91a4</td><td>API 迁移评估<div class="tiny muted">迁移工程师</div></td><td><div class="trace-bars"><i style="width:32%;background:var(--fg-2)"></i><i style="width:18%;background:var(--border-strong)"></i><i style="width:41%;background:var(--fg-2)"></i></div></td><td class="mono">14.8s</td><td><span class="badge badge-warn">等待确认</span></td></tr>
+                    <tr><td class="mono">tr_33b705de</td><td>周报数据核对<div class="tiny muted">数据分析师</div></td><td><div class="trace-bars"><i style="width:38%;background:var(--fg-2)"></i><i style="width:27%;background:var(--border-strong)"></i><i style="width:20%;background:var(--fg-2)"></i></div></td><td class="mono">9.2s</td><td><span class="badge badge-success">完成</span></td></tr>
+                    <tr><td class="mono">tr_a72e190b</td><td>竞品定价巡检<div class="tiny muted">研究员</div></td><td><div class="trace-bars"><i style="width:44%;background:var(--fg-2)"></i><i style="width:35%;background:var(--border-strong)"></i></div></td><td class="mono">21.6s</td><td><span class="badge badge-success">完成</span></td></tr>
+                    <tr><td class="mono">tr_c19d4b70</td><td>依赖漏洞扫描<div class="tiny muted">安全审计</div></td><td><div class="trace-bars"><i style="width:18%;background:var(--fg-2)"></i><i style="width:60%;background:var(--border-strong)"></i></div></td><td class="mono">38.1s</td><td><span class="badge badge-danger">失败</span></td></tr>
+                  </tbody></table>
+                </div>
+              </div>
+
+              <div class="pane" data-pane="executions" data-pane-group="obs">
+                <div class="card" id="execution-table">
+                  <div class="card-head"><h3>执行记录</h3><span class="card-head-sub">工具调用、终端命令与连接器动作</span><div class="card-head-actions"><select class="select select-sm"><option>全部结果</option><option>成功</option><option>失败</option><option>被拒绝</option></select></div></div>
+                  <table class="table"><thead><tr><th>时间</th><th>动作</th><th>发起者</th><th>权限判定</th><th>结果</th><th class="num">耗时</th></tr></thead><tbody>
+                    <tr><td class="mono tiny">15:42:08</td><td><span class="mono">write_file</span><div class="tiny muted">migration-plan.md</div></td><td>迁移工程师</td><td><span class="badge badge-warn">用户确认</span></td><td><span class="badge badge-success">成功</span></td><td class="num">182ms</td></tr>
+                    <tr><td class="mono tiny">15:41:52</td><td><span class="mono">read_file</span><div class="tiny muted">openapi.yaml</div></td><td>迁移工程师</td><td><span class="badge">低风险直通</span></td><td><span class="badge badge-success">成功</span></td><td class="num">24ms</td></tr>
+                    <tr><td class="mono tiny">15:38:10</td><td><span class="mono">browser_navigate</span><div class="tiny muted">定价页</div></td><td>研究员</td><td><span class="badge">低风险直通</span></td><td><span class="badge badge-success">成功</span></td><td class="num">1.8s</td></tr>
+                    <tr><td class="mono tiny">15:30:44</td><td><span class="mono">shell_exec</span><div class="tiny muted">npm audit</div></td><td>安全审计</td><td><span class="badge">策略允许</span></td><td><span class="badge badge-danger">退出码 1</span></td><td class="num">38.1s</td></tr>
+                  </tbody></table>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-pane pane" data-settings-pane="security" data-od-id="settings-security">
+              <div class="card">
+                <div class="card-head"><h3><span data-icon="shield" data-size="15"></span>风险判定规则</h3><span class="card-head-sub">系统规则优先于 Agent 自定义权限</span></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">外部消息与内容发布</div><div class="setting-sub">发送邮件、钉钉消息、创建工单、公开发布内容。</div></div><div class="setting-control"><select class="select"><option>中风险 · 首次确认</option><option>高风险 · 每次确认</option><option>允许</option></select></div></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">文件删除与覆盖</div><div class="setting-sub">删除文件、覆盖未提交修改或清空目录。</div></div><div class="setting-control"><select class="select"><option>高风险 · 每次确认</option><option>禁止</option></select></div></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">凭据与敏感数据</div><div class="setting-sub">读取密钥、导出联系人、访问包含个人信息的数据源。</div></div><div class="setting-control"><select class="select"><option>高风险 · 每次确认</option><option>禁止</option></select></div></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">付费与资源创建</div><div class="setting-sub">购买服务、创建云资源或触发按量计费接口。</div></div><div class="setting-control"><select class="select"><option>高风险 · 每次确认</option><option>禁止</option></select></div></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3>审计与数据保留</h3></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">审计日志保留</div><div class="setting-sub">记录确认决策、工具输入摘要、执行结果与操作者。</div></div><div class="setting-control"><select class="select"><option>180 天</option><option>90 天</option><option>365 天</option></select></div></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">敏感参数脱敏</div><div class="setting-sub">日志中自动遮蔽 API Key、Token、密码与连接字符串。</div></div><div class="setting-control"><button class="switch" role="switch" aria-checked="true" aria-label="敏感参数脱敏"></button></div></div>
+                <div class="setting-row"><div class="setting-main"><div class="setting-title">导出审计日志</div><div class="setting-sub">生成签名后的 JSONL 文件，包含当前筛选周期内的完整记录。</div></div><div class="setting-control"><button class="btn" data-toast="审计日志导出任务已创建"><span data-icon="download" data-size="13"></span>生成导出</button></div></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3>数据管理</h3></div>
+                <div class="setting-row danger-row"><div class="setting-main"><div class="setting-title">清除本地运行数据</div><div class="setting-sub">删除本机缓存、终端日志和浏览器快照，不影响资源库文件。</div></div><div class="setting-control"><button class="btn btn-danger" data-toast="需要管理员二次确认">选择范围</button></div></div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="provider-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="添加模型供应商">
+    <div class="dialog-head"><h2>添加模型供应商</h2><p>凭据会加密保存在当前工作区，模型请求不会经过 Anvil 代理。</p></div>
+    <div class="dialog-body">
+      <div class="field"><label class="field-label" for="provider-name">供应商</label><select class="select" id="provider-name"><option>OpenAI Compatible</option><option>Azure OpenAI</option><option>Ollama</option><option>自定义 HTTP API</option></select></div>
+      <div class="field"><label class="field-label" for="provider-url">基础地址</label><input class="input mono" id="provider-url" value="https://api.example.com/v1"></div>
+      <div class="field"><label class="field-label" for="provider-key">API Key</label><input class="input mono" id="provider-key" type="password" placeholder="仅保存在加密凭据库"></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>取消</button><button class="btn" data-toast="连接测试通过">测试连接</button><button class="btn btn-primary" data-dialog-close data-toast="供应商已添加">添加</button></div>
+  </div>
+</div>
+
+<div class="backdrop" id="search-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="全局搜索">
+    <div class="dialog-head"><h2>全局搜索</h2><p>跨会话、Agent、Skill 与产出物检索。</p></div>
+    <div class="dialog-body"><input class="input" placeholder="输入关键词，例如「模型」「权限」「审计」" autofocus><div class="field-hint">按 <span class="kbd">⌘</span> <span class="kbd">K</span> 可在任意页面唤起。</div></div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>关闭</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var navButtons = Array.prototype.slice.call(document.querySelectorAll('[data-settings-target]'));
+  var panes = Array.prototype.slice.call(document.querySelectorAll('[data-settings-pane]'));
+  var settingsSearch = document.getElementById('settings-search');
+  var navEmpty = document.getElementById('settings-nav-empty');
+  var interfaceLanguage = document.getElementById('interface-language');
+
+  if (interfaceLanguage && window.Anvil) {
+    interfaceLanguage.value = window.Anvil.getLocale();
+    interfaceLanguage.addEventListener('change', function () {
+      window.Anvil.setLocale(interfaceLanguage.value);
+      window.Anvil.toast(interfaceLanguage.value === 'en-US' ? 'Interface language changed to English' : '界面语言已切换为简体中文');
+    });
+  }
+
+  function activateSettings(key, updateHash) {
+    var valid = panes.some(function (pane) { return pane.dataset.settingsPane === key; });
+    if (!valid) key = 'general';
+    navButtons.forEach(function (button) {
+      var active = button.dataset.settingsTarget === key;
+      button.classList.toggle('is-active', active);
+      if (active) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+    panes.forEach(function (pane) { pane.classList.toggle('is-active', pane.dataset.settingsPane === key); });
+    if (updateHash) history.replaceState(null, '', key === 'general' ? location.pathname : '#' + key);
+  }
+
+  navButtons.forEach(function (button) {
+    button.addEventListener('click', function () { activateSettings(button.dataset.settingsTarget, true); });
+  });
+
+  settingsSearch.addEventListener('input', function () {
+    var query = settingsSearch.value.trim().toLowerCase();
+    var visible = 0;
+    navButtons.forEach(function (button) {
+      var match = !query || button.dataset.label.toLowerCase().indexOf(query) >= 0;
+      button.hidden = !match;
+      if (match) visible += 1;
+    });
+    navEmpty.hidden = visible !== 0;
+  });
+
+  var modelSearch = document.getElementById('model-search');
+  var modelRows = Array.prototype.slice.call(document.querySelectorAll('[data-model-row]'));
+  var modelEmpty = document.getElementById('model-empty');
+  modelSearch.addEventListener('input', function () {
+    var query = modelSearch.value.trim().toLowerCase();
+    var visible = 0;
+    modelRows.forEach(function (row) {
+      var match = !query || row.dataset.modelRow.toLowerCase().indexOf(query) >= 0;
+      row.hidden = !match;
+      if (match) visible += 1;
+    });
+    modelEmpty.hidden = visible !== 0;
+  });
+
+  var permissionNames = {
+    'ask-all': '所有写操作确认',
+    'balanced': '中风险与高风险确认',
+    'high-only': '仅高风险确认',
+    'full-control': '完全控制'
+  };
+  document.querySelectorAll('[data-permission-mode]').forEach(function (option) {
+    option.addEventListener('click', function (event) {
+      event.stopPropagation();
+      document.querySelectorAll('[data-permission-mode]').forEach(function (item) {
+        var selected = item === option;
+        item.classList.toggle('is-selected', selected);
+        item.setAttribute('aria-checked', String(selected));
+        var mark = item.querySelector('.checkbox');
+        if (mark) mark.setAttribute('aria-checked', String(selected));
+      });
+      document.getElementById('permission-summary').textContent = '当前：' + permissionNames[option.dataset.permissionMode];
+      if (window.Anvil) window.Anvil.toast('默认权限已切换为「' + permissionNames[option.dataset.permissionMode] + '」');
+    });
+  });
+
+  var initial = location.hash.replace('#', '');
+  if (initial === 'obs') initial = 'observability';
+  activateSettings(initial || 'general', false);
+  window.addEventListener('hashchange', function () {
+    var key = location.hash.replace('#', '');
+    if (key === 'obs') key = 'observability';
+    activateSettings(key || 'general', false);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP 管理 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="mcp">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>智能体</span><span class="sep">/</span><span style="color:var(--fg)">MCP</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>MCP 服务</h1>
+            <p class="page-desc">通过 Model Context Protocol 把本地文件、数据库与浏览器接进 Agent。服务声明的每个工具都会出现在 Agent 的工具列表里，调用前按权限策略校验。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-toast="已重新连接 3 个服务"><span data-icon="refresh" data-size="14"></span>重连全部</button>
+            <button class="btn btn-primary" data-dialog-open="new-mcp"><span data-icon="plus" data-size="14"></span>添加服务</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px" data-od-id="mcp-stats">
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">已连接服务</div>
+              <div class="stat-value nums">3</div>
+              <div class="stat-delta">1 个未连接</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">暴露工具</div>
+              <div class="stat-value nums">19</div>
+              <div class="stat-delta">本周新增 4</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">今日调用</div>
+              <div class="stat-value nums">216</div>
+              <div class="stat-delta">失败 3 · 成功率 98.6%</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">平均延迟</div>
+              <div class="stat-value nums">142ms</div>
+              <div class="stat-delta">p95 480ms</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <input class="input" placeholder="按服务名或工具名搜索" aria-label="搜索 MCP 服务">
+          <select class="select select-sm" style="width:auto" aria-label="传输方式">
+            <option>全部传输方式</option><option>stdio</option><option>HTTP / SSE</option>
+          </select>
+          <select class="select select-sm" style="width:auto" aria-label="状态">
+            <option>全部状态</option><option>已连接</option><option>未连接</option><option>已停用</option>
+          </select>
+          <span class="toolbar-spacer"></span>
+          <span class="tiny muted">配置文件 <code class="mono">~/.anvil/mcp.json</code></span>
+        </div>
+
+        <div class="grid-2" style="align-items:start">
+
+          <section class="card" data-od-id="mcp-filesystem">
+            <div class="card-head">
+              <h3>filesystem</h3>
+              <span class="card-head-sub">本地文件系统</span>
+              <div class="card-head-actions">
+                <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                <button class="iconbtn" aria-label="更多设置" data-toast="已打开服务设置"><span data-icon="more" data-size="15"></span></button>
+              </div>
+            </div>
+            <div style="padding:11px 16px 12px">
+              <div class="tiny muted mono">npx -y @modelcontextprotocol/server-filesystem ~/work</div>
+              <div class="pill-row" style="margin-top:9px">
+                <span class="tag">stdio</span><span class="tag">只读</span><span class="tag">4 个工具</span>
+              </div>
+            </div>
+            <div class="mcp-tools">
+              <div class="mcp-tool"><code>read_file</code><span>读取工作目录内的文件，单次最多 200 KB。</span></div>
+              <div class="mcp-tool"><code>list_directory</code><span>列目录，隐藏 .git 与 node_modules。</span></div>
+              <div class="mcp-tool"><code>search_files</code><span>按文件名与内容正则检索，返回命中行号。</span></div>
+              <div class="mcp-tool"><code>write_file</code><span>写入文件，需要中风险确认。</span></div>
+            </div>
+            <div class="connector-foot" style="border-radius:0 0 var(--r-md) var(--r-md)">
+              <span>今日 148 次调用</span>
+              <span>·</span>
+              <span>上次错误 11 分钟前</span>
+              <button class="switch" role="switch" aria-checked="true" data-toast="filesystem {state}" style="margin-left:auto"></button>
+            </div>
+          </section>
+
+          <section class="card" data-od-id="mcp-postgres">
+            <div class="card-head">
+              <h3>postgres-analytics</h3>
+              <span class="card-head-sub">只读副本 · 报表库</span>
+              <div class="card-head-actions">
+                <span class="badge badge-success"><i class="dot"></i>已连接</span>
+                <button class="iconbtn" aria-label="更多设置" data-toast="已打开服务设置"><span data-icon="more" data-size="15"></span></button>
+              </div>
+            </div>
+            <div style="padding:11px 16px 12px">
+              <div class="tiny muted mono">postgres://readonly@analytics.internal:5432/warehouse</div>
+              <div class="pill-row" style="margin-top:9px">
+                <span class="tag">HTTP / SSE</span><span class="tag">行级限制 5,000</span><span class="tag">3 个工具</span>
+              </div>
+            </div>
+            <div class="mcp-tools">
+              <div class="mcp-tool"><code>list_tables</code><span>列出 schema 与表，附带行数估计。</span></div>
+              <div class="mcp-tool"><code>describe_table</code><span>返回字段、类型、索引与注释。</span></div>
+              <div class="mcp-tool"><code>run_query</code><span>执行只读 SQL，超时 30 秒，禁用写语句。</span></div>
+            </div>
+            <div class="connector-foot" style="border-radius:0 0 var(--r-md) var(--r-md)">
+              <span>今日 52 次调用</span>
+              <span>·</span>
+              <span>平均 210ms</span>
+              <button class="switch" role="switch" aria-checked="true" data-toast="postgres-analytics {state}" style="margin-left:auto"></button>
+            </div>
+          </section>
+
+          <section class="card" data-od-id="mcp-playwright">
+            <div class="card-head">
+              <h3>playwright</h3>
+              <span class="card-head-sub">浏览器自动化</span>
+              <div class="card-head-actions">
+                <span class="badge badge-warn"><i class="dot"></i>需授权</span>
+                <button class="iconbtn" aria-label="更多设置" data-toast="已打开服务设置"><span data-icon="more" data-size="15"></span></button>
+              </div>
+            </div>
+            <div style="padding:11px 16px 12px">
+              <div class="tiny muted mono">http://127.0.0.1:8931/sse</div>
+              <div class="pill-row" style="margin-top:9px">
+                <span class="tag">HTTP / SSE</span><span class="tag">可写外部网站</span><span class="tag">高风险</span>
+              </div>
+            </div>
+            <div class="mcp-tools">
+              <div class="mcp-tool"><code>navigate</code><span>打开 URL 并等待网络空闲。</span></div>
+              <div class="mcp-tool"><code>screenshot</code><span>截取视口，写入会话产出物。</span></div>
+              <div class="mcp-tool"><code>click</code><span>按选择器点击，高风险操作。</span></div>
+            </div>
+            <div class="connector-foot" style="border-radius:0 0 var(--r-md) var(--r-md)">
+              <span>等待你在对话中确认授权</span>
+              <a class="btn btn-sm" href="chat.html" style="margin-left:auto">去确认</a>
+            </div>
+          </section>
+
+          <section class="card" data-od-id="mcp-notion">
+            <div class="card-head">
+              <h3>notion</h3>
+              <span class="card-head-sub">远端托管服务</span>
+              <div class="card-head-actions">
+                <span class="badge"><i class="dot"></i>未连接</span>
+                <button class="iconbtn" aria-label="更多设置" data-toast="已打开服务设置"><span data-icon="more" data-size="15"></span></button>
+              </div>
+            </div>
+            <div style="padding:11px 16px 12px">
+              <div class="tiny muted mono">https://mcp.notion.com/sse</div>
+              <div class="pill-row" style="margin-top:9px">
+                <span class="tag">OAuth 待完成</span><span class="tag">0 个工具</span>
+              </div>
+            </div>
+            <div class="rail-empty" style="padding:26px 16px">
+              授权流程在浏览器里完成，返回后会自动拉取可用工具。
+            </div>
+            <div class="connector-foot" style="border-radius:0 0 var(--r-md) var(--r-md)">
+              <span>上次尝试 · 昨天 20:14 失败</span>
+              <button class="btn btn-sm btn-primary" style="margin-left:auto" data-toast="正在浏览器中打开授权页面">授权</button>
+            </div>
+          </section>
+        </div>
+
+        <section class="card" style="margin-top:16px" data-od-id="mcp-log">
+          <div class="card-head">
+            <h3>连接日志</h3>
+            <span class="card-head-sub">最近 6 条</span>
+            <div class="card-head-actions">
+              <button class="btn btn-sm btn-ghost" data-toast="日志已刷新"><span data-icon="refresh" data-size="13"></span>刷新</button>
+            </div>
+          </div>
+          <div style="padding:14px 16px">
+            <div class="log"><span class="t">14:32:07</span> filesystem   <span class="ok">✓ initialized</span>   protocol 2025-06-18 · 4 tools
+<span class="t">14:32:06</span> postgres      <span class="ok">✓ initialized</span>   protocol 2025-06-18 · 3 tools
+<span class="t">14:02:41</span> playwright    <span class="ok">✓ initialized</span>   protocol 2025-06-18 · 3 tools
+<span class="t">13:58:19</span> notion        <span class="er">✗ oauth_required</span>  missing access token
+<span class="t">11:21:03</span> filesystem    <span class="er">✗ tool_error</span>      write_file · EACCES /etc/hosts
+<span class="t">09:15:52</span> postgres      <span class="ok">✓ reconnected</span>   after idle timeout</div>
+          </div>
+        </section>
+
+        <div class="notice" style="margin-top:18px">
+          <span data-icon="shield" data-size="14"></span>
+          <span>stdio 服务以当前用户身份在本机运行，权限等同于你的终端。带写操作的工具默认走中风险确认，可在「设置 → 运行时」里调整确认策略；高风险工具每次调用都会重新确认。</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="new-mcp" hidden>
+  <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="添加 MCP 服务">
+    <div class="dialog-head"><h2>添加 MCP 服务</h2><p>填写启动命令或远端地址，Anvil 会先握手并拉取工具清单。</p></div>
+    <div class="dialog-body">
+      <div class="grid-2">
+        <div class="field"><label class="field-label">服务名称</label><input class="input mono" placeholder="例如 gitlab"></div>
+        <div class="field"><label class="field-label">传输方式</label><select class="select"><option>stdio</option><option>HTTP / SSE</option><option>WebSocket</option></select></div>
+      </div>
+      <div class="field">
+        <label class="field-label">启动命令或地址</label>
+        <input class="input mono" placeholder="npx -y @scope/server-gitlab">
+        <div class="field-hint">stdio 使用命令，远端服务填写 <code>https://…/sse</code>。</div>
+      </div>
+      <div class="field"><label class="field-label">环境变量（每行一条）</label><textarea class="textarea mono" rows="3" placeholder="GITLAB_TOKEN=…"></textarea></div>
+      <div class="grid-2">
+        <div class="field"><label class="field-label">默认权限</label><select class="select"><option>只读（拒绝写工具）</option><option>中风险确认</option><option>完全控制</option></select></div>
+        <div class="field"><label class="field-label">可用 Agent</label><select class="select"><option>全部 Agent</option><option>迁移工程师</option><option>数据分析师</option></select></div>
+      </div>
+      <div class="notice"><span data-icon="alert" data-size="14"></span><span>添加后先以只读模式运行 24 小时，观察工具调用记录后再放开写权限。</span></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn spread" data-dialog-close data-toast="已测试连接，发现 6 个工具">测试连接</button>
+      <button class="btn" data-dialog-close>取消</button>
+      <button class="btn btn-primary" data-dialog-close data-toast="MCP 服务已添加">添加</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+</body>
+</html>

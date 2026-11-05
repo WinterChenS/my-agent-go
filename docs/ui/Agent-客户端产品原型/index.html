@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+</head>
+<body data-page="index">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>工作区</span><span class="sep">/</span><span style="color:var(--fg)">工作台</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      </button>
+      <button class="iconbtn" aria-label="帮助">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4M12 17h.01"/></svg>
+      </button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>下午好，陈羽</h1>
+            <p class="page-desc">4 个会话仍在进行，2 个定时任务将在今天运行。上次离开时，「API 迁移评估」正在等待你确认一条写文件操作。</p>
+          </div>
+          <div class="page-head-actions">
+            <a class="btn" href="agents.html">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01M9.5 17.5h5"/></svg>
+              配置 Agent
+            </a>
+            <a class="btn btn-primary" href="chat.html">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              新建对话
+            </a>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px" data-od-id="workspace-stats">
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">本周会话</div>
+              <div class="stat-value nums">34</div>
+              <div class="stat-delta">较上周 +6</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">工具调用</div>
+              <div class="stat-value nums">1,284</div>
+              <div class="stat-delta">成功率 97.4%</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Token 消耗</div>
+              <div class="stat-value nums">6.2M</div>
+              <div class="stat-delta">输入 4.8M · 输出 1.4M</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">待确认操作</div>
+              <div class="stat-value nums">2</div>
+              <div class="stat-delta">1 中风险 · 1 高风险</div>
+            </div>
+          </div>
+        </div>
+
+        <section class="card activity-heatmap" data-od-id="activity-heatmap">
+          <div class="card-head">
+            <h3>Agent 工作活跃度</h3>
+            <span class="card-head-sub">每天完成的会话、工具调用与定时任务</span>
+            <div class="card-head-actions">
+              <select class="select select-sm" id="activity-range" aria-label="活跃度统计范围">
+                <option value="12">最近 12 周</option>
+                <option value="26">最近 26 周</option>
+                <option value="53" selected>最近一年</option>
+              </select>
+            </div>
+          </div>
+          <div class="activity-body">
+            <div class="activity-summary">
+              <div><b id="activity-summary-text">过去一年共完成 0 次 Agent 工作</b><span>包括对话完成、工具执行和自动化任务</span></div>
+              <div class="activity-metrics" aria-label="活跃度摘要">
+                <span><b id="activity-days">0</b><small>活跃天数</small></span>
+                <span><b id="activity-total">0</b><small>完成工作</small></span>
+                <span><b id="activity-streak">0</b><small>最长连续天数</small></span>
+              </div>
+            </div>
+            <div class="activity-scroll" tabindex="0" aria-label="可横向滚动的每日工作活跃度图">
+              <div class="activity-chart">
+                <div class="activity-months" id="activity-months" aria-hidden="true"></div>
+                <div class="activity-chart-row">
+                  <div class="activity-weekdays" aria-hidden="true"><span>一</span><span>三</span><span>五</span></div>
+                  <div class="activity-grid" id="activity-grid" role="grid" aria-label="每日 Agent 工作统计"></div>
+                </div>
+              </div>
+            </div>
+            <div class="activity-foot">
+              <span>统计保存在本机，仅计算已完成的工作</span>
+              <span class="activity-legend"><span>少</span><i data-activity-level="0"></i><i data-activity-level="1"></i><i data-activity-level="2"></i><i data-activity-level="3"></i><i data-activity-level="4"></i><span>多</span></span>
+            </div>
+          </div>
+          <div class="activity-tooltip" id="activity-tooltip" role="tooltip" hidden></div>
+        </section>
+
+        <div class="split">
+          <div class="stack" style="gap:18px">
+
+            <section class="card" data-od-id="recent-sessions">
+              <div class="card-head">
+                <h3>继续对话</h3>
+                <span class="card-head-sub">按最近活动排序</span>
+                <div class="card-head-actions">
+                  <a class="btn btn-sm btn-ghost" href="chat.html">全部会话</a>
+                </div>
+              </div>
+              <ul>
+                <li class="row-item">
+                  <span class="row-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.3 9.3 0 0 1-3.9-.8L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg></span>
+                  <div class="row-main">
+                    <div class="row-title">API 迁移评估：v1 → v2 兼容性 <span class="badge badge-warn">待确认</span></div>
+                    <div class="row-sub">迁移工程师 · claude-sonnet-4.5 · 12 分钟前 · 18 轮</div>
+                  </div>
+                  <div class="row-actions">
+                    <a class="btn btn-sm" href="chat.html">继续</a>
+                  </div>
+                </li>
+                <li class="row-item">
+                  <span class="row-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.3 9.3 0 0 1-3.9-.8L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg></span>
+                  <div class="row-main">
+                    <div class="row-title">周报数据核对与图表生成</div>
+                    <div class="row-sub">数据分析师 · gpt-5.1 · 1 小时前 · 9 轮 · 产出 3 个文件</div>
+                  </div>
+                  <div class="row-actions">
+                    <a class="btn btn-sm" href="chat.html">继续</a>
+                  </div>
+                </li>
+                <li class="row-item">
+                  <span class="row-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.3 9.3 0 0 1-3.9-.8L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg></span>
+                  <div class="row-main">
+                    <div class="row-title">整理竞品定价页并输出对比</div>
+                    <div class="row-sub">研究员 · gemini-3-pro · 昨天 18:40 · 24 轮 · 引用 11 条</div>
+                  </div>
+                  <div class="row-actions">
+                    <a class="btn btn-sm" href="chat.html">继续</a>
+                  </div>
+                </li>
+                <li class="row-item">
+                  <span class="row-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.3 9.3 0 0 1-3.9-.8L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg></span>
+                  <div class="row-main">
+                    <div class="row-title">飞书文档结构整理</div>
+                    <div class="row-sub">文档助手 · claude-haiku-4.5 · 周一 09:12 · 6 轮</div>
+                  </div>
+                  <div class="row-actions">
+                    <a class="btn btn-sm btn-ghost" href="chat.html">归档</a>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="card" data-od-id="recent-artifacts">
+              <div class="card-head">
+                <h3>最近产出</h3>
+                <span class="card-head-sub">来自 3 个会话</span>
+                <div class="card-head-actions">
+                  <a class="btn btn-sm btn-ghost" href="library.html">资源库</a>
+                </div>
+              </div>
+              <ul>
+                <li class="file-row">
+                  <span class="file-ext">MD</span>
+                  <div class="row-main">
+                    <div class="file-name">v1-to-v2-migration-plan.md</div>
+                    <div class="file-sub">API 迁移评估 · 18.4 KB · 7 分钟前</div>
+                  </div>
+                  <span class="badge">草稿</span>
+                </li>
+                <li class="file-row">
+                  <span class="file-ext">HTML</span>
+                  <div class="row-main">
+                    <div class="file-name">weekly-report-2025-w45.html</div>
+                    <div class="file-sub">周报数据核对 · 42.1 KB · 1 小时前</div>
+                  </div>
+                  <span class="badge badge-success">已发布</span>
+                </li>
+                <li class="file-row">
+                  <span class="file-ext">CSV</span>
+                  <div class="row-main">
+                    <div class="file-name">pricing-diff.csv</div>
+                    <div class="file-sub">竞品定价对比 · 6.8 KB · 昨天</div>
+                  </div>
+                  <span class="badge">草稿</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <div class="stack" style="gap:18px">
+            <section class="card" data-od-id="agents-quick">
+              <div class="card-head">
+                <h3>我的 Agent</h3>
+                <div class="card-head-actions"><a class="btn btn-sm btn-ghost" href="agents.html">管理</a></div>
+              </div>
+              <ul>
+                <li class="row-item">
+                  <span class="agent-badge">迁</span>
+                  <div class="row-main">
+                    <div class="row-title">迁移工程师</div>
+                    <div class="row-sub">claude-sonnet-4.5 · 4 个 Skill</div>
+                  </div>
+                  <span class="badge badge-success"><i class="dot"></i>就绪</span>
+                </li>
+                <li class="row-item">
+                  <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">数</span>
+                  <div class="row-main">
+                    <div class="row-title">数据分析师</div>
+                    <div class="row-sub">gpt-5.1 · 6 个 Skill</div>
+                  </div>
+                  <span class="badge badge-success"><i class="dot"></i>就绪</span>
+                </li>
+                <li class="row-item">
+                  <span class="agent-badge" style="background:var(--surface-3);color:var(--fg-2)">研</span>
+                  <div class="row-main">
+                    <div class="row-title">研究员</div>
+                    <div class="row-sub">gemini-3-pro · 浏览器 + 引用</div>
+                  </div>
+                  <span class="badge badge-success"><i class="dot"></i>就绪</span>
+                </li>
+              </ul>
+            </section>
+
+            <section class="card" data-od-id="today-schedule">
+              <div class="card-head">
+                <h3>今日定时任务</h3>
+                <div class="card-head-actions"><a class="btn btn-sm btn-ghost" href="schedules.html">全部</a></div>
+              </div>
+              <div class="card-pad">
+                <div class="timeline">
+                  <div class="tl-item is-done">
+                    <div class="tl-time">09:00</div>
+                    <div class="tl-title">每日站会纪要汇总</div>
+                    <div class="tl-sub">已完成 · 1 分 42 秒</div>
+                  </div>
+                  <div class="tl-item is-now">
+                    <div class="tl-time">16:30</div>
+                    <div class="tl-title">依赖漏洞扫描</div>
+                    <div class="tl-sub">16 分钟后运行 · 输出到资源库</div>
+                  </div>
+                  <div class="tl-item">
+                    <div class="tl-time">21:00</div>
+                    <div class="tl-title">飞书文档同步</div>
+                    <div class="tl-sub">每周一至周五</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="card" data-od-id="system-health">
+              <div class="card-head"><h3>运行状态</h3></div>
+              <div class="card-pad stack" style="gap:10px">
+                <div class="row"><span class="live-dot"></span><span class="small fg2">本地运行时</span><span class="mono tiny muted" style="margin-left:auto">sandbox-02 · 空闲</span></div>
+                <div class="row"><span class="live-dot"></span><span class="small fg2">MCP 服务</span><span class="mono tiny muted" style="margin-left:auto">3 / 4 已连接</span></div>
+                <div class="row"><span class="live-dot"></span><span class="small fg2">连接器</span><span class="mono tiny muted" style="margin-left:auto">5 个可用</span></div>
+                <div class="hairline" style="margin:2px 0"></div>
+                <div class="row"><span class="small muted">下次配额重置</span><span class="mono tiny" style="margin-left:auto">11 月 8 日</span></div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="search-dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="全局搜索">
+    <div class="dialog-head">
+      <h2>全局搜索</h2>
+      <p>跨会话、Agent、Skill 与产出物检索。</p>
+    </div>
+    <div class="dialog-body">
+      <input class="input" placeholder="输入关键词，例如「迁移」「周报」「MCP」" autofocus>
+      <div class="field-hint">按 <span class="kbd">⌘</span> <span class="kbd">K</span> 可在任意页面唤起。</div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-dialog-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var grid = document.getElementById('activity-grid');
+  var months = document.getElementById('activity-months');
+  var range = document.getElementById('activity-range');
+  var tooltip = document.getElementById('activity-tooltip');
+  var monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+
+  function dayCount(date) {
+    var seed = date.getFullYear() * 19 + (date.getMonth() + 1) * 37 + date.getDate() * 53;
+    var weekday = date.getDay();
+    if (seed % 7 === 0 || (weekday === 0 && seed % 3 === 0)) return 0;
+    var base = (seed % 9) + 1;
+    if (weekday === 0 || weekday === 6) base = Math.max(1, Math.floor(base * 0.55));
+    if (seed % 13 === 0) base += 8;
+    return base;
+  }
+
+  function activityLevel(count) {
+    if (!count) return 0;
+    if (count <= 3) return 1;
+    if (count <= 6) return 2;
+    if (count <= 10) return 3;
+    return 4;
+  }
+
+  function formatDate(date) {
+    return date.getFullYear() + '年' + (date.getMonth() + 1) + '月' + date.getDate() + '日';
+  }
+
+  function showTooltip(cell) {
+    tooltip.textContent = cell.dataset.activityCount + ' 次工作 · ' + cell.dataset.activityDate;
+    tooltip.hidden = false;
+    var cardRect = cell.closest('.activity-heatmap').getBoundingClientRect();
+    var cellRect = cell.getBoundingClientRect();
+    tooltip.style.left = Math.max(12, cellRect.left - cardRect.left - tooltip.offsetWidth / 2 + cellRect.width / 2) + 'px';
+    tooltip.style.top = Math.max(48, cellRect.top - cardRect.top - 34) + 'px';
+  }
+
+  function hideTooltip() { tooltip.hidden = true; }
+
+  function generateActivityHeatmap(weekCount) {
+    var today = new Date();
+    today.setHours(12, 0, 0, 0);
+    var chartEnd = new Date(today);
+    chartEnd.setDate(chartEnd.getDate() + (6 - chartEnd.getDay()));
+    var chartStart = new Date(chartEnd);
+    chartStart.setDate(chartStart.getDate() - weekCount * 7 + 1);
+    var total = 0;
+    var activeDays = 0;
+    var currentStreak = 0;
+    var longestStreak = 0;
+    var monthMarkers = [];
+    var previousMonth = -1;
+    var cells = [];
+
+    grid.innerHTML = '';
+    months.innerHTML = '';
+    grid.style.setProperty('--activity-weeks', weekCount);
+    months.style.setProperty('--activity-weeks', weekCount);
+
+    for (var week = 0; week < weekCount; week += 1) {
+      var weekStart = new Date(chartStart);
+      weekStart.setDate(chartStart.getDate() + week * 7);
+      if (weekStart.getMonth() !== previousMonth) {
+        monthMarkers.push({ column: week + 1, label: monthNames[weekStart.getMonth()] });
+        previousMonth = weekStart.getMonth();
+      }
+      for (var day = 0; day < 7; day += 1) {
+        var date = new Date(weekStart);
+        date.setDate(weekStart.getDate() + day);
+        var future = date > today;
+        var count = future ? 0 : dayCount(date);
+        var level = activityLevel(count);
+        if (!future) {
+          total += count;
+          if (count > 0) { activeDays += 1; currentStreak += 1; longestStreak = Math.max(longestStreak, currentStreak); }
+          else currentStreak = 0;
+        }
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'activity-cell' + (future ? ' is-future' : '');
+        cell.dataset.activityLevel = String(level);
+        cell.dataset.activityCount = String(count);
+        cell.dataset.activityDate = formatDate(date);
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('aria-label', formatDate(date) + '，完成 ' + count + ' 次 Agent 工作');
+        cell.tabIndex = future ? -1 : 0;
+        cell.addEventListener('mouseenter', function () { showTooltip(this); });
+        cell.addEventListener('mouseleave', hideTooltip);
+        cell.addEventListener('focus', function () { showTooltip(this); });
+        cell.addEventListener('blur', hideTooltip);
+        cells.push(cell);
+      }
+    }
+
+    cells.forEach(function (cell) { grid.appendChild(cell); });
+    monthMarkers.forEach(function (marker) {
+      var label = document.createElement('span');
+      label.textContent = marker.label;
+      label.style.gridColumn = marker.column + ' / span 4';
+      months.appendChild(label);
+    });
+
+    document.getElementById('activity-days').textContent = activeDays.toLocaleString('zh-CN');
+    document.getElementById('activity-total').textContent = total.toLocaleString('zh-CN');
+    document.getElementById('activity-streak').textContent = longestStreak.toLocaleString('zh-CN');
+    document.getElementById('activity-summary-text').textContent = (weekCount === 53 ? '过去一年' : '最近 ' + weekCount + ' 周') + '共完成 ' + total.toLocaleString('zh-CN') + ' 次 Agent 工作';
+  }
+
+  range.addEventListener('change', function () { generateActivityHeatmap(Number(range.value)); });
+  generateActivityHeatmap(Number(range.value));
+})();
+</script>
+</body>
+</html>

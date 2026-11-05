@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill 管理 · Anvil</title>
+<link rel="stylesheet" href="assets/studio.css">
+<link rel="stylesheet" href="assets/pages.css">
+</head>
+<body data-page="skills">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-crumb"><span>智能体</span><span class="sep">/</span><span style="color:var(--fg)">Skill</span></div>
+      <div class="topbar-spacer"></div>
+      <button class="iconbtn" aria-label="搜索" data-dialog-open="search-dialog"><span data-icon="search" data-size="16"></span></button>
+    </header>
+
+    <main class="page">
+      <div class="page-inner">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <h1>Skill</h1>
+            <p class="page-desc">Skill 是可复用的能力包，包含指令、触发条件与可选脚本。Agent 在命中触发条件时自动调用，也可以被对话显式唤起。</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn" data-dialog-open="import-skill"><span data-icon="download" data-size="14"></span>导入 Skill</button>
+            <button class="btn btn-primary" data-dialog-open="new-skill"><span data-icon="plus" data-size="14"></span>新建 Skill</button>
+          </div>
+        </div>
+
+        <div class="tabs" style="margin-bottom:16px">
+          <button class="tab is-active" data-tab="installed" data-tab-group="skill">已安装 <span class="tab-count">9</span></button>
+          <button class="tab" data-tab="market" data-tab-group="skill">市场</button>
+          <button class="tab" data-tab="drafts" data-tab-group="skill">草稿 <span class="tab-count">2</span></button>
+        </div>
+
+        <div class="toolbar">
+          <input class="input" placeholder="按名称或触发条件搜索">
+          <select class="select select-sm" style="width:auto"><option>全部来源</option><option>内置</option><option>本地</option><option>市场</option></select>
+          <select class="select select-sm" style="width:auto"><option>全部 Agent</option><option>迁移工程师</option><option>数据分析师</option><option>研究员</option></select>
+          <span class="toolbar-spacer"></span>
+          <span class="tiny muted">9 个已安装 · 上次同步 2 小时前</span>
+        </div>
+
+        <!-- 已安装 -->
+        <div class="pane is-active" data-pane="installed" data-pane-group="skill">
+          <div class="skill-grid">
+            <article class="card skill-card" data-od-id="skill-code-review">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="code" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">代码审查</div>
+                  <div class="tiny muted mono">v2.3 · 内置</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">按 diff 输出风险分级：会断掉、编译期可见、仅命名变化。附最小修复建议。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">git diff</span><span class="tag">审查</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 128 次</span><span>·</span><span>3 天前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="代码审查{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-weekly-report">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="file" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">周报生成</div>
+                  <div class="tiny muted mono">v1.8 · 本地</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">汇总本周提交、工单与会议纪要，按团队模板生成周报页面并归档到资源库。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">git log</span><span class="tag">模板</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 41 次</span><span>·</span><span>1 周前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="周报生成{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-research">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="globe" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">竞品调研</div>
+                  <div class="tiny muted mono">v3.0 · 市场</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">打开目标站点，抽取定价与功能矩阵，输出对比表格并保留引用截图。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">浏览器</span><span class="tag">引用</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 96 次</span><span>·</span><span>5 天前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="竞品调研{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-data-cleaning">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="database" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">数据清洗</div>
+                  <div class="tiny muted mono">v1.4 · 内置</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">识别重复行、空值口径与异常值，输出清洗脚本和清洗前后对照。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">CSV</span><span class="tag">SQL</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 63 次</span><span>·</span><span>2 周前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="数据清洗{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-writing">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="layers" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">文档写作</div>
+                  <div class="tiny muted mono">v2.0 · 本地</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">统一标题层级、术语与语气，把口述内容整理成可发布的文档结构。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">Markdown</span><span class="tag">语气</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 214 次</span><span>·</span><span>昨天更新</span><button class="switch" role="switch" aria-checked="true" data-toast="文档写作{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-release-check">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="check" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">发布检查</div>
+                  <div class="tiny muted mono">v1.2 · 本地</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">按发布清单一逐项核对：版本号、变更日志、回滚脚本、监控埋点。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">发布</span><span class="tag">清单</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 27 次</span><span>·</span><span>3 周前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="发布检查{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-meeting-notes">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="message" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">会议纪要</div>
+                  <div class="tiny muted mono">v1.6 · 市场</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">从录音转写中抽取决议、待办与负责人，输出可同步到日程的任务列表。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">转写</span><span class="tag">待办</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 88 次</span><span>·</span><span>6 天前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="会议纪要{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-dep-scan">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="shield" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">依赖扫描</div>
+                  <div class="tiny muted mono">v1.1 · 内置</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">扫描锁文件的已知漏洞与许可证冲突，按严重度排序并给出升级路径。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">pnpm</span><span class="tag">CVE</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 35 次</span><span>·</span><span>4 天前更新</span><button class="switch" role="switch" aria-checked="true" data-toast="依赖扫描{state}"></button></div>
+            </article>
+
+            <article class="card skill-card" data-od-id="skill-ticket-triage">
+              <div class="skill-head">
+                <span class="skill-ico"><span data-icon="branch" data-size="16"></span></span>
+                <div>
+                  <div class="skill-name">票单分诊</div>
+                  <div class="tiny muted mono">v0.9 · 本地</div>
+                </div>
+              </div>
+              <div class="skill-body">
+                <div class="skill-desc">读取工单内容，判断归属模块与优先级，草拟首轮回复但不自动发送。</div>
+                <div class="pill-row" style="margin-top:10px"><span class="tag">工单</span><span class="tag">分诊</span></div>
+              </div>
+              <div class="skill-foot"><span>调用 12 次</span><span>·</span><span>2 天前更新</span><button class="switch" role="switch" aria-checked="false" data-toast="票单分诊{state}"></button></div>
+            </article>
+          </div>
+        </div>
+
+        <!-- 市场 -->
+        <div class="pane" data-pane="market" data-pane-group="skill">
+          <div class="skill-grid">
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="database" data-size="16"></span></span><div><div class="skill-name">SQL 优化</div><div class="tiny muted mono">v2.1 · 官方</div></div></div>
+              <div class="skill-body"><div class="skill-desc">读取执行计划，定位全表扫描与隐式类型转换，给出改写建议与对照耗时。</div><div class="pill-row" style="margin-top:10px"><span class="tag">EXPLAIN</span><span class="tag">索引</span></div></div>
+              <div class="skill-foot"><span>安装 1,240</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 SQL 优化">获取</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="file" data-size="16"></span></span><div><div class="skill-name">合同审阅</div><div class="tiny muted mono">v1.3 · 社区</div></div></div>
+              <div class="skill-body"><div class="skill-desc">逐条比对标准条款，标出付款、违约与知识产权相关的高风险改动。</div><div class="pill-row" style="margin-top:10px"><span class="tag">法务</span><span class="tag">条款</span></div></div>
+              <div class="skill-foot"><span>安装 860</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 合同审阅">获取</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="globe" data-size="16"></span></span><div><div class="skill-name">舆情摘要</div><div class="tiny muted mono">v1.0 · 社区</div></div></div>
+              <div class="skill-body"><div class="skill-desc">按主题聚合公开讨论，区分事实与观点，输出带时间线的摘要。</div><div class="pill-row" style="margin-top:10px"><span class="tag">舆情</span><span class="tag">摘要</span></div></div>
+              <div class="skill-foot"><span>安装 512</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 舆情摘要">获取</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="key" data-size="16"></span></span><div><div class="skill-name">密钥体检</div><div class="tiny muted mono">v1.5 · 官方</div></div></div>
+              <div class="skill-body"><div class="skill-desc">扫描仓库中疑似泄露的凭据，给出轮换顺序与最小权限建议。</div><div class="pill-row" style="margin-top:10px"><span class="tag">安全</span><span class="tag">轮换</span></div></div>
+              <div class="skill-foot"><span>安装 2,038</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 密钥体检">获取</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="eye" data-size="16"></span></span><div><div class="skill-name">无障碍审查</div><div class="tiny muted mono">v1.2 · 社区</div></div></div>
+              <div class="skill-body"><div class="skill-desc">检查对比度、焦点顺序与语义标签，输出可复现的问题清单。</div><div class="pill-row" style="margin-top:10px"><span class="tag">a11y</span><span class="tag">前端</span></div></div>
+              <div class="skill-foot"><span>安装 344</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 无障碍审查">获取</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="zap" data-size="16"></span></span><div><div class="skill-name">定价监控</div><div class="tiny muted mono">v1.1 · 社区</div></div></div>
+              <div class="skill-body"><div class="skill-desc">定期抓取竞品定价页，输出变更diff 并推送到连接器。</div><div class="pill-row" style="margin-top:10px"><span class="tag">抓取</span><span class="tag">定时</span></div></div>
+              <div class="skill-foot"><span>安装 271</span><button class="btn btn-sm" style="margin-left:auto" data-toast="已安装 定价监控">获取</button></div>
+            </article>
+          </div>
+        </div>
+
+        <!-- 草稿 -->
+        <div class="pane" data-pane="drafts" data-pane-group="skill">
+          <div class="skill-grid">
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="file" data-size="16"></span></span><div><div class="skill-name">值班交接单</div><div class="tiny muted mono">草稿 · 未保存</div></div></div>
+              <div class="skill-body"><div class="skill-desc">把当天告警、处理动作与遗留问题整理成交接单。触发条件尚未填写。</div></div>
+              <div class="skill-foot"><span>需要补充触发条件</span><button class="btn btn-sm" style="margin-left:auto" data-dialog-open="new-skill">继续编辑</button></div>
+            </article>
+            <article class="card skill-card">
+              <div class="skill-head"><span class="skill-ico"><span data-icon="mail" data-size="16"></span></span><div><div class="skill-name">API 变更通知</div><div class="tiny muted mono">草稿 · 待测试</div></div></div>
+              <div class="skill-body"><div class="skill-desc">从 OpenAPI 差异生成变更通知邮件。邮件连接器尚未授权。</div></div>
+              <div class="skill-foot"><span>依赖 1 个未授权连接器</span><a class="btn btn-sm" style="margin-left:auto" href="connectors.html">去授权</a></div>
+            </article>
+          </div>
+        </div>
+
+        <div class="notice" style="margin-top:22px">
+          <span data-icon="alert" data-size="14"></span>
+          <span>Skill 在本机沙箱内执行，脚本只能访问被授权的目录与网络域名。修改系统级 Skill 需具备管理员角色。</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="backdrop" id="new-skill" hidden>
+  <div class="dialog skill-builder" role="dialog" aria-modal="true" aria-label="创建 Skill">
+    <div class="skill-builder-head">
+      <div><div class="thil-kicker"><span data-icon="puzzle" data-size="13"></span>标准 Skill 创建器</div><h2>创建可复用能力</h2><p>先描述目标，Agent 会生成结构；只有在需要时才展开触发、工具与测试配置。</p></div>
+      <button class="iconbtn" data-dialog-close aria-label="关闭创建器"><span data-icon="x" data-size="15"></span></button>
+    </div>
+    <div class="skill-builder-layout">
+      <nav class="skill-steps" aria-label="Skill 创建步骤">
+        <button class="is-active" data-skill-step="intent"><span>1</span><b>描述意图</b><small>与 AI 一起定义</small></button>
+        <button data-skill-step="basics"><span>2</span><b>基础信息</b><small>名称与说明</small></button>
+        <button data-skill-step="triggers"><span>3</span><b>触发与资源</b><small>按需展开</small></button>
+        <button data-skill-step="test"><span>4</span><b>测试与发布</b><small>试运行后启用</small></button>
+      </nav>
+
+      <div class="skill-builder-main">
+        <section class="skill-panel is-active" data-skill-panel="intent">
+          <div class="skill-panel-title"><div><h3>你希望 Agent 学会什么？</h3><p>用自然语言描述真实任务，Agent 会追问缺失条件并生成 Skill 草稿。</p></div><span class="badge badge-success"><i class="dot"></i>Pi Agent 在线</span></div>
+          <div class="skill-ai-chat" id="skill-ai-chat">
+            <div class="skill-ai-msg is-agent"><span class="agent-badge">π</span><div>告诉我一个你反复执行的任务。我会把它拆成适用场景、触发条件、步骤、工具和验收标准。</div></div>
+            <div class="skill-ai-msg is-user"><div>每天交接前，把告警、处理动作和遗留问题整理成一份值班交接单。</div></div>
+            <div class="skill-ai-msg is-agent"><span class="agent-badge">π</span><div>明白。我会创建“值班交接单”Skill。还需要确认：告警来自哪里，交接单保存到哪里？</div></div>
+          </div>
+          <div class="skill-ai-composer">
+            <textarea id="skill-ai-input" rows="2" placeholder="例如：告警来自 Sentry 和钉钉，输出 Markdown 到资源库…"></textarea>
+            <button class="send" id="skill-ai-send" type="button" aria-label="发送给 Skill 创建助手"><span data-icon="send" data-size="14"></span></button>
+          </div>
+          <div class="skill-suggestion-row"><button data-skill-prompt="读取 Sentry 和钉钉告警">补充数据源</button><button data-skill-prompt="输出 Markdown 到资源库">补充输出格式</button><button data-skill-prompt="只在工作日 18:00 触发">补充触发时间</button></div>
+        </section>
+
+        <section class="skill-panel" data-skill-panel="basics">
+          <div class="skill-panel-title"><div><h3>基础信息</h3><p>这些内容会展示在 Agent 的 Skill 列表中。</p></div><span class="badge">已由 AI 预填</span></div>
+          <div class="stack" style="gap:14px">
+            <div class="grid-2"><div class="field"><label class="field-label" for="skill-name">名称</label><input class="input" id="skill-name" value="值班交接单"></div><div class="field"><label class="field-label" for="skill-id">标识</label><input class="input mono" id="skill-id" value="handoff-report"></div></div>
+            <div class="field"><label class="field-label" for="skill-desc">用途说明</label><textarea class="textarea" id="skill-desc" rows="2">汇总当日告警、处置动作与遗留问题，生成结构统一的值班交接单。</textarea></div>
+            <div class="field"><label class="field-label">适用场景</label><div class="chip-list"><span class="tag">值班结束前</span><span class="tag">用户要求交接</span><span class="tag">告警复盘</span><button class="btn btn-sm btn-ghost"><span data-icon="plus" data-size="11"></span>添加</button></div></div>
+            <div class="notice"><span data-icon="brain" data-size="14"></span><span>AI 已根据对话生成初稿。保存前仍可返回上一步继续补充，它会保留你的手动修改。</span></div>
+          </div>
+        </section>
+
+        <section class="skill-panel" data-skill-panel="triggers">
+          <div class="skill-panel-title"><div><h3>触发与资源</h3><p>默认只配置必要项，高级条件保持折叠。</p></div></div>
+          <div class="stack" style="gap:12px">
+            <div class="skill-disclosure is-open">
+              <button class="skill-disclosure-head" type="button"><span data-icon="zap" data-size="14"></span><span><b>触发条件</b><small>2 个语义触发 · 1 个定时触发</small></span><span data-icon="chevDown" data-size="13"></span></button>
+              <div class="skill-disclosure-body"><div class="field"><label class="field-label">语义条件</label><textarea class="textarea mono" rows="3">用户提到「交接」「值班总结」「今日告警」时
+会话中出现 3 个以上告警处理记录时</textarea></div><div class="field"><label class="field-label">定时触发</label><input class="input mono" value="0 18 * * 1-5"></div></div>
+            </div>
+            <div class="skill-disclosure is-open">
+              <button class="skill-disclosure-head" type="button"><span data-icon="plug" data-size="14"></span><span><b>工具与依赖</b><small>Sentry · 钉钉 · 资源库</small></span><span data-icon="chevDown" data-size="13"></span></button>
+              <div class="skill-disclosure-body"><div class="grid-2"><div class="check-row"><span class="checkbox" aria-checked="true"></span><div class="check-main"><div class="check-title">Sentry 连接器</div><div class="check-sub">读取今日告警与处理状态</div></div></div><div class="check-row"><span class="checkbox" aria-checked="true"></span><div class="check-main"><div class="check-title">钉钉连接器</div><div class="check-sub">读取值班群处理记录</div></div></div><div class="check-row"><span class="checkbox" aria-checked="true"></span><div class="check-main"><div class="check-title">资源库</div><div class="check-sub">写入 Markdown 交接单</div></div></div><div class="check-row"><span class="checkbox" aria-checked="false"></span><div class="check-main"><div class="check-title">终端脚本</div><div class="check-sub">当前流程不需要</div></div></div></div></div>
+            </div>
+            <div class="skill-disclosure">
+              <button class="skill-disclosure-head" type="button"><span data-icon="settings" data-size="14"></span><span><b>高级配置</b><small>变量、目录权限与失败重试</small></span><span data-icon="chevDown" data-size="13"></span></button>
+              <div class="skill-disclosure-body"><div class="notice">仅在需要自定义脚本或运行参数时配置。</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="skill-panel" data-skill-panel="test">
+          <div class="skill-panel-title"><div><h3>测试与发布</h3><p>Agent 会在隔离会话中跑一遍示例输入，不会发送消息或写入正式资源库。</p></div><span class="badge badge-success">结构检查通过</span></div>
+          <div class="skill-test-grid">
+            <div class="card"><div class="card-head"><h3>试运行输入</h3></div><div class="card-pad"><textarea class="textarea" rows="5">今天有 4 条 Sentry 告警，其中 3 条已解决；支付回调超时仍在观察。请生成交接单。</textarea><button class="btn" id="skill-test-run" style="margin-top:10px"><span data-icon="play" data-size="12"></span>运行测试</button></div></div>
+            <div class="card"><div class="card-head"><h3>检查项</h3></div><div class="skill-checks"><span><i class="ok"></i>SKILL.md 结构完整</span><span><i class="ok"></i>触发条件可判定</span><span><i class="ok"></i>依赖均已授权</span><span><i></i>等待试运行输出</span></div></div>
+          </div>
+          <div class="notice" style="margin-top:14px"><span data-icon="shield" data-size="14"></span><span>发布后默认只对“文档助手”可用。你可以稍后在 Agent 配置中挂载到其它 Agent。</span></div>
+        </section>
+      </div>
+    </div>
+    <div class="skill-builder-foot"><button class="btn" id="skill-prev" disabled>上一步</button><span class="tiny muted" id="skill-progress">第 1 / 4 步</span><span class="spread"></span><button class="btn" data-dialog-close>存为草稿</button><button class="btn btn-primary" id="skill-next">继续</button></div>
+  </div>
+</div>
+
+<div class="backdrop" id="import-skill" hidden>
+  <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="导入 Skill">
+    <div class="dialog-head"><h2>导入 Skill</h2><p>粘贴仓库或 SKILL.md 链接，Pi Agent 会拉取、检查依赖并在本地安装；也可从文件导入。</p></div>
+    <div class="dialog-body">
+      <div class="tabs" style="margin-bottom:2px"><button class="tab is-active" data-tab="url" data-tab-group="skill-import">从链接</button><button class="tab" data-tab="file" data-tab-group="skill-import">从文件</button></div>
+      <div class="pane is-active" data-pane="url" data-pane-group="skill-import">
+        <div class="field"><label class="field-label" for="skill-url">Skill 链接</label><div class="row"><input class="input mono" id="skill-url" placeholder="https://github.com/owner/repo/tree/main/my-skill"><button class="btn" id="skill-link-analyze">交给 Agent</button></div><div class="field-hint">支持 GitHub/GitLab 仓库、目录链接、原始 SKILL.md URL 与 git 地址。</div></div>
+      </div>
+      <div class="pane" data-pane="file" data-pane-group="skill-import"><div class="field"><label class="field-label">选择文件</label><input class="input" type="file"><div class="field-hint">支持 SKILL.md、ZIP 或包含 assets/ 与 scripts/ 的目录包。</div></div></div>
+      <div class="skill-install" id="skill-install-flow">
+        <div class="skill-install-head"><span class="agent-badge">π</span><div><b>Pi Agent 安装任务</b><small>安装前会先展示权限与依赖，不执行来源中的任意指令。</small></div><span class="badge" id="skill-install-state">等待开始</span></div>
+        <div class="skill-install-steps">
+          <div data-install-step="fetch"><span class="step-mark">1</span><span><b>读取来源</b><small>解析链接与版本信息</small></span></div>
+          <div data-install-step="inspect"><span class="step-mark">2</span><span><b>检查清单</b><small>验证 SKILL.md、脚本与资源</small></span></div>
+          <div data-install-step="deps"><span class="step-mark">3</span><span><b>解析依赖</b><small>1 个 MCP · 2 个连接器权限</small></span></div>
+          <div data-install-step="sandbox"><span class="step-mark">4</span><span><b>沙箱试运行</b><small>禁止外部写入</small></span></div>
+        </div>
+      </div>
+      <div class="notice"><span data-icon="shield" data-size="14"></span><span>链接内容视为不可信输入。Agent 只解析 Skill 清单，不会执行仓库中的安装说明或脚本，直到你确认依赖与权限。</span></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" data-dialog-close>取消</button><button class="btn btn-primary" id="skill-install-confirm" disabled data-dialog-close data-toast="Skill 已安装并关联依赖">确认安装</button></div>
+  </div>
+</div>
+
+<script src="assets/studio.js"></script>
+<script>
+(function () {
+  'use strict';
+  var stepOrder = ['intent', 'basics', 'triggers', 'test'];
+  var currentStep = 0;
+  var stepButtons = Array.prototype.slice.call(document.querySelectorAll('[data-skill-step]'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('[data-skill-panel]'));
+  var prev = document.getElementById('skill-prev');
+  var next = document.getElementById('skill-next');
+
+  function showStep(index) {
+    currentStep = Math.max(0, Math.min(stepOrder.length - 1, index));
+    stepButtons.forEach(function (button, i) { button.classList.toggle('is-active', i === currentStep); button.classList.toggle('is-done', i < currentStep); });
+    panels.forEach(function (panel) { panel.classList.toggle('is-active', panel.dataset.skillPanel === stepOrder[currentStep]); });
+    prev.disabled = currentStep === 0;
+    next.textContent = currentStep === stepOrder.length - 1 ? '发布 Skill' : '继续';
+    document.getElementById('skill-progress').textContent = '第 ' + (currentStep + 1) + ' / 4 步';
+  }
+  stepButtons.forEach(function (button, i) { button.addEventListener('click', function () { showStep(i); }); });
+  prev.addEventListener('click', function () { showStep(currentStep - 1); });
+  next.addEventListener('click', function () {
+    if (currentStep === stepOrder.length - 1) { document.getElementById('new-skill').hidden = true; if (window.Anvil) window.Anvil.toast('Skill 已发布并挂载到文档助手'); }
+    else showStep(currentStep + 1);
+  });
+
+  var aiInput = document.getElementById('skill-ai-input');
+  function sendSkillMessage(text) {
+    if (!text.trim()) return;
+    var chat = document.getElementById('skill-ai-chat');
+    var user = document.createElement('div'); user.className = 'skill-ai-msg is-user'; user.innerHTML = '<div></div>'; user.firstChild.textContent = text; chat.appendChild(user);
+    var agent = document.createElement('div'); agent.className = 'skill-ai-msg is-agent'; agent.innerHTML = '<span class="agent-badge">π</span><div>已补充到草稿。我会据此更新触发条件、依赖与测试样例。</div>'; chat.appendChild(agent);
+    aiInput.value = ''; chat.scrollTop = chat.scrollHeight;
+  }
+  document.getElementById('skill-ai-send').addEventListener('click', function () { sendSkillMessage(aiInput.value); });
+  document.querySelectorAll('[data-skill-prompt]').forEach(function (button) { button.addEventListener('click', function () { sendSkillMessage(button.dataset.skillPrompt); }); });
+  document.querySelectorAll('.skill-disclosure-head').forEach(function (button) { button.addEventListener('click', function () { button.parentElement.classList.toggle('is-open'); }); });
+  document.getElementById('skill-test-run').addEventListener('click', function () { if (window.Anvil) window.Anvil.toast('隔离试运行完成：4 项检查通过'); });
+
+  document.getElementById('skill-link-analyze').addEventListener('click', function () {
+    var steps = Array.prototype.slice.call(document.querySelectorAll('[data-install-step]'));
+    var state = document.getElementById('skill-install-state');
+    var confirm = document.getElementById('skill-install-confirm');
+    state.textContent = 'Agent 检查中'; state.className = 'badge badge-warn';
+    steps.forEach(function (step) { step.classList.remove('is-done', 'is-active'); });
+    steps.forEach(function (step, i) { setTimeout(function () { if (i > 0) steps[i - 1].classList.remove('is-active'); step.classList.add('is-active'); if (i === steps.length - 1) setTimeout(function () { step.classList.remove('is-active'); steps.forEach(function (s) { s.classList.add('is-done'); }); state.textContent = '等待确认'; state.className = 'badge badge-success'; confirm.disabled = false; }, 450); }, i * 520); });
+  });
+  showStep(0);
+})();
+</script>
+</body>
+</html>
