@@ -47,8 +47,21 @@ type integrationCase struct {
 	External []string
 	// Env 追加到子进程环境。
 	Env []string
+	// Steps 是"一条 case 需要跨多个包/命令验证"时的写法；非空时忽略 Package/External。
+	//
+	// 为什么需要：一个验收条件常常一半在资源层（落库/校验）、一半在绑定层
+	// （UI 能看到的路径）。只跑其中一半，证据就只覆盖一半，但 case 状态是二元 PASS。
+	Steps []integrationStep
 	// Blocked 非空表示当前环境无法执行，值为可复核的原因。
 	Blocked string
+}
+
+// integrationStep 是一次 go test / 外部命令。
+type integrationStep struct {
+	Package  string
+	Run      string
+	External []string
+	Env      []string
 }
 
 // integrationCases 是 G0 需要的 case 到真实命令的映射。
@@ -107,6 +120,29 @@ func integrationCases() []integrationCase {
 		{ID: "SEC05", Package: policyTests, Run: "TestPathGuard|TestApprovalBindsRealPathNotSpelling"},
 		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork"},
 		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject", Env: []string{"MYAGENT_PI_POLICY=1"}},
+
+		// ── 记忆（C05，G2） ──
+		// MEM01/02/04 是 HOST（纯逻辑 + 真实 SQLite），MEM03/05 是 ALL，跨资源层与绑定层。
+		{ID: "MEM01", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestTrigramProbeReportsRealFacts"}}},
+		{ID: "MEM02", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestScopeDisabledNotInjected|TestDeleteNotInjectedNextRun"}}},
+		{ID: "MEM03", Steps: []integrationStep{
+			{Package: "internal/app", Run: "TestMemoryBindingsRoundTrip"},
+			{Package: "internal/memory", Run: "TestNoImplicitModelOrNetworkCall"},
+		}},
+		{ID: "MEM04", Steps: []integrationStep{{Package: "internal/memory", Run: "TestMemoryContextBounded"}}},
+		{ID: "MEM05", Steps: []integrationStep{
+			{Package: "internal/memory", Run: "TestDeleteNotInjectedNextRun|TestExportIsReadableJSON"},
+			{Package: "internal/app", Run: "TestMemoryDeleteNotInjectedNextRun|TestMemoryScopeToggleAndWorkspaceIsolation"},
+		}},
+
+		// ── 技能与扩展（C03，G2；RES02 需要真实 Pi） ──
+		{ID: "RES01", Steps: []integrationStep{{Package: "internal/resources", Run: "TestImportCopiesWithoutExecutingSource|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape|TestImportRejectsDuplicateWithoutOverwrite|TestOverwriteSkillReplacesContentAndKeepsEnabled|TestDeleteSkillRemovesDirAndAllowsReimport|TestSkillCASConflictIsRejected|TestSaveSkillContentGuardsIdentity"}}},
+		{ID: "RES02", Steps: []integrationStep{{Package: "internal/resources", Run: "TestDisabledManagedSkillAbsentInNextRun", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}}}},
+		{ID: "RES03", Steps: []integrationStep{{Package: "internal/resources", Run: "TestMissingDependencyMarksUnavailable|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape"}}},
+		{ID: "RES04", Steps: []integrationStep{
+			{Package: "internal/resources", Run: "TestSystemExtensionCannotBeDisabled|TestThirdPartyExtensionDefaultsDisabled|TestEnableThirdPartyExtensionAffectsArgs|TestUnknownExtensionRejected"},
+			{Package: "internal/app", Run: "TestSkillToggleChangesRuntimeArgs"},
+		}},
 
 		// ── 配置隔离 ──
 		{ID: "CFG03.isolation", Package: piTests, Run: "TestIsolationArgsCoverEveryProjectChannel|TestHarnessMCPRequiresExplicitEnable|TestIsolationRequiresExistingAbsoluteExtension"},
@@ -221,14 +257,19 @@ func RunIntegrationForGate(target, gate string) int {
 	for _, c := range integrationCases() {
 		table[c.ID] = c
 	}
+	// 缺 runner 属于配置缺失，但**不阻止**跑已接好的那部分：
+	// G2 有 50 条 case，接入是渐进的；否则每加一条都被「其余未接」卡住，
+	// 证据永远产不出来。缺失清单照打，最终退出码仍是 2。
+	var runnable []string
 	var missing []string
 	for _, id := range required {
-		if _, ok := table[id]; !ok {
-			missing = append(missing, id)
+		if _, ok := table[id]; ok {
+			runnable = append(runnable, id)
+			continue
 		}
+		missing = append(missing, id)
 	}
-	if len(missing) > 0 {
-		// 缺 runner 属于配置缺失：说清楚缺哪些，而不是少跑几条然后报绿。
+	if len(runnable) == 0 {
 		fmt.Fprintf(os.Stderr, "以下必需 case 没有集成 runner：%s\n", strings.Join(missing, ", "))
 		return 2
 	}
@@ -244,7 +285,7 @@ func RunIntegrationForGate(target, gate string) int {
 	}
 	blocks := 0
 	fails := 0
-	for _, id := range required {
+	for _, id := range runnable {
 		c := table[id]
 		res := runIntegrationCase(c, gate, target, root)
 		if res.blocked {
@@ -254,7 +295,11 @@ func RunIntegrationForGate(target, gate string) int {
 		}
 	}
 
-	fmt.Printf("汇总: %d 条必需 case，失败 %d，阻塞 %d\n", len(required), fails, blocks)
+	fmt.Printf("汇总: 可跑 %d / 必需 %d 条，失败 %d，阻塞 %d\n", len(runnable), len(required), fails, blocks)
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "以下必需 case 没有集成 runner：%s\n", strings.Join(missing, ", "))
+		fmt.Fprintln(os.Stderr, "已跑的部分不等于该 gate 通过。")
+	}
 
 	// 测试不许改仓库。真实事故（2026-11-04）：F04/F02 的集成测试直接写
 	// docs/evidence/raw/*.json，于是跑一次 verify 就把已提交的历史运行记录
@@ -277,8 +322,8 @@ func RunIntegrationForGate(target, gate string) int {
 	if fails > 0 {
 		return 1
 	}
-	if blocks > 0 {
-		// 阻塞不等于通过：环境/实现缺失按配置类返回 2。
+	if blocks > 0 || len(missing) > 0 {
+		// 阻塞/缺 runner 不等于通过：按配置类返回 2。
 		return 2
 	}
 	return 0
@@ -333,6 +378,28 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 		args := []string{"test", "./" + c.Package, "-run", c.Run, "-count=1", "-v"}
 		cmdline = "go " + strings.Join(args, " ")
 		exit, stdout, stderr, _ = runWithEnv(c.Env, "go", args...)
+	case len(c.Steps) > 0:
+		var cmdlines, stdouts, stderrs []string
+		for _, step := range c.Steps {
+			code, out, errOut := 0, "", ""
+			if len(step.External) > 0 {
+				cmdlines = append(cmdlines, strings.Join(step.External, " "))
+				code, out, errOut, _ = runWithEnv(step.Env, step.External[0], step.External[1:]...)
+			} else {
+				args := []string{"test", "./" + step.Package, "-run", step.Run, "-count=1", "-v"}
+				cmdlines = append(cmdlines, "go "+strings.Join(args, " "))
+				code, out, errOut, _ = runWithEnv(step.Env, "go", args...)
+			}
+			exit = code
+			stdouts = append(stdouts, "### $ "+cmdlines[len(cmdlines)-1]+"\n"+out)
+			stderrs = append(stderrs, "### $ "+cmdlines[len(cmdlines)-1]+"\n"+errOut)
+			if code != 0 {
+				break
+			}
+		}
+		cmdline = strings.Join(cmdlines, "\n")
+		stdout = strings.Join(stdouts, "\n")
+		stderr = strings.Join(stderrs, "\n")
 	default:
 		cr.Status = contracts.StatusFail
 		cr.Actual = "runner 定义错误：既没有命令也没有包"
