@@ -197,7 +197,13 @@ type ManifestEntry struct {
 
 Allow only official HTTPS hosts, revalidate redirects, stream to a staging file, verify length and SHA-256, then extract with path and link checks.
 
-信任根：清单嵌入在 Anvil 二进制里，其中的 SHA-256 是下载包的权威，签名后的 Anvil 包（X05）保护清单不被篡改。若 Pi 上游提供发布签名，再额外校验；上游未提供时 `Signature` 为空，不自造签名字段充数。是否存在上游签名在本任务开始时核实，记入证据。
+信任根：清单嵌入在 Anvil 二进制里，其中的 SHA-256 是下载包的权威，签名后的 Anvil 包（X05）保护清单不被篡改。
+
+已核实的上游事实（2026-11-05，`github.com/earendil-works/pi` v1.5.0 发布页）：
+
+- 六个目标都有官方独立包：`pi-windows-{x64,arm64}.zip`、`pi-darwin-{x64,arm64}.tar.gz`、`pi-linux-{x64,arm64}.tar.gz`。解压器必须同时支持 zip 与 tar.gz，并对两种格式都做路径与链接越界检查。
+- 发布附带 `SHA256SUMS`，没有 `.sig`/`.asc`/`.minisig` 等独立签名，也没有 GitHub artifact attestation（API 返回 404）。`SHA256SUMS` 与安装包走同一个 HTTPS 渠道，不能作为独立信任根。因此 `Signature` 保持为空，不自造签名字段充数；上游以后提供签名再增加校验。
+- 清单在开发阶段生成：通过 HTTPS 取官方 `SHA256SUMS` 与发布 API 里的资产大小，写入 `internal/piinstall/manifest.json` 并提交，提交记录里写明来源 URL。本地 `.tools/pi/standalone/SHA256SUMS-1.5.0.txt` 与官方发布逐字节一致。运行时只信任嵌入的清单，不在线拉取 `SHA256SUMS`。
 
 - [ ] **Step 4: Write cancellation, active-worker, and rollback tests**
 
@@ -306,6 +312,8 @@ func TestInterruptedSwapLeavesOneCompleteVersion(t *testing.T) { /* crash each t
 - [ ] **Step 5: Implement updater transaction and platform adapters**
 
 The helper reads the pre-verified pending journal, backs up the application and database, atomically switches files, launches the candidate with a health-check nonce, and commits only after acknowledgement. Windows swaps the signed installation directory, macOS verifies Team ID/bundle ID, AppImage swaps the active file, and `.deb` enters the OS package authorization flow or returns `blocked`.
+
+安装范围与权限：Windows 安装包由 X03 按当前用户范围生成（Wails NSIS 模板的 `INSTALL_SCOPE=user`），helper 不需要管理员即可交换安装目录。如果用户按机器范围安装，或 macOS 上 `.app` 所在目录不可写，V1 不静默申请提权：更新状态为 `blocked`，并提示用户手动安装新版本。两种情况各写一个测试。
 
 - [ ] **Step 6: Wire startup and Wails API without forced restart**
 

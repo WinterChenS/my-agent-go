@@ -86,11 +86,11 @@
 
 **Interfaces：** `SaveMCP(ctx,expectedRevision uint64,MCPDefinition)(ConfigDocument,error)`；MCPDefinition{ID,Transport,Command,Args,EnvRefs,WorkingDir,URL,HeaderRefs,Enabled,Exposure}；Transport stdio/http，Exposure direct/deferred/hidden；`DiagnoseMCP(ctx,id string)(MCPStatus,error)`；`ListTools(ctx,SessionID)([]ToolDescriptor,error)`；Descriptor{Name,Source,InputSchema,Enabled,Policy,CapabilityState}。
 
-- [ ] 测试shell字符串误当executable、无效schema、旧SSE、秘密header直接保存被拒绝；command+args分开，workingDir解析固定workspace。
-- [ ] 接真实Pi的stdio和HTTP fixture MCP：发现、调用、断开、鉴权错误、超时、重连、服务工具列表变化都可见。确认Pi管理连接，Go不再启动第二个MCP client抢同一stdio进程。
-- [ ] 测试 `TestDisabledMCPToolCannotExecute`：禁用后安全生效点不再可调用；撤销权限立即生效；旧run配置不静默变化，若重启worker需空闲时明确执行。
-- [ ] UI显示built-in/extension/MCP来源和实际有效状态，禁用/hidden必须同时影响runtime，不能只隐藏菜单。OAuth需要授权时显示未支持/需外部配置，不伪装已连接。
-- [ ] 跑unit、真实Pi+MCP integration、frontend测试并提交。
+- [x] 测试shell字符串误当executable、无效schema、旧SSE、秘密header直接保存被拒绝；command+args分开，workingDir解析固定workspace。 → `TestSaveMCPRejectsShellCommandString`、`TestSaveMCPRejectsInvalidSchema`、`TestSaveMCPRejectsPlaintextSecrets`、`TestSaveMCPRejectsWorkingDirEscape`。
+- [x] 接真实Pi的stdio和HTTP fixture MCP：发现、调用、断开、鉴权错误、超时、重连、服务工具列表变化都可见。确认Pi管理连接，Go不再启动第二个MCP client抢同一stdio进程。 → stdio/HTTP 真实 Pi 闭环见 `docs/evidence/c04-mcp.md`（win-x64）。
+- [x] 测试 `TestDisabledMCPToolCannotExecute`：禁用后安全生效点不再可调用；撤销权限立即生效；旧run配置不静默变化，若重启worker需空闲时明确执行。 → 同上；禁用后工具声明为空、计数不变。
+- [x] UI显示built-in/extension/MCP来源和实际有效状态，禁用/hidden必须同时影响runtime，不能只隐藏菜单。OAuth需要授权时显示未支持/需外部配置，不伪装已连接。 → `MCPSection`、`ToolsSection`；hidden/禁用同时影响 runtime（RES04 负例）。
+- [x] 跑unit、真实Pi+MCP integration、frontend测试并提交。 → win-x64；其余五目标未运行，不宣称全矩阵 PASS。
 
 **验收：** MCP01–MCP05、RES04。
 
@@ -100,11 +100,11 @@
 
 **Interfaces：** `Save(ctx,MemoryDraft)(Memory,error)`、`Confirm(ctx,id string) error`、`Delete(ctx,id string) error`、`Search(ctx,MemoryQuery)([]Memory,error)`、`BuildContext(ctx,MemoryQuery)(MemoryContext,error)`；Memory{ID,Scope,WorkspaceID,Kind,Content,SourceSessionID,Status,CreatedAt,UpdatedAt,ExpiresAt}；Query{WorkspaceID,Text,Limit}，Limit≤5；Context{Entries,Bytes,Provenance}。
 
-- [ ] 构造中文检索集：A项目“数据库连接池上限为二十”、B项目同关键词不同约定、user偏好、过期和candidate条目；`TestChineseTrigramScopeAndExpiry`只返回授权active项，短查询返回QueryTooShort。
-- [ ] 写 `TestDeleteNotInjectedNextRun`、`TestMemoryContextBounded`：删除后下一run无该内容，≤5条/6000bytes且UTF8完整，来源记录存在；已发出的历史不伪称删除。
-- [ ] 实现显式保存/候选确认，自动后台抽取默认关闭；通过Harness MCP和prompt构建受控注入，检索结果标数据来源，不升级为系统指令。
-- [ ] UI可编辑/确认/删除/按scope关闭、导出；含秘密fixture文本拒绝作为凭证存储方式，防止简单把整个工具日志当记忆。
-- [ ] unit/SQLite真实FTS5/integration/frontend通过并提交。
+- [x] 构造中文检索集：A项目“数据库连接池上限为二十”、B项目同关键词不同约定、user偏好、过期和candidate条目；`TestChineseTrigramScopeAndExpiry`只返回授权active项，短查询返回QueryTooShort。 → 见 `docs/evidence/c05-memory.md`（win-x64，真实 SQLite FTS5）。
+- [x] 写 `TestDeleteNotInjectedNextRun`、`TestMemoryContextBounded`：删除后下一run无该内容，≤5条/6000bytes且UTF8完整，来源记录存在；已发出的历史不伪称删除。 → 同上。
+- [x] 实现显式保存/候选确认，自动后台抽取默认关闭；通过Harness MCP和prompt构建受控注入，检索结果标数据来源，不升级为系统指令。 → 自动抽取默认关闭；注入经 `internal/harnessmcp/memory_tools.go` 与 `withMemoryContext`。
+- [x] UI可编辑/确认/删除/按scope关闭、导出；含秘密fixture文本拒绝作为凭证存储方式，防止简单把整个工具日志当记忆。 → `MemoryView`；`TestSecretLikeContentRejected`。
+- [x] unit/SQLite真实FTS5/integration/frontend通过并提交。 → win-x64；MEM03/MEM05 的 ALL 范围未满足。
 
 **验收：** MEM01–MEM05。
 

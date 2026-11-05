@@ -50,7 +50,14 @@
 
 ## X03：六目标安装包与干净机器
 
-**依赖：** G3。**Files：** `packaging/{windows,macos,linux}/`、`.github/workflows/{verify,package}.yml` 或等价所选CI、`internal/devtools/{package,packageverify}.go`、`tests/package/`、`docs/evidence/packages/`。
+**依赖：** G3。**Files：** `build/config.yml` 与 `build/{windows,darwin,linux}/`（由 `wails3 generate build-assets` 生成后提交，是 Wails v3 的打包元数据位置；修改 `info` 后用 `wails3 update build-assets` 重新生成）、`.github/workflows/{verify,package}.yml` 或等价所选CI、`internal/devtools/{package,packageverify}.go`、`tests/package/`、`docs/evidence/packages/`。
+
+**打包约束（已核实 Wails v3.0.0 模板）：**
+- `build/config.yml` 的 `info.productName=Anvil`；`productIdentifier` 与 `companyName` 由用户定（见外部依赖登记 §5）。发布后不得再改：macOS 更新核对 bundle ID，Windows 卸载注册也依赖它。
+- Windows 用 NSIS 且 `INSTALL_SCOPE=user`（当前用户安装，不需要管理员，F09 更新依赖这一点）；macOS 用 `wails3 tool package --format dmg`；Linux 只产 deb 与 AppImage，关闭 Taskfile 默认的 rpm 与 aur（不在 V1 矩阵）。
+- V1 不向操作系统注册 `anvil://` 协议：`config.yml` 的 protocols 保持为空。外部注册会给其它程序一个启动 Anvil 并传入参数的入口，需要 ADR 和输入校验。
+- 打包工具：`task`（go-task，Wails Taskfile 使用）、NSIS `makensis`、跨平台构建任务使用的 Docker；版本写入 `build/versions.lock.json`。
+- 打包前确认 `tests/acceptance/oracle-allowlist.json` 为空（F01 未闭合项），否则 G4 返回 2。
 
 **Interfaces：** master package/verify 命令；产物命名 `Anvil-<version>-<targetId>.<ext>`，manifest 字段 version/sourceRevision/versionsLockHash/target/hash/sizeBytes/files/runtimeDependencies/channel。版本初始 0.1.0-internal.1，后续按实际 release 记录递增；不可上传未经用户授权的公开 release。
 

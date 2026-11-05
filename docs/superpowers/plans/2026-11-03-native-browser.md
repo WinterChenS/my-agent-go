@@ -43,9 +43,9 @@ Snapshot{ID,TabID,NavigationID,ControlGeneration,Viewport,Elements,Text,Unsuppor
 
 - [x] 写/记录 `NativeRightPaneWindows` 初始失败：同一主窗口右侧网页空缺。使用本机WebView2运行时，记录runtime、Wails和SDK版本。→ B00 spike 已记录（verdict=AS_EXPECTED）；WebView2=156.0.4314.58。
 - [x] 创建独立child host/controller，页面不能调用主Wails bridge；不把主界面controller导航到第三方站点。UI线程创建/释放，late callback有generation保护。→ B01a：WS_CHILD + WebView2 controller，`GetParent(child)==main` 可查；自建 UI 线程派发器；独立 user data folder；未接入 Wails bridge（ADO 0004）。
-- [ ] 实现导航、DOM观察、CDP点击/输入、截图；React slot转原生坐标，100/150/200%缩放下中心点误差≤2 CSS px。来回拖分栏20次，浏览器不得漂移/脱离主窗口。→ **部分**：100% 下导航/隔离世界观察/CDP 可信 click+fill/截图已真实通过（`TestNativeRightPaneWindows`、`TestNativeWindowGeometry100`）；150%/200% 与 20 轮分栏未做（B01b）。
-- [ ] 展示应用dialog并隐藏相交native视图；中文输入、焦点切换、最小化恢复、关tab/关窗口验证。重复创建销毁50次，不崩溃、不遗留tab对象/句柄；记录RSS而非只断言对象计数。→ **部分**：`SetVisible` 隐藏原生视图后 dialog 可见已证；IME/focus/clipboard/最小化恢复与 50 轮+RSS 未做（B01b，当前只有 3 轮句柄不残留）。
-- [ ] 运行 `go run ./cmd/devtools verify --suite=native --target=win-x64 --display=desktop`；ARM64目标也要有独立结果，编译x64不代替。提交native报告和录屏。→ **部分**：命令已可跑，BR00/BR01 PASS、可跑 2/7、缺 BR04/05/06/BR07.native/UI04.native → exit 2；win-arm64 无机器；无录屏（窗口截图替代）。证据 `docs/evidence/b01-native-webview2.md`。
+- [x] 实现导航、DOM观察、CDP点击/输入、截图；React slot转原生坐标，100/150/200%缩放下中心点误差≤2 CSS px。来回拖分栏20次，浏览器不得漂移/脱离主窗口。 → win-x64 已完成（B01b，`fa96b64`）：`TestNativeZoomFactor` 在 100/150/200% 下坐标反算误差 0.000px，并用 OS 物理点击独立验证；`TestNativeSplitter20Rounds` 20 轮不漂移。缩放用 WebView2 ZoomFactor，没有改系统 DPI。win-arm64 无机器 BLOCKED。
+- [x] 展示应用dialog并隐藏相交native视图；中文输入、焦点切换、最小化恢复、关tab/关窗口验证。重复创建销毁50次，不崩溃、不遗留tab对象/句柄；记录RSS而非只断言对象计数。 → win-x64 已完成（B01b，`fa96b64`）：焦点与键盘、最小化恢复、剪贴板往返、`TestNativeCreateDestroy50Rounds`（50 轮并记录 working set/句柄/WebView2 进程数）。中文输入是 CDP 模拟的 composition，不是 OS 级真机输入法。win-arm64 无机器 BLOCKED。
+- [ ] 运行 `go run ./cmd/devtools verify --suite=native --target=win-x64 --display=desktop`；ARM64目标也要有独立结果，编译x64不代替。提交native报告和录屏。 → **部分**：win-x64 可跑 5/7（BR00/BR01/BR04/BR05/BR06 PASS），缺 BR07.native、UI04.native；win-arm64 无机器；没有录屏（用窗口截图替代）。证据 `docs/evidence/b01-native-webview2.md` §17–§28。
 
 **验收：** BR01、BR04–BR06的Windows结果；其他平台仍未通过。
 

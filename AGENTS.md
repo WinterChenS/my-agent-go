@@ -39,6 +39,7 @@ Go 1.27.3（Harness 主体）+ Wails v3.0.0（桌面宿主）+ React/TS/Vite/Tai
 | `npm.ps1` 被执行策略禁止 | `npm -v` 报脚本无法运行 | 用 `D:\Program Files\nodejs\npm.cmd` |
 | 无 gcc/cc/clang/mingw | cgo 相关构建可能不可用 | 需要 cgo 时先探测再决定，不假设。**2026-11-04 复核**：本机存在 MinGW-W64 gcc 16.2.0（`mingw64in\gcc.exe`），`CGO_ENABLED=1` 的 Wails 构建与 `go test -race` 均成功；仍是"先探测"，不要假设每台机器都有 |
 | WebView2 运行时 156.0.4314.58 已装 | Windows WebView 可用 | 记录进环境证据 |
+| 本机是 Windows 10 22H2（build 19045），低于基线最低验收系统 Windows 11 24H2 | 本机产生的 win-x64 证据只是开发证据，不能作为 win-x64 验收结论 | 验收在 Windows 11 24H2 机器或符合要求的 CI 上重跑；GOV05 实现后由门禁自动拒绝 |
 | PATH 上 Pi 为 1.4.0，低于最低支持版本 1.5.0 | 不可进入兼容探测，状态应为 upgrade_available/incompatible | 不把 1.4.0 当通过；用应用托管安装/升级流程，不覆盖外部 Pi |
 | PowerShell 标准输出有时不回显 | 误判"命令没跑" | 结果写文件再 `Read` 读回 |
 | `wmic` 被安全策略拉黑 | 取进程信息失败 | 用 `Get-CimInstance Win32_Process` |

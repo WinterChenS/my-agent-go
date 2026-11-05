@@ -26,11 +26,11 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **Interfaces：** 输出版本锁 JSON：schemaVersion、go、node、npm、wails、piValidated、directDependencies（name/version/source/hash/license）、nativeToolchains、targetMatrix。命令检查退出0成功/2配置缺失。包名/模块保持 `my-agent-go`；正式产品名为 `Anvil`，用户可见名称、包、数据目录、URI 和环境变量按 U00/X04 迁移。
 
-- [ ] 收集现场状态、验证六目标资源，写失败检查 `ToolchainRejectsWechatNode`：PATH首个node=16时拒绝，输出实际路径而不是自行调用任意npm。
-- [ ] 运行脚本确认旧环境或缺依赖会非零，记录前置缺口；不要为了测试破坏系统 PATH，用子进程环境构造。
-- [ ] 固定版本和稳定直接依赖；验证 Wails shell 可在本机编译，frontend静态页作为需要的最小界面。包管理安装不执行未审查项目脚本；新项目依赖安装行为明确列出。
-- [ ] 查询并锁定平台SDK、数据库FTS5、MCP SDK版本；每项依赖有来源。若 Wails/Pi 基线不成立写 ADR；禁止自行选择最新版本掩盖问题。
-- [ ] 检查 `node -v`、`npm -v`、`go version`、`go env`、Wails doctor、各目标资源记录；输出锁文件和环境证据后提交。缺平台资源记录 BLOCKED，不伪造主机信息。
+- [x] 收集现场状态、验证六目标资源，写失败检查 `ToolchainRejectsWechatNode`：PATH首个node=16时拒绝，输出实际路径而不是自行调用任意npm。 → `scripts/check-toolchain.ps1` 的 WeChat-node 守卫；见 `docs/evidence/environment.md`。
+- [x] 运行脚本确认旧环境或缺依赖会非零，记录前置缺口；不要为了测试破坏系统 PATH，用子进程环境构造。 → 子进程环境构造（`baselinePathEnv`），缺口记录在 environment.md。
+- [x] 固定版本和稳定直接依赖；验证 Wails shell 可在本机编译，frontend静态页作为需要的最小界面。包管理安装不执行未审查项目脚本；新项目依赖安装行为明确列出。 → 版本锁 `build/versions.lock.json`；Wails shell 本机可编译。
+- [x] 查询并锁定平台SDK、数据库FTS5、MCP SDK版本；每项依赖有来源。若 Wails/Pi 基线不成立写 ADR；禁止自行选择最新版本掩盖问题。 → 依赖来源见 versions.lock.json 与 environment.md。
+- [x] 检查 `node -v`、`npm -v`、`go version`、`go env`、Wails doctor、各目标资源记录；输出锁文件和环境证据后提交。缺平台资源记录 BLOCKED，不伪造主机信息。 → 六目标资源与 BLOCKED 记录见 environment.md、`build/platforms.json`。**本机为 Windows 10 22H2，低于基线最低 Windows 11 24H2**，本机证据只算开发证据。
 
 **验收：** ENV01–ENV03。仅Go/Node可执行不表示 native SDK 或六平台环境齐备。
 
@@ -44,13 +44,23 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 证据类型 `GateEvidence{SchemaVersion,GateID,TaskID,SourceRevision,VersionsLockHash,TargetID,StartedAt,EndedAt,Command,ExitCode,CaseResults,Artifacts,Limitations,Reviewer}`，完整JSON schema枚举状态，不允许null/缺字段作为通过。2026-11-05 增量：PASS case 必须给出证据目录内的 `oraclePath`，gate 哈希 result/command/stdout/stderr/environment/oracle/截图/录屏和其它附件；缺失、越界、空文件、symlink 或篡改 oracle 判死。oracle 分 `test-process`（命令/退出码/输出哈希）与 `external-observation`（source + observation + 目录内 artifact）；case 索引的 `oracleKind=external` 拒绝 test-process 自证，新 case 必须声明 external，旧 case 靠 `tests/acceptance/oracle-allowlist.json` 显式列欠账且只减不增。case ID 和 runner 名均必须唯一且在注册表中；注册名称不等于实现，缺 case 执行定义仍返回2。
 
-- [ ] 写 `TestGateRejectsMissingRequiredCase`、`TestGateRejectsStaleRevision`、`TestGateRejectsEmptyOrSkippedNativeSuite`：缺一必需case、旧revision、仅skip时返回非零；unknown target/suite返回2。
-- [ ] 先运行 `go test ./internal/devtools -run 'TestGateRejects' -count=1` 记录失败，再实现 runner 和 schema；子进程原始exit code和stdout/stderr持久化。
-- [ ] 为当前任务创建acceptance索引，同时包含所有计划case ID；未实现的case保持required并使依赖gate失败，而非删掉case。suite按master约定分组，不允许在run时自动发现空目录然后判成功。
-- [ ] 对命令故意失败、假报告哈希、人工证据缺审查人分别测试；人工review字段不是可机械证明的真实性，gate只验证结构完整，独立审查验真。
-- [ ] 运行contracts/devtools测试、type/schema校验并提交。之后才可使用 `go run ./cmd/devtools verify` 作为门禁命令。
+- [x] 写 `TestGateRejectsMissingRequiredCase`、`TestGateRejectsStaleRevision`、`TestGateRejectsEmptyOrSkippedNativeSuite`：缺一必需case、旧revision、仅skip时返回非零；unknown target/suite返回2。 → 三条用例均存在并在 GOV01/GOV02 runner 中执行。
+- [x] 先运行 `go test ./internal/devtools -run 'TestGateRejects' -count=1` 记录失败，再实现 runner 和 schema；子进程原始exit code和stdout/stderr持久化。 → 见 `docs/evidence/f01-overview.md`；退出码保真见 ADR 0001。
+- [x] 为当前任务创建acceptance索引，同时包含所有计划case ID；未实现的case保持required并使依赖gate失败，而非删掉case。suite按master约定分组，不允许在run时自动发现空目录然后判成功。 → `tests/acceptance/cases.json`；缺 runner 的 case 使 suite 返回 2。
+- [x] 对命令故意失败、假报告哈希、人工证据缺审查人分别测试；人工review字段不是可机械证明的真实性，gate只验证结构完整，独立审查验真。 → `TestCommandFailureReturnsAssertionCode`、`TestGateRejectsFakeReportHash`、`TestGateRejectsMissingReviewer`。
+- [x] 运行contracts/devtools测试、type/schema校验并提交。之后才可使用 `go run ./cmd/devtools verify` 作为门禁命令。 → win-x64 实测；见 f01-overview.md 与 G0 证据。
 
 **验收：** GOV01–GOV04。
+
+### F01 未闭合项（2026-11-05 增量）
+
+F01 已有证据保持不变；以下两项是新增要求，归 F01 负责。
+
+- **Acceptance cases：** GOV05（新增）；G4 前的 oracle 欠账清零。
+- **Files：** Modify `internal/contracts/evidence.go`（`GateEvidence` 增加 `Environment{OS, OSVersion, OSBuild, Arch, Display}`）、`schemas/gate-evidence.schema.json`、`internal/devtools/{integration,native,gate}.go`、`build/platforms.json`（每个目标增加 `minOSVersion`/`minOSBuild`）、`internal/devtools/gate_test.go`。
+- [ ] 先写失败测试：证据缺环境字段、OS/架构与 target 不符、系统版本低于 `platforms.json` 最低值，三种都判死；符合时通过（正向对照）。
+- [ ] runner 在证据里写入实际系统信息；gate 按 target 的最低系统校验。本机（Windows 10 22H2）产生的证据因此不再计入 win-x64 验收，只作开发证据。
+- [ ] 按 `tests/acceptance/oracle-allowlist.json` 逐条把 38 个旧 runner 改为输出 `external-observation`，每改一条就从清单移除，并下调 `legacyProcessOracleCeiling`。G4 门禁在清单非空时返回 2；宣称 Anvil V1 可交付前清单必须为空。
 
 ## F02：本地 Pi 定位、能力探测与真实协议基线
 
@@ -60,11 +70,11 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **Interfaces：** `Locate(ctx context.Context, preferred string) ([]PiInstallation,error)`；`Probe(ctx context.Context, installation PiInstallation) (ProbeResult,error)`；`PiInstallation{ID,Executable,Args,Version,Origin,Architecture}`；`ProbeResult{State,Capabilities,Version,ProtocolFixtureHash,Diagnostics}`。Origin=external/managed，State沿用基线。
 
-- [ ] 写 `TestLocateWindowsShimWithSpaces`：中文/空格目录、npm .cmd/.ps1、多个版本、无Pi、失效保存路径；不把用户字符串拼接成通用shell命令，shell alias返回不可直接执行。
-- [ ] 写并运行 `TestProbeHasNoUserConfigSideEffects`：临时HOME/agentDir，用户marker文件hash不变；probe不得请求真实模型或启动用户MCP。
-- [ ] 从精确tag收集RPC/extension定义，启动真实Pi v1.5.0；接本地脚本化provider/MCP，捕获accepted、delta、tool、compaction/错误/最终idle等实际记录。记录无法诱发的事件，不编造fixture；用合成记录单独标 synthetic。
-- [ ] 在无Node目标环境验证独立发行包加载本项目薄extension与MCP。独立包/宿主npm两种形式分别记录；确实支持才列 `ready_verified`。范围内未知补丁版本交给 F08 契约探测；2.x 未有新清单前保持 `incompatible`。
-- [ ] 运行 `go test ./internal/runtime/pi -run 'TestLocate|TestProbe' -count=1` 及integration suite；提交版本/安装形式矩阵与原始协议。不能仅用fake-pi通过此任务。
+- [x] 写 `TestLocateWindowsShimWithSpaces`：中文/空格目录、npm .cmd/.ps1、多个版本、无Pi、失效保存路径；不把用户字符串拼接成通用shell命令，shell alias返回不可直接执行。 → 见 `docs/evidence/pi-compatibility.md`（宿主范围）。
+- [x] 写并运行 `TestProbeHasNoUserConfigSideEffects`：临时HOME/agentDir，用户marker文件hash不变；probe不得请求真实模型或启动用户MCP。 → 同上。
+- [x] 从精确tag收集RPC/extension定义，启动真实Pi v1.5.0；接本地脚本化provider/MCP，捕获accepted、delta、tool、compaction/错误/最终idle等实际记录。记录无法诱发的事件，不编造fixture；用合成记录单独标 synthetic。 → 捕获记录在 `internal/runtime/pi/testdata/v1.5.0/`。**PI03 仍为 PARTIAL**：成功的上下文压缩未能诱发，且有三处与官方文档不一致的行为（pi-compatibility.md §4），没有编造 fixture。
+- [x] 在无Node目标环境验证独立发行包加载本项目薄extension与MCP。独立包/宿主npm两种形式分别记录；确实支持才列 `ready_verified`。范围内未知补丁版本交给 F08 契约探测；2.x 未有新清单前保持 `incompatible`。 → PI04 PASS，但只在 win-x64 上用模拟的无 Node 环境验证；其余目标未运行。
+- [x] 运行 `go test ./internal/runtime/pi -run 'TestLocate|TestProbe' -count=1` 及integration suite；提交版本/安装形式矩阵与原始协议。不能仅用fake-pi通过此任务。 → win-x64；协议与发行形式矩阵见 pi-compatibility.md。
 
 **验收：** PI01–PI04；G0前置。该阶段provider是受控fixture，不冒称真实云模型通过。
 
@@ -74,11 +84,11 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **Interfaces：** `StartWorker(ctx context.Context, spec WorkerSpec) (Worker,error)`；`Worker.Call(ctx, command json.RawMessage) (json.RawMessage,error)`、`Worker.Events() <-chan RawEvent`、`Worker.Close(ctx) error`；`WorkerSpec{Installation,WorkingDir,AgentDir,Env,SessionPath}`。`RawEvent{Type string,Record json.RawMessage}`仅adapter消费，前端不直接使用。
 
-- [ ] 写 `TestLFFramingUnicodeAndLargeRecord`：随机chunk、多字节、U+2028、CRLF、128KiB记录均还原；16MiB边界允许，+1字节报ProtocolRecordTooLarge；malformed JSON不误接受。
-- [ ] 写 `TestOutOfOrderResponsesAndStderrFlood`、`TestStdoutBackpressureDoesNotDeadlock`：响应按id归属，stderr洪泛不阻塞stdout，取消后没有悬挂Call；先运行失败用例。
-- [ ] 实现持续读写、记录限额、超时和重试分类；command id不复用。未知事件保留不崩溃，执行命令写失败不自动重放。
-- [ ] 写/运行 `TestWorkerTerminatesGrandchild`，Windows Job Object/Unix进程组关闭后子孙marker进程不再存活；误杀用户Pi/其他会话为失败。进程树方案若对子程序breakaway无效，要报告限制并阻止受影响模式认证。
-- [ ] 跑 unit + target integration，真实Pi重新跑basic fixture，提交证据和代码。
+- [x] 写 `TestLFFramingUnicodeAndLargeRecord`：随机chunk、多字节、U+2028、CRLF、128KiB记录均还原；16MiB边界允许，+1字节报ProtocolRecordTooLarge；malformed JSON不误接受。 → RPC01 PASS（六目标 CI，见 `docs/evidence/f03-rpc-worker.md`）。
+- [x] 写 `TestOutOfOrderResponsesAndStderrFlood`、`TestStdoutBackpressureDoesNotDeadlock`：响应按id归属，stderr洪泛不阻塞stdout，取消后没有悬挂Call；先运行失败用例。 → 实际测试名为 `TestOutOfOrderResponsesMatchByID`、`TestStderrFloodDoesNotBlockStdout`、`TestStdoutBackpressureDoesNotDeadlock`（RPC02/RPC03 runner）。
+- [x] 实现持续读写、记录限额、超时和重试分类；command id不复用。未知事件保留不崩溃，执行命令写失败不自动重放。 → RPC01–RPC04 PASS。
+- [x] 写/运行 `TestWorkerTerminatesGrandchild`，Windows Job Object/Unix进程组关闭后子孙marker进程不再存活；误杀用户Pi/其他会话为失败。进程树方案若对子程序breakaway无效，要报告限制并阻止受影响模式认证。 → RPC05 PASS（含 Unix 进程组，见 `docs/evidence/ci-verify-round3.md`）。
+- [x] 跑 unit + target integration，真实Pi重新跑basic fixture，提交证据和代码。 → 见 f03-rpc-worker.md。
 
 **验收：** RPC01–RPC05。
 
@@ -102,13 +112,26 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **Interfaces：** `RunService.Start(ctx, StartRunRequest) (RunSnapshot,error)`、`Send(ctx, RunID, UserMessage) error`、`Abort(ctx,RunID) error`、`Get(ctx,RunID)(RunSnapshot,error)`、`Replay(ctx,RunID,afterSeq uint64)([]Event,error)`。`StartRunRequest{WorkspaceID,SessionID,ProfileID,Message}`；`UserMessage{Text,Attachments}`；Attachment引用产物ID，不接受模型任意读取本机路径。
 
-- [ ] 写状态转换表测试：accepted后仍running；自动压缩/重试期间不completed；最终条件依F02协议；未知完成语义报兼容错误；序号重放不重复消息。
-- [ ] 写 `TestInterruptedRunDoesNotReplayUnknownWrite`：工具已产生计数后进程崩溃，恢复时计数保持1且状态interrupted；明确继续会话不等于重试工具。
-- [ ] 写 `TestQueueLimitTwoAndCancelQueued`：并发上限2，第三个queued；取消第三个不启动worker；停止2/5/10秒边界用可控clock验证，native集成另测真实时间。
-- [ ] 实现持久关键状态、50ms UI合并、默认预算100次/30分钟、usage未知显示unavailable；断开UI不丢transcript，审批请求断开即拒绝。
-- [ ] 运行run unit与integration，崩溃进程树/事件重放证据归档后提交。
+- [ ] 写状态转换表测试：accepted后仍running；自动压缩/重试期间不completed；最终条件依F02协议；未知完成语义报兼容错误；序号重放不重复消息。 → **部分**：`TestStateTableRejectsIllegalTransitions`、`TestSettledCompletesRun`、`TestStreamCloseWithoutSettledIsInterrupted`、`TestReplayReturnsOnlyNewEvents` 已覆盖；自动压缩/重试期间不 completed、未知完成语义报兼容错误没有测试（PI03 也未能诱发成功压缩）。见下方“未闭合项”。
+- [ ] 写 `TestInterruptedRunDoesNotReplayUnknownWrite`：工具已产生计数后进程崩溃，恢复时计数保持1且状态interrupted；明确继续会话不等于重试工具。 → **未实现**：仓库中没有该测试，也没有等价测试。RUN05 无证据。见下方“未闭合项”。
+- [ ] 写 `TestQueueLimitTwoAndCancelQueued`：并发上限2，第三个queued；取消第三个不启动worker；停止2/5/10秒边界用可控clock验证，native集成另测真实时间。 → **部分**：队列上限与排队取消由 `TestThirdRunQueuesAndQueuedCancelNeverStarts` 覆盖；2 秒可见由 `TestAbortReachesVisibleStateQuickly` 覆盖；5 秒升级终止与 10 秒清理结论没有可控时钟测试。
+- [ ] 实现持久关键状态、50ms UI合并、默认预算100次/30分钟、usage未知显示unavailable；断开UI不丢transcript，审批请求断开即拒绝。 → **部分**：50ms 文本合并已实现（`defaultDeltaWindow`）；每 run 100 次工具/30 分钟预算、usage 未知显示 unavailable、UI 断开即拒绝审批均未找到实现与测试。
+- [ ] 运行run unit与integration，崩溃进程树/事件重放证据归档后提交。 → **部分**：Windows 桌面端到端见 `docs/evidence/f05-windows-desktop.md`；RUN07（重启可查 transcript、单会话无并发 writer）该证据自述“尚未实现”。
 
 **验收：** RUN01–RUN07。
+
+### F05 未闭合项（2026-11-05 增量）
+
+F05 已完成的 RunService、状态表、排队、重放和 50ms 合并保持不变，任务不退回 TODO。上方标为“部分/未实现”的内容归 F05 补齐，在 C06 开工前完成：C06 的聊天、审批和历史依赖这些语义。
+
+- **Acceptance cases：** RUN01.service、RUN03、RUN04.service、RUN05、RUN06.service、RUN07；并把 RUN01–RUN07 接入 integration runner（按 case 的通过条件逐条核对断言，不按名字硬套）。
+- [ ] 压缩与重试：用录制的 Pi 事件序列证明自动压缩/重试期间不进入 completed；未知完成语义返回兼容错误。成功压缩仍无法诱发时，用标注 `synthetic` 的记录测试归约逻辑，并在证据里写明未用真实压缩验证。
+- [ ] `TestInterruptedRunDoesNotReplayUnknownWrite`：工具已使外部 fixture 计数为 1 后杀掉 worker，恢复后状态为 interrupted、计数仍为 1，继续会话不重试该工具。
+- [ ] 停止时序：可控时钟验证 2 秒可见、5 秒升级终止进程树、10 秒未清理完成记 CleanupFailed 并阻止同一会话重启。
+- [ ] 预算：第 101 次工具调用被拒；运行 30 分钟（可控时钟）后不再发下一请求；provider 未提供 usage 或价格时快照字段为 `unavailable`，不是 0。
+- [ ] UI 断开：等待中的审批在订阅者断开时被拒绝，fixture 副作用计数为 0。
+- [ ] RUN07：重启后可从 Pi transcript 与产品索引查到历史；同一会话不存在并发 writer；不常驻历史 worker。
+- [ ] `go test ./internal/run ./internal/app -count=1` 与 integration runner 通过后提交。
 
 ## F06：Pi 一键安装、升级与回滚
 
@@ -122,10 +145,10 @@ Node/Pi PATH混用→F00/F02；RPC多字节/超大record→F03；项目脚本偷
 
 **Interfaces：** `ConfigStore.Load(ctx,key string)(ConfigDocument,error)`、`CompareAndSwap(ctx,key string,expected uint64,body json.RawMessage)(ConfigDocument,error)`；`Compile(ctx,CompileRequest)(EffectiveConfig,error)`；CompileRequest{WorkspaceID,ProfileID,SessionOverrides}；EffectiveConfig{Revision,Hash,Values,Provenance,AgentDir}；`CredentialStore.Put/Get/Delete(ctx,ref string,secret []byte)`返回error。
 
-- [ ] 写 `TestCASRejectsExternalEdit`：两writer同revision仅一个成功；外部编辑也可检测，ConfigConflict不覆盖；断电/staging恢复不产生半JSON。
-- [ ] 写 `TestMergePrecedenceAndDisableByID`：五层固定值、数组同ID整项覆盖、enabled=false；权限不可放宽、credentialRef不能被项目替换。
-- [ ] 写SQLite迁移事务/重复运行/失败回滚；configJSON和DB索引不构成两个配置源。验证FTS5 trigram原生支持，不满足停止。
-- [ ] 凭证写入真实OS存储做target集成；不可用返回CredentialStoreUnavailable，不落明文；跨错误日志/导出扫描fixture sentinel secret，结果0命中。
-- [ ] 跑config/storage/credentials suites，提交schema、迁移和证据。此任务可在G0之前独立推进。
+- [x] 写 `TestCASRejectsExternalEdit`：两writer同revision仅一个成功；外部编辑也可检测，ConfigConflict不覆盖；断电/staging恢复不产生半JSON。 → CFG02 PASS（单测），见 `docs/evidence/f07-config-storage-credentials.md`。
+- [x] 写 `TestMergePrecedenceAndDisableByID`：五层固定值、数组同ID整项覆盖、enabled=false；权限不可放宽、credentialRef不能被项目替换。 → CFG01 PASS（单测）。
+- [x] 写SQLite迁移事务/重复运行/失败回滚；configJSON和DB索引不构成两个配置源。验证FTS5 trigram原生支持，不满足停止。 → DB01/DB02 PASS（`TestMigrateFailureLeavesNoHalfState`、`TestFTS5TrigramRealSupport`）。
+- [x] 凭证写入真实OS存储做target集成；不可用返回CredentialStoreUnavailable，不落明文；跨错误日志/导出扫描fixture sentinel secret，结果0命中。 → SEC07 存储部分六目标 CI 实测 PASS（ci-verify-round3.md）；诊断导出部分属 C07（SEC07.diagnostics）。
+- [x] 跑config/storage/credentials suites，提交schema、迁移和证据。此任务可在G0之前独立推进。 → 见 f07-config-storage-credentials.md。
 
 **验收：** CFG01–CFG04、DB01–DB03、SEC07。

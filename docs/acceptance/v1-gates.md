@@ -49,6 +49,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | GOV02 | F01 | HOST | 旧版本锁/错误revision/报告或 artifact hash 篡改被拒；PASS 缺目录内 oracle、oracle 越界或 symlink、副作用 case 用 test-process 自证、external oracle 缺 artifact/非法 source 均被拒；人工证据缺真实机器/review字段被拒 |
 | GOV03 | F01 | HOST | 命令断言失败返回1、配置缺失返回2、成功0；子进程失败不会被日志成功覆盖 |
 | GOV04 | F01 | HOST | 所有本矩阵case都在机器索引且有owner/已注册runner；重复 case ID 被拒；新 case 未声明 external oracle 或已声明仍留在 allowlist 被拒；未实现 case runner 使 suite 非零；仅SKIP的native报告不能通过 |
+| GOV05 | F01 | HOST | 证据记录实际 OS、版本、build、架构与 display；缺失、与 target 不符或低于 `build/platforms.json` 最低系统的证据被拒，符合时通过 |
 
 ### Pi、RPC、权限
 
@@ -254,11 +255,11 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 
 ## 3. Gate 的必需用例集合
 
-- G0：ENV01–03、GOV01–04、PI01–04、PI_DISC01–02、PI_COMP01–04、RPC01–05、SEC01–06/SEC08 的 runtime 子case、CFG03.isolation。版本范围只允许探测，不能自动判兼容。
+- G0：ENV01–03、GOV01–05、PI01–04、PI_DISC01–02、PI_COMP01–04、RPC01–05、SEC01–06/SEC08 的 runtime 子case、CFG03.isolation。版本范围只允许探测，不能自动判兼容。
 - G1：BR00–BR07（BR07先用原生基础操作，B04再做完整工具语义）、UI04的最小dialog验证；六目标/LNX双display齐全。
 - G2：CFG01–04、DB01–03、RUN01–07、PI_INS01–03、PI_UPG01–03、MOD01–04、RES01–04、MCP01–05、MEM01–05、CONN01–06/CONN08、SCH01–05/SCH07、SEC01–08、BR08–BR17。旧 INS01–07 保留历史坐标，但不能替代新增原子 case。
 - G3：UI01–13、CONN07、SCH06、SES01–03、SRCH01、RES05、BRAND01–03、I18N01–04、THEME01–05、ART01–03、E2E01–07，并保留相关 G0–G2 通过证据。每个生产页至少有 zh-CN/en-US × Light/Dark，Playwright 网页截图不能替代 built Wails 证据。
-- G4：PKG01–07、PI_PKG01–02、UPD01–14、PERF01–04、INS01–07，外加当前候选包自身 PKG03 的 NATIVE 结果；必须使用真实旧/新包和干净目标环境，fixture 更新不替代包更新。
+- G4：PKG01–07、PI_PKG01–02、UPD01–14、PERF01–04、INS01–07，外加当前候选包自身 PKG03 的 NATIVE 结果；必须使用真实旧/新包和干净目标环境，fixture 更新不替代包更新。宣称 G4 通过时 `tests/acceptance/oracle-allowlist.json` 必须为空，即 G0–G3 的全部 case 都有实现边界之外的 oracle。
 - G5：REL01–04 及当前 revision 完整 G0–G4。
 
 ### 避免阶段依赖循环
