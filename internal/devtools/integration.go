@@ -78,7 +78,7 @@ func integrationCases() []integrationCase {
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
 		// GOV04：未实现/缺失的 runner 必须非零；前端 runner 的「缺失」不能用
 		// 「路径错了读不到」冒充（修复前实测就是假绿）。
-		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestReviewGate"},
+		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestIntegrationSelectsCasesByGate|TestReviewGate"},
 
 		// ── Pi 定位与探测 ──
 		{ID: "PI01", Package: piTests, Run: "TestLocate"},
@@ -150,6 +150,22 @@ func dirExists(p string) bool {
 }
 
 // RunIntegration 是 `verify --suite=integration` 的入口。
+// selectedIntegrationCases 决定某 gate 要跑哪些必需 case。
+//
+// 单独抽出来是因为这里出过一次真 bug：`--gate` 只改了证据目录，case 列表仍写死
+// "G0"——命令看起来接受参数，实际跑的却是 G0 的用例。跑一遍才能发现。
+// 这条函数被 TestIntegrationSelectsCasesByGate 直接断言，不依赖真实测试执行。
+func selectedIntegrationCases(idx *CasesIndex, gate string) ([]string, error) {
+	if !contains(KnownGates, gate) {
+		return nil, fmt.Errorf("未知 gate: %s（已知: %s）", gate, strings.Join(KnownGates, ","))
+	}
+	required := ResolveRequiredAtomicCases(idx, gate)
+	if len(required) == 0 {
+		return nil, fmt.Errorf("gate %s 没有必需 case（索引缺失）", gate)
+	}
+	return required, nil
+}
+
 // evidenceRoot 返回某 (rev, gate, target, display) 的证据目录。
 //
 // 布局来自 v1-gates.md §4：<rev>/<gate>/<target>/<display?>/<case>。
@@ -195,9 +211,9 @@ func RunIntegrationForGate(target, gate string) int {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 2
 	}
-	required := ResolveRequiredAtomicCases(idx, "G0")
-	if len(required) == 0 {
-		fmt.Fprintln(os.Stderr, "G0 没有必需 case（索引缺失）")
+	required, selErr := selectedIntegrationCases(idx, gate)
+	if selErr != nil {
+		fmt.Fprintln(os.Stderr, selErr.Error())
 		return 2
 	}
 
@@ -219,7 +235,7 @@ func RunIntegrationForGate(target, gate string) int {
 
 	rev, dirty := SourceIdentity()
 	root := evidenceRoot(rev, gate, target, "")
-	fmt.Printf("== verify --suite=integration --target=%s ==\n", target)
+	fmt.Printf("== verify --suite=integration --target=%s --gate=%s ==\n", target, gate)
 	fmt.Printf("证据根: %s\n", root)
 	if dirty {
 		// 证据照写（可诊断），但必须带 dirty 标记：门禁会拒绝它。

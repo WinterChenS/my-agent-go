@@ -119,3 +119,37 @@ func TestEvidenceRootLayout(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegrationSelectsCasesByGate 钉住 --gate 真的改变 case 列表。
+//
+// 真事故（2026-11-05）：--gate 只改了证据目录，case 列表仍写死 "G0"，
+// 于是 `--gate=G2` 跑的是 G0 的 24 条用例，还把证据写进 G2 目录。
+// 命令"能跑"不代表"跑的是对的东西"。
+func TestIntegrationSelectsCasesByGate(t *testing.T) {
+	idx := loadRealIndex(t)
+	g0, err := selectedIntegrationCases(idx, "G0")
+	if err != nil {
+		t.Fatalf("G0: %v", err)
+	}
+	g2, err := selectedIntegrationCases(idx, "G2")
+	if err != nil {
+		t.Fatalf("G2: %v", err)
+	}
+	if len(g0) == 0 || len(g2) == 0 {
+		t.Fatal("G0/G2 都不应为空")
+	}
+	if contains(g0, "CFG01") || contains(g0, "MEM01") {
+		t.Fatalf("G0 不应包含 G2 专属 case，实际 %v", g0)
+	}
+	for _, want := range []string{"CFG01", "DB01", "MEM01", "MCP01", "RES01"} {
+		if !contains(g2, want) {
+			t.Errorf("G2 必需列表缺 %s（选择了 %d 条）", want, len(g2))
+		}
+	}
+	if contains(g2, "ENV01") || contains(g2, "GOV01") {
+		t.Error("G2 不应包含 G0 专属的 ENV/GOV case")
+	}
+	if _, err := selectedIntegrationCases(idx, "G9"); err == nil {
+		t.Error("未知 gate 应返回错误")
+	}
+}
