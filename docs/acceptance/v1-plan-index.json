@@ -5,7 +5,7 @@
   "additiveSpec": "docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md",
   "master": "docs/superpowers/plans/2026-11-03-agent-client-master.md",
   "acceptance": "docs/acceptance/v1-gates.md",
-  "note": "历史任务状态和证据保持原义；新增 F08/F09/C08/C09/U00-U07 与扩展 case 初始 NOT_RUN，不能由旧证据自动覆盖。",
+  "note": "历史任务状态和证据保持原义；新增 F08/F09/C08/C09/U00-U07 与扩展 case 初始 NOT_RUN，不能由旧证据自动覆盖。gates[].state 是计划元数据，不反映实测；实测结论以 scripts/devtools.ps1 gate 输出及 docs/evidence 为准。计划文件中的 [ ]/[x] 勾选也不是权威状态。",
   "targets": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
   "plans": [
     "docs/superpowers/plans/2026-11-03-foundation-runtime.md",
@@ -23,10 +23,10 @@
     {"id":"F03","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F02"]},
     {"id":"F04","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F03","F07"]},
     {"id":"F05","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F04","F07"]},
-    {"id":"F06","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F03","F07","F08","G0"]},
+    {"id":"F06","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F03","F07","F08","F09"]},
     {"id":"F07","plan":"2026-11-03-foundation-runtime.md","dependsOn":["F00","F01"]},
     {"id":"F08","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F02","F03","F07"]},
-    {"id":"F09","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["F01","F06","F07","U00"]},
+    {"id":"F09","plan":"2026-11-05-pi-lifecycle-updater.md","dependsOn":["C09","F01","F07","U00"]},
 
     {"id":"B00","plan":"2026-11-03-native-browser.md","dependsOn":["F00","F01"]},
     {"id":"B01","plan":"2026-11-03-native-browser.md","dependsOn":["B00"]},
@@ -44,7 +44,7 @@
     {"id":"C05","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F04","F07"]},
     {"id":"C06","plan":"2026-11-03-resources-workbench.md","dependsOn":["C01","F05","F04","C02","G2"]},
     {"id":"C07","plan":"2026-11-03-resources-workbench.md","dependsOn":["C03","C04","C05","C06","F05","F07"]},
-    {"id":"C08","plan":"2026-11-05-connectors-scheduler.md","dependsOn":["F04","F07","F09","U00","U01"]},
+    {"id":"C08","plan":"2026-11-05-connectors-scheduler.md","dependsOn":["F04","F07","F08","U00","U01"]},
     {"id":"C09","plan":"2026-11-05-connectors-scheduler.md","dependsOn":["C08","F04","F05","F07","U00","U01"]},
 
     {"id":"U00","plan":"2026-11-05-anvil-ui.md","dependsOn":["F00","F01"]},
@@ -53,7 +53,7 @@
     {"id":"U03","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C01","C02","C03","C04","C05"]},
     {"id":"U04","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C03","C04"]},
     {"id":"U05","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","C05","C07"]},
-    {"id":"U06","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","F08","F09","C02","C07"]},
+    {"id":"U06","plan":"2026-11-05-anvil-ui.md","dependsOn":["U00","U01","F06","F08","F09","C02","C07"]},
     {"id":"U07","plan":"2026-11-05-anvil-ui.md","dependsOn":["U01","U02","U03","U04","U05","U06","C08","C09","B07"]},
 
     {"id":"X01","plan":"2026-11-03-integration-release.md","dependsOn":["C01","C02","C03","C04","C05","C06","C07","C08","C09","B07","U07","G2"]},

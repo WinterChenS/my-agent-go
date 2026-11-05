@@ -55,7 +55,7 @@
 | [Anvil 产品 UI](2026-11-05-anvil-ui.md) | U00–U07 | 已有域 API；F08/F09/C08/C09 分阶段接入 | 品牌、i18n、主题、九页生产 UI、无障碍与真机证据 |
 | [集成与发行](2026-11-03-integration-release.md) | X01–X05 | G1/G2/G3依次 | 真模型E2E、Anvil 安装包、迁移、更新与正式发行 |
 
-建议关键路径：保留已完成的 F/C/B 基础 → F08 → U00/U01 → F06→F09→C08→C09 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
+建议关键路径：保留已完成的 F/C/B 基础 → F08 → U00/U01 → C08→C09→F09→F06 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。U03–U05 不依赖 G2，可提前；U02 经 C06 依赖 G2。F06 是 G2 阶段最后一个后端功能，开发机上只用临时托管根（ADR 0002 安全约束）。共享文件 `internal/app/desktop.go`/`cmd/myagent/main.go` 按 F08→C08→C09→F09→F06 串行。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
 
 上表不授权自行使用多 agent。只有用户选择并行执行后，才按文件所有权委派；contracts/schema 和 master gate 由主执行者串行维护。每个任务的依赖以对应计划为准，不能把表内斜杠当成全部可以并行。
 

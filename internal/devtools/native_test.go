@@ -110,9 +110,9 @@ func TestEvidenceRootLayout(t *testing.T) {
 		rev, gate, target, display string
 		want                       string
 	}{
-		{"rev1", "G0", "win-x64", "", filepath.Join("artifacts", "evidence", "rev1", "G0", "win-x64")},
-		{"rev1", "G1", "linux-x64", "wayland", filepath.Join("artifacts", "evidence", "rev1", "G1", "linux-x64", "wayland")},
-		{"rev1", "G2", "win-x64", "desktop", filepath.Join("artifacts", "evidence", "rev1", "G2", "win-x64", "desktop")},
+		{"rev1", "G0", "win-x64", "", filepath.Join("docs", "evidence", "runs", "rev1", "G0", "win-x64")},
+		{"rev1", "G1", "linux-x64", "wayland", filepath.Join("docs", "evidence", "runs", "rev1", "G1", "linux-x64", "wayland")},
+		{"rev1", "G2", "win-x64", "desktop", filepath.Join("docs", "evidence", "runs", "rev1", "G2", "win-x64", "desktop")},
 	}
 	for _, c := range cases {
 		if got := evidenceRoot(c.rev, c.gate, c.target, c.display); got != c.want {

@@ -204,11 +204,12 @@ func selectedIntegrationCases(idx *CasesIndex, gate string) ([]string, error) {
 
 // evidenceRoot 返回某 (rev, gate, target, display) 的证据目录。
 //
-// 布局来自 v1-gates.md §4：<rev>/<gate>/<target>/<display?>/<case>。
+// 布局见 v1-gates.md §4：docs/evidence/runs/<rev>/<gate>/<target>/<display?>/<case>（gitignore）。
+// 历史证据文档与交接里的复现命令都指向这个根，改根会让它们全部失效。
 // gate 与 display 都不能省：同一个 case 可能同时属于两个 gate（SEC05），
 // Linux 的 X11/Wayland 也必须各存一份，省掉任一层都会互相覆盖。
 func evidenceRoot(rev, gate, target, display string) string {
-	parts := []string{"artifacts", "evidence", rev, gate, target}
+	parts := []string{"docs", "evidence", "runs", rev, gate, target}
 	if display != "" {
 		parts = append(parts, display)
 	}
@@ -224,7 +225,7 @@ func RunIntegration(target string) int {
 //
 // 为什么需要 gate 参数：同一个 case 可能同时属于 G0 与 G2（例如 SEC05），
 // 而证据里的 gateId 必须与判定它的 gate 一致。证据目录按
-// artifacts/evidence/<rev>/<gate>/<target>/<case> 分（见 v1-gates.md §4），
+// docs/evidence/runs/<rev>/<gate>/<target>/<case> 分（见 v1-gates.md §4），
 // 两个 gate 的同名 case 不会互相覆盖、也不会串用报告。
 func RunIntegrationForGate(target, gate string) int {
 	if target == "" {

@@ -25,7 +25,7 @@
 
 ### Task C08: Typed Connector Framework and Six V1 Adapters
 
-**Dependencies:** F09、F04、F07、U00、U01。U01 先提供壳层/路由注册边界，F09 先完成共享 desktop 装配，C08 再接入生产页面；不得与 F08/F06/F09 并行修改 `internal/app/desktop.go`。
+**Dependencies:** F08、F04、F07、U00、U01。U01 先提供壳层/路由注册边界，F08 先完成 desktop 装配，C08 再接入生产页面；不得与 F08/F09/F06/C09 并行修改 `internal/app/desktop.go`。C08 不依赖 F06，也不应被 G0 过闸阻塞开发。
 
 **Files:**
 - Create: `internal/connectors/types.go`

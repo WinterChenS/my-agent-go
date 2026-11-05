@@ -258,7 +258,7 @@ G1 的普通表单和dialog检查是B01–B03 spike中的原生验收，runner�
 ## 4. 证据目录和格式
 
 ```text
-artifacts/evidence/<source-revision>/<gate>/<targetId>/<caseId>/
+docs/evidence/runs/<source-revision>/<gate>/<targetId>/<caseId>/   # gitignore，不入库
   result.json
   command.txt
   stdout.log
@@ -272,8 +272,10 @@ artifacts/evidence/<source-revision>/<gate>/<targetId>/<caseId>/
 的 X11 与 Wayland 两份证据会互相覆盖：
 
 ```text
-artifacts/evidence/<source-revision>/<gate>/<targetId>/<display>/<caseId>/
+docs/evidence/runs/<source-revision>/<gate>/<targetId>/<display>/<caseId>/
 ```
+
+该根由 `internal/devtools/integration.go` 的 `evidenceRoot` 写入，历史证据文档与交接中的复现命令均指向它；改根必须同时改产生方、测试与全部复现命令。
 
 oracle 分两类，由 `tests/acceptance/cases.json` 的 `oracleKind` 声明：
 

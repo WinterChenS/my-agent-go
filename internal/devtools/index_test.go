@@ -130,12 +130,19 @@ func TestIndexEntriesAreActionable(t *testing.T) {
 	}
 }
 
+// legacyProcessOracleCeiling 是 test-process 欠账清单的棘轮上限。
+//
+// 只允许下调：把某个旧 runner 改成输出 external-observation 后，从
+// oracle-allowlist.json 移除并同步下调本常量。上调意味着有人想让新 case 自证，
+// 必须作为显式代码改动经过审查，不能只改 JSON。
+const legacyProcessOracleCeiling = 38
+
 // TestOracleKindIsDeclaredOrGrandfathered：新 case 不能用 test-process 自证。
 //
 // 背景（2026-11-05 复核）：test-process oracle 只能证明「报告与子进程输出一致」，
-// 无法证明 fixture 真收到请求、数据库真写入、进程真退出。所以副作用与真实包类
-// case 必须使用 external-observation（source + observation + 目录内 artifact）。
-// 加固前已存在的 case 暂时保留在 allowlist 中，作为可见且只减不增的欠账。
+// 无法证明 fixture 真收到请求、数据库真写入、进程真退出。所以除「加固前已有
+// canonical runner」的欠账 case 外，所有原子 case 必须 oracleKind=external。
+// 是否「已有 runner」不靠人工统计，直接从 integrationCases()/nativeCases() 计算。
 func TestOracleKindIsDeclaredOrGrandfathered(t *testing.T) {
 	idx := loadRealIndex(t)
 	allowPath, err := repoFile("tests/acceptance/oracle-allowlist.json")
@@ -156,31 +163,58 @@ func TestOracleKindIsDeclaredOrGrandfathered(t *testing.T) {
 	if allow.SchemaVersion != 1 {
 		t.Fatalf("oracle allowlist schemaVersion=%d，期望 1", allow.SchemaVersion)
 	}
+	if len(allow.ProcessAllowed) > legacyProcessOracleCeiling {
+		t.Errorf("test-process 欠账清单有 %d 条，超过棘轮上限 %d：新 case 不得加入欠账", len(allow.ProcessAllowed), legacyProcessOracleCeiling)
+	}
+
+	runnerBacked := map[string]bool{}
+	for _, c := range integrationCases() {
+		runnerBacked[c.ID] = true
+	}
+	for _, c := range nativeCases() {
+		runnerBacked[c.ID] = true
+	}
+
+	byID := map[string]CaseEntry{}
+	for _, c := range idx.Cases {
+		byID[c.ID] = c
+	}
+
 	allowed := map[string]bool{}
 	for _, id := range allow.ProcessAllowed {
+		if allowed[id] {
+			t.Errorf("oracle allowlist 重复条目 %s", id)
+		}
 		allowed[id] = true
+		c, ok := byID[id]
+		switch {
+		case !ok:
+			t.Errorf("oracle allowlist 里的 %s 不在用例索引中（悬空条目会掩盖删除）", id)
+		case c.Composite:
+			t.Errorf("oracle allowlist 里的 %s 是复合 case，复合 case 没有自己的证据，不能列入", id)
+		case !runnerBacked[id]:
+			t.Errorf("oracle allowlist 里的 %s 没有 canonical runner：欠账只针对已有 runner 的旧 case", id)
+		}
 	}
 
-	known := map[string]bool{}
 	for _, c := range idx.Cases {
-		known[c.ID] = true
-	}
-
-	for _, c := range idx.Cases {
-		if c.OracleKind == "external" {
-			if allowed[c.ID] {
-				t.Errorf("case %s 已声明 external oracle，但仍留在 allowlist；改完必须移除，避免欠账表只增不减", c.ID)
+		if c.Composite {
+			if c.OracleKind != "" {
+				t.Errorf("复合 case %s 不应声明 oracleKind（由子 case 各自声明）", c.ID)
 			}
 			continue
 		}
-		if !allowed[c.ID] {
-			t.Errorf("case %s 未声明 oracleKind=external 且不在 allowlist：新 case 必须用实现边界之外的 oracle", c.ID)
-		}
-	}
-
-	for id := range allowed {
-		if !known[id] {
-			t.Errorf("oracle allowlist 里的 %s 已不在用例索引中（悬空条目会掩盖删除）", id)
+		switch c.OracleKind {
+		case "external":
+			if allowed[c.ID] {
+				t.Errorf("case %s 已声明 external oracle，但仍留在 allowlist；改完必须移除", c.ID)
+			}
+		case "":
+			if !allowed[c.ID] {
+				t.Errorf("case %s 未声明 oracleKind=external 且不在 allowlist：新 case 必须用实现边界之外的 oracle", c.ID)
+			}
+		default:
+			t.Errorf("case %s 的 oracleKind=%q 非法（只允许 external 或省略）", c.ID, c.OracleKind)
 		}
 	}
 }

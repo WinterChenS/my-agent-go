@@ -1,7 +1,7 @@
 # ADR 0002：推迟 F06（Pi 安装器），并把 INS01–INS07 从 G2 移到 G4
 
 - 日期：2026-11-04
-- 状态：**已采纳**（2026-11-04 用户确认，要求先复核）
+- 状态：**范围部分已被取代**（2026-11-05）。用户批准的 `docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md` 把 F06 改为 V1 核心，INS01–07 保留在 G4，并新增 G2 的 PI_INS/PI_UPG 原子 case。**本 ADR 的本机安全约束继续有效**：开发机上只写临时托管根，不碰 `.tools/pi/`、`~/.pi` 与真实数据目录（见 `docs/superpowers/plans/2026-11-05-pi-lifecycle-updater.md`）。**顺序未完全保留**：PI_INS/PI_UPG 在 G2，F06 只能排在 G2 阶段后端功能之后、UI 集成之前；若要排到全部功能之后，需要用户决定把 PI_INS/PI_UPG 移回 G4。原状态：已采纳（2026-11-04 用户确认，要求先复核）
 - 影响任务：F06、C06、C07、X01，门禁 G2 / G3 / G4
 - 需求追踪：R03（安装与升级）
 

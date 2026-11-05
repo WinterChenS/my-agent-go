@@ -19,6 +19,8 @@
 - 清单与包分别验签，信任根编译进当前应用；远端内容不能替换信任根。
 - `internal/contracts`、`schemas`、`cmd/devtools` 与 case 索引由单一写者串行修改。
 - 本计划的 case 在索引中声明 `oracleKind=external`。新增 runner 必须写 `kind=external-observation` 的 `oracle.json`：`source` + 结构化 `observation` + 目录内非空 artifact（active 指针快照、候选 hash、进程版本输出至少其一）。用 `test-process` 自证会让 G0/G2 判死。
+- **本机 Pi 安全（来自 2026-11-04 用户指令，ADR 0002）**：F06 在开发机上只允许写临时托管根和本地下载 fixture；不得读写、移动或替换 `.tools/pi/`、`~/.pi`、真实 Anvil/MyAgent 数据目录和 PATH。每个 F06 测试在开始和结束时记录这些路径的 hash，不一致即判 FAIL。真实官方包安装只在干净目标机或虚拟机执行，不在当前开发机执行。
+- **顺序**：F06 放在 G2 阶段后端功能（C08→C09→F09）之后、G2 收口之前。它不能排在全部 UI 之后：已批准规格把 PI_INS/PI_UPG 放在 G2，而 U02 经 C06 依赖 G2，排在 UI 后会形成 F06→U02→C06→G2→F06 环。若要严格按 2026-11-04 指令排到最后，需要用户决定把 PI_INS/PI_UPG 改回 G4。F09、C08、C09 不依赖 F06。
 
 ---
 
@@ -129,6 +131,8 @@ git commit -m "F08: add Pi discovery and compatibility negotiation"
 
 ### Task F06: Managed Pi Install, Upgrade, and Rollback
 
+**Dependencies:** F08、F09、F03、F07。F09 先完成共享启动/desktop 装配；F06 排在 G2 阶段后端功能之后。开发不依赖 G0 过闸；PI_INS/PI_UPG 的 PASS 仍需 G0→G1→G2 顺序。
+
 **Files:**
 - Create: `internal/piinstall/manifest.go`
 - Create: `internal/piinstall/download.go`
@@ -217,7 +221,7 @@ git commit -m "F06: add managed Pi install upgrade and rollback"
 
 ### Task F09: Signed Background Application Update Service
 
-**Dependencies:** F06、U00、F01、F07。U00 先完成 Anvil 启动入口与品牌迁移边界，F06/F08 先完成 Pi 生命周期装配，F09 最后在同一入口加入 pending update；这些任务不得并行修改 `cmd/myagent/main.go` 或 `internal/app/desktop.go`。
+**Dependencies:** C09、U00、F01、F07。U00 先完成 Anvil 启动入口与品牌迁移边界，C09 之后 F09 在同一入口加入 pending update；F06 再在 F09 之后接入。这些任务不得并行修改 `cmd/myagent/main.go` 或 `internal/app/desktop.go`。
 
 **Files:**
 - Create: `internal/update/manifest.go`
