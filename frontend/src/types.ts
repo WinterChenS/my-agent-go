@@ -499,3 +499,63 @@ export interface ToolListResult {
   items: ToolDescriptor[] | null;
   error?: CallError;
 }
+
+// ---- C05：长期记忆 ----
+
+export type MemoryScope = "user" | "workspace";
+export type MemoryStatus = "candidate" | "active" | "deleted";
+
+/**
+ * 一条记忆。
+ *
+ * expiresAt 为空表示不过期；已过期条目仍在列表里（便于删除/查看），
+ * 但不会出现在检索结果与下一次 run 的注入中。
+ */
+export interface MemoryItem {
+  id: string;
+  scope: MemoryScope;
+  workspaceId: string;
+  kind: string;
+  content: string;
+  /** 该记忆是在哪个 run 记下的；空串表示来源未记录。 */
+  sourceSessionId: string;
+  status: MemoryStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string | null;
+}
+
+/** 某个 scope 的注入开关；关闭只影响检索/注入，不删除条目。 */
+export interface MemoryScopeState {
+  scope: MemoryScope;
+  workspaceId: string;
+  enabled: boolean;
+}
+
+export interface MemoryListResult {
+  items: MemoryItem[] | null;
+  scopes: MemoryScopeState[] | null;
+  error?: CallError;
+}
+
+export interface MemoryResult {
+  item?: MemoryItem;
+  error?: CallError;
+}
+
+export interface MemorySearchResult {
+  items: MemoryItem[] | null;
+  error?: CallError;
+}
+
+export interface MemoryExportResult {
+  /** 可读 JSON；只在本地显示/另存，不默认上传。 */
+  json: string;
+  itemCount: number;
+  error?: CallError;
+}
+
+export interface MemoryScopeResult {
+  state: MemoryScopeState;
+  error?: CallError;
+}

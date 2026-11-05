@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -44,10 +45,14 @@ func TestMigrateCreatesSchemaAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("初始 schema 版本应为 1，实际 %d", v)
+	// 版本期望值来自迁移目录，而不是写死 1：新增迁移（如 002_memory）
+	// 是正常演进，断言仍然保持“已应用的最高版本 = 迁移目录里的最高版本”。
+	migrations := mustMigrations(t)
+	want := migrations[len(migrations)-1].Version
+	if v != want {
+		t.Fatalf("初始 schema 版本应为 %d，实际 %d", want, v)
 	}
-	for _, table := range []string{"workspaces", "sessions", "runs", "memories", "memory_fts"} {
+	for _, table := range []string{"workspaces", "sessions", "runs", "memories", "memory_fts", "memory_scope_settings"} {
 		var name string
 		err := db.SQL().QueryRowContext(ctx,
 			`SELECT name FROM sqlite_master WHERE name = ?`, table).Scan(&name)
@@ -239,4 +244,59 @@ func TestRebuildIndexDoesNotTouchConfigOrTranscript(t *testing.T) {
 func hash(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// TestMemoryMigrationColumnsAndRerun 覆盖 C05 的迁移增量：
+// 002 补上的列真实存在，重跑不重复记录、不改版本。
+func TestMemoryMigrationColumnsAndRerun(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+
+	for i := 0; i < 3; i++ {
+		if err := db.Migrate(ctx); err != nil {
+			t.Fatalf("第 %d 次重跑迁移应为幂等: %v", i+1, err)
+		}
+	}
+
+	rows, err := db.SQL().QueryContext(ctx, `PRAGMA table_info(memories)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info: %v", err)
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			typ     string
+			notNull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("读取列信息: %v", err)
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("列信息异常: %v", err)
+	}
+	for _, want := range []string{"kind", "source_session_id", "updated_at"} {
+		if !cols[want] {
+			t.Fatalf("memories 缺少 C05 列 %s（实际列：%v）", want, cols)
+		}
+	}
+
+	var count int
+	if err := db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
+		t.Fatalf("统计迁移记录: %v", err)
+	}
+	if migrations := mustMigrations(t); count != len(migrations) {
+		t.Fatalf("迁移记录数应为 %d，实际 %d（重跑不应重复记录）", len(migrations), count)
+	}
+
+	// 真实 trigram 探测在每次 Migrate 末尾都会跑；这里再确认一次仍可用。
+	if err := db.VerifyFTSTrigram(ctx); err != nil {
+		t.Fatalf("迁移重跑后 FTS5 trigram 应仍可用: %v", err)
+	}
 }

@@ -24,8 +24,14 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	ws := t.TempDir()
+	return newHarnessWithTools(t, ws, []Tool{ProbeTool(ws)})
+}
+
+// newHarnessWithTools 允许按用例注册不同工具（C05 的记忆工具）。
+func newHarnessWithTools(t *testing.T, ws string, tools []Tool) *harness {
+	t.Helper()
 	srv, err := Start(context.Background(), Options{
-		Tools:   []Tool{ProbeTool(ws)},
+		Tools:   tools,
 		Version: "test",
 	})
 	if err != nil {

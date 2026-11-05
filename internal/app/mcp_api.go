@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"my-agent-go/internal/harnessmcp"
+	"my-agent-go/internal/memory"
 	"my-agent-go/internal/resources"
 )
 
@@ -75,7 +76,8 @@ func (d *Desktop) mcpService() (*resources.Service, error) {
 	}
 	s := d.Settings()
 	svc.SetWorkspaceRoot(s.Workspace)
-	svc.SetHarnessTools(harnessToolDescriptors(workspaceOf(s)))
+	mem, memoryWS := d.memoryToolsForRuntime(context.Background())
+	svc.SetHarnessTools(harnessToolDescriptors(workspaceOf(s), mem, memoryWS))
 	env := resources.MCPDiagnoseEnv{}
 	if inst, ierr := d.resolveInstallation(s); ierr == nil {
 		env.Executable = inst.Executable
@@ -91,12 +93,18 @@ func workspaceOf(s Settings) string { return strings.TrimSpace(s.Workspace) }
 //
 // 唯一的注册点：ensureRuntime 用它启动服务，工具目录用它生成条目。
 // 两处各写一份会出现"目录里有、实际没注册"（或反过来）的偏差。
-func harnessTools(workspace string) []harnessmcp.Tool {
-	return []harnessmcp.Tool{harnessmcp.ProbeTool(workspace)}
+func harnessTools(workspace string, mem *memory.Service, memoryWorkspaceID string) []harnessmcp.Tool {
+	tools := []harnessmcp.Tool{harnessmcp.ProbeTool(workspace)}
+	// 记忆不可用（无服务或无工作区 ID）时不注册记忆工具：
+	// 工具目录与实际注册必须一致，不能"目录里有、调用必然失败"。
+	if mem != nil && strings.TrimSpace(memoryWorkspaceID) != "" {
+		tools = append(tools, harnessmcp.MemoryTools(mem, memoryWorkspaceID)...)
+	}
+	return tools
 }
 
-func harnessToolDescriptors(workspace string) []resources.ToolDescriptor {
-	tools := harnessTools(workspace)
+func harnessToolDescriptors(workspace string, mem *memory.Service, memoryWorkspaceID string) []resources.ToolDescriptor {
+	tools := harnessTools(workspace, mem, memoryWorkspaceID)
 	out := make([]resources.ToolDescriptor, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, resources.ToolDescriptor{

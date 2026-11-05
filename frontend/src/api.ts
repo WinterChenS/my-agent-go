@@ -17,6 +17,12 @@ import type {
   MCPResult,
   MCPStatusListResult,
   MCPStatusResult,
+  MemoryExportResult,
+  MemoryListResult,
+  MemoryResult,
+  MemoryScope,
+  MemoryScopeResult,
+  MemorySearchResult,
   ModelDefinition,
   ModelListResult,
   ModelProbeResponse,
@@ -207,6 +213,38 @@ export const api = {
 
   /** 统一工具目录；MCP 工具来自 Pi 的诊断输出。 */
   tools: (): Promise<ToolListResult> => Call.ByName(`${FQN}.ListTools`),
+
+  // ---- C05：长期记忆 ----
+  //
+  // 检索错误必须按 code 分支：QUERY_TOO_SHORT 要提示"至少 3 个字符"，
+  // 不能渲染成"没有结果"——那会让人以为记忆里真的没有相关内容。
+
+  memories: (): Promise<MemoryListResult> => Call.ByName(`${FQN}.ListMemories`),
+
+  saveMemory: (
+    content: string,
+    kind: string,
+    scope: MemoryScope
+  ): Promise<MemoryResult> => Call.ByName(`${FQN}.SaveMemory`, content, kind, scope),
+
+  confirmMemory: (id: string): Promise<MemoryResult> =>
+    Call.ByName(`${FQN}.ConfirmMemory`, id),
+
+  deleteMemory: (id: string): Promise<MemoryResult> =>
+    Call.ByName(`${FQN}.DeleteMemory`, id),
+
+  searchMemories: (query: string): Promise<MemorySearchResult> =>
+    Call.ByName(`${FQN}.SearchMemories`, query),
+
+  /** 导出只在本地显示，不默认上传。 */
+  exportMemories: (): Promise<MemoryExportResult> =>
+    Call.ByName(`${FQN}.ExportMemories`),
+
+  setMemoryScopeEnabled: (
+    scope: MemoryScope,
+    enabled: boolean
+  ): Promise<MemoryScopeResult> =>
+    Call.ByName(`${FQN}.SetMemoryScopeEnabled`, scope, enabled),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

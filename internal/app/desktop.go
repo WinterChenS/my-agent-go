@@ -23,6 +23,7 @@ import (
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/credentials"
 	"my-agent-go/internal/harnessmcp"
+	"my-agent-go/internal/memory"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/profile"
 	"my-agent-go/internal/resources"
@@ -122,6 +123,10 @@ type Desktop struct {
 	profileSvc *profile.Service
 	modelSvc   *resources.Service
 	creds      credentials.Store
+	// memSvc 是 C05 的记忆服务（应用级单例，同一个 memory.db）。
+	memSvc *memory.Service
+	// runtimeSessionID 是最近一次构建的 run 会话，记忆用它记录来源。
+	runtimeSessionID string
 
 	// workerStarter 允许测试注入假 worker；nil 时 RunService 用真实的 pi.StartWorker。
 	// 生产路径不设它。
@@ -636,10 +641,13 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	harness := d.harness
 	d.mu.Unlock()
 	if harness == nil {
+		// C05：记忆不可用（数据库打不开）时照常启动 MCP，只是不注册记忆工具；
+		// 具体错误在记忆页可见。不能因为记忆故障就拦住聊天。
+		mem, memoryWS := d.memoryToolsForRuntime(ctx)
 		harness, err = harnessmcp.Start(ctx, harnessmcp.Options{
 			// 工具注册表只在这里与工具目录共用同一份构造（harnessTools），
 			// 两处各写一份会出现“目录里有、实际没注册”的偏差。
-			Tools:   harnessTools(s.Workspace),
+			Tools:   harnessTools(s.Workspace, mem, memoryWS),
 			Version: d.version(),
 		})
 		if err != nil {
@@ -663,9 +671,10 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	iso := isolationSpecWith(ext, skills.Paths, extPlan.Paths)
 	isolationArgs := iso.Args()
 
+	sessionID := contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix()))
 	svc := run.New(run.Options{
 		WorkspaceID:  "ws-default",
-		SessionID:    contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix())),
+		SessionID:    sessionID,
 		WorkspaceDir: s.Workspace,
 		AgentDir:     agentDir,
 		Installation: inst,
@@ -692,6 +701,7 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.mu.Lock()
 	d.svc = svc
 	d.runtimeKey = key
+	d.runtimeSessionID = string(sessionID)
 	d.runtimeProvider = setup.Provider
 	d.runtimeModel = setup.Model
 	d.runtimeSkills = append([]string{}, skills.IDs...)
@@ -789,6 +799,9 @@ func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
 		d.setLastErr(err.Error())
 		return contracts.RunSnapshot{}, err
 	}
+	// 注入必须在启动 Pi 之前完成：Pi 只看到最终这一条 prompt。
+	// 记忆是参考数据；注入失败（含短消息 QueryTooShort）不阻断发送。
+	message = d.withMemoryContext(context.Background(), message)
 	svc, err := d.ensureRuntime()
 	if err != nil {
 		d.setLastErr(err.Error())
@@ -909,6 +922,14 @@ func (d *Desktop) Shutdown() {
 	// 自有 MCP 与应用同寿命；退出时关掉，避免端口比进程活得久。
 	if harness != nil {
 		_ = harness.Close(context.Background())
+	}
+	// 记忆库同理：应用退出时关闭连接。
+	d.svcMu.Lock()
+	mem := d.memSvc
+	d.memSvc = nil
+	d.svcMu.Unlock()
+	if mem != nil {
+		_ = mem.Close()
 	}
 }
 
