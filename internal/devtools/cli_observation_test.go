@@ -395,3 +395,98 @@ func TestGOV02CLIGateRejectsTamperedOracleWithExitTwo(t *testing.T) {
 		"rejectedRequirements": len(rejected),
 	})
 }
+
+// writeCLIFixtureRepo 造一个临时「仓库」：go.mod + 一个 Go 文件 + 带 typecheck
+// 脚本的前端包，并 git init/add（`verify --suite=static` 用 git ls-files 列文件）。
+//
+// 这是给被测 CLI 的 fixture，不是产品代码：用来让 gofmt 断言真的失败/成功，
+// 从而观察 0/1/2 三种退出码是否被二进制原样交给调用方（ADR-0001）。
+func writeCLIFixtureRepo(t *testing.T, goSource string) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatalf("写 %s: %v", rel, err)
+		}
+	}
+	writeFile("go.mod", "module anvil-cli-fixture\n\ngo 1.21\n")
+	writeFile("fixture.go", goSource)
+	writeFile("frontend/typecheck.js", "process.exit(0)\n")
+	writeFile("frontend/package.json",
+		"{\"name\":\"anvil-cli-fixture\",\"private\":true,\"scripts\":{\"typecheck\":\"node typecheck.js\"}}\n")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v 失败: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", ".")
+	git("add", "-A")
+	return dir
+}
+
+// ---- GOV03：0 成功 / 1 断言失败 / 2 配置缺失，真实二进制必须原样透传 ----
+
+func TestGOV03CLIExitCodeFidelity(t *testing.T) {
+	obsDir := observationDirForTest(t)
+
+	// 配置缺失：未知 suite → 2（不是 1）。
+	configRun := runDevtoolsCLI(t, "config-missing", "", "verify", "--suite=doesnotexist")
+	if configRun.ExitCode != 2 {
+		t.Fatalf("未知 suite 应退出 2，实际 %d\nstdout=%s\nstderr=%s",
+			configRun.ExitCode, tail(configRun.Stdout, 400), tail(configRun.Stderr, 400))
+	}
+
+	// 断言失败：临时仓库里放一个未格式化的 Go 文件，gofmt 检查真的失败 → 1。
+	// 同一次运行里 go vet 与前端 typecheck 都通过，所以 1 只可能来自断言失败。
+	assertionRepo := writeCLIFixtureRepo(t, "package fixture\n\nfunc  F( ) int {\n\treturn 1\n}\n")
+	assertionRun := runDevtoolsCLI(t, "assertion-failure", assertionRepo, "verify", "--suite=static")
+	if assertionRun.ExitCode != 1 {
+		t.Fatalf("gofmt 断言失败应退出 1，实际 %d\nstdout=%s\nstderr=%s",
+			assertionRun.ExitCode, tail(assertionRun.Stdout, 1500), tail(assertionRun.Stderr, 400))
+	}
+
+	// 成功对照：同一个装置换成已格式化的源码 → 0。
+	// 没有这一条，上面两条可能只是「永远非零」，观察不到 0 这一档。
+	successRepo := writeCLIFixtureRepo(t, "package fixture\n\nfunc F() int {\n\treturn 1\n}\n")
+	successRun := runDevtoolsCLI(t, "success", successRepo, "verify", "--suite=static")
+	if successRun.ExitCode != 0 {
+		t.Fatalf("干净 fixture 应退出 0，实际 %d\nstdout=%s\nstderr=%s",
+			successRun.ExitCode, tail(successRun.Stdout, 1500), tail(successRun.Stderr, 400))
+	}
+
+	runs := writeCLIArtifact(t, obsDir, "exit-codes.json", []cliRun{configRun, assertionRun, successRun})
+
+	configExit, assertionExit, successExit := runs[0].ExitCode, runs[1].ExitCode, runs[2].ExitCode
+	if configExit != 2 || assertionExit != 1 || successExit != 0 {
+		t.Fatalf("artifact 读回的退出码不符合 0/1/2 语义: success=%d assertion=%d config=%d",
+			successExit, assertionExit, configExit)
+	}
+	configReason := firstLineContaining(runs[0].Stderr, "未知 suite")
+	if configReason == "" {
+		t.Fatalf("配置缺失那一次没有点名『未知 suite』\nstderr=%s", runs[0].Stderr)
+	}
+	assertionReason := firstLineContaining(runs[1].Stdout, "[FAIL] gofmt")
+	if assertionReason == "" {
+		t.Fatalf("断言失败那一次没有点名 gofmt 失败，1 的来历不可核对\nstdout=%s", tail(runs[1].Stdout, 1500))
+	}
+	if !strings.Contains(runs[2].Stdout, "static 退出码: 0") {
+		t.Fatalf("成功那一次没有给出 static 退出码 0\nstdout=%s", tail(runs[2].Stdout, 800))
+	}
+
+	writeObservationFacts(t, obsDir, map[string]any{
+		"configExit":      configExit,
+		"assertionExit":   assertionExit,
+		"successExit":     successExit,
+		"configReason":    configReason,
+		"assertionReason": assertionReason,
+		"note":            "1 来自临时 fixture 仓库里未格式化文件的 gofmt 断言；同一次运行的 go vet 与前端 typecheck 均通过（见 artifact stdout）。",
+	})
+}
