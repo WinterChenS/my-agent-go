@@ -47,15 +47,22 @@ func repoRootForRun(t *testing.T) string {
 	return root
 }
 
-// standalonePiExe 返回官方独立包的 pi.exe；不存在则跳过（本机已有则为默认运行）。
+// standalonePiExe 返回官方独立包的 pi.exe。
+//
+// 缺包时的口径（与 internal/runtime/pi 的真实 Pi 用例一致）：
+//   - 本机是 Windows：**失败**并给出修复步骤。win-x64 是我们实际取证的平台，
+//     这里 skip 会让"没装参考包"看起来像"这条链验过了"。
+//   - 其它平台：skip 并说明原因。独立包是按目标分发的（win-x64/mac-arm64/…），
+//     在 macOS/Linux 上跑 `go test ./...` 不该因为缺少 Windows 的包而变红。
 func standalonePiExe(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS != "windows" {
-		t.Skip("C06f 的真实 Pi 端到端按 Windows 独立包编写")
-	}
 	exe := filepath.Join(repoRootForRun(t), ".tools", "pi", "standalone", "v1.5.0-win-x64", "pi.exe")
+	if runtime.GOOS != "windows" {
+		t.Skip("C06f 的真实 Pi 端到端按 win-x64 独立包编写；本平台请在对应目标机上重跑")
+	}
 	if _, err := os.Stat(exe); err != nil {
-		t.Skipf("本机没有参考 Pi 独立包（%s）；这不是被测行为失败，是环境缺失: %v", exe, err)
+		t.Fatalf("本机没有参考 Pi 独立包（%s）。修复：把官方 Pi 1.5.0 win-x64 包解到 "+
+			".tools/pi/standalone/v1.5.0-win-x64/（只读引用，不覆盖任何外部 Pi）后重跑本测试: %v", exe, err)
 	}
 	return exe
 }
