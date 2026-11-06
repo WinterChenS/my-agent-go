@@ -301,7 +301,20 @@ func TestCancelledCallDoesNotBlockSubsequentCalls(t *testing.T) {
 // TestStdoutBackpressureDoesNotDeadlock 对应 RPC03：
 // 消费者不读 Events 时，stdout 洪泛不能把读循环堵死，命令响应仍然可达。
 func TestStdoutBackpressureDoesNotDeadlock(t *testing.T) {
-	w := startFake(t, "stdoutflood", "-flood-bytes", fmt.Sprint(4<<20))
+	const floodBytes = 4 << 20
+	// RPC03 的外部观察装置：子进程自己记账（-record-io）。"洪泛写完"这件事只能由
+	// 子进程自己证明——管道被反压死时它根本写不完，账本里就不会有 flood_done。
+	dir := piObservationDir()
+	if dir == "" {
+		dir = t.TempDir() // 本地 focused 运行：不落盘到证据目录
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	ioPath := filepath.Clean(filepath.Join(dir, "io.jsonl"))
+	_ = os.Remove(ioPath)
+
+	w := startFake(t, "stdoutflood", "-flood-bytes", fmt.Sprint(floodBytes), "-record-io", ioPath)
 
 	// 刻意不读 Events：让事件队列积压到上限（超出部分丢弃并计诊断）。
 	time.Sleep(500 * time.Millisecond)
@@ -318,12 +331,52 @@ func TestStdoutBackpressureDoesNotDeadlock(t *testing.T) {
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("洪泛期间命令响应耗时过长：%s", d)
 	}
+
+	// ── 从磁盘读回子进程的账本：它是否真的把 4 MiB 写完了 ──
+	done := waitForIOEvent(t, ioPath, "stdout", "flood_done", 20*time.Second)
+	if done.Bytes < floodBytes {
+		t.Fatalf("子进程只写出 %d 字节，未达洪泛目标 %d", done.Bytes, floodBytes)
+	}
+	events := readIOEvents(t, ioPath)
+	stdinBytes, stdinFrames := 0, 0
+	for _, ev := range events {
+		if ev.Dir == "read" && ev.Stream == "stdin" {
+			stdinBytes += ev.Bytes
+			stdinFrames++
+		}
+	}
+	if stdinFrames == 0 || stdinBytes == 0 {
+		t.Fatalf("账本里没有 stdin 记录：命令没到达子进程（frames=%d bytes=%d）", stdinFrames, stdinBytes)
+	}
+
+	if piObservationDir() != "" {
+		writePiObservation(t, map[string]any{
+			"stdoutFloodTargetBytes": floodBytes,
+			"stdoutFloodDoneBytes":   done.Bytes,
+			"stdoutFloodCompleted":   done.Bytes >= floodBytes,
+			"stdoutFloodStdinBytes":  stdinBytes,
+			"stdoutFloodStdinFrames": stdinFrames,
+			"stdoutFloodIORecords":   len(events),
+			"recordedBy":             "fakeworker -record-io（子进程自写）",
+		}, nil)
+	}
 }
 
 // TestStderrFloodDoesNotBlockStdout 对应 RPC03：
 // stderr 必须被持续读取，否则子进程会因 stderr 管道写满而整体卡住。
 func TestStderrFloodDoesNotBlockStdout(t *testing.T) {
-	w := startFake(t, "stderrflood", "-flood-bytes", fmt.Sprint(8<<20))
+	const floodBytes = 8 << 20
+	dir := piObservationDir()
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	ioPath := filepath.Clean(filepath.Join(dir, "io.jsonl"))
+	_ = os.Remove(ioPath)
+
+	w := startFake(t, "stderrflood", "-flood-bytes", fmt.Sprint(floodBytes), "-record-io", ioPath)
 	time.Sleep(300 * time.Millisecond)
 
 	ctx := callCtx(t, 10*time.Second)
@@ -343,6 +396,22 @@ func TestStderrFloodDoesNotBlockStdout(t *testing.T) {
 		return truncated
 	})
 
+	// ── 子进程自己的账本：8 MiB stderr 是否真的写完了 ──
+	done := waitForIOEvent(t, ioPath, "stderr", "flood_done", 20*time.Second)
+	if done.Bytes < floodBytes {
+		t.Fatalf("子进程只写出 %d 字节 stderr，未达洪泛目标 %d", done.Bytes, floodBytes)
+	}
+	events := readIOEvents(t, ioPath)
+	stdinBytes, stdinFrames := 0, 0
+	for _, ev := range events {
+		if ev.Dir == "read" && ev.Stream == "stdin" {
+			stdinBytes += ev.Bytes
+			stdinFrames++
+		}
+	}
+	if stdinFrames == 0 {
+		t.Fatalf("账本里没有 stdin 记录：命令没到达子进程")
+	}
 	// 关闭后检查缓冲上限：只保留最近 1 MiB，且明确标记被截断。
 	if err := w.Close(ctx); err != nil {
 		t.Fatalf("Close 失败: %v", err)
@@ -354,6 +423,21 @@ func TestStderrFloodDoesNotBlockStdout(t *testing.T) {
 	if !truncated {
 		t.Fatalf("写入了 8 MiB stderr，必须标记 truncated=true（实际 false，缓冲 %d 字节）", len(tail))
 	}
+
+	if piObservationDir() != "" {
+		writePiObservation(t, map[string]any{
+			"stderrFloodTargetBytes": floodBytes,
+			"stderrFloodDoneBytes":   done.Bytes,
+			"stderrFloodCompleted":   done.Bytes >= floodBytes,
+			"stderrFloodStdinBytes":  stdinBytes,
+			"stderrFloodStdinFrames": stdinFrames,
+			"stderrTailBytes":        len(tail),
+			"stderrTruncated":        truncated,
+			"stderrFloodIORecords":   len(events),
+			"recordedBy":             "fakeworker -record-io（子进程自写）",
+		}, nil)
+	}
+
 }
 
 // TestUnknownAndMalformedRecordsHaveDiagnostics 对应 RPC04：

@@ -203,7 +203,11 @@ func integrationCases() []integrationCase {
 		// 父进程读回后能证明响应确实是倒序产生的、而归属仍然正确。
 		{ID: "RPC02", Package: piTests, Run: "TestOutOfOrderResponsesMatchByID|TestDuplicateResponseNotMisattributed|TestCancelledCallDoesNotBlockSubsequentCalls",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"io.jsonl"}}},
-		{ID: "RPC03", Package: piTests, Run: "TestStdoutBackpressureDoesNotDeadlock|TestStderrFloodDoesNotBlockStdout"},
+		// RPC03：stdout 事件队列满、stderr 洪泛时，读循环都不能被反压死。
+		// 观察装置是子进程的 IO 账本：-record-io 只在洪泛**真的写完**时落 flood_done，
+		// 管道被堵时根本写不到那一行；同时记录 stdin 侧确实收到了命令。
+		{ID: "RPC03", Package: piTests, Run: "TestStdoutBackpressureDoesNotDeadlock|TestStderrFloodDoesNotBlockStdout",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"io.jsonl"}}},
 		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls"},
 		{ID: "RPC05", Package: piTests, Run: "TestProcessTree|TestWorkerTerminatesGrandchild"},
 

@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func piObservationDir() string {
@@ -322,4 +323,34 @@ func ioIDs(events []ioEvent, dir string) []string {
 		}
 	}
 	return out
+}
+
+// waitForIOEvent 轮询子进程的 IO 账本，直到出现指定的 (stream, kind) 记录。
+//
+// 为什么要轮询而不是 sleep：洪泛是并发写，落账时间不确定；轮询把"等一个外部事实"
+// 变成确定性时序，超时就是真失败（不是靠等待时间蒙过去）。
+func waitForIOEvent(t *testing.T, path, stream, kind string, timeout time.Duration) ioEvent {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			for _, line := range strings.Split(string(raw), "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				var ev ioEvent
+				if json.Unmarshal([]byte(line), &ev) != nil {
+					continue
+				}
+				if ev.Stream == stream && ev.Kind == kind {
+					return ev
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等不到 %s/%s 的 IO 记录（%s）：子进程没能把洪泛写完", stream, kind, path)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
