@@ -70,9 +70,9 @@ func observeMemoryDB(t *testing.T, path string, extra map[string]any) {
 	for k, v := range extra {
 		facts[k] = v
 	}
-	// 每个测试自己那一份也留档：同一 case 的多条测试各有自己的临时库，
-	// 只保留顶层数字会让审查者看不出这个数字出自哪条测试的哪份文件。
-	facts["byTest:"+t.Name()] = map[string]any{
+	// 每条测试自己的快照先拍下来：它只描述“这一条测试的临时库”，
+	// 不能把下面跨测试的并集混进去（否则审查者会以为别的测试的库也在这个文件里）。
+	own := map[string]any{
 		"dbPath":            facts["dbPath"],
 		"rows":              facts["rows"],
 		"scopes":            facts["scopes"],
@@ -83,6 +83,17 @@ func observeMemoryDB(t *testing.T, path string, extra map[string]any) {
 		"deletedRows":       facts["deletedRows"],
 		"disabledScopeRows": facts["disabledScopeRows"],
 	}
+	for k, v := range extra {
+		own[k] = v
+	}
+	// MEM02 的两项事实是跨测试的集合（一条测试看“禁用”、另一条看“删除”），
+	// 后写入者直接覆盖会把前一条的观察抹成空数组。这里取并集：
+	// 顶层 deletedRows/disabledScopeRows 是**本 case 里所有测试观察到的并集**，
+	// 每条测试自己的快照仍然完整地留在 byTest:<name> 里。
+	for _, key := range []string{"deletedRows", "disabledScopeRows"} {
+		facts[key] = unionListFact(t, key, facts[key])
+	}
+	facts["byTest:"+t.Name()] = own
 	writeMemoryObservation(t, facts, map[string][]byte{"memory-dump.json": artifact})
 }
 
@@ -216,6 +227,62 @@ func dumpMemoryFile(t *testing.T, path string) ([]byte, map[string]any) {
 		"scopeSettings":     settings,
 	}
 	return artifact, facts
+}
+
+// unionListFact 把本次观察到的列表与已有 observation.json 里的同名列表取并集。
+//
+// 只用于“同一 case 多条测试各看到一部分”的集合类事实（删除行 / 关闭的 scope）。
+// 数字类事实不这样做：不同测试用的是不同临时库，把它们相加只会得到一个
+// 不对应任何真实数据库的数字。
+func unionListFact(t *testing.T, key string, cur any) any {
+	t.Helper()
+	dir := observationDir()
+	if dir == "" {
+		return cur
+	}
+	prior := map[string]any{}
+	if raw, err := os.ReadFile(filepath.Join(dir, "observation.json")); err == nil {
+		if err := json.Unmarshal(raw, &prior); err != nil {
+			t.Fatalf("已有 observation.json 不是合法 JSON: %v", err)
+		}
+	}
+	encode := func(v any) string {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	out := make([]any, 0, 4)
+	seen := map[string]bool{}
+	for _, src := range []any{prior[key], cur} {
+		// cur 可能是 []string（内部构造），prior 是 []any（JSON 解出）；
+		// 统一走一遍 JSON 才能用同一个类型断言处理，否则并集会静默变成空集。
+		var items []any
+		switch v := src.(type) {
+		case []any:
+			items = v
+		case nil:
+			continue
+		default:
+			b, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			if err := json.Unmarshal(b, &items); err != nil {
+				continue
+			}
+		}
+		for _, item := range items {
+			k := encode(item)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // writeMemoryObservation 把观察值与 artifact 合并写进 ANVIL_OBSERVATION_DIR。

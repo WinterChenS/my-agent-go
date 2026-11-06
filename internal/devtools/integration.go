@@ -174,7 +174,8 @@ func integrationCases() []integrationCase {
 		// **第二个 storage.DB 句柄**从磁盘读出来，不是问被测 Service"你记对了吗"。
 		{ID: "MEM01", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestTrigramProbeReportsRealFacts"}},
 			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json"}}},
-		{ID: "MEM02", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestScopeDisabledNotInjected|TestDeleteNotInjectedNextRun"}}},
+		{ID: "MEM02", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestScopeDisabledNotInjected|TestDeleteNotInjectedNextRun"}},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json"}}},
 		{ID: "MEM03", Steps: []integrationStep{
 			{Package: "internal/app", Run: "TestMemoryBindingsRoundTrip"},
 			{Package: "internal/memory", Run: "TestNoImplicitModelOrNetworkCall"},

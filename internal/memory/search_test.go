@@ -234,6 +234,10 @@ func TestDeleteNotInjectedNextRun(t *testing.T) {
 	// 已发模型的历史无法撤回：这里只断言"下一次注入不再包含"，
 	// 不宣称删除能改写上游 transcript。
 	t.Logf("删除后 BuildContext 原文: %q", after.Text)
+
+	// MEM02 的外部观察：库里那一行仍然存在，但 status 已被写成 deleted
+	//（读的是磁盘上的真实状态，不是 Service 的说法）。
+	observeMemoryDB(t, svc.DB().Path(), nil)
 }
 
 // TestScopeDisabledNotInjected：按 scope 关闭后，该 scope 不参与检索/注入。
@@ -268,6 +272,10 @@ func TestScopeDisabledNotInjected(t *testing.T) {
 	if strings.Contains(mc.Text, "数据库连接池上限为二十") {
 		t.Fatalf("scope 关闭后仍被注入：\n%s", mc.Text)
 	}
+
+	// MEM02 的外部观察：在**关闭期间**读磁盘，看 memory_scope_settings 里的
+	// enabled=0 是否真的落库（后面会重新打开，所以必须在这里取）。
+	observeMemoryDB(t, svc.DB().Path(), map[string]any{"observedWhile": "workspace-scope-disabled"})
 
 	if err := svc.SetScopeEnabled(ctx, ScopeWorkspace, "ws-a", true); err != nil {
 		t.Fatalf("重新启用 workspace scope: %v", err)
