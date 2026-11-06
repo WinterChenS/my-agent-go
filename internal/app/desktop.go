@@ -30,6 +30,8 @@ import (
 	"my-agent-go/internal/resources"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
+	"my-agent-go/internal/session"
+	"my-agent-go/internal/storage"
 	"my-agent-go/internal/workspace"
 )
 
@@ -133,6 +135,11 @@ type Desktop struct {
 	creds      credentials.Store
 	// memSvc 是 C05 的记忆服务（应用级单例，同一个 memory.db）。
 	memSvc *memory.Service
+	// sessionDB/sessionCat 是 C06 的会话目录（应用级单例，固定在
+	// <appRoot>/sessions.db）。会话索引只有这一个写者入口，别的包应当复用同一个
+	// 句柄，而不是各开一份（run 索引的装配尚未接到这里，见 C06b 报告）。
+	sessionDB  *storage.DB
+	sessionCat *session.Catalog
 	// runtimeSessionID 是最近一次构建的 run 会话，记忆用它记录来源。
 	runtimeSessionID string
 
@@ -1054,9 +1061,16 @@ func (d *Desktop) Shutdown() {
 	d.svcMu.Lock()
 	mem := d.memSvc
 	d.memSvc = nil
+	sessionDB := d.sessionDB
+	d.sessionDB = nil
+	d.sessionCat = nil
 	d.svcMu.Unlock()
 	if mem != nil {
 		_ = mem.Close()
+	}
+	// 会话目录库同样与应用同寿命。
+	if sessionDB != nil {
+		_ = sessionDB.Close()
 	}
 }
 
