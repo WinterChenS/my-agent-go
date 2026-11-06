@@ -705,6 +705,22 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	isolationArgs := iso.Args()
 
 	sessionID := contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix()))
+	// C07：诊断记录器（run 快照与产品事件落库）。诊断是**派生**数据：
+	// 库打不开不能拦住聊天，但也不能静默：原因写进 lastErr，界面可见。
+	//
+	// 它同时是 run.Options.History（usage/预算/失败结论）与事件订阅者
+	// （工具/审批/压缩/诊断轨迹）。两者都只从**本服务**消费，不依赖 UI 的
+	// emitter 是否装配——没有界面的自动化运行也要留下可定位的事实。
+	recorder, recErr := d.diagnosticsRecorder()
+	if recErr != nil {
+		d.setLastErr("诊断记录不可用（usage/事件不会落库）：" + recErr.Error())
+		recorder = nil
+	}
+	var historySink run.HistorySink
+	if recorder != nil {
+		historySink = recorder
+	}
+
 	// 这是应用进程里**唯一**的 RunService，也就是唯一的 admission queue：
 	// 交互会话、C08 连接器与 C09 调度都往它里面提交，全局活跃上限固定为 2。
 	// 因此这里不能按会话建服务，也不传 MaxActive。
@@ -714,6 +730,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		WorkspaceDir: s.Workspace,
 		AgentDir:     agentDir,
 		Installation: inst,
+		// C07：run 快照落库（usage/预算/失败结论）。nil 表示诊断不可用，
+		// run 的其它行为不受影响。
+		History: historySink,
 		// HarnessMCP=true 会以 `-e builtin:mcp` 重新启用内置 MCP（-ne 会连带关掉它）。
 		// 项目级 .pi/mcp.json 仍被 -na 切断，能连上的只有 agentDir 里我们自己写的那一条。
 		Isolation:      iso,
@@ -740,6 +759,11 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		// 退订函数在本层还无人调用：桌面宿主目前没有“UI 断开”的显式信号，
 		// 订阅者随进程存活。保留返回值语义（F05-B），不伪造断开事件。
 		_ = svc.Subscribe(emitter)
+	}
+	if recorder != nil {
+		// 事件日志是诊断包“故障可定位”的来源。与 emitter 分开订阅：
+		// 界面没接上不等于不需要留痕。
+		_ = svc.Subscribe(recorder.RecordEvent)
 	}
 
 	d.mu.Lock()
