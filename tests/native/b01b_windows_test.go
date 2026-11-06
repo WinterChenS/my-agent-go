@@ -327,6 +327,7 @@ func TestNativeZoomFactor(t *testing.T) {
 			foreground, lower := RaiseToFront(h.win.HWND())
 			defer lower()
 			hitWnd := WindowAt(physX, physY)
+			osClickRan := false
 			if foreground && IsDescendantOf(hitWnd, info.ChildHWND) {
 				beforeOS := h.fixture.Primary.Counter(browserfixture.CounterTrustedOnly)
 				restoreCursor := PhysicalClick(physX, physY)
@@ -338,18 +339,24 @@ func TestNativeZoomFactor(t *testing.T) {
 				t.Logf("zoom=%.2f OS物理点击 (%d,%d) 命中 WebView 子窗口 0x%x → counter +1（按钮物理矩形 %.1fx%.1f，落点分辨力 ≤ 半宽）",
 					c.zoom, physX, physY, hitWnd, rect.W*c.zoom*dpiScale, rect.H*c.zoom*dpiScale)
 				before = beforeOS + 1
+				osClickRan = true
 			} else {
 				t.Logf("zoom=%.2f NOT_RUN: OS 物理点击（foreground=%t WindowFromPoint=0x%x descendantOfChild=%t）；本条只用 CDP 可信点击验证",
 					c.zoom, foreground, hitWnd, IsDescendantOf(hitWnd, info.ChildHWND))
 			}
 
 			// 4. 可信点击 → fixture 服务端 counter 恰好 +1（不是只看 DOM 事件）。
+			//
+			// 观察用计数器的取值走 HTTP /__counters（服务端自己的状态），不用内存 map，
+			// 这样 zoom-steps.jsonl 里的 counterBefore/counterAfter 是服务端给出的。
+			counterBefore := fixtureCounter(t, h.fixture.Primary.URL, browserfixture.CounterTrustedOnly)
 			clickAtCSS(t, ctx, h, backX, backY)
 			waitCounter(t, h.fixture.Primary, browserfixture.CounterTrustedOnly, before+1, 10*time.Second)
 			after := h.fixture.Primary.Counter(browserfixture.CounterTrustedOnly)
 			if after != before+1 {
 				t.Fatalf("可信点击后服务端 counter=%d，期望 %d（恰好 +1）", after, before+1)
 			}
+			counterAfter := fixtureCounter(t, h.fixture.Primary.URL, browserfixture.CounterTrustedOnly)
 			t.Logf("zoom=%.2f click counter %d -> %d (exactly +1)", c.zoom, before, after)
 
 			img, err := h.host.Screenshot(ctx, h.tab)
@@ -366,8 +373,33 @@ func TestNativeZoomFactor(t *testing.T) {
 			t.Logf("zoom=%.2f screenshot=%dx%d css=%.0fx%.0f scale=%.2f uniqueColors=%d",
 				c.zoom, img.PixelWidth, img.PixelHeight, img.CSSWidth, img.CSSHeight, img.Scale, stats.uniqueColors)
 			writeArtifact(t, fmt.Sprintf("b01b-zoom-%d.png", int(math.Round(c.zoom*100))), img.Bytes)
+
+			// 外部观察（BR04 缩放）：一档一行写进 zoom-steps.jsonl，截图另存 PNG。
+			observeZoomStep(t, obsFacts{
+				"step":                       c.name,
+				"zoom":                       c.zoom,
+				"controllerZoomFactor":       h.host.WindowInfo().ZoomFactor,
+				"dpiScale":                   dpiScale,
+				"childRect":                  obsFacts{"left": left, "top": top, "width": width, "height": height},
+				"expectedRect":               obsFacts{"left": wantL, "top": wantT, "width": wantW, "height": wantH},
+				"viewportCSS":                obsFacts{"width": vp.InnerW, "height": vp.InnerH},
+				"devicePixelRatio":           vp.DPR,
+				"hitTest":                    hit,
+				"clickErrCSS":                errCSS,
+				"physCenterX":                physBX,
+				"physCenterY":                physBY,
+				"windowFromPoint":            hitWnd,
+				"windowFromPointInChildTree": IsDescendantOf(hitWnd, info.ChildHWND),
+				"foregroundHeld":             foreground,
+				"osPhysicalClickRan":         osClickRan,
+				"counterBefore":              counterBefore,
+				"counterAfter":               counterAfter,
+				"dpiForWindowChild":          dpiForWindow(info.ChildHWND),
+			}, img.Bytes, fmt.Sprintf("screenshots/zoom-%d.png", int(math.Round(c.zoom*100))))
 		})
 	}
+
+	finalizeZoomObservation(t)
 }
 
 // ---------- BR04：分栏 20 轮 ----------
@@ -457,9 +489,31 @@ func TestNativeSplitter20Rounds(t *testing.T) {
 		t.Logf("round %2d: slot w=%.0f -> child (%.0f,%.0f) %.0fx%.0f err=%.2fpx zoom=%.2f",
 			round, w, gotL, gotT, gotW, gotH, rectErr, h.host.WindowInfo().ZoomFactor)
 
+		// 外部观察（BR04 分栏）：一轮一行写进 splitter-rounds.jsonl。
+		// rect 误差由 GetWindowRect（OS）与期望值相减，父子关系由 GetParent/GetAncestor 直读。
+		recordRound := func(shotW, shotH int) {
+			observeSplitterRound(t, obsFacts{
+				"round":            round,
+				"slotWidthCSS":     w,
+				"slotHeightCSS":    height,
+				"expectedRect":     obsFacts{"left": wantL, "top": wantT, "width": wantW, "height": wantH},
+				"actualRect":       obsFacts{"left": gotL, "top": gotT, "width": gotW, "height": gotH},
+				"rectErrPx":        rectErr,
+				"parentStillMain":  info.ParentOfChild == info.ParentHWND && info.ParentMatches,
+				"rootStillMain":    RootAncestor(info.ChildHWND) == info.ParentHWND,
+				"controllerReady":  info.ControllerReady,
+				"childVisible":     WindowVisible(info.ChildHWND),
+				"zeroWidthRound":   w <= 0,
+				"screenshotWidth":  shotW,
+				"screenshotHeight": shotH,
+				"dpiScale":         dpiScale,
+			})
+		}
+
 		// 截图尺寸必须跟着 slot 变（宽 0 的那轮没有可截内容，跳过并说明）。
 		if w <= 0 {
 			t.Logf("round %2d: 0 宽轮，跳过一次截图（viewport 为 0）", round)
+			recordRound(0, 0)
 			continue
 		}
 		img, err := h.host.Screenshot(ctx, h.tab)
@@ -471,6 +525,7 @@ func TestNativeSplitter20Rounds(t *testing.T) {
 			t.Fatalf("第 %d 轮截图 %dx%d 没跟上子窗口 %.0fx%.0f", round, img.PixelWidth, img.PixelHeight, gotW, gotH)
 		}
 		t.Logf("round %2d: screenshot=%dx%d（跟随 slot）", round, img.PixelWidth, img.PixelHeight)
+		recordRound(img.PixelWidth, img.PixelHeight)
 	}
 
 	// 恢复一个正常宽度，确认页面还能交互（可信点击 → counter 恰好 +1）。
@@ -499,6 +554,9 @@ func TestNativeSplitter20Rounds(t *testing.T) {
 	}
 	t.Logf("splitter: 20 轮完成 maxRectErr=%.2fpx zeroWidthRound=%d 收尾 click counter %d->%d",
 		maxErr, zeroRound, before, before+1)
+
+	// 外部观察（BR04 分栏）：从 splitter-rounds.jsonl 读回 20 轮的误差与父子关系。
+	finalizeSplitterObservation(t)
 }
 
 // ---------- BR05：焦点 / 键盘 ----------

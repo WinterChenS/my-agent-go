@@ -105,6 +105,12 @@ func nativeCases() []nativeCase {
 			},
 			Limitation: "页面缩放 1.00/1.50/2.00 已实测（devicePixelRatio 1/1.5/2，误差 0.000px，OS 物理点击命中）；" +
 				"Windows 系统显示缩放 150%/200%（GetDpiForWindow=144/192）未验证——本机 96 DPI，改显示缩放需注销/重启。",
+			// 每档缩放一行（CDP dpr、GetWindowRect、WindowFromPoint、服务端计数器）、
+			// 20 轮分栏每轮一行（GetWindowRect 误差、GetParent/GetAncestor），截图落盘。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"zoom-steps.jsonl", "splitter-rounds.jsonl",
+				"screenshots/zoom-100.png", "screenshots/zoom-150.png", "screenshots/zoom-200.png",
+			}},
 		},
 		{
 			// BR05：中文 IME（CDP 模拟组合/提交）、focus、clipboard、最小化恢复。
