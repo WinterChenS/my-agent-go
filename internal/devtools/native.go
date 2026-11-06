@@ -45,6 +45,13 @@ type nativeCase struct {
 	// Limitation 会写进证据的 Limitations 字段：说明这条 case 只覆盖了哪个子集，
 	// 防止「跑了子集 = 整条通过」的误读。
 	Limitation string
+	// Observation 非空表示该 case 必须产出 external-observation oracle。
+	//
+	// 与 integration 的 observationSpec 是同一个类型与同一套规则：声明之后没有退路，
+	// case 不产出 observation.json 就是 FAIL，runner 不会替它编观察值，也不会
+	// 退回 test-process 自证。BR00 是纯进程级的 case（不需要 GUI），但它在用例
+	// 索引里属于 G1，所以只能从 native 套件出证据。
+	Observation *observationSpec
 }
 
 // nativeStep 是一次 go test 调用。
@@ -130,10 +137,15 @@ func nativeCases() []nativeCase {
 				{
 					// fixture：origin 独立 / counter / trusted-only / SPA / 慢加载 /
 					// cookie / 下载弹窗 / closed shadow 与 frame 的明确声明。
+					// TestBR00FixtureRequestLogAndCounters 是外部观察装置：服务端 handler
+					// 追加 fixture-requests.jsonl，计数器快照由 HTTP /__counters 取回。
 					Package: "tests/fixtures/browser",
-					Run:     "TestFixtureTwoDistinctOrigins|TestCounterSemantics|TestTrustedOnlyRejectsUntrustedInput|TestSPACountersDistinguishTargetAndReplacement|TestSlowLoadIsWaitable|TestLoginCookieIsServerSideOracle|TestDownloadAndPopupHaveServerSideEvidence|TestClosedShadowAndFramePagesDeclareTheHardParts|TestFixtureCloseReleasesPorts",
+					Run:     "TestFixtureTwoDistinctOrigins|TestCounterSemantics|TestTrustedOnlyRejectsUntrustedInput|TestSPACountersDistinguishTargetAndReplacement|TestSlowLoadIsWaitable|TestLoginCookieIsServerSideOracle|TestDownloadAndPopupHaveServerSideEvidence|TestClosedShadowAndFramePagesDeclareTheHardParts|TestFixtureCloseReleasesPorts|TestBR00FixtureRequestLogAndCounters",
 				},
 			},
+			// 两个 origin 独立、counter 可核对、trusted-only 负例确实拒非 trusted 输入，
+			// 三条结论都由服务端写的日志与 /__counters 快照证明（不是页面文案、不是断言变量）。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"fixture-requests.jsonl", "counters.json"}},
 		},
 	}
 }
@@ -302,6 +314,18 @@ func runNativeCase(c nativeCase, target, display, root string, environment contr
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 
+	// external-observation 声明（BR00）：观察文件必须由本次执行重新产出，
+	// 先清掉上一轮的残留，否则「这次什么都没写」会被旧文件掩盖成 PASS。
+	// 观察目录必须是绝对路径：go test 的 cwd 是包目录，给相对路径会写进仓库。
+	absDir, absErr := filepath.Abs(dir)
+	if absErr != nil {
+		absDir = dir
+	}
+	if c.Observation != nil {
+		clearObservationArtifacts(dir, c.Observation)
+	}
+	obsEnv := observationEnv(c.Observation, absDir)
+
 	started := time.Now().UTC()
 	ev := contracts.GateEvidence{
 		SchemaVersion:    1,
@@ -344,7 +368,7 @@ func runNativeCase(c nativeCase, target, display, root string, environment contr
 	default:
 		for _, step := range c.Steps {
 			args := []string{"test", "./" + step.Package, "-run", step.Run, "-count=1", "-v"}
-			env := []string{"MYAGENT_TARGET=" + target, "MYAGENT_DISPLAY=" + display}
+			env := append([]string{"MYAGENT_TARGET=" + target, "MYAGENT_DISPLAY=" + display}, obsEnv...)
 			cmdlines = append(cmdlines, "go "+strings.Join(args, " "))
 			code, out, errOut, _ := runWithEnv(env, "go", args...)
 			stdouts = append(stdouts, "### $ go "+strings.Join(args, " ")+"\n"+out)
@@ -367,6 +391,15 @@ func runNativeCase(c nativeCase, target, display, root string, environment contr
 	}
 	cr.EndedAt = time.Now().UTC().Format(time.RFC3339)
 
+	if cr.Status == contracts.StatusPass && c.Observation != nil {
+		// 观察值必须由 case 自己写出来，runner 只负责封装。
+		// 失败时不写任何 oracle —— 绝不能退回 test-process 自证。
+		if err := writeExternalObservationOracle(dir, c.Observation); err != nil {
+			cr.Status = contracts.StatusFail
+			cr.Actual = err.Error()
+		}
+	}
+
 	cmdline := strings.Join(cmdlines, "\n")
 	ev.Command = cmdline
 	ev.ExitCode = exit
@@ -374,7 +407,14 @@ func runNativeCase(c nativeCase, target, display, root string, environment contr
 	ev.CaseResults = []contracts.CaseResult{cr}
 	ev.EndedAt = cr.EndedAt
 
-	writeEvidenceDir(dir, &ev, cmdline, strings.Join(stdouts, "\n"), strings.Join(stderrs, "\n"))
+	// oracle 已由 external 路径写好时不能再覆盖成 test-process。
+	var oracleFn func() error
+	if c.Observation == nil {
+		oracleFn = func() error {
+			return writeProcessOracle(dir, cmdline, ev.ExitCode, []byte(strings.Join(stdouts, "\n")), []byte(strings.Join(stderrs, "\n")))
+		}
+	}
+	writeEvidenceDirWithOracle(dir, &ev, cmdline, strings.Join(stdouts, "\n"), strings.Join(stderrs, "\n"), oracleFn)
 
 	fmt.Printf("  [%s] %s — %s\n", cr.Status, c.ID, firstLine(cr.Actual))
 	return caseOutcome{passed: cr.Status == contracts.StatusPass, blocked: cr.Status == contracts.StatusBlocked}

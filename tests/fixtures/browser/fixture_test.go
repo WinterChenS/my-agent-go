@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,18 +16,47 @@ import (
 //
 // 每个用例一份：计数器是本包的内存状态，复用同一份会让"提交前 0、提交一次 1"
 // 这种断言变成"上一次残留 +1"，也就是互相污染。
+//
+// 配置了 ANVIL_OBSERVATION_DIR 时改用"服务端请求日志"变体：每个 handler 处理完
+// 一次请求就追加一行，整条 case 的请求都落在同一份 fixture-requests.jsonl 里。
+// 测试结束时从**整份日志**重算观察值（最后跑的那条写下的就是完整总量）。
 func newFixture(t *testing.T) *Fixture {
 	t.Helper()
-	f, err := New()
+	logPath := ""
+	if dir := browserObservationDir(); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("创建观察目录失败: %v", err)
+		}
+		logPath = filepath.Join(dir, "fixture-requests.jsonl")
+	}
+	f, err := startFixture(t, logPath)
 	if err != nil {
 		t.Fatalf("启动 fixture: %v", err)
+	}
+	// 同一个 case 的多条测试共用一份请求日志：记下本条测试的起点，
+	// 每条测试自己的请求才能和别的测试分得开。
+	baseline := 0
+	if logPath != "" {
+		baseline = len(readRequestLog(t, logPath))
 	}
 	t.Cleanup(func() {
 		if err := f.Close(); err != nil {
 			t.Errorf("关闭 fixture: %v", err)
 		}
+		if logPath != "" {
+			observeFixtureRun(t, f, logPath, baseline)
+		}
 	})
 	return f
+}
+
+// startFixture 在 logPath 非空时启动带服务端请求日志的变体，否则就是原样 New()。
+func startFixture(t *testing.T, logPath string) (*Fixture, error) {
+	t.Helper()
+	if logPath == "" {
+		return New()
+	}
+	return newLoggingFixture(t, logPath)
 }
 
 type response struct {
