@@ -1036,6 +1036,11 @@ func TestNativeCreateDestroy50Rounds(t *testing.T) {
 	})
 	profileTag := filepath.Base(profileDir)
 
+	// 外部观察（BR06）：起点进程表由一个独立的 PowerShell 进程写进
+	// process-table-before.json（case 的第一条测试决定起点，后面再调不覆盖）。
+	// 过滤器用两条测试共有的 "native-profile-" 前缀。
+	captureProcessTable(t, "before", "native-profile-")
+
 	spikeBefore, err := ProcessCount("browser-spike.exe")
 	if err != nil {
 		t.Logf("警告: 统计 browser-spike.exe 失败: %v", err)
@@ -1101,8 +1106,15 @@ func TestNativeCreateDestroy50Rounds(t *testing.T) {
 		}
 		sampled := round == 1 || round == 10 || round == 25 || round == 50
 		var wv2During WebView2ProcessStats
+		var duringPIDs []any
+		var duringCount int
 		if sampled {
 			wv2During, _ = CountWebView2Processes(profileTag)
+			// 外部观察（BR06）：采样轮在**浏览器还活着的时候**让独立 PowerShell 进程
+			// 把 OS 进程表写进 process-table-during.json（Detach 之后它就没了）。
+			table := captureProcessTable(t, "during", "native-profile-")
+			duringPIDs = pidsOf(table.Processes)
+			duringCount = table.ProcessCount
 		}
 		if stats := pngStats(t, img.Bytes); stats.uniqueColors <= 4 {
 			t.Fatalf("第 %d 轮截图是纯色（uniqueColors=%d）", round, stats.uniqueColors)
@@ -1130,8 +1142,20 @@ func TestNativeCreateDestroy50Rounds(t *testing.T) {
 				round, after.ChildHWND, after.ControllerReady)
 		}
 
+		// 外部观察（BR06）：每轮一行 handles.jsonl。句柄数/working set 来自
+		// GetProcessHandleCount / GetProcessMemoryInfo（OS），子窗口状态来自
+		// IsWindow + 窗口类遍历；采样轮再让独立 PowerShell 进程抓一次 OS 进程表。
+		mem := ReadProcessMemory(t)
+		roundExtra := obsFacts{"profileTag": profileTag}
 		if sampled {
-			mem := ReadProcessMemory(t)
+			roundExtra["childPIDs"] = duringPIDs
+			roundExtra["processTableFile"] = "process-table-during.json"
+			roundExtra["webview2ProcessCount"] = duringCount
+		}
+		observeCreateDestroyRound(t, "TestNativeCreateDestroy50Rounds", round, mem,
+			child, WindowExists(child), CountWindowsOfClass("MyAgentNativeHostChild"), roundExtra)
+
+		if sampled {
 			wv2After, wvErr := CountWebView2Processes(profileTag)
 			if wvErr != nil {
 				t.Logf("警告: 第 %d 轮统计 msedgewebview2 失败: %v", round, wvErr)
@@ -1184,6 +1208,10 @@ func TestNativeCreateDestroy50Rounds(t *testing.T) {
 			s.Round, s.Elapsed.Round(time.Second), s.Mem.MB(), float64(s.Mem.PeakWorkingSet)/(1<<20),
 			s.Mem.HandleCount, s.WV2During.Count, s.WV2During.TotalWorkSetMB, s.WV2After.Count)
 	}
+
+	// 外部观察（BR06）：收尾进程表 + 从 handles.jsonl / process-table-*.json 读回事实。
+	captureProcessTable(t, "after", "native-profile-")
+	finalizeCreateDestroyObservation(t)
 }
 
 // waitCounter 轮询服务端 counter 到 want（最多 timeout）。

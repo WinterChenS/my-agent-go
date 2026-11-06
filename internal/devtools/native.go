@@ -140,6 +140,12 @@ func nativeCases() []nativeCase {
 				{Package: "tests/native", Run: "TestNativeCreateDestroy50Rounds|TestNativeCreateDestroyRepeated"},
 			},
 			Limitation: "50 轮子集；未做 >50 轮 soak 与分配级泄漏追踪（只记录 working set/句柄趋势）。",
+			// 每轮句柄数/working set 来自 GetProcessHandleCount / GetProcessMemoryInfo；
+			// 浏览器子进程由**独立的 PowerShell 进程** Get-CimInstance Win32_Process 写成
+			// process-table-before/during/after.json。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"handles.jsonl", "process-table-before.json", "process-table-during.json", "process-table-after.json",
+			}},
 		},
 		{
 			// BR00：两个 origin 独立、server counter 可核对、trusted-only 负例。

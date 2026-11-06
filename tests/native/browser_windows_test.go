@@ -363,6 +363,10 @@ func TestNativeDialogOcclusionVisibility(t *testing.T) {
 //
 // 不覆盖：50 轮、RSS 统计、late callback 的 generation 保护压力测试（B01b）。
 func TestNativeCreateDestroyRepeated(t *testing.T) {
+	// 外部观察（BR06）：起点进程表由独立 PowerShell 进程写（若 50 轮用例已写过则不覆盖）。
+	// 必须在建窗口之前抓，否则起点就不干净了。
+	captureProcessTable(t, "before", "native-profile-")
+
 	h := newHarness(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -382,6 +386,12 @@ func TestNativeCreateDestroyRepeated(t *testing.T) {
 		if err := h.host.CloseTab(ctx, h.tab); err != nil {
 			t.Fatalf("第 %d 轮重复 CloseTab 返回错误: %v", round, err)
 		}
+
+		// 外部观察（BR06 小规模子集）：每轮一行写进 handles.jsonl。
+		observeCreateDestroyRound(t, "TestNativeCreateDestroyRepeated", round, ReadProcessMemory(t),
+			after.ChildHWND, after.ChildHWND != 0 && WindowExists(after.ChildHWND),
+			CountWindowsOfClass("MyAgentNativeHostChild"), obsFacts{"tabClosed": true})
+
 		if round == 3 {
 			break
 		}
@@ -409,6 +419,11 @@ func TestNativeCreateDestroyRepeated(t *testing.T) {
 	if final.ChildHWND != 0 {
 		t.Fatalf("Detach 之后子窗口句柄未清零: 0x%x", final.ChildHWND)
 	}
+
+	// 外部观察（BR06）：从 handles.jsonl + process-table-*.json 读回事实。
+	// 两条测试都从整份文件重算，所以这里看到的是整个 case 的总量。
+	captureProcessTable(t, "after", "native-profile-")
+	finalizeCreateDestroyObservation(t)
 }
 
 // ---------- 断言辅助 ----------
