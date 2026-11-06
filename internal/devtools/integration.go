@@ -124,7 +124,11 @@ func integrationCases() []integrationCase {
 		// ── 门禁自身 ──
 		// GOV01：缺证据/未知 gate/未知 target 返回 2；目标×显示维度缺失也判死，
 		// 而完整的六目标证据必须能通过（否则「全判死」也能让上面几条绿）。
-		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland"},
+		// GOV01 的观察值来自**真实 devtools 二进制子进程**：测试在临时证据树上跑
+		// `gate`，把退出码与原始输出落进 gate-run.json。这不是测试进程内的断言能
+		// 复现的（ADR-0001 的退出码保真），所以用 external-observation。
+		{ID: "GOV01", Package: gateTests, Run: "TestGateRejectsMissingRequiredCase|TestGateRejectsUnknownGate|TestGateRejectsUnknownTarget|TestGateRejectsAllScopeMissingOneTarget|TestGateRejectsSameCaseOneTargetFails|TestGateRejectsUnknownScope|TestGateRejectsAtomicCaseWithoutScope|TestGateAcceptsAllRequiredEvidence|TestGateAcceptsAllScopeOnSixTargets|TestGateRejectsLinuxMissingWayland|TestGOV01CLIGateRejectsMissingEvidenceWithExitTwo",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"gate-run.json"}}},
 		// GOV02：陈旧 revision/锁 hash/伪造报告/缺审查人/oracle 缺失或篡改/串用阶段/重复证据/dirty 工作区均拒绝。
 		{ID: "GOV02", Package: gateTests, Run: "TestGateRejectsStaleRevision|TestGateRejectsFakeReportHash|TestGateRejectsMissingReviewer|TestGateRejectsMissingOrTamperedOracle|TestGateRequiresExternalOracleForSideEffectCases|TestGateRejectsDirtyWorktreeEvidence|TestGateRejectsEvidenceForWrongGate|TestGateRejectsDuplicateEvidence"},
 		{ID: "GOV03", Package: gateTests, Run: "TestCommandFailureReturnsAssertionCode|TestMissingBinaryReturnsConfigCode|TestVerifyRejectsUnknownSuite|TestVerifyRejectsMissingSuite|TestNativeRunnerRejectsUnknownTarget|TestNativeRunnerRejectsMissingTarget|TestNativeRunnerRejectsWrongHost|TestNativeRunnerRejectsInvalidDisplay|TestLookupNativeCaseDisplayCannotBeSubstituted|TestIntegrationRejectsUnknownGate"},
