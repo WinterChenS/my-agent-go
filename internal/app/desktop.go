@@ -716,9 +716,15 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		d.setLastErr("诊断记录不可用（usage/事件不会落库）：" + recErr.Error())
 		recorder = nil
 	}
-	var historySink run.HistorySink
-	if recorder != nil {
-		historySink = recorder
+	// 两个消费者共用 run.Options.History 这一个槽位：
+	//   - history：sessions/runs 索引与 transcript 定位键（历史列表与"重开历史"靠它）；
+	//   - diagnostics：run_usage/run_events（usage、预算、失败结论、诊断包）。
+	// 早先只装了一个，结果索引没有写者——真实运行过的会话在列表里查不到。
+	historySink, sinkErr := d.runHistorySinks(recorder)
+	if sinkErr != nil {
+		// 索引不可用要说出来，但不能拦住聊天：诊断仍有记录，索引这份缺失由
+		// 读取路径（历史列表）表现为"没有记录"，而不是"记录了空内容"。
+		d.setLastErr("运行索引不可用（会话历史不会落库）：" + sinkErr.Error())
 	}
 
 	// 这是应用进程里**唯一**的 RunService，也就是唯一的 admission queue：
