@@ -1,0 +1,489 @@
+package pi
+
+// 本文件实现 F08-B 的 Pi 契约探测（PI_COMP01–04）。
+//
+// 它回答的问题只有一个：**这个可执行体真的能按我们依赖的协议跑完整回合吗**。
+// 六项检查各失败各的、各具名各的，任何一项失败都返回 incompatible 并把失败项写进
+// FailedChecks——不允许"部分通过就放行"，也不允许把超时当成通过。
+//
+// 纪律：
+//   - 一切探测都在隔离 AgentDir/WorkspaceDir 里跑：绝不读写用户真实 Pi 配置。
+//   - 只证明协议行为；不证明"这是官方 Pi"。版本/哈希认证由 PreCertifiedHashes 决定。
+//   - 协议形状以真实捕获（internal/runtime/pi/testdata/v1.5.0/*.jsonl）为准：
+//     握手用捕获里真实存在的 get_commands，扩展/MCP 能力面看它的 commands 记录，
+//     完成信号只认 agent_settled 且必须带布尔 aborted。
+//   - FixtureHash 只证明 testdata 未漂移，**不**认证本机可执行体。
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"my-agent-go/internal/contracts"
+)
+
+const (
+	defaultContractTimeout      = 60 * time.Second
+	defaultContractCheckTimeout = 10 * time.Second
+	// contractProbeEnvironment 声明探测确实发生在隔离 agentDir 里。
+	contractProbeEnvironment = "isolated-agentdir"
+)
+
+// ContractChecks 是六项契约检查的名字与报告顺序。
+var ContractChecks = []string{"rpc", "settled", "mcp", "extension", "abort", "cleanup"}
+
+// WorkerStarter 是启动 worker 的注入点（生产用 StartWorker，测试注入 fakeworker）。
+type WorkerStarter func(ctx context.Context, spec WorkerSpec) (Worker, error)
+
+// ContractOptions 描述一次契约探测的隔离位置与时限。
+type ContractOptions struct {
+	// AgentDir 是隔离的 PI_CODING_AGENT_DIR；为空直接拒绝（不能碰用户真实配置）。
+	AgentDir string
+	// WorkspaceDir 是 worker 的工作目录；为空时退回 AgentDir。
+	WorkspaceDir string
+	// Timeout 是整次探测的总时限，默认 60s。
+	Timeout time.Duration
+	// CheckTimeout 是单项检查的时限，默认 10s。超时是失败，不是通过。
+	CheckTimeout time.Duration
+	// WorkerStarter 默认 StartWorker。
+	WorkerStarter WorkerStarter
+}
+
+// ContractReport 是一次完整契约探测的结论（PI_COMP01–04）。
+type ContractReport struct {
+	Version string `json:"version"`
+	// State 只可能是 ready_compatible（六项全过）或 incompatible（任一项失败）。
+	// ready_verified 由 Discover 结合版本/哈希清单判定，本层不产生。
+	State        CompatibilityState `json:"state"`
+	Capabilities []string           `json:"capabilities"` // rpc, settled, mcp, extension, abort, cleanup
+	FailedChecks []string           `json:"failedChecks,omitempty"`
+	// FixtureHash 是已捕获 fixture 的哈希（只证明 testdata 未漂移）。
+	FixtureHash string `json:"fixtureHash"`
+	// Environment 例如 "isolated-agentdir"。
+	Environment string `json:"environment"`
+	// Observed 记录通过时实际观察到的能力来源（例如 MCP 来自哪条命令）。
+	Observed []string `json:"observed,omitempty"`
+}
+
+// ContractProbe 在隔离 agentDir 里跑完整契约探测。
+//
+// 任何一项失败都返回 StateIncompatible 并把失败项写进 FailedChecks；
+// 不允许"部分通过就放行"。error 只用于"探测根本无法进行"（例如没给 agentDir），
+// 检查失败一律在报告里。
+func ContractProbe(ctx context.Context, inst PiInstallation, opts ContractOptions) (ContractReport, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	report := ContractReport{
+		Version:      inst.Version,
+		State:        StateIncompatible,
+		Capabilities: []string{},
+		FixtureHash:  contractFixtureHash(inst.Version),
+		Environment:  contractProbeEnvironment,
+	}
+	if strings.TrimSpace(opts.AgentDir) == "" {
+		return report, contracts.NewAppError(contracts.CodeCompatibility,
+			"契约探测必须指定隔离 agentDir（拒绝在用户真实配置目录里跑）", false)
+	}
+	opts = normalizeContractOptions(opts)
+	if err := os.MkdirAll(opts.AgentDir, 0o755); err != nil {
+		return report, contracts.NewAppError(contracts.CodeCompatibility,
+			"无法创建隔离 agentDir: "+err.Error(), false)
+	}
+	if err := os.MkdirAll(opts.WorkspaceDir, 0o755); err != nil {
+		return report, contracts.NewAppError(contracts.CodeCompatibility,
+			"无法创建隔离工作目录: "+err.Error(), false)
+	}
+	if err := ctx.Err(); err != nil {
+		return report, contracts.NewAppError(contracts.CodeRpcCancelled,
+			"契约探测开始前上下文已取消: "+err.Error(), false)
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+
+	p := &contractProber{inst: inst, opts: opts}
+	checks := []struct {
+		name string
+		run  func(context.Context) (string, error)
+	}{
+		{"rpc", p.checkRPC},
+		{"settled", p.checkSettled},
+		{"mcp", p.checkMCP},
+		{"extension", p.checkExtension},
+		{"abort", p.checkAbort},
+		{"cleanup", p.checkCleanup},
+	}
+	for _, c := range checks {
+		p.check = c.name
+		checkCtx, checkCancel := context.WithTimeout(probeCtx, opts.CheckTimeout)
+		observed, err := c.run(checkCtx)
+		checkCancel()
+		if err != nil {
+			report.FailedChecks = append(report.FailedChecks, c.name+": "+err.Error())
+			continue
+		}
+		report.Capabilities = append(report.Capabilities, c.name)
+		if observed != "" {
+			report.Observed = append(report.Observed, observed)
+		}
+	}
+	if len(report.FailedChecks) == 0 {
+		report.State = StateReadyCompatible
+	}
+	return report, nil
+}
+
+// defaultContractProbe 是生产路径的 ProbeFunc：在临时隔离目录里跑完整契约探测。
+//
+// 只在 Discover 既没注入 VersionProbe 也没注入 ProbeFunc 时使用（见 Discover）。
+// 目录是临时创建的，探测结束即删除：发现/探测不写用户真实配置。
+func defaultContractProbe(ctx context.Context, cand PiCandidate) (bool, []string) {
+	root, err := os.MkdirTemp("", "anvil-pi-contract-")
+	if err != nil {
+		return false, []string{"kind:\"contract-probe-failed\" 无法创建隔离探测目录: " + err.Error()}
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+
+	report, err := ContractProbe(ctx, cand.Installation, ContractOptions{
+		AgentDir:     filepath.Join(root, "agent"),
+		WorkspaceDir: filepath.Join(root, "workspace"),
+	})
+	if err != nil {
+		return false, []string{"kind:\"contract-probe-failed\" 隔离契约探测无法执行: " + err.Error()}
+	}
+	if report.State == StateReadyCompatible {
+		return true, []string{
+			"kind:\"contract-probe-passed\" 隔离契约探测通过: " + strings.Join(report.Capabilities, ","),
+		}
+	}
+	return false, []string{
+		"kind:\"contract-probe-failed\" 隔离契约探测未通过: " + strings.Join(report.FailedChecks, "; "),
+	}
+}
+
+// ── 内部实现 ────────────────────────────────────────────────────────────────
+
+type contractProber struct {
+	inst PiInstallation
+	opts ContractOptions
+	// check 是当前进行检查的名字；只用于标注子进程环境与诊断，不改变行为。
+	check string
+}
+
+func normalizeContractOptions(opts ContractOptions) ContractOptions {
+	if opts.Timeout <= 0 {
+		opts.Timeout = defaultContractTimeout
+	}
+	if opts.CheckTimeout <= 0 {
+		opts.CheckTimeout = defaultContractCheckTimeout
+	}
+	if opts.CheckTimeout > opts.Timeout {
+		opts.CheckTimeout = opts.Timeout
+	}
+	if strings.TrimSpace(opts.WorkspaceDir) == "" {
+		opts.WorkspaceDir = opts.AgentDir
+	}
+	if opts.WorkerStarter == nil {
+		opts.WorkerStarter = StartWorker
+	}
+	return opts
+}
+
+func (p *contractProber) start(ctx context.Context) (Worker, error) {
+	w, err := p.opts.WorkerStarter(ctx, WorkerSpec{
+		Installation: p.inst,
+		WorkingDir:   p.opts.WorkspaceDir,
+		AgentDir:     p.opts.AgentDir,
+		Env:          []string{"ANVIL_CONTRACT_CHECK=" + p.check},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("启动隔离 worker 失败: %w", err)
+	}
+	if w == nil {
+		return nil, fmt.Errorf("启动隔离 worker 失败: starter 返回 nil")
+	}
+	return w, nil
+}
+
+// closeBudget 只是给 Close 一个"总得结束"的兜底；真正的时限在 WorkerSpec 里。
+func (p *contractProber) closeBudget() time.Duration {
+	return p.opts.CheckTimeout + 10*time.Second
+}
+
+// closeQuietly 关闭 worker 但不覆盖已记录的失败。
+func (p *contractProber) closeQuietly(w Worker) {
+	ctx, cancel := context.WithTimeout(context.Background(), p.closeBudget())
+	defer cancel()
+	_ = w.Close(ctx)
+}
+
+// checkRPC 验证最小 RPC 往返：握手命令 + prompt 都能拿到合规响应。
+func (p *contractProber) checkRPC(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer p.closeQuietly(w)
+
+	raw, err := w.Call(ctx, json.RawMessage(`{"type":"get_commands"}`))
+	if err != nil {
+		return "", fmt.Errorf("握手命令 get_commands 无响应: %w", err)
+	}
+	if problem := responseProblem(raw); problem != "" {
+		return "", fmt.Errorf("握手响应不合规: %s（原文 %s）", problem, clip(string(raw), 300))
+	}
+	promptRaw, err := w.Call(ctx, promptCommand())
+	if err != nil {
+		return "", fmt.Errorf("prompt 无响应: %w", err)
+	}
+	if problem := responseProblem(promptRaw); problem != "" {
+		return "", fmt.Errorf("prompt 响应不合规: %s（原文 %s）", problem, clip(string(promptRaw), 300))
+	}
+	return "rpc:get_commands+prompt", nil
+}
+
+// checkSettled 驱动一个回合到 agent_settled，并要求负载带布尔 aborted。
+func (p *contractProber) checkSettled(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer p.closeQuietly(w)
+
+	if _, err := w.Call(ctx, promptCommand()); err != nil {
+		return "", fmt.Errorf("prompt 无响应: %w", err)
+	}
+	ev, err := waitForEvent(ctx, w, func(ev RawEvent) bool { return ev.Type == TypeAgentSettled })
+	if err != nil {
+		return "", err
+	}
+	aborted, problem := settledAborted(ev.Record)
+	if problem != "" {
+		return "", fmt.Errorf("agent_settled 负载不合规: %s（原文 %s）", problem, clip(string(ev.Record), 300))
+	}
+	return fmt.Sprintf("settled:agent_settled/aborted=%t", aborted), nil
+}
+
+// checkMCP 验证 MCP 能力面可达：get_commands 里必须有 MCP 命令。
+// 记录观察到的命令名，便于证据回溯。
+func (p *contractProber) checkMCP(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer p.closeQuietly(w)
+
+	cmds, err := fetchCommands(ctx, w)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range cmds {
+		if strings.EqualFold(c.Name, "mcp") || strings.Contains(strings.ToLower(c.Description), "mcp") {
+			return "mcp:get_commands/" + c.Name, nil
+		}
+	}
+	return "", fmt.Errorf("MCP 能力面不可达：get_commands 未返回 MCP 命令（共 %d 条命令）", len(cmds))
+}
+
+// checkExtension 验证扩展 hook 面可达：get_commands 里必须有扩展来源的命令。
+func (p *contractProber) checkExtension(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer p.closeQuietly(w)
+
+	cmds, err := fetchCommands(ctx, w)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range cmds {
+		if strings.EqualFold(c.Source, "extension") || strings.EqualFold(c.Source, "skill") {
+			return "extension:get_commands/" + c.Name, nil
+		}
+	}
+	return "", fmt.Errorf("扩展 hook 面不可达：get_commands 未返回扩展来源命令（共 %d 条命令）", len(cmds))
+}
+
+// checkAbort 在回合进行中发 abort，要求 agent_settled{aborted:true}。
+// 一直跑下去的 worker 必须失败（超时），不能因为"还活着"算通过。
+func (p *contractProber) checkAbort(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer p.closeQuietly(w)
+
+	// prompt 不能在当前 goroutine 等响应：abort 必须在回合进行中发出。
+	promptCtx, cancelPrompt := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = w.Call(promptCtx, promptCommand())
+	}()
+	defer func() {
+		cancelPrompt()
+		<-done
+	}()
+
+	// 尽量等到回合真的开始（真实 Pi 与合规 worker 都发 agent_start）。
+	// 等不到也必须继续发 abort：hang 模式的负例要求 abort 自己超时失败。
+	startCtx, cancelStart := context.WithTimeout(ctx, p.opts.CheckTimeout/2)
+	_, _ = waitForEvent(startCtx, w, func(ev RawEvent) bool { return ev.Type == "agent_start" })
+	cancelStart()
+
+	if _, err := w.Call(ctx, json.RawMessage(`{"type":"abort"}`)); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("timeout: abort 命令在时限内无响应（%w）", err)
+		}
+		return "", fmt.Errorf("abort 命令失败: %w", err)
+	}
+	ev, err := waitForEvent(ctx, w, func(ev RawEvent) bool { return ev.Type == TypeAgentSettled })
+	if err != nil {
+		return "", err
+	}
+	aborted, problem := settledAborted(ev.Record)
+	if problem != "" {
+		return "", fmt.Errorf("agent_settled 负载不合规: %s（原文 %s）", problem, clip(string(ev.Record), 300))
+	}
+	if !aborted {
+		return "", fmt.Errorf("abort 之后 agent_settled 没有标记 aborted:true（原文 %s）",
+			clip(string(ev.Record), 300))
+	}
+	return "abort:agent_settled/aborted=true", nil
+}
+
+// checkCleanup 关闭 worker 并要求真的关闭：Close 无 CleanupFailed 且主进程退出。
+// 子孙清除本身由 worker.Close 判定（RPC05），这里不接受"清理报告的失败被吞掉"。
+func (p *contractProber) checkCleanup(ctx context.Context) (string, error) {
+	w, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	// 先让 worker 真的跑起来：会派生子孙的 worker 在这一步拉起子孙。
+	callCtx, cancelCall := context.WithTimeout(ctx, p.opts.CheckTimeout)
+	_, _ = w.Call(callCtx, json.RawMessage(`{"type":"get_commands"}`))
+	cancelCall()
+
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), p.closeBudget())
+	defer cancelClose()
+	closeErr := w.Close(closeCtx)
+	defer p.closeQuietly(w)
+	if closeErr != nil {
+		return "", fmt.Errorf("清理未完成: %w", closeErr)
+	}
+	if _, known := w.ExitCode(); !known {
+		return "", fmt.Errorf("清理后 worker 主进程仍在运行")
+	}
+	return "cleanup:closed", nil
+}
+
+// ── 协议解析小工具 ──────────────────────────────────────────────────────────
+
+// contractFixtureHash 定位 <version> 的 fixture 哈希。
+// testdata 目录名带 v 前缀（testdata/v1.5.0），而产品版本号不带，两种写法都试。
+func contractFixtureHash(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return ""
+	}
+	if h := protocolFixtureHash(v); h != "" {
+		return h
+	}
+	return protocolFixtureHash("v" + strings.TrimPrefix(v, "v"))
+}
+
+func promptCommand() json.RawMessage {
+	return json.RawMessage(`{"type":"prompt","message":"contract probe: reply with ok"}`)
+}
+
+// responseProblem 检查一条 response 记录是否合规；返回空串表示合规。
+func responseProblem(raw json.RawMessage) string {
+	var h struct {
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Success *bool  `json:"success"`
+	}
+	if err := json.Unmarshal(raw, &h); err != nil {
+		return "不是合法 JSON 对象: " + err.Error()
+	}
+	if h.Type != TypeResponse {
+		return "type 不是 response，实际 " + strings.TrimSpace(h.Type)
+	}
+	if strings.TrimSpace(h.ID) == "" {
+		return "响应缺少 id"
+	}
+	if h.Success == nil {
+		return "响应缺少 success 字段"
+	}
+	if !*h.Success {
+		return "响应 success=false"
+	}
+	return ""
+}
+
+// settledAborted 取 agent_settled 里的布尔 aborted。
+// 缺失/非布尔一律算失败：完成语义不能靠推断。
+func settledAborted(record json.RawMessage) (bool, string) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(record, &fields); err != nil {
+		return false, "不是合法 JSON 对象: " + err.Error()
+	}
+	raw, ok := fields["aborted"]
+	if !ok {
+		return false, "缺少 aborted 字段"
+	}
+	var aborted bool
+	if err := json.Unmarshal(raw, &aborted); err != nil {
+		return false, "aborted 不是布尔值: " + string(raw)
+	}
+	return aborted, ""
+}
+
+type workerCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+// fetchCommands 发 get_commands 并解析 data.commands（真实捕获里的能力面）。
+func fetchCommands(ctx context.Context, w Worker) ([]workerCommand, error) {
+	raw, err := w.Call(ctx, json.RawMessage(`{"type":"get_commands"}`))
+	if err != nil {
+		return nil, fmt.Errorf("get_commands 无响应: %w", err)
+	}
+	if problem := responseProblem(raw); problem != "" {
+		return nil, fmt.Errorf("get_commands 响应不合规: %s（原文 %s）", problem, clip(string(raw), 300))
+	}
+	var v struct {
+		Data struct {
+			Commands []workerCommand `json:"commands"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, fmt.Errorf("get_commands 响应无法解析: %w", err)
+	}
+	return v.Data.Commands, nil
+}
+
+// waitForEvent 消费事件直到匹配或超时。超时返回带 timeout 字样的错误。
+func waitForEvent(ctx context.Context, w Worker, match func(RawEvent) bool) (RawEvent, error) {
+	for {
+		select {
+		case ev, ok := <-w.Events():
+			if !ok {
+				return RawEvent{}, fmt.Errorf("timeout: worker 事件流在期望记录到达前关闭")
+			}
+			if match(ev) {
+				return ev, nil
+			}
+		case <-ctx.Done():
+			return RawEvent{}, fmt.Errorf("timeout: 在时限内未等到期望记录（%v）", ctx.Err())
+		}
+	}
+}

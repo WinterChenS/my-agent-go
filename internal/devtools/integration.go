@@ -132,6 +132,19 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"candidates.json"}}},
 		{ID: "PI_DISC02", Package: piTests, Run: "TestDiscoverRejectsWechatNodeShim|TestDiscoverNeverModifiesExternalFilesOrPath|TestSelectRejectsUnknownOrUnusableCandidate",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"rejected.json"}}},
+		// F08-B：契约探测（rpc/settled/mcp/extension/abort/cleanup）与兼容报告。
+		// 四条 case 的证据都由测试自己写进 ANVIL_OBSERVATION_DIR：
+		//   PI_COMP01/02/04 → contract-report.json（探测结论）；
+		//   PI_COMP03 → failure-report.json（具名失败项）。
+		// 全部跑在 fakeworker + 临时 agentDir 上：本机没有 1.5.0，不能拿它冒充真实包证据。
+		{ID: "PI_COMP01", Package: piTests, Run: "TestContractProbePassesOnCompliantWorker|TestContractProbeRejectsVersionRangeWithoutProbe",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
+		{ID: "PI_COMP02", Package: piTests, Run: "TestDiscoverUsesContractProbeForReadyCompatible|TestUnknownPatchBecomesCompatibleOnlyAfterProbe",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
+		{ID: "PI_COMP03", Package: piTests, Run: "TestContractProbeFailsOnMalformedSettled|TestContractProbeFailsOnHungAbort|TestContractProbeFailsOnLeakedGrandchild",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"failure-report.json"}}},
+		{ID: "PI_COMP04", Package: piTests, Run: "TestVersionRangeMapsWithoutProbing|TestDiscoverMapsVersionToCompatibilityState",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
 
 		// ── RPC ──
 		{ID: "RPC01", Package: piTests, Run: "TestLFFramingUnicodeAndLargeRecord"},

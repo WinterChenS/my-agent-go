@@ -134,6 +134,13 @@ func Discover(ctx context.Context, req DiscoveryRequest) (DiscoveryResult, error
 	if vprobe == nil {
 		vprobe = defaultVersionProbe
 	}
+	// 契约探测（F08-B）走 ProbeFunc 缝。生产路径（既不注入 VersionProbe 也不注入
+	// ProbeFunc）必须真的在隔离 agentDir 里跑完整探测；注入 VersionProbe 的离线发现
+	// （测试）不启动任何进程，保持 F08-A 的可测性。
+	probe := req.ProbeFunc
+	if probe == nil && req.VersionProbe == nil {
+		probe = defaultContractProbe
+	}
 
 	res := DiscoveryResult{Candidates: []PiCandidate{}}
 
@@ -176,7 +183,7 @@ func Discover(ctx context.Context, req DiscoveryRequest) (DiscoveryResult, error
 
 	// 3) 逐条解析真实路径 / 运行时 / 指纹 / 版本 → 兼容状态。
 	for i := range res.Candidates {
-		res.Candidates[i] = resolveCandidate(ctx, res.Candidates[i], req, policy, vprobe)
+		res.Candidates[i] = resolveCandidate(ctx, res.Candidates[i], req, policy, vprobe, probe)
 	}
 
 	// 4) 按**解析后的真实路径**去重（符号链接/多来源指向同一文件时只留最高优先级）。
@@ -318,7 +325,7 @@ func newCandidate(launcher, origin string) PiCandidate {
 }
 
 // resolveCandidate 解析真实路径、运行时与指纹，并按版本策略给出兼容状态。
-func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, policy VersionPolicy, vprobe VersionProbe) PiCandidate {
+func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, policy VersionPolicy, vprobe VersionProbe, probe ProbeFunc) PiCandidate {
 	info, err := os.Stat(c.LauncherPath)
 	if err != nil {
 		c.Installation.Runnable = false
@@ -430,7 +437,7 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 	if len(probeDiags) > 0 {
 		c.Installation.Note = strings.Join(probeDiags, "; ")
 	}
-	compat, diags := classifyCompatibility(policy, version, c, probeDiags, req.ProbeFunc)
+	compat, diags := classifyCompatibility(ctx, policy, version, c, probeDiags, probe)
 	c.Compatibility = compat
 	c.Diagnostics = append(c.Diagnostics, diags...)
 	return c
@@ -447,7 +454,7 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 //
 // 关键纪律：PreCertifiedHashes 是随发行包下发的白名单，默认空。
 // **未登记的可执行体哈希永远不可能变成 ready_verified**——本机跑通不是认证。
-func classifyCompatibility(policy VersionPolicy, version string, cand PiCandidate, probeDiags []string, probe ProbeFunc) (CompatibilityState, []string) {
+func classifyCompatibility(ctx context.Context, policy VersionPolicy, version string, cand PiCandidate, probeDiags []string, probe ProbeFunc) (CompatibilityState, []string) {
 	if version == "" {
 		diags := []string{"kind:\"version-probe-failed\" 版本探测失败，不得当作可用"}
 		diags = append(diags, probeDiags...)
@@ -461,13 +468,13 @@ func classifyCompatibility(policy VersionPolicy, version string, cand PiCandidat
 	}
 	if ver[0] >= 2 {
 		return StateIncompatible, []string{
-			fmt.Sprintf("kind:\"unsupported-major\" 版本 %s 属 2.x+，尚无签名清单，不静默放行", version),
+			fmt.Sprintf("kind:\"unsupported-major\" 版本 %s 属 2.x+，尚无签名清单，不静默放行；契约探测未执行（没有清单就没有可探测的契约）", version),
 		}
 	}
 	minVersion := minimumVersion(policy)
 	if minVer, ok := parseSemver(minVersion); ok && versionLess(ver, minVer) {
 		return StateUpgradeAvailable, []string{
-			fmt.Sprintf("kind:\"upgrade-available\" 版本 %s 低于最低支持版本 %s；只能提示升级，不可选中", version, minVersion),
+			fmt.Sprintf("kind:\"upgrade-available\" 版本 %s 低于最低支持版本 %s；只能提示升级，不可选中；契约探测未执行（低于基线）", version, minVersion),
 		}
 	}
 
@@ -476,12 +483,27 @@ func classifyCompatibility(policy VersionPolicy, version string, cand PiCandidat
 	//   2) 当前可执行体的 SHA-256 在嵌入的预认证哈希清单里；
 	//   3) 当前可执行体的契约探测通过。
 	// 缺一条就只能是 ready_compatible。尤其：未登记的哈希即使契约探测通过也不能升格。
+	//
+	// 反过来，探测**跑了但失败**就不是"还没测"：直接 incompatible，
+	// 不允许把失败的候选降格成 ready_compatible 放行（F08-B）。
 	contractOK := false
 	diags := []string{}
 	if probe != nil {
-		ok, failed := probe(context.Background(), cand)
-		contractOK = ok
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ok, failed := probe(ctx, cand)
+		if !ok {
+			out := []string{
+				"kind:\"contract-probe-failed\" 隔离契约探测未通过，按 incompatible 处理（不允许部分通过就放行）",
+			}
+			return StateIncompatible, append(out, failed...)
+		}
+		contractOK = true
 		diags = append(diags, failed...)
+		if len(failed) == 0 {
+			diags = append(diags, "kind:\"contract-probe-passed\" 隔离契约探测通过")
+		}
 	}
 	versionCertified := policy.IsCertified(version)
 	hashRegistered := policy.PreCertifiedHashes[version][cand.ExecutableHash]

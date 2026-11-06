@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "echo", "echo|outoforder|stderrflood|stdoutflood|malformed|grandchild|hang|crashafterwrite")
+	mode := flag.String("mode", "echo", "echo|outoforder|stderrflood|stdoutflood|malformed|grandchild|hang|crashafterwrite|contract")
 	expect := flag.Int("expect", 0, "outoforder：先收满 N 条命令再倒序回复")
 	floodBytes := flag.Int("flood-bytes", 4<<20, "洪泛总字节数")
 	marker := flag.String("marker", "", "grandchild 子进程的心跳文件")
@@ -173,11 +173,23 @@ func emitMalformed() {
 	fmt.Fprint(os.Stdout, "{\"type\":\"response\",\"id\":\"ghost-1\",\"success\":true}\n")
 }
 
+// contractTurn 记录 contract 模式的回合状态：prompt 之后 500ms 内没收到 abort
+// 就正常结束（agent_settled{aborted:false}），收到 abort 就立刻结束并标记 aborted:true。
+//
+// 时间窗不是"随便 sleep"：契约探测的 abort 检查必须在回合进行中发出 abort，
+// 而 settled 检查又必须能在没有 abort 时自然收敛。窗口把两者变成确定性时序。
+type contractTurn struct {
+	mu      sync.Mutex
+	running bool
+	aborted bool
+}
+
 func serve(mode string, expect int, marker string) {
 	in := bufio.NewReader(os.Stdin)
 	var mu sync.Mutex
 	var pending []string
 	var spawnOnce sync.Once
+	var turn contractTurn
 
 	write := func(s string) {
 		mu.Lock()
@@ -195,6 +207,42 @@ func serve(mode string, expect int, marker string) {
 			}
 			if json.Unmarshal([]byte(line), &cmd) == nil && cmd.Type != "" {
 				switch {
+				case mode == "contract" && cmd.Type == "get_commands":
+					// 形状取自真实捕获 internal/runtime/pi/testdata/v1.5.0/extension.jsonl：
+					// 扩展与 MCP 都以 get_commands 的 commands 记录暴露。
+					write(makeCommandsResponse(cmd.ID))
+				case mode == "contract" && cmd.Type == "prompt":
+					write(makeResponse(cmd.ID, cmd.Type))
+					write(`{"type":"agent_start"}`)
+					turn.mu.Lock()
+					turn.running = true
+					turn.aborted = false
+					turn.mu.Unlock()
+					time.AfterFunc(500*time.Millisecond, func() {
+						turn.mu.Lock()
+						if !turn.running {
+							turn.mu.Unlock()
+							return
+						}
+						aborted := turn.aborted
+						turn.running = false
+						turn.mu.Unlock()
+						if aborted {
+							write(`{"type":"agent_settled","aborted":true}`)
+							return
+						}
+						write(`{"type":"agent_settled","aborted":false}`)
+					})
+				case mode == "contract" && cmd.Type == "abort":
+					write(makeResponse(cmd.ID, cmd.Type))
+					turn.mu.Lock()
+					wasRunning := turn.running
+					turn.running = false
+					turn.aborted = true
+					turn.mu.Unlock()
+					if wasRunning {
+						write(`{"type":"agent_settled","aborted":true}`)
+					}
 				case mode == "hang":
 					// 故意不响应：让上层走到超时/取消分支。
 				case mode == "outoforder" && expect > 0:
@@ -229,6 +277,14 @@ func makeResponse(id, command string) string {
 	}
 	return `{"id":` + strconv.Quote(id) + `,"type":"response","command":` +
 		strconv.Quote(command) + `,"success":true,"data":{"echo":` + strconv.Quote(command) + `}}`
+}
+
+// makeCommandsResponse 复现 get_commands 的真实响应形状（扩展来源命令 + MCP 命令）。
+func makeCommandsResponse(id string) string {
+	return `{"id":` + strconv.Quote(id) + `,"type":"response","command":"get_commands","success":true,"data":{"commands":[` +
+		`{"name":"fixture-ext","description":"F08-B contract probe extension","source":"extension"},` +
+		`{"name":"mcp","description":"Manage MCP servers: sign in, reconnect, enable or disable, and change exposure","source":"extension"}` +
+		`]}}`
 }
 
 func makeDuplicateResponse(id, command string) string {
