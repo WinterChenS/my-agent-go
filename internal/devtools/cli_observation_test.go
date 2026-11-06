@@ -490,3 +490,49 @@ func TestGOV03CLIExitCodeFidelity(t *testing.T) {
 		"note":            "1 来自临时 fixture 仓库里未格式化文件的 gofmt 断言；同一次运行的 go vet 与前端 typecheck 均通过（见 artifact stdout）。",
 	})
 }
+
+// ---- GOV04：必需 case 目录整个缺失必须被真实 gate 点名并退出 2 ----
+
+func TestGOV04CLIGateReportsMissingCaseWithExitTwo(t *testing.T) {
+	obsDir := observationDirForTest(t)
+	root := t.TempDir()
+	rev, _ := writeCompleteG0EvidenceTree(t, root)
+
+	// 缺陷只做一处：把一条必需 case 的证据目录整个删掉（不是写坏，是不存在）。
+	// 不依赖仓库当前的 runner 覆盖：缺陷是在临时证据树里构造出来的。
+	missingCase := "RPC04"
+	caseDir := filepath.Join(root, rev, "G0", hostTargetID(t), missingCase)
+	if _, err := os.Stat(caseDir); err != nil {
+		t.Fatalf("fixture 里没有 %s 的证据目录，观察前提不成立: %v", missingCase, err)
+	}
+	if err := os.RemoveAll(caseDir); err != nil {
+		t.Fatalf("删除 %s 证据目录失败: %v", missingCase, err)
+	}
+
+	run := runDevtoolsCLI(t, "missing-case", "", "gate", "--id=G0", "--evidence="+root)
+	if run.ExitCode != 2 {
+		t.Fatalf("必需 case 缺失应退出 2，实际 %d\nstdout=%s\nstderr=%s",
+			run.ExitCode, tail(run.Stdout, 1500), tail(run.Stderr, 400))
+	}
+
+	runs := writeCLIArtifact(t, obsDir, "gate-run.json", []cliRun{run})
+	stdout := runs[0].Stdout
+	missing := linesContaining(stdout, "[missing]")
+	if len(missing) != 1 {
+		t.Fatalf("期望只有一条必需证据位缺失（其余 130 位合法），实际 %d 条: %v", len(missing), missing)
+	}
+	if !strings.Contains(missing[0], missingCase) {
+		t.Fatalf("gate 报告的缺失项不是 %s: %s", missingCase, missing[0])
+	}
+	reason := firstLineContaining(stdout, "缺必需证据: "+missingCase)
+	if reason == "" {
+		t.Fatalf("gate 的真实输出没有点名缺失的 %s，不能编造观察值\nstdout=%s", missingCase, tail(stdout, 1500))
+	}
+
+	writeObservationFacts(t, obsDir, map[string]any{
+		"exitCode":            runs[0].ExitCode,
+		"missingCase":         missingCase,
+		"missingRequirements": len(missing),
+		"reason":              reason,
+	})
+}
