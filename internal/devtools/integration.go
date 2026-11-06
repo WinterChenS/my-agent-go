@@ -192,7 +192,10 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json", "export.json"}}},
 
 		// ── 技能与扩展（C03，G2；RES02 需要真实 Pi） ──
-		{ID: "RES01", Steps: []integrationStep{{Package: "internal/resources", Run: "TestImportCopiesWithoutExecutingSource|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape|TestImportRejectsDuplicateWithoutOverwrite|TestOverwriteSkillReplacesContentAndKeepsEnabled|TestDeleteSkillRemovesDirAndAllowsReimport|TestSkillCASConflictIsRejected|TestSaveSkillContentGuardsIdentity"}}},
+		{ID: "RES01", Steps: []integrationStep{{Package: "internal/resources", Run: "TestImportCopiesWithoutExecutingSource|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape|TestImportRejectsDuplicateWithoutOverwrite|TestOverwriteSkillReplacesContentAndKeepsEnabled|TestDeleteSkillRemovesDirAndAllowsReimport|TestSkillCASConflictIsRejected|TestSaveSkillContentGuardsIdentity"}},
+			// 观察值来自磁盘上的托管技能目录（source: filesystem）：导入/删除/CAS
+			// 到底在磁盘上留下了什么，用 filepath.Walk 从盘上读，不问服务。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"skills-tree.json"}}},
 		{ID: "RES02", Steps: []integrationStep{{Package: "internal/resources", Run: "TestDisabledManagedSkillAbsentInNextRun", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}}}},
 		{ID: "RES03", Steps: []integrationStep{{Package: "internal/resources", Run: "TestMissingDependencyMarksUnavailable|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape"}}},
 		{ID: "RES04", Steps: []integrationStep{

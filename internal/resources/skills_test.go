@@ -157,6 +157,11 @@ func TestImportCopiesWithoutExecutingSource(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "skills", "runme-skill", "install.sh")); err != nil {
 		t.Fatalf("附属文件没有一起复制: %v", err)
 	}
+
+	// RES01 的外部观察（filesystem）：导入后在磁盘上的真实文件树。
+	facts := map[string]any{}
+	mergeSkillsFact(t, facts, "importedSkills", "runme-skill")
+	recordSkillsTree(t, root, "after-import", facts)
 }
 
 // TestImportRejectsDuplicateWithoutOverwrite 守 RES01 的"覆盖须明确动作"。
@@ -323,15 +328,22 @@ func TestDeleteSkillRemovesDirAndAllowsReimport(t *testing.T) {
 		t.Fatal("删除后不应还能读到")
 	}
 
+	// RES01 的外部观察：删除后磁盘上真的没了（快照留档），再导入又回来。
+	delFacts := map[string]any{}
+	mergeSkillsFact(t, delFacts, "importedSkills", "del-skill")
+	mergeSkillsFact(t, delFacts, "deletedSkills", "del-skill")
+	recordSkillsTree(t, root, "after-delete", delFacts)
+
 	// 残留目录会让再次导入失败，这里顺带守住"删干净"。
 	if _, err := svc.ImportSkill(ctx, dir, ScopeUser, ""); err != nil {
 		t.Fatalf("删除后应能重新导入: %v", messageOf(err))
 	}
+	recordSkillsTree(t, root, "after-reimport", map[string]any{})
 }
 
 // TestSkillCASConflictIsRejected 守 CFG02 在技能上的延伸：拿旧 revision 写必须失败。
 func TestSkillCASConflictIsRejected(t *testing.T) {
-	svc, _ := newSkillService(t)
+	svc, root := newSkillService(t)
 	ctx := context.Background()
 	dir := writeSourceSkill(t, "cas", skillMD("cas-skill", "d"), nil)
 	if _, err := svc.ImportSkill(ctx, dir, ScopeUser, ""); err != nil {
@@ -345,6 +357,12 @@ func TestSkillCASConflictIsRejected(t *testing.T) {
 	if _, err := svc.SetSkillEnabled(ctx, "cas-skill", set.Revision, true); err == nil {
 		t.Fatal("过期 revision 的写入应被拒绝")
 	}
+
+	// RES01 的外部观察：CAS 拒绝之后磁盘上的文件没有被改写。
+	casFacts := map[string]any{}
+	mergeSkillsFact(t, casFacts, "importedSkills", "cas-skill")
+	mergeSkillsFact(t, casFacts, "casRejected", "cas-skill")
+	recordSkillsTree(t, root, "after-cas-reject", casFacts)
 }
 
 // TestSaveSkillContentGuardsIdentity 守"编辑不能悄悄改名"。
