@@ -253,6 +253,10 @@ func TestNativeRightPaneWindows(t *testing.T) {
 	}
 	t.Logf("capabilities: navigate=%t observe=%t act=%t screenshot=%t unsupported=%d",
 		caps.Navigate, caps.Observe, caps.Act, caps.Screenshot, len(caps.Unsupported))
+
+	// 外部观察（BR01）：Win32 父子/几何事实 + CDP 页面像素落盘，再从文件读回事实。
+	// 观察值不来自上面任何断言变量——见 observation_test.go 的 observeRightPane。
+	observeRightPane(t, h, img.Bytes)
 }
 
 // TestNativeWindowGeometry100 覆盖 BR04 的 100% 缩放子集：

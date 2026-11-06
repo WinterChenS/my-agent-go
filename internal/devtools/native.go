@@ -80,6 +80,9 @@ func nativeCases() []nativeCase {
 				Package: "tests/native",
 				Run:     "TestNativeRightPaneWindows",
 			}},
+			// 父子/几何事实来自 Win32 GetParent/GetAncestor/GetWindowRect/
+			// GetDpiForWindow/WindowFromPoint，落盘后读回；页面像素来自 CDP 截图 PNG。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"window-facts.json", "screenshots/right-pane.png"}},
 		},
 		{
 			ID:      "BR01",
@@ -89,6 +92,7 @@ func nativeCases() []nativeCase {
 				Package: "tests/native",
 				Run:     "TestNativeRightPaneWindows",
 			}},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"window-facts.json", "screenshots/right-pane.png"}},
 		},
 		{
 			// BR04：缩放 100/150/200%（页面缩放 = 平台等价分辨率下的 CSS/physical 比例）
