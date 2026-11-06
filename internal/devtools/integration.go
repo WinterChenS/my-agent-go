@@ -111,7 +111,11 @@ func integrationCases() []integrationCase {
 		// 锁文件 sha256」写进磁盘，runner 只封装这些文件。
 		{ID: "ENV01", External: toolchainCommand(), Env: baselinePathEnv(),
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"toolchain.json"}}},
-		{ID: "ENV02", External: toolchainCommand(), Env: baselinePathEnv()},
+		// ENV02 是 ALL scope：单台机器不可能覆盖六个目标。脚本把「真实宿主探测 +
+		// build/platforms.json 推出的可达目标」如实写进 host-environment.json，
+		// 不声称六目标；runner 只封装。
+		{ID: "ENV02", External: toolchainCommand(), Env: baselinePathEnv(),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"host-environment.json"}}},
 		{ID: "ENV03", External: toolchainCommand(), Env: baselinePathEnv()},
 
 		// ── 门禁自身 ──
