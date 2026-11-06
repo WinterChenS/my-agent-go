@@ -242,7 +242,8 @@ func integrationCases() []integrationCase {
 		// 自有 MCP 用到 internal/harnessmcp 的真实 server，判定同时看文件系统与 handler 计数。
 		// 无未支持通道后不再有"禁用并验证不可调用"的豁免项（该验证仍保留在
 		// TestRealPiPolicyBlocksToolAndProjectResources 里，防止未来回归）。
-		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksHarnessMCPChannel|TestRealPiPolicyBlocksCodemodeNestedChannel", Env: []string{"MYAGENT_PI_POLICY=1"}},
+		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksHarnessMCPChannel|TestRealPiPolicyBlocksCodemodeNestedChannel|TestPolicyChannelObservationSummary", Env: []string{"MYAGENT_PI_POLICY=1"},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "tree.json", "channels.json"}}},
 		// SEC04.runtime：错令牌/无令牌/错会话/伪造 Host/网页 Origin 都到不了工具。
 		// 两个外部观察装置：
 		//   - wire.jsonl：客户端 http.RoundTripper 记下**真正发出的字节**与收到的状态码

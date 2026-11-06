@@ -374,6 +374,7 @@ func TestRealPiPolicyBlocksExtensionChannel(t *testing.T) {
 
 	// ── 拒绝 ──
 	_ = os.Remove(marker)
+	extBaseline := sentinelBaseline(t, work, "extension-ran.txt")
 	deny := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalDeny))
 	t.Logf("扩展工具拒绝：%d 条记录，待审批 %d 次", len(deny.records), deny.pending)
 	if deny.pending == 0 {
@@ -396,6 +397,12 @@ func TestRealPiPolicyBlocksExtensionChannel(t *testing.T) {
 			truncate(joinRecords(allow.records), 1200))
 	}
 	allowContent := readIfExists(marker)
+
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "extension", ToolName: "fixture_marker", Sentinel: "extension-ran.txt", Baseline: extBaseline,
+		Deny:  channelRunFrom(deny, "fixture_marker", "extension-ran.txt", treePresent(deny.tree, "extension-ran.txt"), "extension-ran.txt 是否被写出"),
+		Allow: channelRunFrom(allow, "fixture_marker", "extension-ran.txt", treePresent(allow.tree, "extension-ran.txt"), "extension-ran.txt 是否被写出"),
+	})
 
 	evidence := map[string]any{
 		"channel":  "extension",
@@ -482,6 +489,7 @@ func TestRealPiPolicyBlocksHarnessMCPChannel(t *testing.T) {
 
 	// ── 拒绝 ──
 	_ = os.Remove(marker)
+	harnessBaseline := sentinelBaseline(t, work, "harness-ran.txt")
 	deny := runPolicyCase(t, root, work, agentDir, sc(policy.ApprovalDeny))
 	callsAfterDeny := len(hs.Calls())
 	t.Logf("自有 MCP 拒绝：%d 条记录，待审批 %d 次，handler 被调用 %d 次",
@@ -514,6 +522,12 @@ func TestRealPiPolicyBlocksHarnessMCPChannel(t *testing.T) {
 			callsAfterDeny, callsAfterAllow)
 	}
 	allowContent := readIfExists(marker)
+
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "harness-mcp", ToolName: "mcp__harness__harness_probe", Sentinel: "harness-ran.txt", Baseline: harnessBaseline,
+		Deny:  channelRunFrom(deny, "mcp__harness__harness_probe", "harness-ran.txt", treePresent(deny.tree, "harness-ran.txt"), "harness-ran.txt 是否被写出"),
+		Allow: channelRunFrom(allow, "mcp__harness__harness_probe", "harness-ran.txt", treePresent(allow.tree, "harness-ran.txt"), "harness-ran.txt 是否被写出"),
+	})
 
 	evidence := map[string]any{
 		"channel":  "harness-mcp",
@@ -563,6 +577,8 @@ func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
 		extraArgs: []string{"-e", "builtin:codemode", "--tools", "+codemode"},
 	}
 
+	codemodeBaseline := sentinelBaseline(t, work, "codemode-ran.txt")
+
 	// ── 1. 外层拒绝：脚本不该跑 ──
 	outerDeny := base
 	outerDeny.choice = policy.ApprovalDeny
@@ -610,6 +626,12 @@ func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
 
 	// 关键一步是"外层允许 + 内层拒绝"：它才证明嵌套调用被单独拦下。
 	// 所以 deny 侧取 r2（内层 bash 被拒），allow 侧取 r3（两层都允许）。
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "codemode-nested", ToolName: "bash", Sentinel: "codemode-ran.txt", Baseline: codemodeBaseline,
+		Deny:  channelRunFrom(r2, "bash", "codemode-ran.txt", treePresent(r2.tree, "codemode-ran.txt"), "外层允许、嵌套 bash 被拒时脚本副作用是否发生"),
+		Allow: channelRunFrom(r3, "bash", "codemode-ran.txt", treePresent(r3.tree, "codemode-ran.txt"), "两层都允许时脚本副作用是否发生"),
+	})
+
 	evidence := map[string]any{
 		"channel":  "codemode-nested",
 		"scenario": "tool-codemode（脚本内调用 bash）",
