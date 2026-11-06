@@ -2,13 +2,6 @@
   "schemaVersion": 1,
   "note": "技术欠账清单：2026-11-05 证据加固前已有 canonical runner、目前仍以 test-process 自证的原子 case。只允许缩小：改造 runner 输出 external-observation 后必须移出本表。没有 runner 的 case 不得进入本表，一律 oracleKind=external。",
   "processAllowed": [
-    "ENV01",
-    "ENV02",
-    "ENV03",
-    "GOV01",
-    "GOV02",
-    "GOV03",
-    "GOV04",
     "PI01",
     "PI02",
     "PI03",
