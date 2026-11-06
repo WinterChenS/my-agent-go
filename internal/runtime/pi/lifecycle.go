@@ -91,8 +91,10 @@ type VersionProbe func(ctx context.Context, inst PiInstallation) (version string
 
 // ProbeFunc 是 F08-B 契约探测的注入点。F08-A 只留缝，不实现探测。
 //
-// verified=true 只允许来自真正校验过签名清单的契约探测；本层不会因为
-// "本机能跑 --version" 就把候选升成 ready_verified。
+// verified=true 表示"当前这个可执行体通过了契约探测"。它是 ready_verified 的
+// **必要但不充分**条件：还要求版本在预认证清单、可执行体哈希在嵌入清单里
+// （见 classifyCompatibility）。本层不会因为"本机能跑 --version"或探测返回
+// true 就把未登记哈希的候选升成 ready_verified。
 type ProbeFunc func(ctx context.Context, cand PiCandidate) (verified bool, failed []string)
 
 // DiscoveryRequest 描述一次发现请求。全部输入都是显式传入的，
@@ -440,8 +442,8 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 //   - 版本空（探测失败）→ incompatible，带探测诊断；
 //   - 2.x / 无法解析主版本 → incompatible（2.x 尚无签名清单）；
 //   - < 最低支持版本 → upgrade_available（真实候选，但不可选中）；
-//   - 落在支持区间 → 只有"已认证版本 + 已登记哈希"才 ready_verified，
-//     否则最高 ready_compatible。
+//   - 落在支持区间 → 只有"版本已认证 + 哈希已登记 + 契约探测通过"三者同时成立才
+//     ready_verified，否则最高 ready_compatible（缺哪一条就在诊断里说哪一条）。
 //
 // 关键纪律：PreCertifiedHashes 是随发行包下发的白名单，默认空。
 // **未登记的可执行体哈希永远不可能变成 ready_verified**——本机跑通不是认证。
@@ -469,21 +471,33 @@ func classifyCompatibility(policy VersionPolicy, version string, cand PiCandidat
 		}
 	}
 
-	verified := policy.IsCertified(version) && policy.PreCertifiedHashes[version][cand.ExecutableHash]
+	// ready_verified 必须**同时**满足三件事（规格 §8.1 / handoff §4.5）：
+	//   1) 版本在预认证版本清单里；
+	//   2) 当前可执行体的 SHA-256 在嵌入的预认证哈希清单里；
+	//   3) 当前可执行体的契约探测通过。
+	// 缺一条就只能是 ready_compatible。尤其：未登记的哈希即使契约探测通过也不能升格。
+	contractOK := false
 	diags := []string{}
-	if !verified {
+	if probe != nil {
+		ok, failed := probe(context.Background(), cand)
+		contractOK = ok
+		diags = append(diags, failed...)
+	}
+	versionCertified := policy.IsCertified(version)
+	hashRegistered := policy.PreCertifiedHashes[version][cand.ExecutableHash]
+	if !contractOK {
 		diags = append(diags,
 			"kind:\"contract-probe-pending\" 契约探测（F08-B）未执行或未通过；最高只能 ready_compatible")
 	}
-	if probe != nil {
-		ok, failed := probe(context.Background(), cand)
-		if ok {
-			// 只有真正校验过签名清单的探测才允许升级到 ready_verified。
-			verified = true
-		}
-		diags = append(diags, failed...)
+	if !versionCertified {
+		diags = append(diags,
+			fmt.Sprintf("kind:\"uncertified-version\" 版本 %s 不在预认证版本清单里，不能 ready_verified", version))
 	}
-	if verified {
+	if !hashRegistered {
+		diags = append(diags,
+			"kind:\"unregistered-executable-hash\" 可执行体 SHA-256 不在预认证清单里；未登记的哈希永远不能 ready_verified")
+	}
+	if contractOK && versionCertified && hashRegistered {
 		return StateReadyVerified, diags
 	}
 	return StateReadyCompatible, diags

@@ -347,7 +347,8 @@ func TestDiscoverMapsVersionToCompatibilityState(t *testing.T) {
 		})
 	}
 
-	// 已认证版本 + 已登记哈希 → ready_verified。
+	// ready_verified 必须**同时**满足三件事：版本在预认证清单、可执行体 SHA-256 在嵌入
+	// 清单、并且当前可执行体的契约探测通过。缺一条就只能是 ready_compatible。
 	res, err := Discover(context.Background(), DiscoveryRequest{
 		Preferred:    launcher,
 		VersionProbe: fixedVersionProbe("1.5.0", ""),
@@ -358,7 +359,26 @@ func TestDiscoverMapsVersionToCompatibilityState(t *testing.T) {
 	hash := res.Candidates[0].ExecutableHash
 	policy := DefaultPolicy
 	policy.PreCertifiedHashes = map[string]map[string]bool{"1.5.0": {hash: true}}
+
+	// 1) 已认证版本 + 已登记哈希 + 契约探测通过 → ready_verified。
 	verified, err := Discover(context.Background(), DiscoveryRequest{
+		Preferred:    launcher,
+		VersionProbe: fixedVersionProbe("1.5.0", ""),
+		Policy:       policy,
+		ProbeFunc: func(context.Context, PiCandidate) (bool, []string) {
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if got := verified.Candidates[0].Compatibility; got != StateReadyVerified {
+		t.Fatalf("版本已认证 + 哈希已登记 + 契约探测通过应为 ready_verified，实际 %q", got)
+	}
+
+	// 2) 版本与哈希都在清单里，但契约探测尚未接上（F08-B）→ 只能 ready_compatible，
+	//    并要说清“契约探测没跑”，不能含混成“已验证”。
+	noProbe, err := Discover(context.Background(), DiscoveryRequest{
 		Preferred:    launcher,
 		VersionProbe: fixedVersionProbe("1.5.0", ""),
 		Policy:       policy,
@@ -366,22 +386,34 @@ func TestDiscoverMapsVersionToCompatibilityState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if got := verified.Candidates[0].Compatibility; got != StateReadyVerified {
-		t.Fatalf("已认证版本 + 已登记哈希应为 ready_verified，实际 %q", got)
+	if got := noProbe.Candidates[0].Compatibility; got != StateReadyCompatible {
+		t.Fatalf("契约探测未执行时不能 ready_verified，实际 %q", got)
 	}
-	// 认得版本但认不得这个二进制：仍然只能 ready_compatible。
+	if diag := strings.Join(noProbe.Candidates[0].Diagnostics, "\n"); !strings.Contains(diag, "契约探测") {
+		t.Fatalf("诊断要说明契约探测未执行，实际 %v", noProbe.Candidates[0].Diagnostics)
+	}
+
+	// 3) 认得版本但认不得这个二进制：即使契约探测通过，也必须停在 ready_compatible。
+	//    未登记的哈希永远不能 ready_verified（防回归的关键一条）。
 	policyOther := DefaultPolicy
 	policyOther.PreCertifiedHashes = map[string]map[string]bool{"1.5.0": {"deadbeef": true}}
 	unregistered, err := Discover(context.Background(), DiscoveryRequest{
 		Preferred:    launcher,
 		VersionProbe: fixedVersionProbe("1.5.0", ""),
 		Policy:       policyOther,
+		ProbeFunc: func(context.Context, PiCandidate) (bool, []string) {
+			return true, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 	if got := unregistered.Candidates[0].Compatibility; got != StateReadyCompatible {
-		t.Fatalf("未登记哈希不许标 ready_verified，实际 %q", got)
+		t.Fatalf("未登记哈希即使契约探测通过也不许标 ready_verified，实际 %q（%v）",
+			got, unregistered.Candidates[0].Diagnostics)
+	}
+	if diag := strings.Join(unregistered.Candidates[0].Diagnostics, "\n"); !strings.Contains(diag, "unregistered-executable-hash") {
+		t.Fatalf("诊断要区分“哈希未登记”，实际 %v", unregistered.Candidates[0].Diagnostics)
 	}
 }
 
