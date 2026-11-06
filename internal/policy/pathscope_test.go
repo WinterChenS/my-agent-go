@@ -2,9 +2,11 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -463,4 +465,164 @@ func TestTrustOriginResolvesSymlink(t *testing.T) {
 	if res.Decision != DecisionDeny {
 		t.Fatalf("链接伪装的未信任项目必须拒，实际 %s", res.Decision)
 	}
+}
+
+// TestPathGuardRealWritesStayInsideRoot 是 SEC05 的外部观察版本。
+//
+// 与 TestPathGuardRejectsEscapes 判的是同一批越界形态，区别在于这里**真的尝试写**：
+// 放行的那几次由独立进程（testdata/executor）写出文件并自己记账，被拒的那几次
+// 根本没有进程被启动。于是"根外没有被写进任何东西"由磁盘遍历证明，
+// 而不是由 Check 的返回值证明。
+func TestPathGuardRealWritesStayInsideRoot(t *testing.T) {
+	tr := newScopeTree(t)
+	clock := newClock()
+	svc := New(Options{
+		Permissions: config.Permissions{Filesystem: "workspace", Shell: true},
+		PathGuard:   mustGuard(t, tr.root),
+		Now:         clock.Now,
+		ApprovalTTL: 60 * time.Second,
+	})
+	ctx := context.Background()
+	exec := testExec("s1")
+	bin := executorPath(t)
+	logPath := filepath.Join(policyArtifactDir(t), "executions.jsonl")
+	_ = os.Remove(logPath)
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatalf("创建执行账本失败: %v", err)
+	}
+
+	// 根内的两种链接：目录链接与文件链接，都指向根外。
+	dirLink := filepath.Join(tr.root, "out-dir")
+	if err := os.Symlink(tr.outside, dirLink); err != nil {
+		t.Fatalf("创建目录符号链接: %v", err)
+	}
+	fileLink := filepath.Join(tr.root, "out-file.txt")
+	if err := os.Symlink(filepath.Join(tr.outside, "secret.txt"), fileLink); err != nil {
+		t.Fatalf("创建文件符号链接: %v", err)
+	}
+
+	// writeThrough 走真实顺序：Authorize →（ask 时）批准一次 → 执行前复查 → 独立进程执行。
+	writeThrough := func(label, target string) Decision {
+		t.Helper()
+		call := ToolCall{
+			ID: "c-" + label, Name: "write", Source: SourceBuiltin,
+			Arguments:     jsonArgs(`{"content":"` + label + `"}`),
+			ResourceScope: target,
+		}
+		res, err := svc.Authorize(ctx, exec, call)
+		if err != nil {
+			t.Fatalf("%s: Authorize: %v", label, err)
+		}
+		if res.Decision != DecisionAsk {
+			return res.Decision
+		}
+		if err := svc.ResolveApproval(ctx, res.ApprovalID, ApprovalOnce, call); err != nil {
+			t.Fatalf("%s: 批准: %v", label, err)
+		}
+		if err := svc.ValidateBinding(ctx, exec, res.ApprovalID, call); err != nil {
+			t.Fatalf("%s: 执行前复查: %v", label, err)
+		}
+		runExecutor(t, bin, logPath, label, call.Name, target, label)
+		return DecisionAllow
+	}
+
+	allowed := []struct {
+		label  string
+		target string
+	}{
+		{"allowed-inside", filepath.Join(tr.root, "ok.txt")},
+		{"allowed-sub", filepath.Join(tr.root, "sub", "ok2.txt")},
+	}
+	for _, tc := range allowed {
+		if dec := writeThrough(tc.label, tc.target); dec != DecisionAllow {
+			t.Fatalf("%s: 根内写应放行，实际 %s", tc.label, dec)
+		}
+	}
+
+	denied := []struct {
+		label  string
+		target string
+	}{
+		{"denied-parent", filepath.Join(tr.root, "..", "outside", "escape1.txt")},
+		{"denied-dirlink", filepath.Join(dirLink, "escape2.txt")},
+		{"denied-absolute", filepath.Join(tr.outside, "escape3.txt")},
+		{"denied-filelink", fileLink},
+		{"denied-sibling", filepath.Join(tr.base, "root-sibling", "escape4.txt")},
+	}
+	for _, tc := range denied {
+		dec := writeThrough(tc.label, tc.target)
+		if dec != DecisionDeny {
+			t.Fatalf("%s: 越界写必须 deny，实际 %s", tc.label, dec)
+		}
+	}
+
+	// ── 观察值：账本 + 磁盘遍历 ──
+	records := readExecRecords(t, logPath)
+	tree := walkObsTree(t, tr.base)
+
+	if got := len(records); got != len(allowed) {
+		t.Fatalf("账本里应只有 %d 次真实写入，实际 %d 次: %v", len(allowed), got, execLabels(records))
+	}
+	rootFiles := make([]string, 0, 4)
+	outsideFiles := make([]string, 0, 4)
+	for _, e := range tree {
+		if e.Size < 0 {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(e.Path, "root/"):
+			rootFiles = append(rootFiles, strings.TrimPrefix(e.Path, "root/"))
+		case strings.HasPrefix(e.Path, "outside/"):
+			outsideFiles = append(outsideFiles, strings.TrimPrefix(e.Path, "outside/"))
+		}
+	}
+	sort.Strings(rootFiles)
+	sort.Strings(outsideFiles)
+
+	// escapedWrites 由磁盘证明：根外目录里除了地形自带的 secret.txt，不许有任何新文件。
+	escaped := make([]string, 0, 2)
+	for _, f := range outsideFiles {
+		if f != "secret.txt" {
+			escaped = append(escaped, f)
+		}
+	}
+	if len(escaped) != 0 {
+		t.Fatalf("根外出现新文件（越界写成立）: %v", escaped)
+	}
+	wantRoot := []string{"inside.txt", "ok.txt", "out-dir", "out-file.txt", "sub/ok2.txt"}
+	if strings.Join(rootFiles, ",") != strings.Join(wantRoot, ",") {
+		t.Fatalf("根内文件应恰好是 %v，实际 %v", wantRoot, rootFiles)
+	}
+	for _, rec := range records {
+		if !strings.HasPrefix(rec.Target, tr.root) {
+			t.Fatalf("账本里出现根外目标（越界写成立）: %s", rec.Target)
+		}
+	}
+
+	allowedCount := 0
+	deniedCount := 0
+	for _, rec := range records {
+		if strings.HasPrefix(rec.Label, "allowed-") {
+			allowedCount++
+		}
+		if strings.HasPrefix(rec.Label, "denied-") {
+			deniedCount++
+		}
+	}
+	treeJSON, err := json.MarshalIndent(tree, "", "  ")
+	if err != nil {
+		t.Fatalf("序列化 tree.json 失败: %v", err)
+	}
+	writePolicyObservation(t, map[string]any{
+		"allowedWrites":  allowedCount,
+		"deniedWrites":   deniedCount,
+		"executions":     len(records),
+		"executedLabels": execLabels(records),
+		"filesOnDisk":    rootFiles,
+		"outsideFiles":   outsideFiles,
+		"escapedWrites":  len(escaped),
+		"escapedPaths":   escaped,
+		"rootReal":       tr.root,
+		"recordedBy":     "独立进程 internal/policy/testdata/executor 追加的 executions.jsonl；tree.json 由父进程遍历 base 根",
+	}, map[string][]byte{"tree.json": treeJSON})
 }

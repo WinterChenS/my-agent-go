@@ -236,7 +236,11 @@ func integrationCases() []integrationCase {
 		// TestRealPiPolicyBlocksToolAndProjectResources 里，防止未来回归）。
 		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksHarnessMCPChannel|TestRealPiPolicyBlocksCodemodeNestedChannel", Env: []string{"MYAGENT_PI_POLICY=1"}},
 		{ID: "SEC04.runtime", Package: "internal/policybridge", Run: "TestRejectsUnauthenticatedAndForeignRequests|TestOriginFromOwnEndpointIsAccepted|TestApprovedOnceSideEffectIsExactlyOne"},
-		{ID: "SEC05", Package: policyTests, Run: "TestPathGuard|TestApprovalBindsRealPathNotSpelling"},
+		// SEC05：越界形态必须真被拦住。与 TestPathGuardRejectsEscapes 判的是同一批
+		// 形态，但这里**真的尝试写**：放行的几次由独立进程写出文件并自己记账，
+		// 被拒的几次根本没有进程被启动；"根外没被写进任何东西"由磁盘遍历证明。
+		{ID: "SEC05", Package: policyTests, Run: "TestPathGuard|TestApprovalBindsRealPathNotSpelling",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"executions.jsonl", "tree.json"}}},
 		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork"},
 		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject", Env: []string{"MYAGENT_PI_POLICY=1"}},
 

@@ -56,6 +56,9 @@ type obsTreeEntry struct {
 	Size   int64  `json:"size"`
 	Mode   string `json:"mode"`
 	SHA256 string `json:"sha256"`
+	// Link 是符号链接/联接的字面目标。链接本身不跟随：跟随后"越界写到根外"
+	// 与"根内的一个别名"在树上长得一样，正好抹掉要观察的差别。
+	Link string `json:"link,omitempty"`
 }
 
 // obsExecRecord 是 executor 进程追加的一行账本。
@@ -136,6 +139,11 @@ func walkObsTree(t *testing.T, root string) []obsTreeEntry {
 		}
 		if d.IsDir() {
 			out = append(out, obsTreeEntry{Path: rel, Size: -1, Mode: info.Mode().String()})
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, _ := os.Readlink(p)
+			out = append(out, obsTreeEntry{Path: rel, Size: info.Size(), Mode: info.Mode().String(), Link: link})
 			return nil
 		}
 		b, readErr := os.ReadFile(p)
