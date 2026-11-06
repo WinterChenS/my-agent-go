@@ -11,6 +11,7 @@ package run
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
@@ -46,6 +47,25 @@ const (
 type PolicySnapshot struct {
 	Permissions config.Permissions `json:"permissions"`
 	Revision    uint64             `json:"revision,omitempty"`
+}
+
+// PolicyCeiling 是系统/工作区/Profile 三层合并出的权限上限。
+//
+// Ref 是这个上限的引用名（例如 "ceiling:workspace"）。请求里的 PermissionRef
+// 只有在能解析到"不超过上限"的快照时才被接受。
+type PolicyCeiling struct {
+	Permissions config.Permissions `json:"permissions"`
+	Revision    uint64             `json:"revision,omitempty"`
+	Ref         string             `json:"ref,omitempty"`
+}
+
+// PermissionResolver 把 PermissionRef 解析成不可变快照。
+//
+// 由绑定层提供（C06b 之后的策略目录、C08/C09 的 capability 都从这里取同一条事实）。
+// 为空表示服务只认识自己的上限引用：解析不了的 ref 一律结构化失败，
+// 不猜、不回退到"最宽的那一份"。
+type PermissionResolver interface {
+	ResolvePermission(ref string) (PolicySnapshot, error)
 }
 
 // ExecutionBinding 是一次 run 的执行身份与策略。
@@ -92,4 +112,68 @@ func (b ExecutionBinding) Env() []string {
 		env = append(env, EnvPolicySnapshot+"="+string(raw))
 	}
 	return env
+}
+
+// normalizePermissions 归一权限值；无法识别的等级是错误，不是"按最严处理"。
+//
+// 静默降级会把"界面里写的是 X、实际跑的是 Y"变成常态，所以这里直接失败。
+func normalizePermissions(p config.Permissions) (config.Permissions, error) {
+	fs, ok := config.NormalizeFilesystem(p.Filesystem)
+	if !ok {
+		return config.Permissions{}, contracts.NewAppError(
+			contracts.CodeUnsupported, "未知的文件系统权限: "+p.Filesystem, false)
+	}
+	return config.Permissions{Filesystem: fs, Network: p.Network, Shell: p.Shell}, nil
+}
+
+// filesystemRankOf 给出文件系统权限的宽严序（未知值按 none）。
+func filesystemRankOf(p config.Permissions) int {
+	name, _ := config.NormalizeFilesystem(p.Filesystem)
+	switch name {
+	case "unrestricted":
+		return 3
+	case "workspace":
+		return 2
+	case "read":
+		return 1
+	}
+	return 0
+}
+
+// Narrow 把请求的快照收进上限之内；比上限宽就是结构化错误，绝不清默收窄。
+//
+// 为什么不能"顺手改小"：调用方（前端、调度任务）以为自己拿到了 shell/网络，
+// 实际被悄悄降级——后果比拒绝严重得多，因为没有任何地方会告诉它被改了。
+func (c PolicyCeiling) Narrow(want PolicySnapshot) (PolicySnapshot, error) {
+	ceiling, err := normalizePermissions(c.Permissions)
+	if err != nil {
+		return PolicySnapshot{}, fmt.Errorf("策略上限不合法: %w", err)
+	}
+	got, err := normalizePermissions(want.Permissions)
+	if err != nil {
+		return PolicySnapshot{}, err
+	}
+	if filesystemRankOf(got) > filesystemRankOf(ceiling) {
+		return PolicySnapshot{}, contracts.NewAppError(
+			contracts.CodeUnauthorized,
+			fmt.Sprintf("请求的文件系统权限 %s 超过上限 %s：权限不能被前端或调度扩大",
+				got.Filesystem, ceiling.Filesystem),
+			false,
+		)
+	}
+	if got.Shell && !ceiling.Shell {
+		return PolicySnapshot{}, contracts.NewAppError(
+			contracts.CodeUnauthorized,
+			"请求的 shell 权限超过上限（上限未授予 shell）：权限不能被前端或调度扩大",
+			false,
+		)
+	}
+	if got.Network && !ceiling.Network {
+		return PolicySnapshot{}, contracts.NewAppError(
+			contracts.CodeUnauthorized,
+			"请求的网络权限超过上限（上限未授予网络）：权限不能被前端或调度扩大",
+			false,
+		)
+	}
+	return PolicySnapshot{Permissions: got, Revision: want.Revision}, nil
 }

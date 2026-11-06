@@ -632,9 +632,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 权限只在这里算一次：既交给策略服务，也交给 RunService 作为 per-run 快照
-	// 的默认值。两处读同一份事实，不会出现"策略服务允许 shell、而 run 的快照
-	// 里写着别的"的分叉。
+	// 权限上限只在这里算一次：既交给策略服务，也交给 RunService 作为
+	// per-run 快照的天花板。两处读同一份事实，不会出现"策略服务允许 shell、
+	// 而某个 run 的声明快照里也写着 shell 却没人核对"的分叉。
 	permissions := config.Permissions{
 		Filesystem: "workspace",
 		Shell:      s.ShellAllowed,
@@ -715,7 +715,12 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		ManagedSkillIDs:    skills.IDs,
 		SkillAutoDiscovery: skillAutoDiscoveryFromArgs(isolationArgs),
 		Policy:             pol,
-		PolicySnapshot:     run.PolicySnapshot{Permissions: permissions},
+		// 权限天花板与默认快照：per-run 请求只能在这个天花板之下收紧。
+		PolicyCeiling: run.PolicyCeiling{
+			Permissions: permissions,
+			Ref:         "ceiling:workspace",
+		},
+		PolicySnapshot: run.PolicySnapshot{Permissions: permissions},
 		// 自有 MCP 的环境 + 外部 MCP 的凭证环境（只经子进程环境交付）。
 		HarnessEnv:  append(harness.Env(), mcpPlan.Env...),
 		StartWorker: workerStarter,

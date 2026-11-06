@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/policybridge"
@@ -95,8 +96,16 @@ type Options struct {
 	// 没有端点时策略扩展 fail-closed，工具调用一律被拒。
 	Policy *policy.Service
 
+	// PolicyCeiling 是系统/工作区/Profile 合并出的权限上限（C06a）。
+	// 每个 run 请求的快照都要先过它：只能收紧，不能扩大。
+	// 零值等于"不给任何权限"（filesystem=none），也就是 fail-closed 的默认。
+	PolicyCeiling PolicyCeiling
 	// PolicySnapshot 是请求没带快照时使用的默认快照（旧 Start 入口）。
+	// 同样受 PolicyCeiling 约束。
 	PolicySnapshot PolicySnapshot
+	// PermissionResolver 把请求里的 PermissionRef 解析成不可变快照。
+	// 为空时只认识 PolicyCeiling.Ref 这一个引用；解析不了一律结构化失败。
+	PermissionResolver PermissionResolver
 
 	// HarnessEnv 是自有 MCP 服务的端点与令牌（harnessmcp.Server.Env()）。
 	// run 包只负责透传给 worker，不依赖 harnessmcp 包本身：
@@ -214,7 +223,6 @@ type runState struct {
 	// binding 是 admission 时解析并冻结的身份与策略（C06a）。
 	// 只写一次（Start 建 runState 时），之后只读：run 期间不得重新解析。
 	binding ExecutionBinding
-
 	// queuePos 是这个 run 最近一次上报的排队位次（0 表示不在队列里）。
 	// 只在 Service.mu 下读写。
 	queuePos int
@@ -272,9 +280,11 @@ type StartRunRequest struct {
 	WorkspaceDir string `json:"workspaceDir,omitempty"`
 	// ProfileID 是这次 run 使用的 Profile；空表示没有指定。
 	ProfileID contracts.ProfileID `json:"profileId,omitempty"`
-	// PermissionRef 指向一份不可变策略快照，随 run 冻结，run 期间不再重新解析。
+	// PermissionRef 指向一份不可变策略快照。它只能解析成不超过
+	// 系统/工作区/Profile 上限的快照：解析不了或是更宽，都是结构化错误。
 	PermissionRef string `json:"permissionRef,omitempty"`
-	// PolicySnapshot 是调用方要求的权限快照；为空时用 Options.PolicySnapshot。
+	// PolicySnapshot 是调用方要求的权限快照。只能收紧，不能扩大；
+	// 为空时用 Options.PolicySnapshot（再受上限约束）。
 	PolicySnapshot *PolicySnapshot `json:"policySnapshot,omitempty"`
 	// ConfigRevision 是这次 run 依据的配置版本；0 表示沿用服务默认值。
 	ConfigRevision uint64 `json:"configRevision,omitempty"`
@@ -332,7 +342,8 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeUnsupported, "消息为空", false)
 	}
 
-	// 身份在 admission 时解析并冻结（C06a）：run 期间不再重新解析。
+	// 身份与策略在 admission 时解析并冻结（C06a）。解析失败就不建 run：
+	// 越权的提交不应该在队列里留下一个"等会儿再跑"的影子。
 	id := contracts.RunID(fmt.Sprintf("run-%d-%d", s.opts.Now().Unix(), s.runSeq.Add(1)))
 	binding, err := s.resolveBinding(req, id)
 	if err != nil {
@@ -413,8 +424,10 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 
 // resolveBinding 在 admission 解析 per-run 身份与策略，并冻结成 ExecutionBinding。
 //
-// 解析顺序：请求显式字段 → Options 默认值。策略快照取请求给的那一份，
-// 没给就用 Options.PolicySnapshot。
+// 解析顺序：请求显式字段 → Options 默认值。策略快照分三步：
+//  1. 请求带 PermissionRef 时先解析成快照（解析不了就是结构化失败）；
+//  2. 请求同时带 PolicySnapshot 时两者必须描述同一份策略（不允许两个真话）；
+//  3. 最终快照必须过 PolicyCeiling.Narrow：只能收紧，不能扩大。
 func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (ExecutionBinding, error) {
 	sessionID := req.SessionID
 	if strings.TrimSpace(string(sessionID)) == "" {
@@ -432,10 +445,26 @@ func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (Execu
 	if revision == 0 {
 		revision = s.opts.ConfigRevision
 	}
+	ref := strings.TrimSpace(req.PermissionRef)
 
-	snapshot := s.opts.PolicySnapshot
+	want := s.opts.PolicySnapshot
+	if ref != "" {
+		resolved, err := s.resolvePermissionRef(ref)
+		if err != nil {
+			return ExecutionBinding{}, err
+		}
+		if req.PolicySnapshot != nil && !samePermissions(resolved.Permissions, req.PolicySnapshot.Permissions) {
+			return ExecutionBinding{}, contracts.NewAppError(contracts.CodeConfigConflict,
+				fmt.Sprintf("permissionRef %s 与 policySnapshot 描述的不是同一份策略：不能同时声明两个权限结论", ref), false)
+		}
+		want = resolved
+	}
 	if req.PolicySnapshot != nil {
-		snapshot = *req.PolicySnapshot
+		want = *req.PolicySnapshot
+	}
+	snapshot, err := s.opts.PolicyCeiling.Narrow(want)
+	if err != nil {
+		return ExecutionBinding{}, err
 	}
 
 	return ExecutionBinding{
@@ -449,9 +478,31 @@ func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (Execu
 		WorkspaceID:    workspaceID,
 		WorkspaceDir:   workspaceDir,
 		ProfileID:      req.ProfileID,
-		PermissionRef:  strings.TrimSpace(req.PermissionRef),
+		PermissionRef:  ref,
 		PolicySnapshot: snapshot,
 	}, nil
+}
+
+// resolvePermissionRef 把引用解析成快照。解析不了就失败，不回退到"最宽的那份"。
+func (s *Service) resolvePermissionRef(ref string) (PolicySnapshot, error) {
+	if s.opts.PermissionResolver != nil {
+		return s.opts.PermissionResolver.ResolvePermission(ref)
+	}
+	if ceilingRef := strings.TrimSpace(s.opts.PolicyCeiling.Ref); ceilingRef != "" && ceilingRef == ref {
+		return PolicySnapshot{
+			Permissions: s.opts.PolicyCeiling.Permissions,
+			Revision:    s.opts.PolicyCeiling.Revision,
+		}, nil
+	}
+	return PolicySnapshot{}, contracts.NewAppError(contracts.CodeNotFound,
+		"未知的 permissionRef: "+ref+"（没有可用的策略目录）", false)
+}
+
+// samePermissions 比较两份权限是否描述同一件事（文件系统等级归一后比较）。
+func samePermissions(a, b config.Permissions) bool {
+	nameA, okA := config.NormalizeFilesystem(a.Filesystem)
+	nameB, okB := config.NormalizeFilesystem(b.Filesystem)
+	return okA && okB && nameA == nameB && a.Shell == b.Shell && a.Network == b.Network
 }
 
 // publishQueuePositionsLocked 把当前队列位次上报给 UI。必须持有 s.mu。
