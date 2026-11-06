@@ -198,7 +198,11 @@ func integrationCases() []integrationCase {
 		// （seq/kind/bytes/sha256/payload）追加到 frames.jsonl；父进程只读回文件核对。
 		{ID: "RPC01", Package: piTests, Run: "TestLFFramingUnicodeAndLargeRecord|TestLFFramingChildReceivedFrames",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"frames.jsonl"}}},
-		{ID: "RPC02", Package: piTests, Run: "TestOutOfOrderResponsesMatchByID|TestDuplicateResponseNotMisattributed|TestCancelledCallDoesNotBlockSubsequentCalls"},
+		// RPC02：乱序/重复/取消三条路径都要求“按 id 匹配、不误归属”。
+		// 观察装置是子进程自己的 IO 账本：-record-io 逐条记下它收到与回出的 id，
+		// 父进程读回后能证明响应确实是倒序产生的、而归属仍然正确。
+		{ID: "RPC02", Package: piTests, Run: "TestOutOfOrderResponsesMatchByID|TestDuplicateResponseNotMisattributed|TestCancelledCallDoesNotBlockSubsequentCalls",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"io.jsonl"}}},
 		{ID: "RPC03", Package: piTests, Run: "TestStdoutBackpressureDoesNotDeadlock|TestStderrFloodDoesNotBlockStdout"},
 		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls"},
 		{ID: "RPC05", Package: piTests, Run: "TestProcessTree|TestWorkerTerminatesGrandchild"},

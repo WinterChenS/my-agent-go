@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -155,7 +156,20 @@ func fileSize(path string) int64 {
 // 因此只要每个 Call 拿到自己的 echo，就证明配对依据是 id 而不是时序。
 func TestOutOfOrderResponsesMatchByID(t *testing.T) {
 	const n = 3
-	w := startFake(t, "outoforder", "-expect", fmt.Sprint(n))
+	// RPC02 的外部观察装置：子进程把自己**收到/回出的每一条**（方向、id、字节数、
+	// 时间戳）写进 io.jsonl。父进程读回这份账本，才能证明"响应真的是倒序产生的"，
+	// 而不是本进程内部怎么想。
+	dir := piObservationDir()
+	if dir == "" {
+		dir = t.TempDir() // 本地 focused 运行：不落盘到证据目录
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	ioPath := filepath.Clean(filepath.Join(dir, "io.jsonl"))
+	_ = os.Remove(ioPath)
+
+	w := startFake(t, "outoforder", "-expect", fmt.Sprint(n), "-record-io", ioPath)
 	ctx := callCtx(t, 10*time.Second)
 
 	type result struct {
@@ -188,6 +202,39 @@ func TestOutOfOrderResponsesMatchByID(t *testing.T) {
 		if r.echo != want {
 			t.Fatalf("响应被错误归属：命令 %s 拿到了 %q", want, r.echo)
 		}
+	}
+
+	// ── 从磁盘读回子进程的账本 ──
+	if err := w.Close(ctx); err != nil {
+		t.Fatalf("Close 失败: %v", err)
+	}
+	events := readIOEvents(t, ioPath)
+	readOrder := ioIDs(events, "read")
+	writeOrder := ioIDs(events, "write")
+	if len(readOrder) != n || len(writeOrder) != n {
+		t.Fatalf("账本记录数不符：读到 %v，写出 %v（期望各 %d 条）", readOrder, writeOrder, n)
+	}
+	reversed := make([]string, len(readOrder))
+	for i, id := range readOrder {
+		reversed[len(readOrder)-1-i] = id
+	}
+	if !reflect.DeepEqual(writeOrder, reversed) {
+		t.Fatalf("子进程不是按倒序回应的：读入 %v，写出 %v（期望 %v）", readOrder, writeOrder, reversed)
+	}
+	for _, id := range readOrder {
+		if id == "" {
+			t.Fatal("账本里出现了空 id：产品写出的命令必须带 id")
+		}
+	}
+
+	if piObservationDir() != "" {
+		writePiObservation(t, map[string]any{
+			"calls":          n,
+			"readOrder":      readOrder,
+			"writeOrder":     writeOrder,
+			"reversedOnWire": reflect.DeepEqual(writeOrder, reversed),
+			"recordedBy":     "fakeworker -record-io（子进程自写）",
+		}, nil)
 	}
 }
 

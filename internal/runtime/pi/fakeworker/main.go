@@ -33,6 +33,7 @@ func main() {
 	recordArgv := flag.String("record-argv", "", "把本进程实际收到的 argv 写成 JSON（观察用）")
 	recordEnv := flag.String("record-env", "", "把本进程实际收到的环境变量写成 JSON（观察用）")
 	recordFrames := flag.String("record-frames", "", "把本进程实际收到的每一帧追加写成 JSONL（观察用）")
+	recordIO := flag.String("record-io", "", "把本进程的每次读写（方向/字节数/时间戳）追加写成 JSONL（观察用）")
 	// 真 Pi 的隔离参数（-na/-nc/--no-session/--tools read …）不是 fakeworker 的参数。
 	// CFG03/RES04 要求把**同一批**参数原样交给子进程，所以这里只把 fakeworker 自己
 	// 认识的参数交给 flag 包；其余原样留在 os.Args 里，由 -record-argv 落盘。
@@ -53,6 +54,9 @@ func main() {
 	}
 	if *recordFrames == "" {
 		*recordFrames = os.Getenv("FAKEWORKER_RECORD_FRAMES")
+	}
+	if *recordIO == "" {
+		*recordIO = os.Getenv("FAKEWORKER_RECORD_IO")
 	}
 
 	if *recordArgv != "" {
@@ -84,11 +88,23 @@ func main() {
 		return
 	}
 
+	// IO 记录器必须早于任何洪泛 goroutine 启动，否则前几块字节就漏记了。
+	var ioRec *ioRecorder
+	if *recordIO != "" {
+		var err error
+		ioRec, err = newIORecorder(*recordIO)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "打开 -record-io 失败: %v\n", err)
+			os.Exit(5)
+		}
+		defer func() { _ = ioRec.close() }()
+	}
+
 	switch *mode {
 	case "stderrflood":
-		go floodStderr(*floodBytes)
+		go floodStderr(*floodBytes, ioRec)
 	case "stdoutflood":
-		go floodStdout(*floodBytes)
+		go floodStdout(*floodBytes, ioRec)
 	case "malformed":
 		emitMalformed()
 	}
@@ -105,7 +121,7 @@ func main() {
 		defer func() { _ = rec.close() }()
 	}
 
-	serve(*mode, *expect, *marker, rec)
+	serve(*mode, *expect, *marker, rec, ioRec)
 }
 
 // runChildHeartbeat 持续向 marker 文件追加行；测试通过比对前后行数判断它是否还活着。
@@ -193,28 +209,44 @@ func runCrashAfterWrite(counter, wait string) {
 	os.Exit(1)
 }
 
-func floodStderr(total int) {
+func floodStderr(total int, ioRec *ioRecorder) {
 	line := strings.Repeat("e", 120)
 	written := 0
+	nextMark := 1 << 20
 	for written < total {
 		n, err := fmt.Fprintf(os.Stderr, "stderr-flood %08d %s\n", written, line)
 		if err != nil {
+			ioRec.event("write", "stderr", written, "flood_aborted", "")
 			return
 		}
 		written += n
+		if written >= nextMark {
+			ioRec.event("write", "stderr", written, "flood_progress", "")
+			nextMark = written + 1<<20
+		}
 	}
+	// 这条记录就是“stderr 全部写完了”的外部证据：管道没人读时不可能写完。
+	ioRec.event("write", "stderr", written, "flood_done", "")
 }
 
-func floodStdout(total int) {
+func floodStdout(total int, ioRec *ioRecorder) {
 	line := `{"type":"flood","pad":"` + strings.Repeat("f", 160) + `"}`
 	written := 0
+	nextMark := 1 << 20
 	for written < total {
 		n, err := fmt.Fprint(os.Stdout, line+"\n")
 		if err != nil {
+			ioRec.event("write", "stdout", written, "flood_aborted", "")
 			return
 		}
 		written += n
+		if written >= nextMark {
+			ioRec.event("write", "stdout", written, "flood_progress", "")
+			nextMark = written + 1<<20
+		}
 	}
+	// 同上：洪泛写完 = 父进程的读循环没有被事件队列反压死。
+	ioRec.event("write", "stdout", written, "flood_done", "")
 }
 
 // emitMalformed 输出四类异常记录，覆盖 RPC04 与 RPC02 的诊断要求：
@@ -237,7 +269,7 @@ type contractTurn struct {
 	aborted bool
 }
 
-func serve(mode string, expect int, marker string, rec *frameRecorder) {
+func serve(mode string, expect int, marker string, rec *frameRecorder, ioRec *ioRecorder) {
 	in := bufio.NewReader(os.Stdin)
 	var mu sync.Mutex
 	var pending []string
@@ -248,6 +280,8 @@ func serve(mode string, expect int, marker string, rec *frameRecorder) {
 		mu.Lock()
 		defer mu.Unlock()
 		_, _ = fmt.Fprint(os.Stdout, s+"\n")
+		kind, id := lineKindID(s)
+		ioRec.event("write", "stdout", len(s)+1, kind, id)
 	}
 
 	for {
@@ -259,6 +293,9 @@ func serve(mode string, expect int, marker string, rec *frameRecorder) {
 				Type string `json:"type"`
 			}
 			parsed := json.Unmarshal([]byte(line), &cmd) == nil
+			if parsed {
+				ioRec.event("read", "stdin", len(line)+1, cmd.Type, cmd.ID)
+			}
 			if rec != nil {
 				// 记录的是**本进程实际收到的那一行**（含 id、含多字节字符），
 				// 父进程据此核对“发出去的字节是否原样到达”。
@@ -377,7 +414,7 @@ func ownArgs(args []string) []string {
 	valueFlags := map[string]bool{
 		"-mode": true, "-expect": true, "-flood-bytes": true, "-marker": true,
 		"-pidfile": true, "-counter": true, "-wait": true,
-		"-record-argv": true, "-record-env": true, "-record-frames": true,
+		"-record-argv": true, "-record-env": true, "-record-frames": true, "-record-io": true,
 	}
 	boolFlags := map[string]bool{"-child": true}
 
@@ -469,4 +506,77 @@ func (r *frameRecorder) close() error {
 		fmt.Fprintf(os.Stderr, "写 -record-frames 出错: %v\n", r.err)
 	}
 	return r.f.Close()
+}
+
+// ioRecorder 把本进程的每次读写追加成 JSONL：
+// {seq, dir(read|write), stream(stdin|stdout|stderr), bytes, kind, id, tsNano}。
+//
+// 对 stdin/stdout 来说，这些字节**就是产品另一端收到/发出的字节**：
+// 父进程把自己收到的东西与这份账对比，就能区分"子进程没写"和"写了但丢了"。
+// 洪泛只按 1 MiB 打进度点，避免几十万条记录把观察文件本身撑成问题。
+type ioRecorder struct {
+	mu  sync.Mutex
+	f   *os.File
+	seq int
+	err error
+}
+
+func newIORecorder(path string) (*ioRecorder, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return &ioRecorder{f: f}, nil
+}
+
+// event 记一条读写。rec 为 nil 时是空操作（未启用观察的 focused 运行）。
+func (r *ioRecorder) event(dir, stream string, bytes int, kind, id string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	entry := map[string]any{
+		"seq":    r.seq,
+		"dir":    dir,
+		"stream": stream,
+		"bytes":  bytes,
+		"kind":   kind,
+		"id":     id,
+		"tsNano": time.Now().UnixNano(),
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		r.err = err
+		return
+	}
+	if _, err := r.f.Write(append(b, '\n')); err != nil {
+		r.err = err
+	}
+}
+
+func (r *ioRecorder) close() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		fmt.Fprintf(os.Stderr, "写 -record-io 出错: %v\n", r.err)
+	}
+	return r.f.Close()
+}
+
+// lineKindID 从一条协议记录里取 type 与 id（取不到就给空串）：
+// 读侧据此把"收到的帧"与"回出去的响应"对上号，不必让子进程解释语义。
+func lineKindID(line string) (string, string) {
+	var rec struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(line), &rec) != nil {
+		return "", ""
+	}
+	return rec.Type, rec.ID
 }

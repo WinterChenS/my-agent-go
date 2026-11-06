@@ -280,3 +280,46 @@ func lookupEnvMap(env map[string]string, key string) (string, bool) {
 	}
 	return "", false
 }
+
+// ioEvent 是 fakeworker -record-io 写下的一条读写记录：子进程自己记的账，
+// 父进程只读回来核对（不参与统计）。
+type ioEvent struct {
+	Seq    int    `json:"seq"`
+	Dir    string `json:"dir"`
+	Stream string `json:"stream"`
+	Bytes  int    `json:"bytes"`
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	TSNano int64  `json:"tsNano"`
+}
+
+func readIOEvents(t *testing.T, path string) []ioEvent {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读回子进程写下的 IO 账本失败: %v", err)
+	}
+	var out []ioEvent
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var ev ioEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("IO 账本记录不是合法 JSON: %v（原文 %s）", err, clip(line, 200))
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// ioIDs 按账本顺序取出某个方向上的 id（读侧看"收到什么"，写侧看"回了什么"）。
+func ioIDs(events []ioEvent, dir string) []string {
+	out := make([]string, 0, len(events))
+	for _, ev := range events {
+		if ev.Dir == dir {
+			out = append(out, ev.ID)
+		}
+	}
+	return out
+}
