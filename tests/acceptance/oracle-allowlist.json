@@ -1,10 +1,5 @@
 {
   "schemaVersion": 1,
-  "note": "技术欠账清单：2026-11-05 证据加固前已有 canonical runner、目前仍以 test-process 自证的原子 case。只允许缩小：改造 runner 输出 external-observation 后必须移出本表。没有 runner 的 case 不得进入本表，一律 oracleKind=external。",
-  "processAllowed": [
-    "BR01",
-    "BR04",
-    "BR05",
-    "BR06"
-  ]
+  "note": "技术欠账清单：2026-11-05 证据加固前已有 canonical runner、目前仍以 test-process 自证的原子 case。只允许缩小：改造 runner 输出 external-observation 后必须移出本表。没有 runner 的 case 不得进入本表，一律 oracleKind=external。2026-11-06：欠账已清零（38 → 0），新 case 必须自带 external-observation 证据。",
+  "processAllowed": []
 }
