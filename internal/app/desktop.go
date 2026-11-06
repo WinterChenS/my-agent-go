@@ -24,6 +24,7 @@ import (
 	"my-agent-go/internal/credentials"
 	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/memory"
+	"my-agent-go/internal/piinstall"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/profile"
 	"my-agent-go/internal/resources"
@@ -135,6 +136,12 @@ type Desktop struct {
 	// piRequestOverride 允许测试覆盖 Pi 发现环境（PATH/常见位置/版本探针），
 	// 免得测试结论依赖宿主机真实 PATH。生产恒为 nil。
 	piRequestOverride func(pi.DiscoveryRequest) pi.DiscoveryRequest
+
+	// piInstallMu 保护 F06 安装服务单例；piInstallOverride 允许测试注入清单/
+	// HTTP 客户端/探针（生产恒为 nil，生产路径只用嵌入清单与真实探针）。
+	piInstallMu       sync.Mutex
+	piInstallSvc      *piinstall.InstallService
+	piInstallOverride func(*piinstall.InstallService)
 
 	// rtMu 串行化运行时构建/重建，避免两次 Start 同时建出两个 Pi 运行时。
 	rtMu sync.Mutex

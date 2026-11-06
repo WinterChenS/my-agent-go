@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-11-05T00:00:00Z",
+  "source": "https://github.com/earendil-works/pi/releases/download/v1.5.0/SHA256SUMS",
+  "notes": "官方 Pi v1.5.0 六个目标。url/sha256 逐字节取自官方 SHA256SUMS（本地副本 .tools/pi/standalone/SHA256SUMS-1.5.0.txt 与之逐字节一致）。sizeBytes 只在能离线实测的目标上填写：win-x64 = 61890147（本地官方包 .tools/pi/standalone/pi-windows-x64-1.5.0.zip 实测）。其余五个目标的精确大小离线拿不到，按纪律写 0 并由 loader 拒绝（Entry 返回 UNSUPPORTED），在发行流程补齐之前这些目标显式 BLOCKED——不编造大小。上游 v1.5.0 没有独立签名（无 .sig/.asc/.minisig，也没有 GitHub artifact attestation），signature 一律留空；清单本身由签名的 Anvil 二进制保护。",
+  "entries": [
+    {
+      "version": "1.5.0",
+      "targetId": "win-x64",
+      "assetName": "pi-windows-x64.zip",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-windows-x64.zip",
+      "sizeBytes": 61890147,
+      "sha256": "12d58a70e80b16ba9f764950b7a42bdeb07959495c0db68396cf2988c0b71af3",
+      "signature": ""
+    },
+    {
+      "version": "1.5.0",
+      "targetId": "win-arm64",
+      "assetName": "pi-windows-arm64.zip",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-windows-arm64.zip",
+      "sizeBytes": 0,
+      "sha256": "9843e4241b6935a85d49b704562cdcb6fdc78a8ec643410f32b3876a87414283",
+      "signature": ""
+    },
+    {
+      "version": "1.5.0",
+      "targetId": "mac-x64",
+      "assetName": "pi-darwin-x64.tar.gz",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-darwin-x64.tar.gz",
+      "sizeBytes": 0,
+      "sha256": "f41b26cd9a1754abe259e05a421fb33b00936779cb0783c893a6389d1bd2ee0d",
+      "signature": ""
+    },
+    {
+      "version": "1.5.0",
+      "targetId": "mac-arm64",
+      "assetName": "pi-darwin-arm64.tar.gz",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-darwin-arm64.tar.gz",
+      "sizeBytes": 0,
+      "sha256": "a9bf0d82d58d2a7d337f4ae4171b5fc9ebffe42509527a831364c4b65adf2cdf",
+      "signature": ""
+    },
+    {
+      "version": "1.5.0",
+      "targetId": "linux-x64",
+      "assetName": "pi-linux-x64.tar.gz",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-x64.tar.gz",
+      "sizeBytes": 0,
+      "sha256": "df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b",
+      "signature": ""
+    },
+    {
+      "version": "1.5.0",
+      "targetId": "linux-arm64",
+      "assetName": "pi-linux-arm64.tar.gz",
+      "url": "https://github.com/earendil-works/pi/releases/download/v1.5.0/pi-linux-arm64.tar.gz",
+      "sizeBytes": 0,
+      "sha256": "5d5711b48600756473682e86360b026b11abf7591e5d112eb411d4da2c100d9a",
+      "signature": ""
+    }
+  ]
+}

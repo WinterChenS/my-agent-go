@@ -97,6 +97,7 @@ type integrationStep struct {
 func integrationCases() []integrationCase {
 	gateTests := "internal/devtools"
 	piTests := "internal/runtime/pi"
+	piInstallTests := "internal/piinstall"
 	policyTests := "internal/policy"
 	runTests := "internal/run"
 	historyTests := "internal/history"
@@ -191,6 +192,29 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"failure-report.json"}}},
 		{ID: "PI_COMP04", Package: piTests, Run: "TestVersionRangeMapsWithoutProbing|TestDiscoverMapsVersionToCompatibilityState",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
+
+		// ── F06：托管 Pi 安装 / 升级 / 回滚（PI_INS01–03、PI_UPG01–03）──
+		// 观察值全部由测试从磁盘/产品产物写出（internal/piinstall/observation_test.go）：
+		//   managed-tree.json     托管根的真实遍历（大小/权限/sha256）
+		//   active-pointer.json   托管根里 active.json 原样
+		//   external-hashes.json  外部 Pi 与 PATH 的前后哈希
+		//   stages.jsonl          服务实际发出的阶段转换（追加写）
+		// 载荷是 fakeworker + 本地 TLS 服务器：测的是安装事务本身，不是网络。
+		{ID: "PI_INS01", Package: piInstallTests, Run: "TestInstallRejectsInvalidPackageBeforeProbe",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
+		// PI_INS02 是唯一用**官方真实包**取证的 case：缺包/非 win-x64 宿主写 BLOCKED，
+		// 不拿 fixture 冒充真实包下载。
+		{ID: "PI_INS02", Package: piInstallTests, Run: "TestInstallRealStandalonePackage",
+			Blocked:     piInstallBlockedReasonFor("G2", "PI_INS02"),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
+		{ID: "PI_INS03", Package: piInstallTests, Run: "TestInstallFailuresPreserveActiveAndLeaveNoHalfInstall",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
+		{ID: "PI_UPG01", Package: piInstallTests, Run: "TestUpgradeKeepsRunningWorkerOnOldPath",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
+		{ID: "PI_UPG02", Package: piInstallTests, Run: "TestFailedUpgradeRollsBackAndRollbackIsIdempotent",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
+		{ID: "PI_UPG03", Package: piInstallTests, Run: "TestUpgradeWithExternalPiNeverTouchesIt",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"managed-tree.json", "active-pointer.json", "external-hashes.json", "stages.jsonl"}}},
 
 		// ── RPC ──
 		// RPC01：LF 分帧对多字节字符、U+2028、128KiB 记录不丢字节。
@@ -426,6 +450,32 @@ func standaloneBlockedReasonFor(gate, caseID string) string {
 		return "本机没有官方独立包（" + exe + "）；修复：下载官方 pi-windows-x64.zip 并解包到 " +
 			".tools/pi/standalone/v1.5.0-win-x64/，然后重跑 scripts/devtools.ps1 verify " +
 			"--suite=integration --target=win-x64 --gate=" + gate + " --case=" + caseID
+	}
+	return ""
+}
+
+// piInstallBlockedReasonFor 探测 F06 的观察装置：官方 win-x64 独立包 zip。
+//
+// 为什么只认 win-x64：随二进制下发的清单里只有 win-x64 填了精确 sizeBytes
+// （其余五个目标离线测不出大小，loader 显式拒绝），所以真实包取证只可能在
+// Windows/amd64 宿主上成立。缺装置时写 BLOCKED 并给出可复现的修复命令，
+// 不用 fixture 冒充"真实包安装成功"。
+//
+// 只做文件探测：不启动进程、不改 .tools/pi、不联网。
+func piInstallBlockedReasonFor(gate, caseID string) string {
+	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
+		return "F06 的真实包观察装置是官方 win-x64 独立包（清单里只有 win-x64 有精确 sizeBytes）；" +
+			"本宿主是 " + runtime.GOOS + "-" + runtime.GOARCH + "，无法用它取证"
+	}
+	root, err := repoFile("go.mod")
+	if err != nil {
+		return "无法定位仓库根，无法探测 .tools/pi/standalone：" + err.Error()
+	}
+	zip := filepath.Join(filepath.Dir(root), ".tools", "pi", "standalone", "pi-windows-x64-1.5.0.zip")
+	if _, statErr := os.Stat(zip); statErr != nil {
+		return "本机没有官方独立包（" + zip + "）；修复：把官方 pi-windows-x64.zip（v1.5.0）放到 " +
+			".tools/pi/standalone/ 并确认与 SHA256SUMS-1.5.0.txt 一致，然后重跑 " +
+			"scripts/devtools.ps1 verify --suite=integration --target=win-x64 --gate=" + gate + " --case=" + caseID
 	}
 	return ""
 }
