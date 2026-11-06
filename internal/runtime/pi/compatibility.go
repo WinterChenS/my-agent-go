@@ -112,9 +112,32 @@ type VersionPolicy struct {
 }
 
 // DefaultPolicy 当前仅认证 1.5.0。1.4.0（PATH 上现有）属已知但 unverified，不可标 Ready。
+//
+// PreCertifiedHashes 由 init 从嵌入的签名清单填充（见 precert.go）。今天发行包里
+// 没有清单，所以它是空表：任何本机可执行体都到不了 ready_verified。
 var DefaultPolicy = VersionPolicy{
 	Certified: map[string]bool{"1.5.0": true},
 	Minimum:   "1.5.0",
+}
+
+// embeddedPreCertified 是嵌入清单的装载结果，保留错误以便诊断。
+var (
+	embeddedPreCertifiedHashes map[string]map[string]bool
+	embeddedPreCertifiedErr    error
+)
+
+func init() {
+	// fail closed：清单缺失/非法 → 空哈希表 + 保留错误。绝不"猜一个"哈希放行。
+	embeddedPreCertifiedHashes, embeddedPreCertifiedErr = LoadEmbeddedPreCertified()
+	DefaultPolicy.PreCertifiedHashes = embeddedPreCertifiedHashes
+}
+
+// EmbeddedPreCertifiedStatus 报告随包下发的预认证哈希清单及其装载结果。
+//
+// 返回的表是只读快照：调用方不得写回 DefaultPolicy（那等于运行期自证认证）。
+// 没有清单时 err 为 ErrNoPreCertifiedManifest，hashes 为空——这是预期状态。
+func EmbeddedPreCertifiedStatus() (map[string]map[string]bool, error) {
+	return embeddedPreCertifiedHashes, embeddedPreCertifiedErr
 }
 
 // IsCertified 报告版本是否经认证可直接使用。

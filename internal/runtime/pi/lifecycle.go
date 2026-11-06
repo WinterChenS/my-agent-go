@@ -377,7 +377,7 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 	}
 
 	c.Distribution = DistributionStandalone
-	if isScriptLauncher(real) {
+	if isScriptLauncherFile(real) {
 		c.Distribution = DistributionNpm
 		c.Installation.Architecture = "any"
 	}
@@ -612,7 +612,35 @@ func findNodeIn(dir string) string {
 	return ""
 }
 
-// isScriptLauncher 判断启动器是否只是脚本/Node shim（真实执行体不是它自己）。
+// isScriptLauncherFile 判断启动器是否只是脚本/Node shim（真实执行体不是它自己）。
+//
+// 先看扩展名（.cmd/.bat/.ps1/.js）；扩展名为空时再嗅探**首两个字节**是否为 "#!"。
+// POSIX 上 npm 生成的 bin 启动器就是无扩展名的 `#!/bin/sh` 脚本：只按扩展名判断
+// 会把它误判成 standalone 二进制，于是永远不会去解析真实 Node，"解析到的 Node 来自
+// 微信开发者工具就拒绝"这条规则（PI_DISC02）在 macOS/Linux 上也就永远不会触发。
+//
+// 只读前两个字节：不执行、不解析 shim 文本、不跟随解释器。判据与 GOOS 无关，
+// 所以 POSIX 分支在 Windows 上也能被真实跑到。
+func isScriptLauncherFile(path string) bool {
+	if isScriptLauncher(path) {
+		return true
+	}
+	if strings.TrimSpace(filepath.Ext(path)) != "" {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var head [2]byte
+	if _, err := io.ReadFull(f, head[:]); err != nil {
+		return false
+	}
+	return head[0] == '#' && head[1] == '!'
+}
+
+// isScriptLauncher 是"按扩展名判断脚本 shim"的旧判据，保留给只看名字的场景。
 func isScriptLauncher(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".cmd", ".bat", ".ps1", ".js":

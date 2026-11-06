@@ -451,70 +451,233 @@ func TestDiscoverSkipsBrokenSavedPath(t *testing.T) {
 
 // ── PI_DISC02 ───────────────────────────────────────────────────────────────
 
-// TestDiscoverRejectsWechatNodeShim：安全目录里的 pi.cmd，解析到的 Node 落在微信开发者工具里。
-// 必须按**实际解析路径**拒绝（只看 launcher 路径是不够的）。
+// ── PI_DISC02 ───────────────────────────────────────────────────────────────
+
+// wechatFixtureLauncherName 返回本平台 npm 全局 bin 里 Pi 启动器的文件名。
+//
+// POSIX 上 npm 生成的是**无扩展名的 shell 脚本**（带 #! shebang），Windows 上是
+// .cmd 包装。两者都必须被判成 npm shim，而不是 standalone 二进制——否则解析不到
+// 真实 Node，"拒绝微信 Node" 这条规则在 macOS/Linux 上永远不会触发。
+func wechatFixtureLauncherName() string {
+	if runtime.GOOS == "windows" {
+		return "pi.cmd"
+	}
+	return "pi"
+}
+
+// wechatFixtureLauncherContent 是 npm 启动器的最小真实形态（不执行，只做内容判别）。
+func wechatFixtureLauncherContent() string {
+	if runtime.GOOS == "windows" {
+		return "@echo off\r\nexit /b 0\r\n"
+	}
+	return "#!/bin/sh\nexec node \"$0\"\n"
+}
+
+// wechatFixtureNodeName 返回 Node 运行时在本平台的文件名。
+func wechatFixtureNodeName() string {
+	if runtime.GOOS == "windows" {
+		return "node.exe"
+	}
+	return "node"
+}
+
+// shebangLauncherContent 是 POSIX npm shim 的启动行：无扩展名 + #! shebang。
+// 这段内容在**所有平台**上都是同一个文件形态，所以分类逻辑必须与 GOOS 无关。
+const shebangLauncherContent = "#!/bin/sh\nexec node \"$0\"\n"
+
+// TestDiscoverRejectsWechatNodeShim 是 PI_DISC02：安全目录里的 Pi 启动器，
+// 解析到的 Node 落在微信开发者工具里 → 必须按**实际解析路径**拒绝。
+//
+// 两个子测试在**每个平台**上都跑（PI_DISC02 的 scope 是 ALL，没有"跳过即通过"）：
+//   - path-launcher：启动器在安全目录里、经 PATH 扫描发现；Node 在微信目录里。
+//     Windows 用 pi.cmd + node.exe，POSIX 用无扩展名 #! 的 pi + node。
+//   - shebang-launcher：无扩展名 #! 启动器作为 Preferred（显式文件路径）传入，
+//     微信 Node 目录在 PathEnv 里。这条在所有平台上字节相同，所以在 Windows 上
+//     也真实跑到了 POSIX 的 #! 分类分支。
 func TestDiscoverRejectsWechatNodeShim(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		// npm .cmd shim + 微信开发者工具 Node 是 Windows 场景；Linux/macOS 没有这种 shim。
-		// 目标平台 win-x64 上必跑，不是"跳过即通过"：CI 上仍以 win-x64 为准。
-		t.Skip("Windows 专项：微信开发者工具 Node shim")
+	observed := map[string]any{}
+	rejectedFiles := map[string][]byte{}
+
+	// checkRejected 是两条子测试共用的断言集合：被拒的必须是**运行时路径**，
+	// 不是启动器路径；诊断必须写明 kind 与实际路径。
+	checkRejected := func(t *testing.T, res DiscoveryResult, launcher, wechatNode string) PiCandidate {
+		t.Helper()
+		bad := findCandidate(t, res, launcher)
+		if bad.Compatibility != StateIncompatible {
+			t.Fatalf("微信 Node shim 应判 incompatible，实际 %q（%v）", bad.Compatibility, bad.Diagnostics)
+		}
+		if !strings.EqualFold(filepath.Clean(bad.RuntimeExecutable), filepath.Clean(wechatNode)) {
+			t.Fatalf("记录的实际运行时路径 = %q，期望 %q", bad.RuntimeExecutable, wechatNode)
+		}
+		if !strings.EqualFold(filepath.Clean(bad.LauncherPath), filepath.Clean(launcher)) {
+			t.Fatalf("被拒候选的启动器应是安全目录里的 %q，实际 %q", launcher, bad.LauncherPath)
+		}
+		if wechatOrigin(bad.LauncherPath) {
+			t.Fatalf("启动器本身不该在微信目录里，否则这条断言证明不了什么: %q", bad.LauncherPath)
+		}
+		joined := strings.Join(bad.Diagnostics, "\n")
+		if !strings.Contains(joined, "unexpected-node-origin") {
+			t.Fatalf("诊断要带 kind unexpected-node-origin，实际 %v", bad.Diagnostics)
+		}
+		if !strings.Contains(joined, wechatNode) {
+			t.Fatalf("诊断要写明实际解析到的路径 %s，实际 %v", wechatNode, bad.Diagnostics)
+		}
+		if res.Selected != nil && res.Selected.Installation.ID == bad.Installation.ID {
+			t.Fatalf("被拒候选不许被选中，实际 %+v", res.Selected)
+		}
+		return bad
 	}
 
+	// recordRejected 把被拒候选的原始事实留给外部观察（PI_DISC02 → rejected.json）。
+	recordRejected := func(scenario string, bad PiCandidate, res DiscoveryResult) {
+		observed[scenario] = map[string]any{
+			"launcherPath":      bad.LauncherPath,
+			"runtimeExecutable": bad.RuntimeExecutable,
+			"diagnostics":       bad.Diagnostics,
+			"compatibility":     bad.Compatibility,
+			"candidates":        res.Candidates,
+		}
+		if rejectedFiles["rejected.json"] == nil {
+			rejected, err := json.MarshalIndent(map[string]any{
+				"scenario":          scenario,
+				"launcherPath":      bad.LauncherPath,
+				"runtimeExecutable": bad.RuntimeExecutable,
+				"diagnostics":       bad.Diagnostics,
+				"compatibility":     bad.Compatibility,
+				"candidates":        res.Candidates,
+			}, "", "  ")
+			if err != nil {
+				t.Fatalf("序列化被拒候选: %v", err)
+			}
+			rejectedFiles["rejected.json"] = rejected
+		}
+	}
+
+	t.Run("path-launcher", func(t *testing.T) {
+		root := t.TempDir()
+		safeDir := filepath.Join(root, "npm-bin")
+		shim := writePiStub(t, safeDir, wechatFixtureLauncherName(), wechatFixtureLauncherContent())
+		wechatDir := filepath.Join(root, "微信web开发者工具", "node")
+		wechatNode := writePiStub(t, wechatDir, wechatFixtureNodeName(), "not-a-real-node")
+		otherDir := filepath.Join(root, "common")
+		other := writePiStub(t, otherDir, nativePiName(), "other")
+
+		res, err := Discover(context.Background(), DiscoveryRequest{
+			PathEnv:         []string{safeDir, wechatDir},
+			CommonLocations: []string{otherDir},
+			VersionProbe:    fixedVersionProbe("1.5.0", ""),
+		})
+		if err != nil {
+			t.Fatalf("Discover 不应报错: %v", err)
+		}
+
+		bad := checkRejected(t, res, shim, wechatNode)
+		if res.Selected == nil {
+			t.Fatalf("安全目录里还有另一个候选，应改选它而不是空，实际 %+v", res.Candidates)
+		}
+		if res.Selected.Origin != CandidateOriginCommon {
+			t.Fatalf("应改选另一个来源的候选，实际 %+v", res.Selected)
+		}
+		if !strings.EqualFold(filepath.Clean(res.Selected.LauncherPath), filepath.Clean(other)) {
+			t.Fatalf("应选中安全目录里的那个候选 %s，实际 %s", other, res.Selected.LauncherPath)
+		}
+		recordRejected(t.Name(), bad, res)
+	})
+
+	t.Run("shebang-launcher", func(t *testing.T) {
+		root := t.TempDir()
+		safeDir := filepath.Join(root, "npm-bin")
+		// 无扩展名 + #! shebang：POSIX npm shim 的真实形态，在所有平台上同一份内容。
+		shim := writePiStub(t, safeDir, "pi", shebangLauncherContent)
+		wechatDir := filepath.Join(root, "微信web开发者工具", "node")
+		wechatNode := writePiStub(t, wechatDir, wechatFixtureNodeName(), "not-a-real-node")
+
+		res, err := Discover(context.Background(), DiscoveryRequest{
+			Preferred:    shim,
+			PathEnv:      []string{wechatDir},
+			VersionProbe: fixedVersionProbe("1.5.0", ""),
+		})
+		if err != nil {
+			t.Fatalf("Discover 不应报错: %v", err)
+		}
+
+		bad := checkRejected(t, res, shim, wechatNode)
+		if bad.Distribution != DistributionNpm {
+			t.Fatalf("无扩展名 #! 启动器应判为 npm shim，实际 %q", bad.Distribution)
+		}
+		// 这里没有第二个可用候选：微信目录里只有 node、没有 Pi 启动器。
+		// 因此结果必须是 incompatible 且**不选中**任何东西（不静默回退）。
+		if res.Selected != nil {
+			t.Fatalf("唯一候选被拒时不许选中任何东西，实际 %+v", res.Selected)
+		}
+		if res.State != StateIncompatible {
+			t.Fatalf("唯一候选被拒时结果状态应为 incompatible，实际 %q", res.State)
+		}
+		recordRejected(t.Name(), bad, res)
+	})
+
+	if len(observed) != 2 {
+		t.Fatalf("两条子测试都必须产出被拒观察值，实际只有 %d 条: %v", len(observed), observed)
+	}
+	facts := map[string]any{
+		"rejectedReason": "unexpected-node-origin",
+		"scenarios":      observed,
+	}
+	if first, ok := observed["path-launcher"].(map[string]any); ok {
+		facts["rejectedLauncher"] = first["launcherPath"]
+	}
+	writePiObservation(t, facts, rejectedFiles)
+}
+
+// TestExtensionlessShebangLauncherIsNodeShim 是 Part 1 的针对性红测试：
+// 无扩展名 + #! 的启动器必须被判成脚本 shim（→ 去解析真实 Node），
+// 无 shebang 的无扩展名文件仍是 standalone 二进制。
+// 它在 Windows 上也必须成立——POSIX 的 npm shim 就是这种形态。
+func TestExtensionlessShebangLauncherIsNodeShim(t *testing.T) {
 	root := t.TempDir()
-	safeDir := filepath.Join(root, "npm-bin")
-	shim := writePiStub(t, safeDir, "pi.cmd", "@echo off\r\nexit /b 0\r\n")
-	wechatDir := filepath.Join(root, "微信web开发者工具", "node")
-	wechatNode := writePiStub(t, wechatDir, "node.exe", "not-a-real-node")
-	otherDir := filepath.Join(root, "common")
-	other := writePiStub(t, otherDir, nativePiName(), "other")
+	shebang := writePiStub(t, filepath.Join(root, "bin"), "pi", shebangLauncherContent)
+	plain := writePiStub(t, filepath.Join(root, "plain"), "pi", "stub")
+	cmdShim := writePiStub(t, filepath.Join(root, "cmd"), "pi.cmd", "@echo off\r\nexit /b 0\r\n")
+	ps1Shim := writePiStub(t, filepath.Join(root, "ps1"), "pi.ps1", "exit 0\n")
+
+	if !isScriptLauncherFile(shebang) {
+		t.Fatalf("无扩展名 #! 启动器必须判成脚本 shim: %s", shebang)
+	}
+	if isScriptLauncherFile(plain) {
+		t.Fatalf("无 shebang 的无扩展名文件不该判成脚本 shim: %s", plain)
+	}
+	if !isScriptLauncherFile(cmdShim) {
+		t.Fatalf(".cmd 启动器必须判成脚本 shim: %s", cmdShim)
+	}
+	if !isScriptLauncherFile(ps1Shim) {
+		t.Fatalf(".ps1 启动器必须判成脚本 shim: %s", ps1Shim)
+	}
+
+	// 端到端：shebang 启动器要解析到 Node 运行时并记录两个指纹。
+	nodeDir := filepath.Join(root, "node")
+	node := writePiStub(t, nodeDir, wechatFixtureNodeName(), "not-a-real-node")
 
 	res, err := Discover(context.Background(), DiscoveryRequest{
-		PathEnv:         []string{safeDir, wechatDir},
-		CommonLocations: []string{otherDir},
-		VersionProbe:    fixedVersionProbe("1.5.0", ""),
+		Preferred:    shebang,
+		PathEnv:      []string{nodeDir},
+		VersionProbe: fixedVersionProbe("1.5.0", ""),
 	})
 	if err != nil {
-		t.Fatalf("Discover 不应报错: %v", err)
+		t.Fatalf("Discover: %v", err)
 	}
-
-	bad := findCandidate(t, res, shim)
-	if bad.Compatibility != StateIncompatible {
-		t.Fatalf("微信 Node shim 应判 incompatible，实际 %q", bad.Compatibility)
+	cand := findCandidate(t, res, shebang)
+	if cand.Distribution != DistributionNpm {
+		t.Fatalf("shebang 启动器的发行形态应为 npm，实际 %q（诊断 %v）", cand.Distribution, cand.Diagnostics)
 	}
-	if !strings.EqualFold(filepath.Clean(bad.RuntimeExecutable), filepath.Clean(wechatNode)) {
-		t.Fatalf("记录的实际运行时路径 = %q，期望 %q", bad.RuntimeExecutable, wechatNode)
+	if !strings.EqualFold(filepath.Clean(cand.RuntimeExecutable), filepath.Clean(node)) {
+		t.Fatalf("运行时应为 Node stub %q，实际 %q", node, cand.RuntimeExecutable)
 	}
-	joined := strings.Join(bad.Diagnostics, "\n")
-	if !strings.Contains(joined, "unexpected-node-origin") {
-		t.Fatalf("诊断要带 kind unexpected-node-origin，实际 %v", bad.Diagnostics)
+	if cand.ExecutableHash != fileHash(t, shebang) {
+		t.Fatalf("启动器哈希 = %q，期望 %q", cand.ExecutableHash, fileHash(t, shebang))
 	}
-	if !strings.Contains(joined, wechatNode) {
-		t.Fatalf("诊断要写明实际解析到的路径 %s，实际 %v", wechatNode, bad.Diagnostics)
+	if cand.RuntimeHash != fileHash(t, node) {
+		t.Fatalf("运行时哈希 = %q，期望 %q", cand.RuntimeHash, fileHash(t, node))
 	}
-	if res.Selected == nil || res.Selected.Installation.ID == bad.Installation.ID {
-		t.Fatalf("被拒候选不许被选中，实际 %+v", res.Selected)
-	}
-	if res.Selected.Origin != CandidateOriginCommon {
-		t.Fatalf("应改选另一个来源的候选，实际 %+v", res.Selected)
-	}
-	if !strings.EqualFold(filepath.Clean(res.Selected.LauncherPath), filepath.Clean(other)) {
-		t.Fatalf("应选中安全目录里的那个候选 %s，实际 %s", other, res.Selected.LauncherPath)
-	}
-
-	rejected, err := json.MarshalIndent(map[string]any{
-		"launcherPath":      bad.LauncherPath,
-		"runtimeExecutable": bad.RuntimeExecutable,
-		"diagnostics":       bad.Diagnostics,
-		"compatibility":     bad.Compatibility,
-		"candidates":        res.Candidates,
-	}, "", "  ")
-	if err != nil {
-		t.Fatalf("序列化被拒候选: %v", err)
-	}
-	writePiObservation(t, map[string]any{
-		"rejectedLauncher": bad.LauncherPath,
-		"rejectedReason":   "unexpected-node-origin",
-	}, map[string][]byte{"rejected.json": rejected})
 }
 
 // TestDiscoverNeverModifiesExternalFilesOrPath：发现是只读操作。
