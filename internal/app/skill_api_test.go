@@ -172,6 +172,12 @@ func TestSkillToggleChangesRuntimeArgs(t *testing.T) {
 	if strings.Contains(args2, "args-skill") {
 		t.Fatalf("禁用后参数里不应再有该技能，实际: %s", args2)
 	}
+
+	// RES04 的外部观察（filesystem）：产品写进隔离 agentDir 的配置，从磁盘读回。
+	// 事实只取磁盘上的字节，不复述上面的内存断言（那些断言自己会失败）。
+	if facts := observeAgentConfig(t, d.agentDir()); facts != nil {
+		writeAppObservation(t, facts, nil)
+	}
 }
 
 // TestSkillChangeIsDeferredDuringRun 守 RES02 的"运行中沿用旧 revision 且如实显示"。

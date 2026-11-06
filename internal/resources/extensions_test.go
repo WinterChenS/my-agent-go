@@ -4,6 +4,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/credentials"
+	"my-agent-go/internal/runtime/pi"
 )
 
 // newExtService 造一个带系统扩展与一个第三方扩展的服务。
@@ -140,6 +142,65 @@ func TestEnableThirdPartyExtensionAffectsArgs(t *testing.T) {
 	if len(plan.IDs) != 1 {
 		t.Fatalf("禁用后应只剩系统扩展，实际 %v", plan.IDs)
 	}
+
+	// RES04 的外部观察（filesystem）：启用第三方扩展后，编译出的隔离参数交给
+	// fakeworker，argv 由**子进程自己**写下来，父进程只读文件。
+	set, _ = svc.ListExtensions(ctx)
+	if _, err := svc.SetExtensionEnabled(ctx, "hello", set.Revision, true); err != nil {
+		t.Fatalf("重新启用失败: %v", messageOf(err))
+	}
+	enabled, err := svc.CompileExtensions(ctx)
+	if err != nil {
+		t.Fatalf("重新编译失败: %v", messageOf(err))
+	}
+	isoArgs := pi.IsolationSpec{ExtraExtensions: enabled.Paths}.Args()
+	rec := runRecordingChild(t, isoArgs)
+	if resourcesObservationDir() == "" {
+		return
+	}
+	argvPath := filepath.Join(resourcesObservationDir(), "worker-argv.json")
+	if err := os.WriteFile(argvPath, mustJSON(t, rec.Argv), 0o644); err != nil {
+		t.Fatalf("写 worker-argv.json 失败: %v", err)
+	}
+	raw, err := os.ReadFile(argvPath)
+	if err != nil {
+		t.Fatalf("读回 worker-argv.json 失败: %v", err)
+	}
+	var argv []string
+	if err := json.Unmarshal(raw, &argv); err != nil {
+		t.Fatalf("磁盘上的 worker-argv.json 不是合法 JSON: %v", err)
+	}
+	extFlags := make([]string, 0, 2)
+	isolationFlags := make([]string, 0, 8)
+	for i, a := range argv {
+		// Pi 的显式扩展参数是 -e <path>（策略扩展与第三方扩展都走它）。
+		if (a == "-e" || a == "--extension") && i+1 < len(argv) {
+			extFlags = append(extFlags, argv[i+1])
+		}
+		if strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "--no-") {
+			isolationFlags = append(isolationFlags, a)
+		}
+	}
+	writeResourcesObservation(t, map[string]any{
+		"argv":               argv,
+		"argvLen":            len(argv),
+		"extensionFlags":     extFlags,
+		"extensionFlagCount": len(extFlags),
+		"isolationFlags":     isolationFlags,
+		"extensionCount":     len(enabled.IDs),
+		"thirdPartyPath":     third,
+		"argvFile":           filepath.ToSlash(argvPath),
+	}, nil)
+}
+
+// mustJSON 序列化观察值（序列化失败直接失败，不写半截文件）。
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	return raw
 }
 
 // TestUnknownExtensionRejected 防"启用了不存在的扩展却显示成功"。

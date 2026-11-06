@@ -210,7 +210,10 @@ func integrationCases() []integrationCase {
 		{ID: "RES04", Steps: []integrationStep{
 			{Package: "internal/resources", Run: "TestSystemExtensionCannotBeDisabled|TestThirdPartyExtensionDefaultsDisabled|TestEnableThirdPartyExtensionAffectsArgs|TestUnknownExtensionRejected"},
 			{Package: "internal/app", Run: "TestSkillToggleChangesRuntimeArgs"},
-		}},
+		},
+			// agent-config.json 是产品写进隔离 agentDir 的配置（从磁盘读回）；
+			// worker-argv.json 是 fakeworker 子进程自己写下的 argv。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"agent-config.json", "worker-argv.json"}}},
 
 		// ── 配置隔离 ──
 		{ID: "CFG03.isolation", Package: piTests, Run: "TestIsolationArgsCoverEveryProjectChannel|TestHarnessMCPRequiresExplicitEnable|TestIsolationRequiresExistingAbsoluteExtension"},
