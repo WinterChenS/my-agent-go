@@ -574,6 +574,9 @@ func TestNativeFocusAndKeyboard(t *testing.T) {
 
 	navigateTo(t, ctx, h, "/form", "普通表单")
 
+	// OS 级前台窗口序列：GetForegroundWindow 直读，落盘后读回。
+	trace := focusTrace{BeforeFocus: foregroundWindow()}
+
 	var focusState struct {
 		HasFocus bool   `json:"hasFocus"`
 		Active   string `json:"active"`
@@ -596,6 +599,7 @@ func TestNativeFocusAndKeyboard(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	trace.AfterFocus = foregroundWindow()
 	t.Logf("focus: hasFocus=%t active=%q (Focus 之后)", focusState.HasFocus, focusState.Active)
 
 	// 点一下 input（可信点击），再敲 a/b/c。
@@ -636,6 +640,8 @@ func TestNativeFocusAndKeyboard(t *testing.T) {
 		t.Fatalf("键盘输入后 input.value=%q，期望 \"abc\"（active=%q）", typed.Value, typed.Active)
 	}
 	t.Logf("keyboard: input.value=%q active=%q (CDP Input.dispatchKeyEvent)", typed.Value, typed.Active)
+	trace.InputValue = typed.Value
+	trace.PageHasFocus = true
 
 	// 焦点交回主界面：页面必须失焦。
 	//
@@ -643,15 +649,21 @@ func TestNativeFocusAndKeyboard(t *testing.T) {
 	// SetFocus(主窗口)——产品里等于用户点回主界面，Wails 主 WebView 拿到焦点。
 	foreground, lower := RaiseToFront(h.win.HWND())
 	defer lower()
+	trace.AfterRaise = foregroundWindow()
 	var focusSet bool
 	if err := h.win.CallOnUI(func() { focusSet = SetFocusHWND(h.win.HWND()) }); err != nil {
 		t.Fatalf("CallOnUI(SetFocus): %v", err)
 	}
+	trace.SetFocusOK = focusSet
+	trace.AfterSetFocus = foregroundWindow()
 	if !foreground || !focusSet {
 		t.Logf("NOT_RUN: 主界面拿回焦点（foreground=%t SetFocus=%t）；反向验证只做到“Focus() 之后 hasFocus=true”",
 			foreground, focusSet)
+		// 外部观察（BR05 焦点）：拿不到前台是环境事实，如实落盘，不冒充通过。
+		observeFocusAndKeyboard(t, h, trace)
 		return
 	}
+	trace.ReverseAttempt = true
 	deadline = time.Now().Add(8 * time.Second)
 	for {
 		evalJSONInto(t, ctx, h, `JSON.stringify({hasFocus: document.hasFocus(), active: (document.activeElement && document.activeElement.id) || ''})`, &focusState)
@@ -664,6 +676,7 @@ func TestNativeFocusAndKeyboard(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Logf("focus: 主窗口拿回焦点后 hasFocus=%t active=%q", focusState.HasFocus, focusState.Active)
+	observeFocusAndKeyboard(t, h, trace)
 }
 
 // ---------- BR05：最小化 / 恢复 ----------
@@ -734,6 +747,10 @@ func TestNativeMinimizeRestore(t *testing.T) {
 		after == before, imgAfter.PixelWidth, imgAfter.PixelHeight,
 		statsBefore.uniqueColors, statsAfter.uniqueColors)
 	writeArtifact(t, "b01b-after-restore.png", imgAfter.Bytes)
+
+	// 外部观察（BR05 最小化恢复）：IsIconic/GetWindowRect 直读 + CDP 像素落盘，再从文件读回。
+	observeMinimizeRestore(t, h, before, minimized, after,
+		true, WindowIconic(h.win.HWND()), h.host.WindowInfo().ControllerReady, imgAfter.Bytes)
 }
 
 // ---------- BR05：剪贴板 ----------
@@ -797,6 +814,10 @@ func TestNativeClipboardSentinel(t *testing.T) {
 	}
 	t.Logf("clipboard: writeText/readText 往返一致（sentinel 长度 %d，值不落盘）", len(readBack))
 
+	// 外部观察（BR05 剪贴板）：让**另一个 PowerShell 进程**读回 OS 剪贴板并落盘，
+	// 再与测试写下的 sentinel 文件比对。不是看页面自报的 readText()。
+	observeClipboardSentinel(t, sentinel)
+
 	// 清空并确认（防止把测试字符串留在用户剪贴板里）。
 	if got := evalString(t, ctx, h, writeExpr("")); got != "ok" {
 		t.Fatalf("清空剪贴板失败: %s", got)
@@ -829,6 +850,9 @@ func TestNativeClipboardSentinel(t *testing.T) {
 		t.Fatalf("收尾后剪贴板仍有内容（长度 %d）", len(readBack))
 	}
 	t.Logf("clipboard: 收尾清空并读回确认（长度 0）")
+
+	// 外部观察：再用独立进程确认 OS 剪贴板真的空了（防止测试字符串留在用户剪贴板）。
+	observeClipboardCleared(t)
 }
 
 // ---------- BR05：中文 IME（CDP 模拟） ----------
@@ -862,14 +886,30 @@ func TestNativeIMEComposition(t *testing.T) {
 })()`, new(bool))
 
 	// 组合中：先输入拼音 "nihao"。
-	cdpCall(t, ctx, h, "Input.imeSetComposition", `{"text":"nihao","selectionStart":5,"selectionEnd":5}`)
+	//
+	// 每次 CDP IME 调用的返回值与页面读回的 input.value / 事件序列都写进 ime.jsonl：
+	// 外部观察值不是这里的断言变量，而是那份文件读回来的东西。
+	pageIMEEvents := func() []any {
+		var evs []any
+		evalJSONInto(t, ctx, h, `JSON.stringify(window.__b01bIME)`, &evs)
+		return evs
+	}
+	imeSetResult := cdpCall(t, ctx, h, "Input.imeSetComposition", `{"text":"nihao","selectionStart":5,"selectionEnd":5}`)
 	var mid struct {
 		Value       string `json:"value"`
 		IsComposing bool   `json:"isComposing"`
 	}
 	evalJSONInto(t, ctx, h, `JSON.stringify({value: document.getElementById('f-name').value, isComposing: !!window.__b01bIME.length && window.__b01bIME[window.__b01bIME.length-1].isComposing})`, &mid)
+	observeIMEStep(t, obsFacts{
+		"step":        "imeSetComposition",
+		"params":      obsFacts{"text": "nihao", "selectionStart": 5, "selectionEnd": 5},
+		"cdpResult":   imeSetResult,
+		"inputValue":  mid.Value,
+		"isComposing": mid.IsComposing,
+		"events":      pageIMEEvents(),
+	})
 	// 提交：最终文本「你好」。
-	cdpCall(t, ctx, h, "Input.insertText", `{"text":"你好"}`)
+	insertResult := cdpCall(t, ctx, h, "Input.insertText", `{"text":"你好"}`)
 
 	var events []struct {
 		T           string  `json:"t"`
@@ -880,6 +920,23 @@ func TestNativeIMEComposition(t *testing.T) {
 	evalJSONInto(t, ctx, h, `JSON.stringify(window.__b01bIME)`, &events)
 	var finalValue string
 	evalJSONInto(t, ctx, h, `JSON.stringify(document.getElementById('f-name').value)`, &finalValue)
+	finalEvents := pageIMEEvents()
+	composingNow := false
+	if len(finalEvents) > 0 {
+		if last, ok := finalEvents[len(finalEvents)-1].(map[string]any); ok {
+			if b, ok := last["isComposing"].(bool); ok {
+				composingNow = b
+			}
+		}
+	}
+	observeIMEStep(t, obsFacts{
+		"step":        "insertText",
+		"params":      obsFacts{"text": "你好"},
+		"cdpResult":   insertResult,
+		"inputValue":  finalValue,
+		"isComposing": composingNow,
+		"events":      finalEvents,
+	})
 
 	if len(events) == 0 {
 		t.Fatal("页面没有记录到任何 composition/input 事件")
@@ -929,6 +986,9 @@ func TestNativeIMEComposition(t *testing.T) {
 		t.Fatalf("提交后 value 仍含拼音: %q", finalValue)
 	}
 	t.Log("ime: 这是 CDP 模拟（Input.imeSetComposition + Input.insertText），不是 OS 级 IME；真机手输仍需人工验证")
+
+	// 外部观察（BR05 IME）：从 ime.jsonl 读回调用结果与页面读回值。
+	finalizeIMEObservation(t)
 }
 
 // ---------- BR06：50 轮创建/销毁 ----------

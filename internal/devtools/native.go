@@ -123,6 +123,13 @@ func nativeCases() []nativeCase {
 			},
 			Limitation: "IME 用 CDP Input.imeSetComposition/insertText 模拟组合与提交，不是 OS 级真机手输；" +
 				"dialog 层级遮挡未覆盖（B07 的 BrowserOcclusionCoordinator / UI04.native）。",
+			// 前台窗口/最小化状态来自 GetForegroundWindow/IsIconic/GetWindowRect；
+			// 剪贴板由**独立的 PowerShell 进程** Get-Clipboard 写出；IME 的调用结果与
+			// 页面读回值逐条落盘。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"window-facts.json", "clipboard.txt", "clipboard.raw", "clipboard-sentinel.txt",
+				"ime.jsonl", "screenshots/after-restore.png",
+			}},
 		},
 		{
 			// BR06：50 轮创建销毁 + 句柄/进程/working set 记录。
