@@ -15,10 +15,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 
 	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/policy"
 	"my-agent-go/internal/session"
 	"my-agent-go/internal/storage"
 )
@@ -200,4 +202,105 @@ func (d *Desktop) sessionMutation(fn func(*session.Catalog) (session.Session, er
 		return SessionResult{Error: toCallError(err)}
 	}
 	return SessionResult{Item: item}
+}
+
+// ---------------------------------------------------------------------------
+// C06c：普通会话附件（app-owned blob store + 只读 broker）
+// ---------------------------------------------------------------------------
+
+// AttachmentsResult 是一次附件接收的绑定层结果。
+//
+// Items 与 Rejected 共同构成完整答案：Error 只表示"整批无法处理"
+// （会话不存在/不是普通会话/存储不可用），单个文件的问题走 Rejected——
+// 前端必须逐条显示原因，不能把一批文件里的一个坏文件变成"全都失败"。
+type AttachmentsResult struct {
+	SessionID string                        `json:"sessionId"`
+	Items     []session.AttachmentMeta      `json:"items"`
+	Rejected  []session.AttachmentRejection `json:"rejected"`
+	Error     *CallError                    `json:"error,omitempty"`
+}
+
+// attachmentStore 返回应用级附件存储（懒加载，blob 固定在 <appRoot>/blobs）。
+//
+// 能力登记表必须是单例：ResolveAttachments 发出去的 ID 与 OpenAttachment 认的
+// ID 必须来自同一张表，否则 run 拿到的能力永远读不到。
+func (d *Desktop) attachmentStore() (*session.AttachmentStore, error) {
+	d.attachMu.Lock()
+	defer d.attachMu.Unlock()
+	if d.attachStore != nil {
+		return d.attachStore, nil
+	}
+	cat, err := d.sessionCatalog()
+	if err != nil {
+		return nil, err
+	}
+	blobRoot := filepath.Join(d.root, "blobs")
+	if err := d.assertBlobStoreOutsideWorkspace(blobRoot); err != nil {
+		return nil, err
+	}
+	store, err := session.NewAttachmentStore(cat, blobRoot)
+	if err != nil {
+		return nil, err
+	}
+	d.attachStore = store
+	return store, nil
+}
+
+// assertBlobStoreOutsideWorkspace 证明 blob store 不在 run 被授予的 workspace 里。
+//
+// 这不是"再检查一遍用户输入"，而是装配时的不变量：一旦 blob 落进 workspace，
+// Pi 就有了写附件的路径，broker 的只读承诺立刻失效。证明不了就不装配（fail closed），
+// 而不是"先跑起来再说"。
+func (d *Desktop) assertBlobStoreOutsideWorkspace(blobRoot string) error {
+	wsPath := strings.TrimSpace(d.Settings().Workspace)
+	if wsPath == "" {
+		return contracts.NewAppError(contracts.CodeConfigMissing,
+			"尚未选择工作区：无法证明附件存储位于 run 的权限边界之外", false)
+	}
+	guard, err := policy.NewPathGuard(wsPath)
+	if err != nil {
+		return contracts.NewAppError(contracts.CodeUnauthorized,
+			"工作区无法解析，附件存储的隔离位置无法证明: "+err.Error(), false)
+	}
+	dec, err := guard.Check(blobRoot)
+	if err == nil {
+		return contracts.NewAppError(contracts.CodeConfigConflict,
+			"附件存储位于工作区内（"+dec.Real+"），拒绝装配：run 不能拥有可写附件路径", false)
+	}
+	var appErr *contracts.AppError
+	if errors.As(err, &appErr) && appErr.Code == contracts.CodeUnauthorized {
+		return nil // 越界＝在 workspace 之外，正是要的结论
+	}
+	return err
+}
+
+// ResolveAttachments 接收用户通过原生选择器选中的附件。
+//
+// 只收路径：Go 重新解析路径、拒绝链接/越界，把字节复制进 app 托管的
+// content-addressed blob store，然后返回只读能力 ID。源文件不会被回写，
+// 结果里也不含任何可写路径。
+func (d *Desktop) ResolveAttachments(sessionID string, reqs []session.AttachmentRequest) AttachmentsResult {
+	out := AttachmentsResult{
+		SessionID: strings.TrimSpace(sessionID),
+		Items:     []session.AttachmentMeta{},
+		Rejected:  []session.AttachmentRejection{},
+	}
+	store, err := d.attachmentStore()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	res, err := store.ResolveAttachments(sessionID, reqs)
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	if res.Items != nil {
+		out.Items = res.Items
+	}
+	if res.Rejected != nil {
+		out.Rejected = res.Rejected
+	}
+	out.SessionID = res.SessionID
+	return out
 }

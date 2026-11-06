@@ -11,11 +11,16 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/session"
 	"my-agent-go/internal/storage"
 )
 
@@ -161,5 +166,100 @@ func TestSessionAPICreatesInCurrentWorkspace(t *testing.T) {
 	// 不存在的显式工作区要报错，而不是静默落到默认工作区。
 	if bad := d.CreateSession("ws-does-not-exist"); bad.Error == nil {
 		t.Fatalf("未知工作区必须报错")
+	}
+}
+
+// C06c 绑定层测试：ResolveAttachments 只能是"薄绑定 + 证明隔离"。
+//
+// 守三件事：
+//   - 字节真的被复制进 <appRoot>/blobs 的内容地址，而不是留在用户目录里；
+//   - blob 不在 run 的 workspace 下（否则 Pi 就有写附件的路径）；
+//   - 单个坏文件进 Rejected、不让整批失败；未知会话是结构化错误。
+func TestSessionAPIBindsAttachmentResolve(t *testing.T) {
+	d, root := newTestDesktop(t)
+	ws := newSessionWorkspace(t, d, root, "alpha")
+	created := d.CreateSession(ws)
+	if created.Error != nil {
+		t.Fatalf("CreateSession: %+v", created.Error)
+	}
+
+	body := []byte("attachment payload\n")
+	srcDir := t.TempDir()
+	srcA := filepath.Join(srcDir, "note.txt")
+	srcB := filepath.Join(srcDir, "copy.txt")
+	for _, p := range []string{srcA, srcB} {
+		if err := os.WriteFile(p, body, 0o600); err != nil {
+			t.Fatalf("写源文件: %v", err)
+		}
+	}
+
+	res := d.ResolveAttachments(string(created.Item.ID), []session.AttachmentRequest{
+		{Path: srcA, DisplayName: "note.txt"},
+		{Path: srcB, DisplayName: "copy.txt"},
+	})
+	if res.Error != nil {
+		t.Fatalf("ResolveAttachments: %+v", res.Error)
+	}
+	if len(res.Items) != 2 || len(res.Rejected) != 0 {
+		t.Fatalf("两个文件都应落地：items=%+v rejected=%+v", res.Items, res.Rejected)
+	}
+	sum := sha256.Sum256(body)
+	wantSHA := hex.EncodeToString(sum[:])
+	for _, item := range res.Items {
+		if item.SHA256 != wantSHA || item.Size != int64(len(body)) || item.Status != session.AttachmentReady {
+			t.Fatalf("附件字段不对: %+v", item)
+		}
+		if item.ID == "" || !strings.HasPrefix(item.ID, "att-") {
+			t.Fatalf("附件必须返回只读能力 ID: %+v", item)
+		}
+	}
+
+	// 内容寻址：同内容只落一个 blob，位置在 <appRoot>/blobs 下。
+	blobPath := filepath.Join(root, "blobs", wantSHA[:2], wantSHA)
+	if _, err := os.Stat(blobPath); err != nil {
+		t.Fatalf("blob 未按内容地址落地: %s (%v)", blobPath, err)
+	}
+	var blobCount int
+	_ = filepath.WalkDir(filepath.Join(root, "blobs"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		blobCount++
+		return nil
+	})
+	if blobCount != 1 {
+		t.Fatalf("同内容应只有一个 blob，实际 %d", blobCount)
+	}
+
+	// blob 不能落在 workspace 里（workspace 是 policy 授予 Pi 的目录）。
+	workspaceDir := filepath.Join(root, "workspace")
+	if rel, err := filepath.Rel(workspaceDir, blobPath); err == nil && !strings.HasPrefix(rel, "..") {
+		t.Fatalf("blob 不能位于 workspace 内：workspace=%s blob=%s", workspaceDir, blobPath)
+	}
+
+	// 单个坏文件：进 Rejected，Item 为空，但不是整批错误。
+	bad := d.ResolveAttachments(string(created.Item.ID), []session.AttachmentRequest{
+		{Path: filepath.Join(srcDir, "missing.txt"), DisplayName: "missing.txt"},
+	})
+	if bad.Error != nil {
+		t.Fatalf("单个文件不存在不应让整批失败: %+v", bad.Error)
+	}
+	if len(bad.Items) != 0 || len(bad.Rejected) != 1 {
+		t.Fatalf("坏文件必须逐条拒绝：items=%+v rejected=%+v", bad.Items, bad.Rejected)
+	}
+	if bad.Rejected[0].Code != contracts.CodeNotFound || bad.Rejected[0].Message == "" {
+		t.Fatalf("拒绝原因必须是结构化的：%+v", bad.Rejected[0])
+	}
+
+	// 未知会话：整批不可处理，返回结构化错误而不是空成功。
+	unknown := d.ResolveAttachments("ses-does-not-exist", []session.AttachmentRequest{{Path: srcA}})
+	if unknown.Error == nil || unknown.Error.Code != contracts.CodeNotFound {
+		t.Fatalf("未知会话必须返回 NOT_FOUND，实际 %+v", unknown.Error)
+	}
+
+	// 源文件仍然是原样（附件是复制，不是移动/回写）。
+	got, err := os.ReadFile(srcA)
+	if err != nil || string(got) != string(body) {
+		t.Fatalf("源文件被改动: err=%v body=%q", err, got)
 	}
 }

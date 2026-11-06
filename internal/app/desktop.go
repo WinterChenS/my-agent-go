@@ -140,6 +140,10 @@ type Desktop struct {
 	// 句柄，而不是各开一份（run 索引的装配尚未接到这里，见 C06b 报告）。
 	sessionDB  *storage.DB
 	sessionCat *session.Catalog
+	// attachMu 保护 C06c 的附件存储（能力登记表必须在应用生命周期内是单例）。
+	// 与 svcMu 分开：初始化它会经由 sessionCatalog 拿 svcMu，同一把锁会自锁。
+	attachMu    sync.Mutex
+	attachStore *session.AttachmentStore
 	// runtimeSessionID 是最近一次构建的 run 会话，记忆用它记录来源。
 	runtimeSessionID string
 
@@ -1065,6 +1069,10 @@ func (d *Desktop) Shutdown() {
 	d.sessionDB = nil
 	d.sessionCat = nil
 	d.svcMu.Unlock()
+	// 附件能力登记表随应用退出一起失效：blob 还在磁盘上，但引用不再可读。
+	d.attachMu.Lock()
+	d.attachStore = nil
+	d.attachMu.Unlock()
 	if mem != nil {
 		_ = mem.Close()
 	}
