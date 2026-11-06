@@ -166,3 +166,49 @@ func strings64() string {
 	}
 	return sha256HexOf(b)
 }
+
+// TestHashFileContentMatchesActivePointer 守"导出的哈希实现就是激活时用的那份"。
+//
+// 绑定层（internal/app）解析 active 指针时用 HashFileContent 复核可执行体，
+// 并把期望/实际哈希写进错误信息。它必须与 ReadActive 记录的 executableSha256
+// 同一口径，否则"产品算的哈希"与"证据里的哈希"会分叉。
+func TestHashFileContentMatchesActivePointer(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("managed-pi-bytes")
+	dir, sum := writeVersionDir(t, root, "1.5.0", "win-x64", payload)
+	pointer := ActivePointer{
+		SchemaVersion: ActiveSchemaVersion, Version: "1.5.0", TargetID: "win-x64",
+		VersionDir: relToRoot(t, root, dir), Executable: expectedExecutableFor("win-x64"),
+		ExecutableSHA256: sum, InstalledAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+		InstallationID: "pi-test",
+	}
+	if err := WriteActive(root, pointer); err != nil {
+		t.Fatalf("写 active 指针失败: %v", err)
+	}
+	got, err := ReadActive(root)
+	if err != nil || got == nil {
+		t.Fatalf("读回 active 指针失败: %v", err)
+	}
+	exe := filepath.Join(root, filepath.FromSlash(got.VersionDir), filepath.FromSlash(got.Executable))
+	actual, err := HashFileContent(exe)
+	if err != nil {
+		t.Fatalf("HashFileContent: %v", err)
+	}
+	if actual != got.ExecutableSHA256 {
+		t.Fatalf("导出的哈希 %s 与 ReadActive 记录的 %s 不一致", actual, got.ExecutableSHA256)
+	}
+
+	// 改一个字节：必须变。证明它真的在读文件内容，而不是回显指针。
+	tampered := append([]byte{}, payload...)
+	tampered[0] ^= 0xFF
+	if err := os.WriteFile(exe, tampered, 0o755); err != nil {
+		t.Fatalf("篡改可执行体失败: %v", err)
+	}
+	after, err := HashFileContent(exe)
+	if err != nil {
+		t.Fatalf("HashFileContent（篡改后）: %v", err)
+	}
+	if after == actual {
+		t.Fatal("可执行体内容变了但哈希没变：HashFileContent 没有真的读文件")
+	}
+}

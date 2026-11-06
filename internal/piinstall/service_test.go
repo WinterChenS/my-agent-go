@@ -593,7 +593,7 @@ func TestUpgradeWithExternalPiNeverTouchesIt(t *testing.T) {
 		t.Fatalf("托管安装写进了外部 Pi 目录: %s", first.Executable)
 	}
 	// 外部 Pi 哈希与目录快照不变。
-	if sum, err := hashFileContent(external); err != nil || sum != externalHash {
+	if sum, err := HashFileContent(external); err != nil || sum != externalHash {
 		t.Fatalf("外部 Pi 被改写: hash=%s err=%v", sum, err)
 	}
 	externalAfter, err := snapshotRoot(filepath.Dir(external))
@@ -617,7 +617,7 @@ func TestUpgradeWithExternalPiNeverTouchesIt(t *testing.T) {
 	if _, err := h.svc.Rollback(context.Background(), p.InstallationID); err != nil {
 		t.Fatalf("回滚失败: %v", err)
 	}
-	if sum, err := hashFileContent(external); err != nil || sum != externalHash {
+	if sum, err := HashFileContent(external); err != nil || sum != externalHash {
 		t.Fatalf("回滚改写了外部 Pi: hash=%s err=%v", sum, err)
 	}
 	externalAfterRollback, err := snapshotRoot(filepath.Dir(external))

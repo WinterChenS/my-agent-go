@@ -34,6 +34,12 @@ const (
 	ActiveSchemaVersion = 1
 	// versionsDirName 是托管版本目录。
 	versionsDirName = "versions"
+	// VersionsDirName 是托管版本目录名（导出给绑定层组装发现根）。
+	//
+	// F08 的发现只扫托管根及其一层子目录，而 F06 的安装落在
+	// <managed>/versions/<version>-<target>/，所以绑定层必须把 versions 这一层
+	// 交给发现层。名字只能有一份，不能在 app 里再写一遍字符串。
+	VersionsDirName = versionsDirName
 	// stagingDirName 是下载/解压中间目录。
 	stagingDirName = "staging"
 )
@@ -146,7 +152,7 @@ func ActiveExecutable(managedRoot string, p *ActivePointer) (string, error) {
 	if err := EnsureInsideManagedRoot(managedRoot, exe); err != nil {
 		return "", err
 	}
-	sum, err := hashFileContent(exe)
+	sum, err := HashFileContent(exe)
 	if err != nil {
 		return "", contracts.NewAppError(contracts.CodeNotFound, "active 可执行体不可读: "+err.Error(), false)
 	}
@@ -174,7 +180,7 @@ func RollbackTarget(managedRoot string, p *ActivePointer) (*PreviousVersion, str
 	if err := EnsureInsideManagedRoot(managedRoot, exe); err != nil {
 		return nil, "", err
 	}
-	sum, err := hashFileContent(exe)
+	sum, err := HashFileContent(exe)
 	if err != nil {
 		return nil, "", contracts.NewAppError(contracts.CodeVerificationFailed,
 			"旧版本可执行体不可读: "+err.Error(), false)

@@ -48,7 +48,7 @@ func TestEmbeddedManifestCarriesRealWinX64Entry(t *testing.T) {
 	}
 	// 本地官方包必须与清单哈希逐字节一致（只读引用，不写入）。
 	local := filepath.Join(repoRoot(t), ".tools", "pi", "standalone", "pi-windows-x64-1.5.0.zip")
-	if sum, err := hashFileContent(local); err != nil {
+	if sum, err := HashFileContent(local); err != nil {
 		t.Fatalf("读取本地官方包失败: %v", err)
 	} else if sum != entry.SHA256 {
 		t.Errorf("本地官方包 sha256 = %s，与清单 %s 不一致", sum, entry.SHA256)

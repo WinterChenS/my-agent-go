@@ -130,7 +130,6 @@ func newPiInstallHarness(t *testing.T) *piInstallHarness {
 	t.Helper()
 	h := &piInstallHarness{probe: &recordingProbe{ok: true}, bodies: map[string][]byte{}}
 	h.managed = t.TempDir()
-	t.Setenv("MYAGENT_PI_HOME", h.managed)
 
 	h.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
@@ -152,6 +151,9 @@ func newPiInstallHarness(t *testing.T) *piInstallHarness {
 	t.Cleanup(h.srv.Close)
 
 	d, _ := newTestDesktop(t)
+	// newTestDesktop 会把托管根隔离到它自己的临时目录；这里改成本装置的实际安装根，
+	// 让 pi.ManagedRoot() 与安装服务用的目录是同一个（F06b 的发现要读它）。
+	t.Setenv("MYAGENT_PI_HOME", h.managed)
 	h.d = d
 	d.piInstallOverride = func(svc *piinstall.InstallService) {
 		h.mu.Lock()

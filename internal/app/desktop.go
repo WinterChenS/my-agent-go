@@ -761,13 +761,26 @@ func (d *Desktop) resolveRuntimeResources() (resources.SkillPlan, resources.Exte
 	return skills, exts, nil
 }
 
-// resolveInstallation 把设置里的 Pi 路径转成可启动的安装件。
+// resolveInstallation 把设置/托管指针转成可启动的安装件。
+//
+// 解析顺序（每一条都不得静默回退）：
+//  1. settings.piPath —— 用户显式指定。它失效就报错，绝不改用一个托管版本；
+//  2. <managed>/active.json —— F06 激活的托管安装。使用前**验证**：可执行体存在，
+//     且 sha256 等于激活时记录的 executableSha256。不一致就结构化失败
+//     （VERIFICATION_FAILED，带指针路径与期望/实际哈希），同样不改用别的托管版本；
+//  3. 都没有 —— CONFIG_MISSING（“未配置 Pi 路径”），与“指针坏了”可区分。
+//
+// 为什么“当前托管版本”由指针而不是排序回答：F08 的托管候选按**目录名**排序，
+// versions/1.5.0-win-x64 排在 1.6.0-win-x64 前面——名字顺序不是版本顺序。
 func (d *Desktop) resolveInstallation(s Settings) (pi.PiInstallation, error) {
-	path := strings.TrimSpace(s.PiPath)
-	if path == "" {
-		return pi.PiInstallation{}, contracts.NewAppError(contracts.CodeConfigMissing,
-			"未配置 Pi 路径（settings.piPath）", false)
+	if path := strings.TrimSpace(s.PiPath); path != "" {
+		return resolveUserInstallation(s, path)
 	}
+	return resolveActiveManagedInstallation(pi.ManagedRoot())
+}
+
+// resolveUserInstallation 是“用户显式指定路径”那条路（行为与 F06 之前一致）。
+func resolveUserInstallation(s Settings, path string) (pi.PiInstallation, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return pi.PiInstallation{}, err
@@ -800,6 +813,71 @@ func (d *Desktop) resolveInstallation(s Settings) (pi.PiInstallation, error) {
 		inst.Args = []string{abs}
 	}
 	return inst, nil
+}
+
+// resolveActiveManagedInstallation 解析 F06 的 active 指针，并在使用前验证可执行体。
+//
+// 验证复用 internal/piinstall 的现成实现（ReadActive / ActiveExecutable /
+// HashFileContent）：哈希口径只有一份，产品算的哈希就是证据里的哈希。
+func resolveActiveManagedInstallation(managedRoot string) (pi.PiInstallation, error) {
+	if strings.TrimSpace(managedRoot) == "" {
+		return pi.PiInstallation{}, contracts.NewAppError(contracts.CodeConfigMissing,
+			"未配置 Pi 路径（settings.piPath），且无法确定托管 Pi 根目录；"+
+				"请安装托管 Pi 或在设置里指定路径", false)
+	}
+	pointerPath := filepath.Join(managedRoot, piinstall.ActiveFileName)
+	ptr, err := piinstall.ReadActive(managedRoot)
+	if err != nil {
+		var appErr *contracts.AppError
+		if errors.As(err, &appErr) {
+			return pi.PiInstallation{}, contracts.NewAppError(appErr.Code,
+				"托管 Pi 指针 "+pointerPath+" 不可用: "+appErr.Message+"；不会静默改用其它托管版本", false)
+		}
+		return pi.PiInstallation{}, contracts.NewAppError(contracts.CodeVerificationFailed,
+			"托管 Pi 指针 "+pointerPath+" 不可读: "+err.Error()+"；不会静默改用其它托管版本", false)
+	}
+	if ptr == nil {
+		return pi.PiInstallation{}, contracts.NewAppError(contracts.CodeConfigMissing,
+			"未配置 Pi 路径（settings.piPath），且没有已激活的托管 Pi（"+pointerPath+
+				" 不存在）；请安装托管 Pi 或在设置里指定路径", false)
+	}
+	exe, err := piinstall.ActiveExecutable(managedRoot, ptr)
+	if err != nil {
+		return pi.PiInstallation{}, activePointerError(managedRoot, ptr, err)
+	}
+	id := strings.TrimSpace(ptr.InstallationID)
+	if id == "" {
+		// 旧指针没有 installationID：给一个不会和 F08 候选 ID 混淆的兜底值。
+		id = "managed:" + exe
+	}
+	return pi.PiInstallation{
+		ID:           id,
+		Executable:   exe,
+		Version:      ptr.Version,
+		Origin:       pi.OriginManaged,
+		Architecture: runtime.GOARCH,
+		Source:       pi.SourceManaged,
+		Runnable:     true,
+	}, nil
+}
+
+// activePointerError 把指针校验失败说成一个可修复的结构化错误。
+//
+// 错误信息必须同时给出指针路径、期望哈希与实际哈希：只说“坏了”会让人无从下手，
+// 而“重装”和“有人改过这个文件”是两件不同的事。
+func activePointerError(managedRoot string, ptr *piinstall.ActivePointer, cause error) error {
+	pointerPath := filepath.Join(managedRoot, piinstall.ActiveFileName)
+	expected := strings.TrimSpace(ptr.ExecutableSHA256)
+	exe := filepath.Join(managedRoot, filepath.FromSlash(ptr.VersionDir), filepath.FromSlash(ptr.Executable))
+	actual, actualErr := piinstall.HashFileContent(exe)
+	actualText := actual
+	if actualErr != nil {
+		actualText = "缺失或不可读（" + actualErr.Error() + "）"
+	}
+	return contracts.NewAppError(contracts.CodeVerificationFailed,
+		fmt.Sprintf("托管 Pi 指针 %s 校验失败（版本 %s，期望 sha256 %s，实际 %s）：%v；"+
+			"不会静默改用其它托管版本，请重新安装托管 Pi",
+			pointerPath, ptr.Version, expected, actualText, cause), false)
 }
 
 // Start 启动一次 run。

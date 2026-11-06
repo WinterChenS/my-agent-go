@@ -105,7 +105,7 @@ func TestInstallRealStandalonePackage(t *testing.T) {
 	if st.Size() < 50<<20 {
 		t.Fatalf("安装后的 pi.exe 只有 %d 字节，不像官方单文件发行包", st.Size())
 	}
-	gotHash, err := hashFileContent(res.Executable)
+	gotHash, err := HashFileContent(res.Executable)
 	if err != nil {
 		t.Fatalf("计算安装后可执行体哈希失败: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestInstallRealStandalonePackage(t *testing.T) {
 	}
 
 	// 外部 Pi 与 PATH 都不许变。
-	if sum, err := hashFileContent(externalPath); err != nil || sum != externalHash {
+	if sum, err := HashFileContent(externalPath); err != nil || sum != externalHash {
 		t.Fatalf("外部 Pi 被改写: hash=%s err=%v", sum, err)
 	}
 	externalAfter, err := snapshotRoot(filepath.Dir(externalPath))

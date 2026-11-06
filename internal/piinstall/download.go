@@ -181,7 +181,7 @@ func VerifyStagedFile(entry ManifestEntry, path string, pub ed25519.PublicKey) (
 	if st.Size() != entry.SizeBytes {
 		return zero, verificationError(fmt.Sprintf("staging 文件大小 %d 与清单 %d 不一致", st.Size(), entry.SizeBytes))
 	}
-	sum, err := hashFileContent(path)
+	sum, err := HashFileContent(path)
 	if err != nil {
 		return zero, verificationError("计算 staging 文件哈希失败: " + err.Error())
 	}

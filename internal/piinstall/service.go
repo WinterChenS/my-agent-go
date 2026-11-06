@@ -294,7 +294,7 @@ func (s *InstallService) Install(ctx context.Context, req InstallRequest, progre
 	// 同一版本重复安装：哈希一致就复用（不删可能正在被 worker 使用的文件）。
 	if existing, statErr := os.Stat(versionDir); statErr == nil && existing.IsDir() {
 		exePath := filepath.Join(versionDir, expectedExe)
-		if sum, hashErr := hashFileContent(exePath); hashErr == nil && strings.EqualFold(sum, extracted.ExecutableSHA256) {
+		if sum, hashErr := HashFileContent(exePath); hashErr == nil && strings.EqualFold(sum, extracted.ExecutableSHA256) {
 			_ = os.RemoveAll(tree)
 		} else if rmErr := os.RemoveAll(versionDir); rmErr != nil {
 			return failResult(res, StageActivate, contracts.NewAppError(contracts.CodeConfigConflict,

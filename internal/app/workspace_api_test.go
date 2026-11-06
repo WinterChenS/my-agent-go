@@ -23,6 +23,9 @@ import (
 
 func newTestDesktop(t *testing.T) (*Desktop, string) {
 	t.Helper()
+	// 托管 Pi 根也隔离到临时目录：resolveInstallation 会读 <managed>/active.json，
+	// 不隔离就会读到本机真实 appData（F06b）。
+	t.Setenv("MYAGENT_PI_HOME", t.TempDir())
 	root := t.TempDir()
 	d, err := New(root)
 	if err != nil {

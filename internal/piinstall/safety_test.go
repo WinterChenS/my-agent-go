@@ -104,7 +104,7 @@ func snapshotRoot(root string) (safetySnapshot, error) {
 			snap.Files++
 			snap.Bytes += st.Size()
 			if st.Mode().IsRegular() {
-				sum, sumErr := hashFileContent(p)
+				sum, sumErr := HashFileContent(p)
 				if sumErr != nil {
 					return sumErr
 				}

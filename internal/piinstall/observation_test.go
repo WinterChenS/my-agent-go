@@ -133,7 +133,7 @@ func walkManagedTree(t *testing.T, root string) []treeEntry {
 		if d.IsDir() {
 			entry.Size = -1
 		} else if info.Mode().IsRegular() {
-			sum, sumErr := hashFileContent(p)
+			sum, sumErr := HashFileContent(p)
 			if sumErr != nil {
 				return sumErr
 			}
@@ -217,7 +217,7 @@ func captureExternalSnapshot(t *testing.T, externalPath string) externalSnapshot
 	t.Helper()
 	snap := externalSnapshot{Path: externalPath, PATH: os.Getenv("PATH"), PATHHash: hashString(os.Getenv("PATH"))}
 	if externalPath != "" {
-		if sum, err := hashFileContent(externalPath); err == nil {
+		if sum, err := HashFileContent(externalPath); err == nil {
 			snap.Exists = true
 			snap.SHA256 = sum
 		}

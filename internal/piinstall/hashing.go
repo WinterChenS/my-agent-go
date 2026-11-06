@@ -10,8 +10,11 @@ import (
 	"os"
 )
 
-// hashFileContent 返回文件内容的 sha256（小写十六进制）。
-func hashFileContent(path string) (string, error) {
+// HashFileContent 返回文件内容的 sha256（小写十六进制）。
+//
+// 导出给绑定层（internal/app）复用：解析 active 指针时要把"期望哈希 vs 实际哈希"
+// 写进错误信息，产品必须用同一份哈希实现——另写一份迟早与这里算得不一样。
+func HashFileContent(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err

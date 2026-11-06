@@ -228,7 +228,7 @@ func Extract(archivePath, destDir, expectedExecutable string, limits ExtractLimi
 	}
 	// 这里只要求"可执行体存在且是常规文件"：格式/架构校验需要目标 ID，
 	// 由调用方在 extract 阶段用 ValidateExecutableForTarget(exe, target) 完成。
-	sum, err := hashFileContent(exePath)
+	sum, err := HashFileContent(exePath)
 	if err != nil {
 		return zero, fmt.Errorf("piinstall: 计算可执行体哈希失败: %w", err)
 	}
