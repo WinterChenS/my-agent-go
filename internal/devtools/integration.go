@@ -291,18 +291,72 @@ func evidenceRoot(rev, gate, target, display string) string {
 	return filepath.Join(parts...)
 }
 
+// filterIntegrationCases 把 --case 过滤应用到某 gate 的必需 case 列表。
+//
+// 只允许缩小到"该 gate 的必需 case"。未知 ID 或别的 gate 的 case 一律判配置
+// 错误（退出 2），因为那会写出一份"目录在 G2、内容证明的是 G0"的证据，看起来
+// 像通过，实际证明的不是这个 gate。
+//
+// 纪律：这个过滤只决定本次**产出哪些 case 的证据**，不改变 gate 判定——
+// EvaluateGate 永远按完整矩阵评估，所以 --case 不能用来宣称某个 gate 通过。
+// 它是开发期的单 case 取证加速器，不是验收口径。
+func filterIntegrationCases(selected []string, caseFilter []string) ([]string, error) {
+	if len(caseFilter) == 0 {
+		return selected, nil
+	}
+	allowed := make(map[string]bool, len(selected))
+	for _, id := range selected {
+		allowed[id] = true
+	}
+	seen := make(map[string]bool, len(caseFilter))
+	out := make([]string, 0, len(caseFilter))
+	for _, raw := range caseFilter {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("--case 含空的 case id（逗号分隔，例如 --case=MEM01,MEM02）")
+		}
+		if !allowed[id] {
+			return nil, fmt.Errorf("--case %s 不是该 gate 的必需 case（本 gate 可用: %s）",
+				id, strings.Join(selected, ","))
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 // RunIntegration 是 G0 的集成入口（兼容旧调用）。
 func RunIntegration(target string) int {
 	return RunIntegrationForGate(target, "G0")
 }
 
-// RunIntegrationForGate 跑某个 gate 的必需 case。
+// RunIntegrationForGate 跑某个 gate 的**全部**必需 case。
 //
 // 为什么需要 gate 参数：同一个 case 可能同时属于 G0 与 G2（例如 SEC05），
 // 而证据里的 gateId 必须与判定它的 gate 一致。证据目录按
 // docs/evidence/runs/<rev>/<gate>/<target>/<case> 分（见 v1-gates.md §4），
 // 两个 gate 的同名 case 不会互相覆盖、也不会串用报告。
 func RunIntegrationForGate(target, gate string) int {
+	return RunIntegrationForGateWithCases(target, gate, nil)
+}
+
+// RunIntegrationForGateWithCases 只跑指定 case（开发期取证用）。
+//
+// caseFilter 为空等价于 RunIntegrationForGate。非空时每个 ID 必须是该 gate 的
+// 必需 case，否则在执行任何命令之前就返回 2——不允许"跑了一半才发现参数错"。
+// 过滤后的退出码只描述这几条 case 自己，不构成 gate 结论。
+func RunIntegrationForGateWithCases(target, gate string, caseFilter []string) int {
+	return runIntegrationForGate(target, gate, caseFilter, "")
+}
+
+// runIntegrationForGate 是集成 runner 的实现。
+//
+// evidenceDir 为空表示按 (revision, gate, target) 计算规范证据根（生产路径）；
+// 非空只给测试注入临时根用，避免测试往仓库的 docs/evidence/runs 里写东西。
+func runIntegrationForGate(target, gate string, caseFilter []string, evidenceDir string) int {
 	if target == "" {
 		fmt.Fprintln(os.Stderr, "integration 必须指定 --target")
 		return 2
@@ -335,6 +389,12 @@ func RunIntegrationForGate(target, gate string) int {
 		fmt.Fprintln(os.Stderr, selErr.Error())
 		return 2
 	}
+	// --case 只缩小"本次产出哪些 case 的证据"；校验必须在跑任何命令之前完成。
+	required, filterErr := filterIntegrationCases(required, caseFilter)
+	if filterErr != nil {
+		fmt.Fprintln(os.Stderr, filterErr.Error())
+		return 2
+	}
 
 	table := map[string]integrationCase{}
 	for _, c := range integrationCases() {
@@ -358,8 +418,15 @@ func RunIntegrationForGate(target, gate string) int {
 	}
 
 	rev, dirty := SourceIdentity()
-	root := evidenceRoot(rev, gate, target, "")
+	root := evidenceDir
+	if root == "" {
+		root = evidenceRoot(rev, gate, target, "")
+	}
 	fmt.Printf("== verify --suite=integration --target=%s --gate=%s ==\n", target, gate)
+	if len(caseFilter) > 0 {
+		// 明确提示这不是 gate 结论：过滤运行只产出这几条 case 的证据。
+		fmt.Printf("单 case 取证模式（开发用）：只跑 %s；这不是 gate 通过结论\n", strings.Join(required, ","))
+	}
 	fmt.Printf("证据根: %s\n", root)
 	fmt.Printf("宿主环境: os=%s version=%s build=%s arch=%s display=%s\n",
 		env.OS, env.OSVersion, orNone(env.OSBuild), env.Arch, orNone(env.Display))
