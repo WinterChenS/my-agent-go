@@ -235,13 +235,23 @@ func integrationCases() []integrationCase {
 		// 无未支持通道后不再有"禁用并验证不可调用"的豁免项（该验证仍保留在
 		// TestRealPiPolicyBlocksToolAndProjectResources 里，防止未来回归）。
 		{ID: "SEC03.runtime", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestRealPiPolicyBlocksExtensionChannel|TestRealPiPolicyBlocksHarnessMCPChannel|TestRealPiPolicyBlocksCodemodeNestedChannel", Env: []string{"MYAGENT_PI_POLICY=1"}},
-		{ID: "SEC04.runtime", Package: "internal/policybridge", Run: "TestRejectsUnauthenticatedAndForeignRequests|TestOriginFromOwnEndpointIsAccepted|TestApprovedOnceSideEffectIsExactlyOne"},
+		// SEC04.runtime：错令牌/无令牌/错会话/伪造 Host/网页 Origin 都到不了工具。
+		// 两个外部观察装置：
+		//   - wire.jsonl：客户端 http.RoundTripper 记下**真正发出的字节**与收到的状态码
+		//     （Authorization 只记 present/absent，令牌本体永不落盘）；
+		//   - executions.jsonl：工具处理器每执行一次追加一行，并把副作用真的写到磁盘。
+		// 被拒路径不会有任何一行，"零执行"因此由文件证明。
+		{ID: "SEC04.runtime", Package: "internal/policybridge", Run: "TestRejectsUnauthenticatedAndForeignRequests|TestOriginFromOwnEndpointIsAccepted|TestApprovedOnceSideEffectIsExactlyOne",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "executions.jsonl"}}},
 		// SEC05：越界形态必须真被拦住。与 TestPathGuardRejectsEscapes 判的是同一批
 		// 形态，但这里**真的尝试写**：放行的几次由独立进程写出文件并自己记账，
 		// 被拒的几次根本没有进程被启动；"根外没被写进任何东西"由磁盘遍历证明。
 		{ID: "SEC05", Package: policyTests, Run: "TestPathGuard|TestApprovalBindsRealPathNotSpelling",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"executions.jsonl", "tree.json"}}},
-		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork"},
+		// SEC06：审批超时 / 排队中撤销 / 端点关闭三条路径上副作用恒为 0。
+		// 同一套 wire/执行账本：三条路径的 executions 都必须能从账本里数出 0。
+		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "executions.jsonl"}}},
 		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject", Env: []string{"MYAGENT_PI_POLICY=1"}},
 
 		// ── 记忆（C05，G2） ──

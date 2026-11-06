@@ -31,6 +31,14 @@ type harness struct {
 	exec    contracts.ExecutionContext
 	counter *int32
 	pending chan policy.ApprovalRequest
+	// 外部观察装置（SEC04.runtime/SEC06）：wire 账本由客户端 RoundTripper 写，
+	// 执行账本由真正执行副作用的工具处理器写。两者都不参与断言，
+	// 断言一律从磁盘读回（见 observation_test.go）。
+	wire       *wireLog
+	executions *execLog
+	// 账本起点下标：多条测试共用一份账本时用来切出"本条测试的记录"。
+	wireBaseline int
+	execBaseline int
 }
 
 func newHarness(t *testing.T, opts ...func(*Options)) *harness {
@@ -70,15 +78,20 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	}
 	t.Cleanup(func() { _ = srv.Close(context.Background()) })
 
-	return &harness{
+	h := &harness{
 		t: t, svc: svc, srv: srv, root: root, exec: exec,
 		client:  NewClient(srv.Endpoint(), srv.token, exec.SessionID, 0),
 		counter: new(int32),
 		pending: pending,
 	}
+	h.initObservation(t)
+	return h
 }
 
 // attempt 模拟 Pi 侧真实流程：先问策略端点，只有 allow 才真的执行工具。
+//
+// "执行"落在磁盘上（写目标文件）并由工具处理器自己追加一行执行账本：
+// "被拒/超时/撤销/关闭的路径没有副作用"因此可以由文件证明，而不是只看计数器。
 func (h *harness) attempt(ctx context.Context, call policy.ToolCall) (policy.Decision, string) {
 	h.t.Helper()
 	dec, reason, err := h.client.Authorize(ctx, call)
@@ -87,8 +100,23 @@ func (h *harness) attempt(ctx context.Context, call policy.ToolCall) (policy.Dec
 	}
 	if dec == policy.DecisionAllow {
 		atomic.AddInt32(h.counter, 1)
+		h.runTool(call)
 	}
 	return dec, reason
+}
+
+// runTool 是策略放行之后的真实副作用：写目标文件，并由这里自己记账。
+//
+// 写失败也记一行（status=failed）：让"以为执行了其实没写成"在账本里可见，
+// 而不是静默变成一次看似成功的执行。
+func (h *harness) runTool(call policy.ToolCall) {
+	target := strings.TrimSpace(call.ResourceScope)
+	argv := "write " + target
+	var writeErr error
+	if target != "" {
+		writeErr = os.WriteFile(target, []byte("executed:"+call.Name), 0o644)
+	}
+	h.executions.record(call.Name, target, argv, writeErr)
 }
 
 func (h *harness) writeCall(scope string) policy.ToolCall {
@@ -213,7 +241,8 @@ func TestRejectsUnauthenticatedAndForeignRequests(t *testing.T) {
 				tc.mutate(req)
 			}
 			// 裸 client：测试要求"这些请求根本进不到策略层"，所以不能借用已封装的 Client。
-			resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+			// 它仍然装上 wire 记录器：被拒的字节本身就是要观察的东西。
+			resp, err := h.rawClient(5 * time.Second).Do(req)
 			if err != nil {
 				t.Fatalf("发送请求: %v", err)
 			}
@@ -227,6 +256,28 @@ func TestRejectsUnauthenticatedAndForeignRequests(t *testing.T) {
 			}
 		})
 	}
+
+	// ── 外部观察：从 wire 账本读回"真的发出去并被拒"的请求 ──
+	// 断言不再只看进程内的状态码变量：账本记的是实际发出的字节与服务端回的结论。
+	own := h.ownWire(t)
+	rejectedOnWire := 0
+	for _, rec := range own {
+		if rec.Status >= 400 || rec.Error != "" {
+			rejectedOnWire++
+		}
+	}
+	if rejectedOnWire != len(cases) {
+		t.Fatalf("wire 账本里应有 %d 条被拒请求，实际 %d 条", len(cases), rejectedOnWire)
+	}
+	for _, rec := range own {
+		if rec.Status == http.StatusOK {
+			t.Fatalf("负例请求不得被接受，账本里有 200：%s %s", rec.Method, rec.Path)
+		}
+	}
+	if got := executedCount(h.ownExecutions(t)); got != 0 {
+		t.Fatalf("被拒路径不得产生执行，执行账本里有 %d 条", got)
+	}
+	h.observe(t, map[string]any{"deniedCases": len(cases), "rejectedOnWire": rejectedOnWire})
 }
 
 // TestApprovedOnceSideEffectIsExactlyOne 覆盖 SEC02/SEC03 的核心：
@@ -295,6 +346,35 @@ func TestApprovedOnceSideEffectIsExactlyOne(t *testing.T) {
 	if got := atomic.LoadInt32(h.counter); got != 1 {
 		t.Fatalf("只应有第一次的 1 次副作用，实际 %d", got)
 	}
+
+	// ── 外部观察：放行/拒绝的结论与执行次数全部从磁盘读回 ──
+	own := h.ownWire(t)
+	execs := h.ownExecutions(t)
+	if got := allowedForScope(own, scope); got != 1 {
+		t.Fatalf("账本里该文件应恰好 1 次 allow，实际 %d 次", got)
+	}
+	if got := deniedForScope(own, other.ResourceScope); got != 1 {
+		t.Fatalf("换文件后被拒绝的调用应恰好 1 次 deny，实际 %d 次", got)
+	}
+	if got := executedCount(execs); got != 1 {
+		t.Fatalf("执行账本里应恰好 1 次执行，实际 %d 次: %+v", got, execs)
+	}
+	if execs[0].Path != scope {
+		t.Fatalf("执行的目标文件应是 %s，账本里是 %s", scope, execs[0].Path)
+	}
+	if body := readIfExists(scope); body != "executed:write" {
+		t.Fatalf("被放行的执行应真的写出目标文件，实际内容 %q", body)
+	}
+	if _, err := os.Stat(other.ResourceScope); err == nil {
+		t.Fatal("被拒绝的调用不得写出目标文件")
+	}
+	h.observe(t, map[string]any{
+		"approvedScope":    scope,
+		"deniedScope":      other.ResourceScope,
+		"allowedOnce":      allowedForScope(own, scope),
+		"deniedOther":      deniedForScope(own, other.ResourceScope),
+		"executionsOnDisk": executedCount(execs),
+	})
 }
 
 // TestDenyForOutOfScopePath 覆盖 SEC05 与 SEC02 的组合：越界直接拒，且不签发审批。
@@ -326,6 +406,20 @@ func TestAskTimeoutDeniesWithoutSideEffect(t *testing.T) {
 	if got := atomic.LoadInt32(h.counter); got != 0 {
 		t.Fatalf("超时路径不得产生副作用，实际 %d", got)
 	}
+
+	// ── 外部观察：超时结论与"零执行"都从磁盘读回 ──
+	scope := filepath.Join(h.root, "c.txt")
+	own := h.ownWire(t)
+	if got := deniedForScope(own, scope); got != 1 {
+		t.Fatalf("账本里超时请求应恰好 1 次 deny，实际 %d 次", got)
+	}
+	if got := executedCount(h.ownExecutions(t)); got != 0 {
+		t.Fatalf("超时路径不得执行，执行账本里有 %d 条", got)
+	}
+	if _, err := os.Stat(scope); err == nil {
+		t.Fatal("超时路径不得写出目标文件")
+	}
+	h.observe(t, map[string]any{"timeoutDenied": deniedForScope(own, scope), "timeoutScope": scope})
 }
 
 // TestRevokeWhileQueuedDenies 覆盖"已排队许可撤销后再次校验"。
@@ -358,6 +452,19 @@ func TestRevokeWhileQueuedDenies(t *testing.T) {
 	if got := atomic.LoadInt32(h.counter); got != 0 {
 		t.Fatalf("撤销路径不得产生副作用，实际 %d", got)
 	}
+
+	// ── 外部观察：撤销后的结论与"零执行"都从磁盘读回 ──
+	own := h.ownWire(t)
+	if got := deniedForScope(own, call.ResourceScope); got != 1 {
+		t.Fatalf("账本里被撤销的请求应恰好 1 次 deny，实际 %d 次", got)
+	}
+	if got := executedCount(h.ownExecutions(t)); got != 0 {
+		t.Fatalf("撤销路径不得执行，执行账本里有 %d 条", got)
+	}
+	if _, err := os.Stat(call.ResourceScope); err == nil {
+		t.Fatal("撤销路径不得写出目标文件")
+	}
+	h.observe(t, map[string]any{"revokedDenied": deniedForScope(own, call.ResourceScope), "revokedScope": call.ResourceScope})
 }
 
 // TestCloseDeniesPendingAndRefusesNewWork 覆盖"策略服务失联即不执行"。
@@ -387,9 +494,31 @@ func TestCloseDeniesPendingAndRefusesNewWork(t *testing.T) {
 	}
 
 	// 关闭后新请求也拿不到 allow。
-	if dec, _, err := h.client.Authorize(context.Background(), h.writeCall(filepath.Join(h.root, "f.txt"))); err == nil && dec == policy.DecisionAllow {
+	closedScope := filepath.Join(h.root, "f.txt")
+	if dec, _, err := h.client.Authorize(context.Background(), h.writeCall(closedScope)); err == nil && dec == policy.DecisionAllow {
 		t.Fatal("端点关闭后不得返回 allow")
 	}
+
+	// ── 外部观察：关闭路径同样零执行，且账本里没有 allow ──
+	own := h.ownWire(t)
+	for _, rec := range own {
+		if decisionOf(rec) == string(policy.DecisionAllow) {
+			t.Fatalf("端点关闭路径不得出现 allow，账本里有：%s", rec.Path)
+		}
+	}
+	if got := executedCount(h.ownExecutions(t)); got != 0 {
+		t.Fatalf("关闭路径不得执行，执行账本里有 %d 条", got)
+	}
+	for _, target := range []string{call.ResourceScope, closedScope} {
+		if _, err := os.Stat(target); err == nil {
+			t.Fatalf("关闭路径不得写出目标文件: %s", target)
+		}
+	}
+	h.observe(t, map[string]any{
+		"closedDenied":  deniedForScope(own, call.ResourceScope),
+		"closedScope":   call.ResourceScope,
+		"closedNewWork": closedScope,
+	})
 }
 
 // TestOriginFromOwnEndpointIsAccepted 说明 Origin 校验不是"一律拒浏览器"：
@@ -406,7 +535,7 @@ func TestOriginFromOwnEndpointIsAccepted(t *testing.T) {
 	req.Header.Set("X-MyAgent-Session", string(h.exec.SessionID))
 	req.Header.Set("Origin", h.srv.Endpoint().URL)
 
-	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	resp, err := h.rawClient(3 * time.Second).Do(req)
 	if err != nil {
 		t.Fatalf("发送请求: %v", err)
 	}
@@ -423,6 +552,22 @@ func TestOriginFromOwnEndpointIsAccepted(t *testing.T) {
 	if out.Decision != string(policy.DecisionDeny) {
 		t.Fatalf("无人批准时应 deny，实际 %s", out.Decision)
 	}
+
+	// ── 外部观察：同源请求确实被接受（200 + 策略结论），执行账本为空 ──
+	own := h.ownWire(t)
+	if len(own) != 1 {
+		t.Fatalf("本条测试应只发出 1 条请求，账本里是 %d 条", len(own))
+	}
+	if own[0].Status != http.StatusOK {
+		t.Fatalf("同源请求应被接受，账本里状态是 %d", own[0].Status)
+	}
+	if own[0].Origin != h.srv.Endpoint().URL {
+		t.Fatalf("账本里的 Origin 应是端点自身，实际 %q", own[0].Origin)
+	}
+	if got := executedCount(h.ownExecutions(t)); got != 0 {
+		t.Fatalf("无人批准时不得执行，执行账本里有 %d 条", got)
+	}
+	h.observe(t, map[string]any{"ownOriginAccepted": true, "ownOriginStatus": own[0].Status})
 }
 
 func jsonEscape(s string) string {
