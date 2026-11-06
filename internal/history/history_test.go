@@ -386,12 +386,48 @@ func TestIndexStoresLocatorsNotContent(t *testing.T) {
 			t.Fatalf("history 包不得新增表 %q（无新迁移号）：现有 %v", name, tables)
 		}
 	}
-	var versions int
-	if err := db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&versions); err != nil {
+	// 迁移条数不能写死：号码由登记表分配给各自任务（005 归 C06、003/004 归
+	// C08/C09），写死条数等于让别的任务一动迁移就把这里弄红。本包要守的事实是
+	// "history 不占迁移号"，与 internal/storage/migration_test.go 同一口径——
+	// 期望值来自迁移目录，而不是硬编码快照。
+	expected, err := storage.LoadMigrations()
+	if err != nil {
+		t.Fatalf("读取迁移目录失败: %v", err)
+	}
+	applied, err := db.SQL().QueryContext(ctx,
+		`SELECT version, name FROM schema_migrations ORDER BY version`)
+	if err != nil {
 		t.Fatalf("读取迁移记录失败: %v", err)
 	}
-	if versions != 2 {
-		t.Fatalf("迁移号不得增加（003 归 C08、005 归 C06）：实际 %d 条迁移记录", versions)
+	got := map[int]string{}
+	for applied.Next() {
+		var (
+			version int
+			name    string
+		)
+		if err := applied.Scan(&version, &name); err != nil {
+			applied.Close()
+			t.Fatalf("扫描迁移记录失败: %v", err)
+		}
+		got[version] = name
+	}
+	applied.Close()
+	if err := applied.Err(); err != nil {
+		t.Fatalf("遍历迁移记录失败: %v", err)
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("已应用迁移必须与嵌入目录一致：目录 %d 条，库里 %d 条（%v）",
+			len(expected), len(got), got)
+	}
+	for _, m := range expected {
+		name, ok := got[m.Version]
+		if !ok || name != m.Name {
+			t.Fatalf("迁移 %d 应为 %q，实际 %q（存在绕过 runner 手插的记录）",
+				m.Version, m.Name, name)
+		}
+		if strings.Contains(name, "history") || strings.Contains(name, "run_index") {
+			t.Fatalf("history 包不得拥有迁移 %q：本包不新增迁移号", name)
+		}
 	}
 }
 
