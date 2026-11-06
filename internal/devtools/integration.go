@@ -183,9 +183,16 @@ func integrationCases() []integrationCase {
 		// 四条 case 的证据都由测试自己写进 ANVIL_OBSERVATION_DIR：
 		//   PI_COMP01/02/04 → contract-report.json（探测结论）；
 		//   PI_COMP03 → failure-report.json（具名失败项）。
-		// 全部跑在 fakeworker + 临时 agentDir 上：本机没有 1.5.0，不能拿它冒充真实包证据。
-		{ID: "PI_COMP01", Package: piTests, Run: "TestContractProbePassesOnCompliantWorker|TestContractProbeRejectsVersionRangeWithoutProbe",
-			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
+		// PI_COMP02/03/04 跑在 fakeworker + 临时 agentDir 上：它们验证的是判定逻辑。
+		//
+		// PI_COMP01 额外跑 TestContractProbeAgainstRealPi（F08-D）：契约探测必须对**真实 Pi**
+		// 也成立，否则"探测能跑"只在 fixture 上成立——真实 Pi 会被判 incompatible。
+		// 它的观察值是 contract-report-real-pi.json + pi-binary.json（真实二进制自己的
+		// --version 输出、sha256 与探测结论）。缺官方独立包时整条 case 写 BLOCKED
+		// （见 contractProbeBlockedReasonFor），不用 fixture 冒充真实包。
+		{ID: "PI_COMP01", Package: piTests, Run: "TestContractProbePassesOnCompliantWorker|TestContractProbeRejectsVersionRangeWithoutProbe|TestContractProbeAgainstRealPi",
+			Blocked:     contractProbeBlockedReasonFor("G0", "PI_COMP01"),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json", "contract-report-real-pi.json", "pi-binary.json"}}},
 		{ID: "PI_COMP02", Package: piTests, Run: "TestDiscoverUsesContractProbeForReadyCompatible|TestUnknownPatchBecomesCompatibleOnlyAfterProbe",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
 		{ID: "PI_COMP03", Package: piTests, Run: "TestContractProbeFailsOnMalformedSettled|TestContractProbeFailsOnHungAbort|TestContractProbeFailsOnLeakedGrandchild",
@@ -452,6 +459,49 @@ func standaloneBlockedReasonFor(gate, caseID string) string {
 			"--suite=integration --target=win-x64 --gate=" + gate + " --case=" + caseID
 	}
 	return ""
+}
+
+// contractProbeBlockedReasonFor 探测 F08-D 的观察装置：官方 Pi 1.5.0 独立包（只读引用）。
+//
+// 为什么需要单独一个：PI_COMP01 的"真实 Pi"分支要跑的是那个二进制本身。缺包时
+// 既不能 skip（skip 会让 case 变绿但什么都没测），也不能让它 FAIL——那会把
+// "本机没装观察装置"说成"这个 Pi 不兼容"。这里只做文件探测：不启动进程、不联网。
+func contractProbeBlockedReasonFor(gate, caseID string) string {
+	root, err := repoFile("go.mod")
+	if err != nil {
+		return "无法定位仓库根，无法探测 .tools/pi/standalone：" + err.Error()
+	}
+	target := standaloneTargetID()
+	dir := "v1.5.0-" + target
+	name := "pi"
+	if runtime.GOOS == "windows" {
+		name = "pi.exe"
+	}
+	exe := filepath.Join(filepath.Dir(root), ".tools", "pi", "standalone", dir, name)
+	if _, statErr := os.Stat(exe); statErr != nil {
+		return "本机没有官方独立包（" + exe + "）；修复：下载官方 Pi 1.5.0 独立包并解包到 " +
+			".tools/pi/standalone/" + dir + "/（只读引用，不覆盖外部 Pi），然后重跑 " +
+			"scripts/devtools.ps1 verify --suite=integration --target=" + target + " --gate=" + gate + " --case=" + caseID
+	}
+	return ""
+}
+
+// standaloneTargetID 把宿主 GOOS/GOARCH 映射成 target id（win-x64 / mac-arm64 / linux-x64 …）。
+// 只用于把 BLOCKED 的修复命令写成该宿主真能重跑的那一条；
+// 与 internal/runtime/pi 里真实独立包目录的命名必须一致。
+func standaloneTargetID() string {
+	goos := runtime.GOOS
+	switch goos {
+	case "windows":
+		goos = "win"
+	case "darwin":
+		goos = "mac"
+	}
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	return goos + "-" + arch
 }
 
 // piInstallBlockedReasonFor 探测 F06 的观察装置：官方 win-x64 独立包 zip。

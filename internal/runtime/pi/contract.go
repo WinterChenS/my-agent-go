@@ -12,6 +12,8 @@ package pi
 //   - 协议形状以真实捕获（internal/runtime/pi/testdata/v1.5.0/*.jsonl）为准：
 //     握手用捕获里真实存在的 get_commands，扩展/MCP 能力面看它的 commands 记录，
 //     完成信号只认 agent_settled 且必须带布尔 aborted。
+//   - 探测必须以 `--mode rpc` 启动（见 launchArgs）：不带它 Pi 进 text 模式，
+//     六项检查全部超时，真实可用的 Pi 会被判 incompatible。
 //   - FixtureHash 只证明 testdata 未漂移，**不**认证本机可执行体。
 
 import (
@@ -31,7 +33,35 @@ const (
 	defaultContractCheckTimeout = 10 * time.Second
 	// contractProbeEnvironment 声明探测确实发生在隔离 agentDir 里。
 	contractProbeEnvironment = "isolated-agentdir"
+
+	// contractProbeExtensionDir 是隔离 agentDir 下存放探测扩展的子目录。
+	//
+	// 放在 agentDir 而不是工作区：工作区是 Pi 的 cwd，往里面写文件会改变
+	// "探测看到的工作区"（以及任何按工作区快照做的断言）。
+	contractProbeExtensionDir = "anvil-contract-probe"
+	// contractProbeExtensionName 是探测自己加载的薄扩展文件名。
+	//
+	// 为什么探测必须显式加载一个绝对路径的扩展：产品运行路径就是这样加载
+	// pi-extensions/harness-policy.ts（执行前授权）。这条链路断了，产品就只剩
+	// "模型自觉"这一层保护，必须判 incompatible，而不是等用户第一次运行才发现。
+	contractProbeExtensionName = "anvil-contract-probe.ts"
+	// contractProbeCommand 是该扩展注册的命令名，也是扩展 hook 面的观察值。
+	contractProbeCommand = "anvil-contract-probe"
 )
+
+// contractProbeExtensionSource 是运行时写进隔离目录的薄扩展。
+//
+// 只注册一条命令：不订阅事件、不碰网络、不改任何行为——探测只回答
+// "绝对路径扩展能不能被加载并把命令注册出来"。刻意不写 import：独立包与
+// npm 形式都能直接加载它，不依赖宿主 Node 的模块解析。
+const contractProbeExtensionSource = `// Anvil 契约探测扩展（运行时生成，只存在于隔离临时目录）
+export default function (pi) {
+	pi.registerCommand("` + contractProbeCommand + `", {
+		description: "Anvil contract probe extension (isolation check only)",
+		handler: async () => {},
+	});
+}
+`
 
 // ContractChecks 是六项契约检查的名字与报告顺序。
 var ContractChecks = []string{"rpc", "settled", "mcp", "extension", "abort", "cleanup"}
@@ -49,6 +79,19 @@ type ContractOptions struct {
 	Timeout time.Duration
 	// CheckTimeout 是单项检查的时限，默认 10s。超时是失败，不是通过。
 	CheckTimeout time.Duration
+	// Isolation 是探测使用的隔离参数（项目级可执行资源一律切断）。
+	//
+	// 调用方只能加东西（ExtraExtensions/Skills/PolicyExtension）；HarnessMCP 一律
+	// 按 true 处理：mcp 检查要求内置 MCP 扩展真的可达，--no-mcp 下它必然不可达，
+	// 那说明的是参数配错，不是被测 Pi 不兼容。
+	Isolation IsolationSpec
+	// Provider/Model 是探测回合使用的模型。
+	//
+	// 真实 Pi 在没有任何可用模型时会直接拒绝 prompt（response success=false），
+	// rpc/settled/abort 三项必然失败。为空表示不传——探测照样跑，但真实二进制的
+	// 结论会是 incompatible（fail closed），绝不因为"没配模型"就跳过那三项。
+	Provider string
+	Model    string
 	// WorkerStarter 默认 StartWorker。
 	WorkerStarter WorkerStarter
 }
@@ -106,7 +149,19 @@ func ContractProbe(ctx context.Context, inst PiInstallation, opts ContractOption
 	probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	p := &contractProber{inst: inst, opts: opts}
+	iso := opts.probeIsolation()
+	// 隔离参数在这里就校验：少了必需 flag 是编程错误，不能变成"探测失败"
+	// 让人以为是被测 Pi 的问题。
+	if err := ValidateArgs(iso.Args(), iso); err != nil {
+		return report, err
+	}
+	extPath, err := writeContractProbeExtension(opts.AgentDir)
+	if err != nil {
+		return report, err
+	}
+	iso.ExtraExtensions = append(iso.ExtraExtensions, extPath)
+
+	p := &contractProber{inst: inst, opts: opts, iso: iso}
 	checks := []struct {
 		name string
 		run  func(context.Context) (string, error)
@@ -171,8 +226,62 @@ func defaultContractProbe(ctx context.Context, cand PiCandidate) (bool, []string
 type contractProber struct {
 	inst PiInstallation
 	opts ContractOptions
+	// iso 是实际要交给 Pi 的隔离参数（含探测自己写入的扩展路径）。
+	iso IsolationSpec
 	// check 是当前进行检查的名字；只用于标注子进程环境与诊断，不改变行为。
 	check string
+}
+
+// probeIsolation 返回探测用的隔离参数。
+//
+// HarnessMCP 强制为 true：mcp 检查要观察的就是内置 MCP 扩展注册的命令，
+// `--no-mcp` 下这条命令根本不存在——那不是被测 Pi 的缺陷。
+func (o ContractOptions) probeIsolation() IsolationSpec {
+	iso := o.Isolation
+	iso.HarnessMCP = true
+	return iso
+}
+
+// writeContractProbeExtension 在隔离 agentDir 下写出探测扩展，返回其绝对路径。
+//
+// 只写隔离目录：绝不写用户真实配置目录（AgentDir 为空时调用方已经在更前面被拒）。
+func writeContractProbeExtension(agentDir string) (string, error) {
+	dir := filepath.Join(agentDir, contractProbeExtensionDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", contracts.NewAppError(contracts.CodeCompatibility,
+			"无法创建探测扩展目录: "+err.Error(), false)
+	}
+	path := filepath.Join(dir, contractProbeExtensionName)
+	if err := os.WriteFile(path, []byte(contractProbeExtensionSource), 0o644); err != nil {
+		return "", contracts.NewAppError(contracts.CodeCompatibility,
+			"无法写入探测扩展: "+err.Error(), false)
+	}
+	return path, nil
+}
+
+// launchArgs 是交给 worker 的完整 argv，形状与 internal/run 的启动路径一致：
+//
+//	--mode rpc（必须最先）→ 隔离参数 → --session-dir → --provider/--model
+//
+// 为什么 `--mode rpc` 不能省：不带它 Pi 进默认的 text 模式，stdin 里的 JSON
+// 命令不会被当作 RPC 处理，get_commands 永远没有响应，六项检查全部超时——
+// 于是一个完全可用的 Pi 被判 incompatible。internal/run 早就知道这一点，
+// 探测漏了它，于是"探测能跑"这件事只在 fixture worker 上成立。
+//
+// 隔离参数一律由 IsolationSpec.Args() 构造，这里不手写第二份：两份 argv 一旦
+// 分叉，就会出现"探测在一种形状上跑、运行在另一种形状上跑"，而证据看不出来。
+func (p *contractProber) launchArgs() []string {
+	args := []string{"--mode", "rpc"}
+	args = append(args, p.iso.Args()...)
+	// 会话必须落在隔离 agentDir 下：否则 Pi 会把会话写进自己的默认位置。
+	args = append(args, "--session-dir", filepath.Join(p.opts.AgentDir, "sessions"))
+	if provider := strings.TrimSpace(p.opts.Provider); provider != "" {
+		args = append(args, "--provider", provider)
+	}
+	if model := strings.TrimSpace(p.opts.Model); model != "" {
+		args = append(args, "--model", model)
+	}
+	return args
 }
 
 func normalizeContractOptions(opts ContractOptions) ContractOptions {
@@ -199,7 +308,14 @@ func (p *contractProber) start(ctx context.Context) (Worker, error) {
 		Installation: p.inst,
 		WorkingDir:   p.opts.WorkspaceDir,
 		AgentDir:     p.opts.AgentDir,
-		Env:          []string{"ANVIL_CONTRACT_CHECK=" + p.check},
+		Env: []string{
+			"ANVIL_CONTRACT_CHECK=" + p.check,
+			// 探测不允许自动联网（模型目录刷新、更新检查等）。PI_OFFLINE 是 Pi 自己
+			// 支持的开关（docs/environment-variables.md），用环境变量而不是 --offline 参数：
+			// 参数在不同 1.x 上可能不认，env 不会因为解析失败而把好 Pi 判成不兼容。
+			"PI_OFFLINE=1",
+		},
+		Args: p.launchArgs(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("启动隔离 worker 失败: %w", err)
