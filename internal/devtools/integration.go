@@ -193,7 +193,11 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"contract-report.json"}}},
 
 		// ── RPC ──
-		{ID: "RPC01", Package: piTests, Run: "TestLFFramingUnicodeAndLargeRecord"},
+		// RPC01：LF 分帧对多字节字符、U+2028、128KiB 记录不丢字节。
+		// 观察装置是子进程自己：fakeworker 用 -record-frames 把**它实际收到的每一帧**
+		// （seq/kind/bytes/sha256/payload）追加到 frames.jsonl；父进程只读回文件核对。
+		{ID: "RPC01", Package: piTests, Run: "TestLFFramingUnicodeAndLargeRecord|TestLFFramingChildReceivedFrames",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"frames.jsonl"}}},
 		{ID: "RPC02", Package: piTests, Run: "TestOutOfOrderResponsesMatchByID|TestDuplicateResponseNotMisattributed|TestCancelledCallDoesNotBlockSubsequentCalls"},
 		{ID: "RPC03", Package: piTests, Run: "TestStdoutBackpressureDoesNotDeadlock|TestStderrFloodDoesNotBlockStdout"},
 		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls"},

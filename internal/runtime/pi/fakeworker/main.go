@@ -7,6 +7,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -30,6 +32,7 @@ func main() {
 	wait := flag.String("wait", "", "crashafterwrite：回应 prompt 后等这个文件出现（上限 10s）再制造崩溃")
 	recordArgv := flag.String("record-argv", "", "把本进程实际收到的 argv 写成 JSON（观察用）")
 	recordEnv := flag.String("record-env", "", "把本进程实际收到的环境变量写成 JSON（观察用）")
+	recordFrames := flag.String("record-frames", "", "把本进程实际收到的每一帧追加写成 JSONL（观察用）")
 	// 真 Pi 的隔离参数（-na/-nc/--no-session/--tools read …）不是 fakeworker 的参数。
 	// CFG03/RES04 要求把**同一批**参数原样交给子进程，所以这里只把 fakeworker 自己
 	// 认识的参数交给 flag 包；其余原样留在 os.Args 里，由 -record-argv 落盘。
@@ -47,6 +50,9 @@ func main() {
 	}
 	if *recordEnv == "" {
 		*recordEnv = os.Getenv("FAKEWORKER_RECORD_ENV")
+	}
+	if *recordFrames == "" {
+		*recordFrames = os.Getenv("FAKEWORKER_RECORD_FRAMES")
 	}
 
 	if *recordArgv != "" {
@@ -87,7 +93,19 @@ func main() {
 		emitMalformed()
 	}
 
-	serve(*mode, *expect, *marker)
+	// 帧记录器必须在读取循环之前就绪：漏掉第一帧就等于没观察。
+	var rec *frameRecorder
+	if *recordFrames != "" {
+		var err error
+		rec, err = newFrameRecorder(*recordFrames)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "打开 -record-frames 失败: %v\n", err)
+			os.Exit(5)
+		}
+		defer func() { _ = rec.close() }()
+	}
+
+	serve(*mode, *expect, *marker, rec)
 }
 
 // runChildHeartbeat 持续向 marker 文件追加行；测试通过比对前后行数判断它是否还活着。
@@ -219,7 +237,7 @@ type contractTurn struct {
 	aborted bool
 }
 
-func serve(mode string, expect int, marker string) {
+func serve(mode string, expect int, marker string, rec *frameRecorder) {
 	in := bufio.NewReader(os.Stdin)
 	var mu sync.Mutex
 	var pending []string
@@ -240,7 +258,17 @@ func serve(mode string, expect int, marker string) {
 				ID   string `json:"id"`
 				Type string `json:"type"`
 			}
-			if json.Unmarshal([]byte(line), &cmd) == nil && cmd.Type != "" {
+			parsed := json.Unmarshal([]byte(line), &cmd) == nil
+			if rec != nil {
+				// 记录的是**本进程实际收到的那一行**（含 id、含多字节字符），
+				// 父进程据此核对“发出去的字节是否原样到达”。
+				kind := cmd.Type
+				if !parsed || kind == "" {
+					kind = "unparsed"
+				}
+				rec.record(kind, line)
+			}
+			if parsed && cmd.Type != "" {
 				switch {
 				case mode == "contract" && cmd.Type == "get_commands":
 					// 形状取自真实捕获 internal/runtime/pi/testdata/v1.5.0/extension.jsonl：
@@ -349,7 +377,7 @@ func ownArgs(args []string) []string {
 	valueFlags := map[string]bool{
 		"-mode": true, "-expect": true, "-flood-bytes": true, "-marker": true,
 		"-pidfile": true, "-counter": true, "-wait": true,
-		"-record-argv": true, "-record-env": true,
+		"-record-argv": true, "-record-env": true, "-record-frames": true,
 	}
 	boolFlags := map[string]bool{"-child": true}
 
@@ -385,4 +413,60 @@ func writeJSONFile(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, raw, 0o644)
+}
+
+// frameRecorder 把收到的每一帧追加成 JSONL：seq / kind / bytes / sha256 / payload。
+//
+// 只记录"我收到了什么"，不解释语义：父进程从文件里读回事实，
+// 而不是让子进程替它下结论。
+type frameRecorder struct {
+	mu  sync.Mutex
+	f   *os.File
+	seq int
+	err error
+}
+
+func newFrameRecorder(path string) (*frameRecorder, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return &frameRecorder{f: f}, nil
+}
+
+func (r *frameRecorder) record(kind, payload string) {
+	if r == nil {
+		return
+	}
+	sum := sha256.Sum256([]byte(payload))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seq++
+	entry := map[string]any{
+		"seq":     r.seq,
+		"kind":    kind,
+		"bytes":   len(payload),
+		"sha256":  hex.EncodeToString(sum[:]),
+		"payload": payload,
+	}
+	b, err := json.Marshal(entry)
+	if err != nil {
+		r.err = err
+		return
+	}
+	if _, err := r.f.Write(append(b, '\n')); err != nil {
+		r.err = err
+	}
+}
+
+func (r *frameRecorder) close() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		fmt.Fprintf(os.Stderr, "写 -record-frames 出错: %v\n", r.err)
+	}
+	return r.f.Close()
 }

@@ -2,12 +2,16 @@ package pi
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"my-agent-go/internal/contracts"
 )
@@ -175,4 +179,132 @@ func TestLFFramingUnicodeAndLargeRecord(t *testing.T) {
 			t.Fatalf("空行处理错误：期望 %#v，实际 %#v", want, got)
 		}
 	})
+}
+
+// frameRecord 是 fakeworker 写下的"我收到的一帧"（从磁盘读回）。
+type frameRecord struct {
+	Seq     int    `json:"seq"`
+	Kind    string `json:"kind"`
+	Bytes   int    `json:"bytes"`
+	SHA256  string `json:"sha256"`
+	Payload string `json:"payload"`
+}
+
+func readFrameRecords(t *testing.T, path string) []frameRecord {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读回子进程写下的帧记录失败: %v", err)
+	}
+	var out []frameRecord
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec frameRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("帧记录不是合法 JSON: %v（原文 %s）", err, clip(line, 200))
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// TestLFFramingChildReceivedFrames 是 RPC01 的 external-observation 取证点。
+//
+// 上面的子测试验证的是**本进程**的分帧器；这一条验证的是另一件事：
+// 产品写进管道的那一行，在多字节字符与 128KiB 记录的情况下，**真的原样到达了子进程**。
+// 事实来源是子进程自己追加的 frames.jsonl（seq/kind/bytes/sha256/payload），父进程只读。
+func TestLFFramingChildReceivedFrames(t *testing.T) {
+	dir := piObservationDir()
+	if dir == "" {
+		dir = t.TempDir() // 本地 focused 运行：不落盘到证据目录
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	framesPath := filepath.Clean(filepath.Join(dir, "frames.jsonl"))
+	_ = os.Remove(framesPath)
+
+	w := startFake(t, "echo", "-record-frames", framesPath)
+	ctx := callCtx(t, 30*time.Second)
+
+	unicodeMsg := "第一段" + "\u2028" + "第二段 emoji🙂 增补平面𝄞 制表\t与回车\r\n结尾"
+	largeMsg := strings.Repeat("值", 128<<10/3+1)
+	sent := []string{unicodeMsg, largeMsg}
+	for i, msg := range sent {
+		payload, err := json.Marshal(map[string]string{"type": "prompt", "message": msg})
+		if err != nil {
+			t.Fatalf("构造第 %d 条命令失败: %v", i+1, err)
+		}
+		if _, err := w.Call(ctx, payload); err != nil {
+			t.Fatalf("第 %d 条命令失败: %v", i+1, err)
+		}
+	}
+	if err := w.Close(ctx); err != nil {
+		t.Fatalf("Close 失败: %v", err)
+	}
+
+	recs := readFrameRecords(t, framesPath)
+	if len(recs) != len(sent) {
+		t.Fatalf("子进程收到 %d 帧，期望 %d 帧（帧记录：%+v）", len(recs), len(sent), recs)
+	}
+
+	totalBytes := 0
+	maxRecordBytes := 0
+	decoded := make([]string, len(recs))
+	for i, rec := range recs {
+		totalBytes += rec.Bytes
+		if rec.Bytes > maxRecordBytes {
+			maxRecordBytes = rec.Bytes
+		}
+		if rec.Seq != i+1 {
+			t.Fatalf("第 %d 帧的 seq 应为 %d，实际 %d", i+1, i+1, rec.Seq)
+		}
+		if rec.Kind != "prompt" {
+			t.Fatalf("第 %d 帧的 kind 应为 prompt，实际 %q", i+1, rec.Kind)
+		}
+		if rec.Bytes != len(rec.Payload) {
+			t.Fatalf("第 %d 帧记录的字节数 %d 与 payload 长度 %d 不符", i+1, rec.Bytes, len(rec.Payload))
+		}
+		if rec.SHA256 != strings.TrimPrefix(sha256Of([]byte(rec.Payload)), "sha256:") {
+			t.Fatalf("第 %d 帧的 sha256 与 payload 不符", i+1)
+		}
+		var got struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(rec.Payload), &got); err != nil {
+			t.Fatalf("第 %d 帧 payload 不是合法 JSON: %v", i+1, err)
+		}
+		if got.ID == "" {
+			t.Fatalf("第 %d 帧没有 id：产品写出的命令必须带 id", i+1)
+		}
+		decoded[i] = got.Message
+		if got.Message != sent[i] {
+			t.Fatalf("第 %d 帧的内容没有原样到达（期望 %d 字节，实际 %d 字节）", i+1, len(sent[i]), len(got.Message))
+		}
+	}
+
+	rawFrames, err := os.ReadFile(framesPath)
+	if err != nil {
+		t.Fatalf("读回 frames.jsonl 失败: %v", err)
+	}
+
+	if piObservationDir() != "" {
+		writePiObservation(t, map[string]any{
+			"records":          len(recs),
+			"totalBytes":       totalBytes,
+			"maxRecordBytes":   maxRecordBytes,
+			"unicodeRoundTrip": decoded[0] == sent[0],
+			"largeRoundTrip":   decoded[1] == sent[1],
+			"framesSha256":     sha256Of(rawFrames),
+			"kinds":            []string{recs[0].Kind, recs[1].Kind},
+			"largeFrameBytes":  recs[1].Bytes,
+			"sentBytes":        []int{len(sent[0]), len(sent[1])},
+			"receivedBytes":    []int{recs[0].Bytes, recs[1].Bytes},
+			"recordedBy":       "fakeworker -record-frames（子进程自写）",
+		}, nil)
+	}
 }
