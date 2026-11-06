@@ -184,7 +184,7 @@ func integrationCases() []integrationCase {
 		// （由子进程里的 fixture 工具写出）。
 		//
 		// 复合 case（RUN01/RUN04/RUN06）没有自己的证据，不能列在这里：它们由子 case 各自取证。
-		{ID: "RUN01.service", Package: runTests, Run: "TestSettledCompletesRun|TestRetryExhaustedSettlesAsFailedProviderError|TestSettledDuringCompactionDoesNotComplete|TestSettledDuringAutoRetryDoesNotComplete|TestUnknownSettledPayloadIsCompatibilityError",
+		{ID: "RUN01.service", Package: runTests, Run: "TestSettledCompletesRun|TestRetryExhaustedSettlesAsFailedProviderError|TestSettledDuringCompactionDoesNotComplete|TestSettledDuringAutoRetryDoesNotComplete|TestUnknownSettledPayloadIsCompatibilityError|TestSettledWhileWaitingApprovalDoesNotHang",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
 		{ID: "RUN02", Package: runTests, Run: "TestReplayReturnsOnlyNewEvents|TestDeltaCoalescingDoesNotDropToolResults",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},

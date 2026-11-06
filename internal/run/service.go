@@ -744,6 +744,15 @@ func (s *Service) applySettle(rs *runState, aborted bool) {
 	retryErrorMessage := rs.retryErrorMessage
 	rs.mu.Unlock()
 
+	// waiting_approval → completed/failed 不是合法迁移。旧实现把迁移错误丢掉，
+	// 结果是「这一轮其实已经结束，界面却永远停在等待确认」。审批是“人此刻在场”
+	// 的决定：本轮结束就没人会回答了，必须先 fail-closed 释放等待，再落终态。
+	if state == contracts.RunStateWaitingApproval {
+		s.abandonPendingApprovals(rs, "run_settled")
+		_ = s.transition(rs, contracts.RunStateRunning)
+		state = rs.snapshot().State
+	}
+
 	if aborted || state == contracts.RunStateStopping {
 		_ = s.transition(rs, contracts.RunStateCancelled)
 		s.release(rs)
@@ -762,6 +771,31 @@ func (s *Service) applySettle(rs *runState, aborted bool) {
 	}
 	_ = s.transition(rs, contracts.RunStateCompleted)
 	s.release(rs)
+}
+
+// abandonPendingApprovals 在结算时释放所有等待中的审批，并给出拒绝结论。
+//
+// 为什么记成 deny 而不是“消失”：界面把 approval.resolved 当作“这条请求不再是
+// 待办”的唯一信号；没有它，审批卡片会一直挂在那儿等一个永远不会来的答复。
+// 而这一轮已经结束，工具调用不可能再被放行，deny 正是真实的最终结果。
+// 不经过 bridge：run 结算后桥会关闭，阻塞在 Authorize 上的调用方拿到的就是错误，
+// 这里只负责把“不会有人回答”这件事记录下来。
+func (s *Service) abandonPendingApprovals(rs *runState, reason string) {
+	rs.mu.Lock()
+	ids := make([]string, 0, len(rs.pending))
+	for id := range rs.pending {
+		ids = append(ids, id)
+	}
+	rs.pending = map[string]policy.ApprovalRequest{}
+	rs.mu.Unlock()
+
+	for _, id := range ids {
+		s.emit(rs, EventApprovalResolved, map[string]any{
+			"approvalId": id,
+			"choice":     string(policy.ApprovalDeny),
+			"reason":     reason,
+		})
+	}
 }
 
 // failProvider 把“provider 真的失败了”落成 failed + PROVIDER_ERROR。
