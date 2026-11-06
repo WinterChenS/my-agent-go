@@ -27,6 +27,7 @@ func main() {
 	floodBytes := flag.Int("flood-bytes", 4<<20, "洪泛总字节数")
 	marker := flag.String("marker", "", "grandchild 子进程的心跳文件")
 	pidFile := flag.String("pidfile", "", "把自身 pid 写入该文件")
+	childPidFile := flag.String("child-pidfile", "", "grandchild：把孙进程 pid 写入该文件（父进程据此查 OS 进程表）")
 	child := flag.Bool("child", false, "以孙进程身份运行：只写心跳，不读 stdin")
 	counter := flag.String("counter", "", "crashafterwrite：副作用计数器文件，每执行一次写入追加一行")
 	wait := flag.String("wait", "", "crashafterwrite：回应 prompt 后等这个文件出现（上限 10s）再制造崩溃")
@@ -135,7 +136,7 @@ func main() {
 		defer func() { _ = rec.close() }()
 	}
 
-	serve(*mode, *expect, *marker, rec, ioRec)
+	serve(*mode, *expect, *marker, *childPidFile, rec, ioRec)
 }
 
 // runChildHeartbeat 持续向 marker 文件追加行；测试通过比对前后行数判断它是否还活着。
@@ -291,7 +292,7 @@ type contractTurn struct {
 	aborted bool
 }
 
-func serve(mode string, expect int, marker string, rec *frameRecorder, ioRec *ioRecorder) {
+func serve(mode string, expect int, marker, childPidFile string, rec *frameRecorder, ioRec *ioRecorder) {
 	in := bufio.NewReader(os.Stdin)
 	var mu sync.Mutex
 	var pending []string
@@ -376,7 +377,7 @@ func serve(mode string, expect int, marker string, rec *frameRecorder, ioRec *io
 						pending = nil
 					}
 				case mode == "grandchild":
-					spawnOnce.Do(func() { spawnChild(marker) })
+					spawnOnce.Do(func() { spawnChild(marker, childPidFile) })
 					write(makeResponse(cmd.ID, cmd.Type))
 				case mode == "duplicate":
 					// 同一 id 连发两次：第二次必须是"未知 id"，不能被当成新命令的响应。
@@ -414,11 +415,17 @@ func makeDuplicateResponse(id, command string) string {
 		strconv.Quote(command) + `,"success":true,"data":{"echo":"duplicate"}}`
 }
 
-func spawnChild(marker string) {
+func spawnChild(marker, pidFile string) {
 	if marker == "" {
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-child", "-marker", marker)
+	args := []string{"-child", "-marker", marker}
+	if pidFile != "" {
+		// 孙进程自己写 pid：父进程拿这个 pid 去查 OS 进程表，
+		// 而不是靠心跳文件猜它是不是还活着。
+		args = append(args, "-pidfile", pidFile)
+	}
+	cmd := exec.Command(os.Args[0], args...)
 	// 不把父的 stdio 传给它：既避免污染协议流，也让测试专注于"进程是否被回收"。
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "spawn grandchild failed: %v\n", err)
@@ -435,7 +442,7 @@ func ownArgs(args []string) []string {
 	// 需要取值的参数；-child 是布尔开关，不能吞掉后面的 token。
 	valueFlags := map[string]bool{
 		"-mode": true, "-expect": true, "-flood-bytes": true, "-marker": true,
-		"-pidfile": true, "-counter": true, "-wait": true,
+		"-pidfile": true, "-child-pidfile": true, "-counter": true, "-wait": true,
 		"-record-argv": true, "-record-env": true, "-record-frames": true, "-record-io": true,
 		"-record-emitted": true,
 	}

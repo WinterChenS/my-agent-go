@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -665,13 +666,29 @@ func TestWorkerTerminatesGrandchild(t *testing.T) {
 	})
 	waitFor(t, 5*time.Second, "无关进程开始写心跳", func() bool { return fileSize(unrelatedMarker) > 0 })
 
-	w := startFake(t, "grandchild", "-marker", marker)
+	// RPC05 的外部观察装置：孙进程自己写 pid（-child-pidfile），父进程拿这个 pid
+	// 去查**操作系统的进程表**——心跳停了只说明它不再写，进程表才能证明它被回收。
+	childPidPath := filepath.Join(dir, "grandchild.pid")
+	if obs := piObservationDir(); obs != "" {
+		// 孙进程自己写的 pid 文件就是证据 artifact：直接让它落在观察目录里。
+		if err := os.MkdirAll(obs, 0o755); err != nil {
+			t.Fatalf("创建观察目录失败: %v", err)
+		}
+		childPidPath = filepath.Clean(filepath.Join(obs, "grandchild.pid"))
+		_ = os.Remove(childPidPath)
+	}
+	w := startFake(t, "grandchild", "-marker", marker, "-child-pidfile", childPidPath)
 	ctx := callCtx(t, 10*time.Second)
 	if _, err := w.Call(ctx, json.RawMessage(`{"type":"spawn"}`)); err != nil {
 		t.Fatalf("触发孙进程失败: %v", err)
 	}
 
 	waitFor(t, 5*time.Second, "孙进程开始写心跳", func() bool { return fileSize(marker) > 0 })
+	grandchildPID := readPID(t, childPidPath)
+	beforeTable := queryProcessTable(t, []int{grandchildPID})
+	if !beforeTable.Alive[grandchildPID] {
+		t.Fatalf("孙进程 pid %d 不在 OS 进程表里：观察装置不成立（%s）", grandchildPID, beforeTable.RawOutput)
+	}
 	time.Sleep(150 * time.Millisecond)
 	before := fileSize(marker)
 	time.Sleep(350 * time.Millisecond)
@@ -695,6 +712,44 @@ func TestWorkerTerminatesGrandchild(t *testing.T) {
 	if after := fileSize(unrelatedMarker); after <= unrelatedBefore {
 		t.Fatalf("无关进程被误杀（心跳停在 %d 字节）", unrelatedBefore)
 	}
+
+	// ── OS 进程表：own 的孙进程必须消失，无关进程必须还在 ──
+	goneAfter := waitProcessGone(t, grandchildPID, 10*time.Second)
+	unrelatedPID := unrelated.Process.Pid
+	afterTable := queryProcessTable(t, []int{grandchildPID, unrelatedPID})
+	if afterTable.Alive[grandchildPID] {
+		t.Fatalf("孙进程 pid %d 仍在 OS 进程表里（%s）", grandchildPID, afterTable.RawOutput)
+	}
+	if !afterTable.Alive[unrelatedPID] {
+		t.Fatalf("无关进程 pid %d 被误杀：清理自己的进程树不能波及系统上同名进程", unrelatedPID)
+	}
+
+	if piObservationDir() != "" {
+		writeArtifact(t, "process-table-before.json", beforeTable)
+		writeArtifact(t, "process-table-after.json", afterTable)
+		writePiObservation(t, map[string]any{
+			"grandchildPID":         grandchildPID,
+			"grandchildAliveBefore": beforeTable.Alive[grandchildPID],
+			"grandchildGoneAfter":   !afterTable.Alive[grandchildPID],
+			"goneAfterMs":           goneAfter.Milliseconds(),
+			"unrelatedPID":          unrelatedPID,
+			"unrelatedAliveAfter":   afterTable.Alive[unrelatedPID],
+			"heartbeatFrozen":       stopped,
+			"processTableQuery":     beforeTable.Query,
+			"recordedBy":            "OS 进程表（Get-CimInstance Win32_Process / ps）",
+		}, nil)
+	}
+}
+
+// readPID 读回子进程自己写下的 pid（写不出或不是数字都算观察装置坏了）。
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+	raw := strings.TrimSpace(string(mustReadFile(t, path)))
+	pid, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("%s 不是合法 pid: %q", path, raw)
+	}
+	return pid
 }
 
 // TestCloseRejectsNewCalls 对应基线 §6「停止时立即拒绝新的执行请求」。

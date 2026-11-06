@@ -213,7 +213,11 @@ func integrationCases() []integrationCase {
 		// 落盘（diagnostics.jsonl / raw-events.jsonl），断言一律从磁盘读回。
 		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"child-emitted.jsonl", "diagnostics.jsonl", "raw-events.jsonl"}}},
-		{ID: "RPC05", Package: piTests, Run: "TestProcessTree|TestWorkerTerminatesGrandchild"},
+		// RPC05：Close 后属于自己的孙进程必须被回收，系统上无关的同名进程必须存活。
+		// 观察源是**操作系统进程表**（Windows：Get-CimInstance Win32_Process；其它：ps），
+		// 加上孙进程自己写下的 pid 文件；心跳文件只能证明“它在写”，进程表才能证明“它没了”。
+		{ID: "RPC05", Package: piTests, Run: "TestProcessTree|TestWorkerTerminatesGrandchild",
+			Observation: &observationSpec{Source: "process-tree", Artifacts: []string{"grandchild.pid", "process-table-before.json", "process-table-after.json"}}},
 
 		// ── 权限 ──
 		{ID: "SEC01", Package: policyTests, Run: "TestApprovalBinds|TestControlGenerationInvalidatesApproval|TestSessionScopeGrantAllowsSubsequentCalls|TestPermissionDeniesWithoutApproval"},

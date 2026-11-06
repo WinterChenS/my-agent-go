@@ -13,12 +13,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -352,5 +354,86 @@ func waitForIOEvent(t *testing.T, path, stream, kind string, timeout time.Durati
 			t.Fatalf("等不到 %s/%s 的 IO 记录（%s）：子进程没能把洪泛写完", stream, kind, path)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// processTableQuery 是一次真实的 OS 进程表查询结果（落盘成 artifact 的那个形状）。
+type processTableQuery struct {
+	Query     string       `json:"query"`
+	PIDs      []int        `json:"pids"`
+	RawOutput string       `json:"rawOutput"`
+	Alive     map[int]bool `json:"alive"`
+	TSNano    int64        `json:"tsNano"`
+}
+
+// queryProcessTable 直接问操作系统"这些 pid 还在不在"。
+//
+// 这是 RPC05 的外部观察源：心跳文件只能证明"它在写"，进程表才能证明"它被回收了"。
+// Windows 走 Get-CimInstance Win32_Process（wmic 在本机被安全策略拉黑），
+// 其它平台走 ps -p <pid>。一次查询多个 pid，避免每条断言都重启一次 powershell。
+func queryProcessTable(t *testing.T, pids []int) processTableQuery {
+	t.Helper()
+	q := processTableQuery{PIDs: pids, Alive: map[int]bool{}, TSNano: time.Now().UnixNano()}
+	if len(pids) == 0 {
+		return q
+	}
+	for _, pid := range pids {
+		if pid <= 0 {
+			t.Fatalf("无效 pid %d：观察装置没拿到孙进程 pid", pid)
+		}
+	}
+	var out []byte
+	if runtime.GOOS == "windows" {
+		filters := make([]string, 0, len(pids))
+		for _, pid := range pids {
+			filters = append(filters, fmt.Sprintf("ProcessId=%d", pid))
+		}
+		q.Query = "Get-CimInstance Win32_Process -Filter \"" + strings.Join(filters, " or ") +
+			"\" | Select-Object -ExpandProperty ProcessId"
+		var err error
+		out, err = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", q.Query).Output()
+		if err != nil {
+			t.Fatalf("查询 Win32_Process 失败: %v", err)
+		}
+	} else {
+		args := []string{"-o", "pid=", "-p"}
+		for _, pid := range pids {
+			args = append(args, strconv.Itoa(pid))
+		}
+		q.Query = "ps " + strings.Join(args, " ")
+		// ps 在进程不存在时退出码非 0，输出为空即可。
+		out, _ = exec.Command("ps", args...).Output()
+	}
+	q.RawOutput = string(out)
+	seen := map[int]bool{}
+	for _, field := range strings.Fields(q.RawOutput) {
+		if pid, convErr := strconv.Atoi(field); convErr == nil {
+			seen[pid] = true
+		}
+	}
+	for _, pid := range pids {
+		q.Alive[pid] = seen[pid]
+	}
+	return q
+}
+
+// osProcessAlive 是 queryProcessTable 的单 pid 便捷判定。
+func osProcessAlive(t *testing.T, pid int) bool {
+	t.Helper()
+	return queryProcessTable(t, []int{pid}).Alive[pid]
+}
+
+// waitProcessGone 轮询 OS 进程表直到 pid 消失；超时就是真失败。
+func waitProcessGone(t *testing.T, pid int, timeout time.Duration) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for {
+		if !osProcessAlive(t, pid) {
+			return time.Since(start)
+		}
+		if time.Since(start) > timeout {
+			t.Fatalf("pid %d 在 %s 后仍在 OS 进程表里：进程树没有被回收", pid, timeout)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
