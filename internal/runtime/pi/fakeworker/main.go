@@ -34,6 +34,7 @@ func main() {
 	recordEnv := flag.String("record-env", "", "把本进程实际收到的环境变量写成 JSON（观察用）")
 	recordFrames := flag.String("record-frames", "", "把本进程实际收到的每一帧追加写成 JSONL（观察用）")
 	recordIO := flag.String("record-io", "", "把本进程的每次读写（方向/字节数/时间戳）追加写成 JSONL（观察用）")
+	recordEmitted := flag.String("record-emitted", "", "把本进程主动写出的每一条记录追加写成 JSONL（观察用）")
 	// 真 Pi 的隔离参数（-na/-nc/--no-session/--tools read …）不是 fakeworker 的参数。
 	// CFG03/RES04 要求把**同一批**参数原样交给子进程，所以这里只把 fakeworker 自己
 	// 认识的参数交给 flag 包；其余原样留在 os.Args 里，由 -record-argv 落盘。
@@ -57,6 +58,9 @@ func main() {
 	}
 	if *recordIO == "" {
 		*recordIO = os.Getenv("FAKEWORKER_RECORD_IO")
+	}
+	if *recordEmitted == "" {
+		*recordEmitted = os.Getenv("FAKEWORKER_RECORD_EMITTED")
 	}
 
 	if *recordArgv != "" {
@@ -106,7 +110,17 @@ func main() {
 	case "stdoutflood":
 		go floodStdout(*floodBytes, ioRec)
 	case "malformed":
-		emitMalformed()
+		var emitted *frameRecorder
+		if *recordEmitted != "" {
+			var err error
+			emitted, err = newFrameRecorder(*recordEmitted)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "打开 -record-emitted 失败: %v\n", err)
+				os.Exit(5)
+			}
+			defer func() { _ = emitted.close() }()
+		}
+		emitMalformed(emitted)
 	}
 
 	// 帧记录器必须在读取循环之前就绪：漏掉第一帧就等于没观察。
@@ -251,11 +265,19 @@ func floodStdout(total int, ioRec *ioRecorder) {
 
 // emitMalformed 输出四类异常记录，覆盖 RPC04 与 RPC02 的诊断要求：
 // 非法 JSON、缺 type、未来版本才有的未知 type、无主的 response id。
-func emitMalformed() {
-	fmt.Fprint(os.Stdout, "{\"broken\": \n")
-	fmt.Fprint(os.Stdout, "{\"no_type_field\":true}\n")
-	fmt.Fprint(os.Stdout, "{\"type\":\"agent_settled_v2\",\"aborted\":false}\n")
-	fmt.Fprint(os.Stdout, "{\"type\":\"response\",\"id\":\"ghost-1\",\"success\":true}\n")
+func emitMalformed(emitted *frameRecorder) {
+	emit := func(line string) {
+		fmt.Fprint(os.Stdout, line)
+		kind, _ := lineKindID(strings.TrimSpace(line))
+		if kind == "" {
+			kind = "unparsed"
+		}
+		emitted.record(kind, strings.TrimSpace(line))
+	}
+	emit("{\"broken\": \n")
+	emit("{\"no_type_field\":true}\n")
+	emit("{\"type\":\"agent_settled_v2\",\"aborted\":false}\n")
+	emit("{\"type\":\"response\",\"id\":\"ghost-1\",\"success\":true}\n")
 }
 
 // contractTurn 记录 contract 模式的回合状态：prompt 之后 500ms 内没收到 abort
@@ -415,6 +437,7 @@ func ownArgs(args []string) []string {
 		"-mode": true, "-expect": true, "-flood-bytes": true, "-marker": true,
 		"-pidfile": true, "-counter": true, "-wait": true,
 		"-record-argv": true, "-record-env": true, "-record-frames": true, "-record-io": true,
+		"-record-emitted": true,
 	}
 	boolFlags := map[string]bool{"-child": true}
 

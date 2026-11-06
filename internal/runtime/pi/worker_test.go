@@ -444,7 +444,25 @@ func TestStderrFloodDoesNotBlockStdout(t *testing.T) {
 // 畸形 JSON / 缺 type / 未知 type / 无主 response 都必须有明确诊断且不崩溃；
 // 未知最终完成语义绝不能判 completed。
 func TestUnknownAndMalformedRecordsHaveDiagnostics(t *testing.T) {
-	w := startFake(t, "malformed")
+	// RPC04 的外部观察装置：
+	//   - child-emitted.jsonl：子进程记下"我到底发了哪四行"（含 sha256）；
+	//   - diagnostics.jsonl：产品自己的诊断事件落盘，随后**从文件读回**再判定，
+	//     不拿本进程内存里的切片当证据。
+	dir := piObservationDir()
+	if dir == "" {
+		dir = t.TempDir() // 本地 focused 运行：不落盘到证据目录
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	emittedPath := filepath.Clean(filepath.Join(dir, "child-emitted.jsonl"))
+	diagPath := filepath.Clean(filepath.Join(dir, "diagnostics.jsonl"))
+	eventsPath := filepath.Clean(filepath.Join(dir, "raw-events.jsonl"))
+	_ = os.Remove(emittedPath)
+	_ = os.Remove(diagPath)
+	_ = os.Remove(eventsPath)
+
+	w := startFake(t, "malformed", "-record-emitted", emittedPath)
 
 	evs := collectEvents(t, w, 3*time.Second, func(evs []RawEvent) bool {
 		return countDiagnostic(evs, diagMalformedRecord) > 0 &&
@@ -482,6 +500,146 @@ func TestUnknownAndMalformedRecordsHaveDiagnostics(t *testing.T) {
 	if ReadSettledOutcome(aborted).IsCompleted() {
 		t.Fatal("agent_settled{aborted:true} 不能判 completed")
 	}
+
+	// ── 把产品诊断落盘，然后从磁盘读回再判定 ──
+	if err := w.Close(context.Background()); err != nil {
+		t.Fatalf("Close 失败: %v", err)
+	}
+	f, err := os.Create(diagPath)
+	if err != nil {
+		t.Fatalf("创建诊断落盘文件失败: %v", err)
+	}
+	allEvents, err := os.Create(eventsPath)
+	if err != nil {
+		t.Fatalf("创建事件落盘文件失败: %v", err)
+	}
+	for _, ev := range evs {
+		if _, werr := fmt.Fprintln(allEvents, mustJSONString(t, map[string]string{
+			"type":   ev.Type,
+			"record": string(ev.Record),
+		})); werr != nil {
+			t.Fatalf("写事件落盘失败: %v", werr)
+		}
+		if ev.Type != TypeProtocolDiagnostic {
+			continue
+		}
+		if _, werr := fmt.Fprintln(f, string(ev.Record)); werr != nil {
+			t.Fatalf("写诊断落盘失败: %v", werr)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("关闭诊断落盘文件失败: %v", err)
+	}
+	if err := allEvents.Close(); err != nil {
+		t.Fatalf("关闭事件落盘文件失败: %v", err)
+	}
+
+	emitted := readFrameRecords(t, emittedPath)
+	if len(emitted) != 4 {
+		t.Fatalf("子进程应发出 4 条异常记录，账本里是 %d 条", len(emitted))
+	}
+	diagRaw, err := os.ReadFile(diagPath)
+	if err != nil {
+		t.Fatalf("读回诊断落盘文件失败: %v", err)
+	}
+	diagLines := nonEmptyLines(string(diagRaw))
+	if len(diagLines) == 0 {
+		t.Fatal("诊断落盘文件为空")
+	}
+	byKind := map[string][]string{}
+	for _, line := range diagLines {
+		var d struct {
+			Kind   string `json:"kind"`
+			Detail string `json:"detail"`
+		}
+		if err := json.Unmarshal([]byte(line), &d); err != nil {
+			t.Fatalf("诊断记录不是合法 JSON: %v（原文 %s）", err, clip(line, 200))
+		}
+		byKind[d.Kind] = append(byKind[d.Kind], d.Detail)
+	}
+
+	// 分类必须与子进程实际发出的那一行对得上（内容级交叉验证，不看数量蒙）。
+	checks := []struct {
+		seq     int
+		kind    string
+		mustSay string
+		why     string
+	}{
+		{1, diagMalformedRecord, `{"broken":`, "非法 JSON 必须报 malformed_record 并带原文"},
+		{2, diagUntypedRecord, "no_type_field", "缺 type 必须报 untyped_record 并带原文"},
+		{4, diagUnknownResponseID, "ghost-1", "无主 response 必须报 unknown_response_id 并带 id"},
+	}
+	for _, c := range checks {
+		details := byKind[c.kind]
+		if len(details) == 0 {
+			t.Fatalf("诊断落盘文件里没有 %s（%s）", c.kind, c.why)
+		}
+		found := false
+		for _, d := range details {
+			if strings.Contains(d, c.mustSay) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s 的诊断没有引用子进程实际发出的第 %d 条（应含 %q），实际：%v", c.kind, c.seq, c.mustSay, details)
+		}
+	}
+
+	if piObservationDir() != "" {
+		writePiObservation(t, map[string]any{
+			"emittedLines":           len(emitted),
+			"emittedKinds":           []string{emitted[0].Kind, emitted[1].Kind, emitted[2].Kind, emitted[3].Kind},
+			"childEmittedSha256":     sha256Of(mustReadFile(t, emittedPath)),
+			"diagnosticLines":        len(diagLines),
+			"diagnosticsSha256":      sha256Of(diagRaw),
+			"malformedRecordCount":   len(byKind[diagMalformedRecord]),
+			"untypedRecordCount":     len(byKind[diagUntypedRecord]),
+			"unknownResponseIDCount": len(byKind[diagUnknownResponseID]),
+			"unknownTypePreserved":   countTypeOnDisk(t, eventsPath, "agent_settled_v2") > 0,
+			"rawEventsSha256":        sha256Of(mustReadFile(t, eventsPath)),
+			"diagnosticsSource":      "产品事件流落盘后从磁盘读回",
+		}, nil)
+	}
+}
+
+// mustJSONString 把 map 编成一行 JSON（观察落盘用）。
+func mustJSONString(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("序列化事件落盘失败: %v", err)
+	}
+	return string(raw)
+}
+
+// countTypeOnDisk 从落盘的事件文件里数某个 type 的条数：
+// 断言用磁盘上的事实，不用本进程内存里的切片。
+func countTypeOnDisk(t *testing.T, path, typ string) int {
+	t.Helper()
+	n := 0
+	for _, line := range nonEmptyLines(string(mustReadFile(t, path))) {
+		var ev struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.Type == typ {
+			n++
+		}
+	}
+	return n
+}
+
+// mustReadFile 读回一个必须存在的文件（观察用；读不到就是观察装置坏了）。
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读回 %s 失败: %v", path, err)
+	}
+	return raw
 }
 
 // TestWorkerTerminatesGrandchild 对应 RPC05 的集成面：

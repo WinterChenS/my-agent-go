@@ -208,7 +208,11 @@ func integrationCases() []integrationCase {
 		// 管道被堵时根本写不到那一行；同时记录 stdin 侧确实收到了命令。
 		{ID: "RPC03", Package: piTests, Run: "TestStdoutBackpressureDoesNotDeadlock|TestStderrFloodDoesNotBlockStdout",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"io.jsonl"}}},
-		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls"},
+		// RPC04：畸形记录必须有分类正确的诊断，未知 type 必须原样保留且不得判完成。
+		// 观察装置：子进程记下它发出的四行（child-emitted.jsonl），产品把诊断/事件
+		// 落盘（diagnostics.jsonl / raw-events.jsonl），断言一律从磁盘读回。
+		{ID: "RPC04", Package: piTests, Run: "TestUnknownAndMalformedRecordsHaveDiagnostics|TestCallRejectsNonObjectCommand|TestCloseRejectsNewCalls",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"child-emitted.jsonl", "diagnostics.jsonl", "raw-events.jsonl"}}},
 		{ID: "RPC05", Package: piTests, Run: "TestProcessTree|TestWorkerTerminatesGrandchild"},
 
 		// ── 权限 ──
