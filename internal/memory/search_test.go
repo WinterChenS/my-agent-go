@@ -193,6 +193,15 @@ func TestMemoryContextBounded(t *testing.T) {
 		t.Fatal("注入块必须声明这是参考数据、不是系统指令")
 	}
 	t.Logf("BuildContext 条数=%d bytes=%d 候选条数=%d 截断条数=%d", len(mc.Entries), mc.Bytes, len(saved), truncated)
+
+	// MEM04 的外部观察：注入规模（rune/byte）与磁盘上真实存在的行数。
+	observeMemoryDB(t, svc.DB().Path(), map[string]any{
+		"injectedChars":   utf8.RuneCountInString(mc.Text),
+		"injectedBytes":   mc.Bytes,
+		"injectedEntries": len(mc.Entries),
+		"bounded":         mc.Bytes <= MaxContextBytes && len(mc.Entries) <= MaxContextEntries,
+		"candidates":      len(saved),
+	})
 }
 
 // TestDeleteNotInjectedNextRun 覆盖 MEM02/MEM05：删除后下一 run 的注入里没有该内容。

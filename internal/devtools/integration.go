@@ -180,7 +180,8 @@ func integrationCases() []integrationCase {
 			{Package: "internal/app", Run: "TestMemoryBindingsRoundTrip"},
 			{Package: "internal/memory", Run: "TestNoImplicitModelOrNetworkCall"},
 		}},
-		{ID: "MEM04", Steps: []integrationStep{{Package: "internal/memory", Run: "TestMemoryContextBounded"}}},
+		{ID: "MEM04", Steps: []integrationStep{{Package: "internal/memory", Run: "TestMemoryContextBounded"}},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json"}}},
 		{ID: "MEM05", Steps: []integrationStep{
 			{Package: "internal/memory", Run: "TestDeleteNotInjectedNextRun|TestExportIsReadableJSON"},
 			{Package: "internal/app", Run: "TestMemoryDeleteNotInjectedNextRun|TestMemoryScopeToggleAndWorkspaceIsolation"},
