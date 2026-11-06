@@ -50,7 +50,7 @@
     {"id": "CFG01", "owner": "F07/C01", "runner": "config", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
     {"id": "CFG02", "owner": "F07/C01", "runner": "config", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
     {"id": "CFG03", "owner": "F04/C03", "runner": "config", "required": true, "composite": true, "subcases": ["CFG03.isolation", "CFG03.resources"], "gates": ["G0", "G2"]},
-    {"id": "CFG03.isolation", "owner": "F04", "runner": "policy", "required": true, "scope": "ALL", "phase": "G0", "gates": ["G0"]},
+    {"id": "CFG03.isolation", "owner": "F04", "runner": "policy", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G0", "gates": ["G0"]},
     {"id": "CFG03.resources", "owner": "C03", "runner": "config", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
     {"id": "CFG04", "owner": "F07", "runner": "config", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
 
@@ -93,10 +93,10 @@
     {"id": "MOD03", "owner": "C02", "runner": "model", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
     {"id": "MOD04", "owner": "C02", "runner": "model", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
 
-    {"id": "RES01", "owner": "C03", "runner": "skill", "required": true, "scope": "HOST", "phase": "G2", "gates": ["G2"]},
-    {"id": "RES02", "owner": "C03", "runner": "skill", "required": true, "scope": "ALL", "phase": "G2", "gates": ["G2"]},
-    {"id": "RES03", "owner": "C03", "runner": "skill", "required": true, "scope": "HOST", "phase": "G2", "gates": ["G2"]},
-    {"id": "RES04", "owner": "C03/C04", "runner": "skill", "required": true, "scope": "ALL", "phase": "G2", "gates": ["G2"]},
+    {"id": "RES01", "owner": "C03", "runner": "skill", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
+    {"id": "RES02", "owner": "C03", "runner": "skill", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
+    {"id": "RES03", "owner": "C03", "runner": "skill", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
+    {"id": "RES04", "owner": "C03/C04", "runner": "skill", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
     {"id": "RES05", "owner": "U04", "runner": "skill", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G3", "gates": ["G3"]},
 
     {"id": "MCP01", "owner": "C04", "runner": "mcp", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
@@ -122,11 +122,11 @@
     {"id": "SCH06", "owner": "C09/U01", "runner": "scheduler", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
     {"id": "SCH07", "owner": "C09", "runner": "scheduler", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
 
-    {"id": "MEM01", "owner": "C05", "runner": "memory", "required": true, "scope": "HOST", "phase": "G2", "gates": ["G2"]},
-    {"id": "MEM02", "owner": "C05", "runner": "memory", "required": true, "scope": "HOST", "phase": "G2", "gates": ["G2"]},
-    {"id": "MEM03", "owner": "C05", "runner": "memory", "required": true, "scope": "ALL", "phase": "G2", "gates": ["G2"]},
-    {"id": "MEM04", "owner": "C05", "runner": "memory", "required": true, "scope": "HOST", "phase": "G2", "gates": ["G2"]},
-    {"id": "MEM05", "owner": "C05", "runner": "memory", "required": true, "scope": "ALL", "phase": "G2", "gates": ["G2"]},
+    {"id": "MEM01", "owner": "C05", "runner": "memory", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
+    {"id": "MEM02", "owner": "C05", "runner": "memory", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
+    {"id": "MEM03", "owner": "C05", "runner": "memory", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
+    {"id": "MEM04", "owner": "C05", "runner": "memory", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G2", "gates": ["G2"]},
+    {"id": "MEM05", "owner": "C05", "runner": "memory", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G2", "gates": ["G2"]},
 
     {"id": "UI01", "owner": "C01", "runner": "workbench", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
     {"id": "UI02", "owner": "C06", "runner": "workbench", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
