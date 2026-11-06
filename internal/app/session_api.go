@@ -18,8 +18,10 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/history"
 	"my-agent-go/internal/policy"
 	"my-agent-go/internal/session"
 	"my-agent-go/internal/storage"
@@ -303,4 +305,80 @@ func (d *Desktop) ResolveAttachments(sessionID string, reqs []session.Attachment
 	}
 	out.SessionID = res.SessionID
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// C06e：会话导出（html | markdown | json）
+// ---------------------------------------------------------------------------
+
+// SessionExportResult 是一次会话导出的绑定层结果。
+//
+// 它只报告"写到哪里、写了多少、脱敏几处"：导出内容本身不经过前端，
+// 前端拿到的只是路径与指纹，避免把 transcript 正文再抄一遍。
+type SessionExportResult struct {
+	SessionID  string     `json:"sessionId"`
+	Format     string     `json:"format"`
+	Path       string     `json:"path"`
+	Bytes      int        `json:"bytes"`
+	SHA256     string     `json:"sha256"`
+	Records    int        `json:"records"`
+	Messages   int        `json:"messages"`
+	Redactions int        `json:"redactions"`
+	WrittenAt  time.Time  `json:"writtenAt"`
+	Error      *CallError `json:"error,omitempty"`
+}
+
+// exportService 返回导出服务。
+//
+// 导出根固定在 <appRoot>/exports：用户点"导出"给的是**文件名**，不是任意路径，
+// 这样"导出到别处"必须是一次显式的、可审阅的决定（C07 的产物导出另走一条路）。
+//
+// 每次调用现装配：history.Service 只是对已有会话库句柄的只读包装（不起 goroutine、
+// 不建表），Exporter 也无状态，因此不需要第三个应用级单例，也就不必动 desktop.go。
+func (d *Desktop) exportService() (*session.Exporter, error) {
+	// 先走一次会话目录：它负责打开并迁移 sessions.db，导出复用同一个句柄。
+	if _, err := d.sessionCatalog(); err != nil {
+		return nil, err
+	}
+	d.svcMu.Lock()
+	db := d.sessionDB
+	d.svcMu.Unlock()
+	if db == nil {
+		return nil, contracts.NewAppError(contracts.CodeConfigMissing, "会话库未就绪，无法导出", false)
+	}
+	hist, err := history.Open(context.Background(), db, history.Options{
+		AgentDir:      d.agentDir(),
+		WorkspaceID:   "ws-default",
+		WorkspaceRoot: strings.TrimSpace(d.Settings().Workspace),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return session.NewExporter(hist, filepath.Join(d.root, "exports"))
+}
+
+// ExportSession 把会话导出到导出目录下的 target。
+//
+// format ∈ html|markdown|json；target 为空或相对路径时落在 <appRoot>/exports 下，
+// 越界/链接/目录目标由 internal/session 结构化拒绝（不是绑定层自己再判一遍）。
+func (d *Desktop) ExportSession(sessionID, format, target string) SessionExportResult {
+	exp, err := d.exportService()
+	if err != nil {
+		return SessionExportResult{SessionID: strings.TrimSpace(sessionID), Format: format, Error: toCallError(err)}
+	}
+	res, err := exp.ExportSession(context.Background(), sessionID, format, target)
+	if err != nil {
+		return SessionExportResult{SessionID: strings.TrimSpace(sessionID), Format: format, Error: toCallError(err)}
+	}
+	return SessionExportResult{
+		SessionID:  res.SessionID,
+		Format:     res.Format,
+		Path:       res.Path,
+		Bytes:      res.Bytes,
+		SHA256:     res.SHA256,
+		Records:    res.Records,
+		Messages:   res.Messages,
+		Redactions: res.Redactions,
+		WrittenAt:  res.WrittenAt,
+	}
 }

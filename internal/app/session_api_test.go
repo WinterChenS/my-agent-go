@@ -263,3 +263,88 @@ func TestSessionAPIBindsAttachmentResolve(t *testing.T) {
 		t.Fatalf("源文件被改动: err=%v body=%q", err, got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// C06e：会话导出绑定
+// ---------------------------------------------------------------------------
+
+// TestExportSessionBindsTranscript 守绑定层是三件事：
+//   - 目标落在应用托管的导出目录（<appRoot>/exports），不是用户随手给的任意路径；
+//   - 内容来自 agentDir 下的 Pi transcript，而不是任何内存态；
+//   - 越界目标/未知格式/未知会话都返回结构化错误，不产生文件。
+func TestExportSessionBindsTranscript(t *testing.T) {
+	d, root := newTestDesktop(t)
+	ws := newSessionWorkspace(t, d, root, "alpha")
+	created := d.CreateSession(ws)
+	if created.Error != nil {
+		t.Fatalf("CreateSession: %+v", created.Error)
+	}
+	sid := string(created.Item.ID)
+
+	// 写一份 Pi transcript：agentDir 就是本 Desktop 实例实际交给 Pi 的那个目录。
+	transcriptDir := filepath.Join(d.agentDir(), "sessions")
+	if err := os.MkdirAll(transcriptDir, 0o700); err != nil {
+		t.Fatalf("建 transcript 目录: %v", err)
+	}
+	sentinel := "sk-live-C06EBINDSENTINEL123456"
+	body := strings.Join([]string{
+		`{"type":"session","sessionId":"` + sid + `"}`,
+		`{"type":"message","id":"msg-1","message":{"role":"user","content":"导出这一条：api_key=` + sentinel + `"}}`,
+		`{"type":"tool_execution_start","id":"evt-1","toolName":"fixture_read","args":{"path":"a.txt"}}`,
+		`{"type":"tool_execution_end","id":"evt-1","toolName":"fixture_read","result":{"text":"<script>alert(1)</script>"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(transcriptDir, sid+".jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatalf("写 transcript: %v", err)
+	}
+
+	res := d.ExportSession(sid, "html", "sess.html")
+	if res.Error != nil {
+		t.Fatalf("ExportSession: %+v", res.Error)
+	}
+	wantPath := filepath.Join(root, "exports", "sess.html")
+	if res.Path != wantPath {
+		t.Fatalf("导出路径应在应用导出目录下 %s，实际 %s", wantPath, res.Path)
+	}
+	raw, err := os.ReadFile(res.Path)
+	if err != nil {
+		t.Fatalf("读导出文件: %v", err)
+	}
+	doc := string(raw)
+	if strings.Contains(doc, sentinel) {
+		t.Fatalf("绑定层导出没有脱敏:\n%s", doc)
+	}
+	if strings.Contains(strings.ToLower(doc), "<script") {
+		t.Fatalf("绑定层导出没有转义:\n%s", doc)
+	}
+	if !strings.Contains(doc, "evt-1") || !strings.Contains(doc, "fixture_read") {
+		t.Fatalf("绑定层导出丢了定位信息:\n%s", doc)
+	}
+
+	// 越界目标：拒绝，且根外没有文件。
+	outside := filepath.Join(t.TempDir(), "leak.html")
+	if bad := d.ExportSession(sid, "html", outside); bad.Error == nil ||
+		bad.Error.Code != contracts.CodeUnauthorized {
+		t.Fatalf("越界目标必须 UNAUTHORIZED，实际 %+v", bad.Error)
+	}
+	if _, err := os.Stat(outside); err == nil {
+		t.Fatal("越界目标被写出来了")
+	}
+
+	// 未知格式：结构化拒绝并点名允许的格式。
+	pdf := d.ExportSession(sid, "pdf", "x.pdf")
+	if pdf.Error == nil || pdf.Error.Code != contracts.CodeUnsupported {
+		t.Fatalf("未知格式必须 UNSUPPORTED，实际 %+v", pdf.Error)
+	}
+	if !strings.Contains(pdf.Error.Message, "markdown") {
+		t.Fatalf("错误信息要点名允许的格式，实际 %q", pdf.Error.Message)
+	}
+
+	// 未知会话：不许"导出成功但内容为空"。
+	missing := d.ExportSession("ses-does-not-exist", "html", "missing.html")
+	if missing.Error == nil || missing.Error.Code != contracts.CodeConfigMissing {
+		t.Fatalf("未知会话必须 CONFIG_MISSING，实际 %+v", missing.Error)
+	}
+	if _, err := os.Stat(filepath.Join(root, "exports", "missing.html")); err == nil {
+		t.Fatal("未知会话不应产生导出文件")
+	}
+}
