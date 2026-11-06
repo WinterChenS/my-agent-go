@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/pprof"
 	"sort"
 	"strings"
@@ -19,6 +20,28 @@ import (
 	"my-agent-go/internal/runtime/pi"
 	"my-agent-go/internal/storage"
 )
+
+// migrationTableRe 匹配迁移脚本里的建表语句（含 CREATE VIRTUAL TABLE）。
+var migrationTableRe = regexp.MustCompile(`(?is)create\s+(?:virtual\s+)?table\s+(?:if\s+not\s+exists\s+)?["'\[]?([A-Za-z0-9_]+)`)
+
+// migrationTables 从内嵌迁移脚本推导"合法的表名集合"（期望值来自迁移目录）。
+func migrationTables(t *testing.T) map[string]bool {
+	t.Helper()
+	migrations, err := storage.LoadMigrations()
+	if err != nil {
+		t.Fatalf("读取迁移目录失败: %v", err)
+	}
+	out := map[string]bool{"schema_migrations": true}
+	for _, m := range migrations {
+		for _, sub := range migrationTableRe.FindAllStringSubmatch(m.SQL, -1) {
+			out[strings.ToLower(sub[1])] = true
+		}
+	}
+	if len(out) <= 1 {
+		t.Fatalf("迁移目录里没有解析出任何建表语句（推导方式已失效，必须重新核对）: %v", migrations)
+	}
+	return out
+}
 
 // 本文件是 RUN07 的索引侧测试：
 //   - 重启之后产品索引与 transcript 仍然可查；
@@ -377,10 +400,11 @@ func TestIndexStoresLocatorsNotContent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	allowed := map[string]bool{
-		"workspaces": true, "sessions": true, "runs": true, "memories": true,
-		"memory_fts": true, "memory_scope_settings": true, "schema_migrations": true,
-	}
+	// 不得偷偷加表：表清单不能写死——007 归 C07（artifacts/run_usage/run_events），
+	// C08/C09 的 003/004 也会各自建表。写死快照会让"别的任务一动迁移就把这里弄红"，
+	// 那正是下面迁移条数断言已经修过的同一类问题（C06b）：期望值来自迁移目录。
+	// 本包要守的事实是"history 不建表"：任何不来自迁移脚本的表都会失败。
+	allowed := migrationTables(t)
 	for _, name := range tables {
 		if !allowed[name] && !strings.HasPrefix(name, "memory_fts_") {
 			t.Fatalf("history 包不得新增表 %q（无新迁移号）：现有 %v", name, tables)
