@@ -271,11 +271,14 @@ func writeCompleteG0EvidenceTree(t *testing.T, root string) (rev, lockHash strin
 		if target == "" {
 			target = host
 		}
-		dir := filepath.Join(root, rev, "G0", target, r.CaseID)
-		display := r.Display
-		if display != "" {
-			dir = filepath.Join(dir, display)
+		// 叶子目录名必须是 case id：gate 用 filepath.Base(dir) 识别证据属于哪条 case。
+		// display 只能作为 case 之前的层级（与 evidenceRoot 的 native 布局一致）。
+		segments := []string{root, rev, "G0", target}
+		if r.Display == DisplayX11 || r.Display == DisplayWayland {
+			segments = append(segments, r.Display)
 		}
+		dir := filepath.Join(append(segments, r.CaseID)...)
+		display := r.Display
 		writeEvidenceAt(t, dir, rev, "G0", target, r.CaseID, lockHash, func(e *contracts.GateEvidence) {
 			e.Display = display
 		})
@@ -336,5 +339,59 @@ func TestGOV01CLIGateRejectsMissingEvidenceWithExitTwo(t *testing.T) {
 		"unknownGateExit":   runs[1].ExitCode,
 		"unknownGateReason": unknownReason,
 		"runs":              len(runs),
+	})
+}
+
+// ---- GOV02：PASS case 缺目录内 oracle 必须被真实 gate 判死 ----
+
+func TestGOV02CLIGateRejectsTamperedOracleWithExitTwo(t *testing.T) {
+	obsDir := observationDirForTest(t)
+	root := t.TempDir()
+	rev, _ := writeCompleteG0EvidenceTree(t, root)
+
+	// 缺陷只做一处：GOV01 的证据目录里删掉 oracle.json 并重算报告哈希。
+	// 重算哈希是必要的——否则 gate 会先因为「报告哈希被篡改」判死，
+	// 观察到的就不是「缺 oracle」这条规则了。
+	dir := filepath.Join(root, rev, "G0", hostTargetID(t), "GOV01")
+	if err := os.Remove(filepath.Join(dir, "oracle.json")); err != nil {
+		t.Fatalf("删除 oracle.json 失败: %v", err)
+	}
+	rehashEvidence(t, dir)
+
+	run := runDevtoolsCLI(t, "tampered-oracle", "", "gate", "--id=G0", "--evidence="+root)
+	if run.ExitCode != 2 {
+		t.Fatalf("缺 oracle 应退出 2，实际 %d\nstdout=%s\nstderr=%s",
+			run.ExitCode, tail(run.Stdout, 1500), tail(run.Stderr, 400))
+	}
+
+	runs := writeCLIArtifact(t, obsDir, "gate-run.json", []cliRun{run})
+	stdout := runs[0].Stdout
+	rejected := linesContaining(stdout, "[rejected]")
+	// HOST scope 的 case 会同时出现「必需证据位」和「该 case 的额外证据」两行，
+	// 两行都属于同一个 case。这里要钉的是「没有别的 case 被拒」，不是行数。
+	if len(rejected) == 0 {
+		t.Fatalf("gate 没有拒绝任何证据位，缺 oracle 应被判死\nstdout=%s", tail(stdout, 1500))
+	}
+	for _, line := range rejected {
+		if !strings.Contains(line, "GOV01") {
+			t.Fatalf("除了 GOV01 以外还有证据位被拒（缺陷不止一处，观察无效）: %v", rejected)
+		}
+	}
+	reason := firstLineContaining(stdout, "oraclePath 不可读")
+	if reason == "" {
+		t.Fatalf("gate 的真实输出没有点名 oracle 不可读，不能编造观察值\nstdout=%s", tail(stdout, 1500))
+	}
+	// 反向核对 fixture 本身：除 GOV01 的 oracle 外，没有其它缺陷（没缺证据位），
+	// 否则“因为缺 oracle 而拒”可能只是“因为缺一堆 case 而拒”的巧合。
+	if missing := linesContaining(stdout, "[missing]"); len(missing) != 0 {
+		t.Fatalf("fixture 不完整：还有 %d 个必需证据位缺失，观察不到单一缺陷: %v", len(missing), missing)
+	}
+
+	writeObservationFacts(t, obsDir, map[string]any{
+		"exitCode":             runs[0].ExitCode,
+		"rejected":             "oracle",
+		"rejectedCase":         "GOV01",
+		"reason":               reason,
+		"rejectedRequirements": len(rejected),
 	})
 }
