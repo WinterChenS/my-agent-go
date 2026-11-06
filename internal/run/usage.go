@@ -62,6 +62,11 @@ type piMessage struct {
 	Content   json.RawMessage `json:"content"`
 	Usage     *piUsage        `json:"usage"`
 	Timestamp int64           `json:"timestamp"`
+	// StopReason / ErrorMessage 是 message_end 的结束原因。真实记录
+	// （testdata/v1.5.0/provider-error.jsonl）里 assistant 消息带
+	// stopReason:"error" 且 errorMessage 就是 provider 的原始报错。
+	StopReason   string `json:"stopReason"`
+	ErrorMessage string `json:"errorMessage"`
 }
 
 // usageKey 是"同一条助手消息"的判据。

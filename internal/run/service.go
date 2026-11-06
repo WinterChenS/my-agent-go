@@ -112,9 +112,21 @@ type Service struct {
 	cleanupFailed map[contracts.SessionID]string
 
 	subMu sync.RWMutex
-	subs  []func(contracts.Event)
+	subs  []*subscriber
 
 	runSeq atomic.Uint64
+}
+
+// subscriber 是事件订阅者。用指针而不是裸函数值，是因为 Go 里函数值只有和 nil
+// 才能比较：没有身份就无法「只退订一次」，断开时也就无法精确判断订阅者是否归零。
+type subscriber struct {
+	fn     func(contracts.Event)
+	active bool
+}
+
+// settleDecision 是一条被延后执行的结算决定。
+type settleDecision struct {
+	aborted bool
 }
 
 type runState struct {
@@ -139,7 +151,24 @@ type runState struct {
 	// "Pi 意外中断"，也不要在清理结果出来之前抢先写下终态。
 	stopRequested bool
 
+	// pending 是等待人工答复的审批。
 	pending map[string]policy.ApprovalRequest
+
+	// compactionInProgress / retrying 表示 Pi 正处在「上下文压缩」或「自动重试」之间。
+	// 这两段时间里 agent_settled 不代表本轮结束：提前结算会把一个马上还要继续跑的
+	// run 报成 completed（RUN01）。
+	compactionInProgress bool
+	retrying             bool
+	// pendingSettle 非 nil 表示已收到 agent_settled，但被上面两个状态挡住。
+	pendingSettle *settleDecision
+	// lastStopReason / lastErrorMessage 是最后一条助手 message_end 的结束原因，
+	// 真实 Pi 记录（provider-error.jsonl）里两条字段都有；stopReason=error
+	// 表示这条消息是 provider 失败而不是正常回答。
+	lastStopReason   string
+	lastErrorMessage string
+	// retryFailed / retryErrorMessage 记录最后一次 auto_retry_end 的结论。
+	retryFailed       bool
+	retryErrorMessage string
 
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -195,14 +224,43 @@ type StartRunRequest struct {
 	Message string `json:"message"`
 }
 
-// Subscribe 注册事件订阅者。回调在独立 goroutine 中执行，避免阻塞事件泵。
-func (s *Service) Subscribe(fn func(contracts.Event)) {
+// Subscribe 注册事件订阅者，返回幂等的退订函数。回调在独立 goroutine 中执行，
+// 避免阻塞事件泵。
+//
+// 退订函数是 RUN04 断开侧契约的一部分：最后一个订阅者消失意味着 UI 已经不在了，
+// 此时等待中的审批必须 fail-closed（见 denyPendingOnDisconnect），不能让用户看不见的
+// 请求继续等 60 秒 TTL。服务关闭之后调用退订同样安全。
+func (s *Service) Subscribe(fn func(contracts.Event)) (unsubscribe func()) {
 	if fn == nil {
-		return
+		return func() {}
 	}
+	sub := &subscriber{fn: fn, active: true}
 	s.subMu.Lock()
-	s.subs = append(s.subs, fn)
+	s.subs = append(s.subs, sub)
 	s.subMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.subMu.Lock()
+			if !sub.active {
+				s.subMu.Unlock()
+				return
+			}
+			sub.active = false
+			for i, cur := range s.subs {
+				if cur == sub {
+					s.subs = append(s.subs[:i], s.subs[i+1:]...)
+					break
+				}
+			}
+			remaining := len(s.subs)
+			s.subMu.Unlock()
+			if remaining == 0 {
+				s.denyPendingOnDisconnect()
+			}
+		})
+	}
 }
 
 // Start 接受一次请求并启动（或排队）run。
@@ -512,19 +570,60 @@ func (s *Service) handleRaw(rs *runState, ev pi.RawEvent, pending *strings.Build
 		_ = json.Unmarshal(ev.Record, &e)
 		if e.Message.Role == "assistant" {
 			s.recordUsage(rs, e.Message)
-			s.emit(rs, EventMessageDone, map[string]any{})
+			stopReason := strings.TrimSpace(e.Message.StopReason)
+			rs.mu.Lock()
+			rs.lastStopReason = stopReason
+			rs.lastErrorMessage = strings.TrimSpace(e.Message.ErrorMessage)
+			rs.mu.Unlock()
+			payload := map[string]any{}
+			if stopReason != "" {
+				// 没拿到 stopReason 就不写这个键：编一个 "" 等于把“Pi 没说”
+				// 谎报成“Pi 说是空的”。
+				payload["stopReason"] = stopReason
+			}
+			s.emit(rs, EventMessageDone, payload)
 		}
 	case "agent_end":
 		// agent_end 会把整轮消息重发一遍：只补 message_end 没覆盖到的用量，
 		// 重复的同一条靠去重键挡掉（否则费用会翻倍）。
 		s.recordAgentEndUsage(rs, ev.Record)
-	case pi.TypeAgentSettled:
-		var h struct {
-			Aborted bool `json:"aborted"`
+	case "compaction_start":
+		rs.mu.Lock()
+		rs.compactionInProgress = true
+		rs.mu.Unlock()
+	case "compaction_end":
+		return s.finishBlockingPhase(rs, func() { rs.compactionInProgress = false })
+	case "auto_retry_start":
+		rs.mu.Lock()
+		rs.retrying = true
+		rs.mu.Unlock()
+	case "auto_retry_end":
+		var e struct {
+			Success    bool   `json:"success"`
+			FinalError string `json:"finalError"`
 		}
-		_ = json.Unmarshal(ev.Record, &h)
-		s.settle(rs, h.Aborted)
-		return true
+		_ = json.Unmarshal(ev.Record, &e)
+		return s.finishBlockingPhase(rs, func() {
+			rs.retrying = false
+			rs.retryFailed = !e.Success
+			rs.retryErrorMessage = strings.TrimSpace(e.FinalError)
+		})
+	case pi.TypeAgentSettled:
+		// agent_settled 是唯一的完成信号，而它的契约是
+		// {"type":"agent_settled","aborted":bool}。形状对不上时不能猜：
+		// 猜 completed 就是把“不知道”报成“做完了”（基线 §6）。
+		var h struct {
+			Aborted *bool `json:"aborted"`
+		}
+		if err := json.Unmarshal(ev.Record, &h); err != nil {
+			s.failCompatibility(rs, "载荷不是预期的 JSON 对象: "+err.Error())
+			return true
+		}
+		if h.Aborted == nil {
+			s.failCompatibility(rs, "缺少 aborted 布尔字段")
+			return true
+		}
+		return s.handleSettled(rs, *h.Aborted)
 	case pi.TypeProtocolDiagnostic:
 		var d struct {
 			Kind    string `json:"kind"`
@@ -554,14 +653,182 @@ func textDelta(raw json.RawMessage) (string, bool) {
 }
 
 // settle 处理 agent_settled：这是唯一的完成信号。
-func (s *Service) settle(rs *runState, aborted bool) {
-	state := rs.snapshot().State
+//
+// 三次落点：
+//  1. compaction / auto_retry 正在进行 → 挂起（settle.deferred），等它们结束后补做；
+//  2. aborted 或已在 stopping → cancelled；
+//  3. 最后一条助手消息以 error 结束或 auto_retry_end.success==false → failed
+//     （PROVIDER_ERROR）；否则才是 completed。
+//
+// 返回值与 handleRaw 一致：true 表示本轮已终结，事件泵可以退出。
+func (s *Service) handleSettled(rs *runState, aborted bool) bool {
+	rs.mu.Lock()
+	if blocker := rs.settlementBlockerLocked(); blocker != "" {
+		rs.pendingSettle = &settleDecision{aborted: aborted}
+		rs.mu.Unlock()
+		s.emit(rs, EventDiagnostic, map[string]any{
+			"kind":      "settle.deferred",
+			"message":   fmt.Sprintf("%s 进行中收到 agent_settled，结算延后到它结束", blocker),
+			"blockedBy": blocker,
+		})
+		return false
+	}
+	rs.mu.Unlock()
+	s.applySettle(rs, aborted)
+	return true
+}
+
+// settlementBlockerLocked 返回当前阻止结算的原因；空表示不阻塞。只在 rs.mu 下调用。
+func (rs *runState) settlementBlockerLocked() string {
+	switch {
+	case rs.compactionInProgress:
+		return "compaction"
+	case rs.retrying:
+		return "auto_retry"
+	}
+	return ""
+}
+
+// finishBlockingPhase 结束一个“阻止结算”的阶段（压缩或重试），并在无人再挡且
+// 已有挂起的 settle 时补做结算。返回 true 表示本轮已终结。
+func (s *Service) finishBlockingPhase(rs *runState, clear func()) bool {
+	rs.mu.Lock()
+	clear()
+	pending := rs.pendingSettle
+	blocked := rs.settlementBlockerLocked() != ""
+	rs.mu.Unlock()
+	if pending == nil || blocked {
+		return false
+	}
+	s.applySettle(rs, pending.aborted)
+	return true
+}
+
+// applySettle 按当前的停止原因与重试结论落地终态。
+func (s *Service) applySettle(rs *runState, aborted bool) {
+	rs.mu.Lock()
+	rs.pendingSettle = nil
+	state := rs.snap.State
+	stopReason := rs.lastStopReason
+	errorMessage := rs.lastErrorMessage
+	retryFailed := rs.retryFailed
+	retryErrorMessage := rs.retryErrorMessage
+	rs.mu.Unlock()
+
 	if aborted || state == contracts.RunStateStopping {
 		_ = s.transition(rs, contracts.RunStateCancelled)
-	} else {
-		_ = s.transition(rs, contracts.RunStateCompleted)
+		s.release(rs)
+		return
 	}
+	if stopReason == "error" || retryFailed {
+		msg := errorMessage
+		if msg == "" {
+			msg = retryErrorMessage
+		}
+		if msg == "" {
+			msg = "provider 调用失败：Pi 报告本轮以 error 结束"
+		}
+		s.failProvider(rs, msg)
+		return
+	}
+	_ = s.transition(rs, contracts.RunStateCompleted)
 	s.release(rs)
+}
+
+// failProvider 把“provider 真的失败了”落成 failed + PROVIDER_ERROR。
+// 重试耗尽也走这里：Pi 自己的重试已经用完，Harness 不能把它报成 completed。
+func (s *Service) failProvider(rs *runState, message string) {
+	if !IsTerminal(rs.snapshot().State) {
+		_ = s.transition(rs, contracts.RunStateFailed)
+	}
+	s.emit(rs, EventRunError, runErrorPayload{
+		Code: contracts.CodeProviderError, Message: message, Retryable: true,
+	})
+	s.release(rs)
+}
+
+// failCompatibility 处理“完成语义不认识”：终态 failed + COMPATIBILITY，不是诊断后继续跑。
+func (s *Service) failCompatibility(rs *runState, detail string) {
+	if !IsTerminal(rs.snapshot().State) {
+		_ = s.transition(rs, contracts.RunStateFailed)
+	}
+	s.emit(rs, EventRunError, runErrorPayload{
+		Code:      contracts.CodeCompatibility,
+		Message:   "无法识别的完成语义（Pi 协议不匹配）: " + detail,
+		Retryable: false,
+	})
+	s.release(rs)
+}
+
+// denyPendingOnDisconnect 在最后一个事件订阅者消失时，把等待中的审批全部拒绝。
+//
+// 为什么要 fail-closed：审批是“人此刻在场”的决定。UI 已经不在了，继续等 60 秒
+// TTL 只会让工具白等、用户在界面上也看不到这个请求；放行更是把孤立的等待变成
+// 未授权的副作用（RUN04）。
+func (s *Service) denyPendingOnDisconnect() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	runs := make([]*runState, 0, len(s.runs))
+	for _, rs := range s.runs {
+		runs = append(runs, rs)
+	}
+	s.mu.Unlock()
+
+	for _, rs := range runs {
+		rs.mu.Lock()
+		ids := make([]string, 0, len(rs.pending))
+		for id := range rs.pending {
+			ids = append(ids, id)
+		}
+		rs.mu.Unlock()
+		for _, id := range ids {
+			s.denyApproval(rs, id, "ui_disconnected")
+		}
+	}
+}
+
+// denyApproval 经策略端点把一条等待中的审批回答成 deny，并把 run 从
+// waiting_approval 拉回 running：工具随即拿到 deny，不再卡在审批上。
+//
+// 正常的 ResolveApproval 路径可能与断开赛跑，所以“找不到/已经答复”只记诊断，
+// 不当成 run 失败。
+func (s *Service) denyApproval(rs *runState, approvalID, reason string) {
+	if rs.bridge == nil {
+		return
+	}
+	client := policybridge.NewClient(rs.bridge.Endpoint(), rs.token, s.opts.SessionID, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := client.Resolve(ctx, approvalID, policy.ApprovalDeny)
+
+	rs.mu.Lock()
+	_, still := rs.pending[approvalID]
+	delete(rs.pending, approvalID)
+	state := rs.snap.State
+	rs.mu.Unlock()
+
+	if !still {
+		// 正常答复路径已经处理过这条审批：不重复发“已拒绝”，也不改状态。
+		return
+	}
+	if err != nil {
+		s.emit(rs, EventDiagnostic, map[string]any{
+			"kind":    "approval.disconnect_deny_skipped",
+			"message": fmt.Sprintf("断开时拒绝审批 %s 失败：%v", approvalID, err),
+		})
+		return
+	}
+	s.emit(rs, EventApprovalResolved, map[string]any{
+		"approvalId": approvalID,
+		"choice":     string(policy.ApprovalDeny),
+		"reason":     reason,
+	})
+	if state == contracts.RunStateWaitingApproval {
+		_ = s.transition(rs, contracts.RunStateRunning)
+	}
 }
 
 // Abort 停止一个 run。
@@ -813,7 +1080,12 @@ func (s *Service) emit(rs *runState, typ string, payload any) {
 	rs.mu.Unlock()
 
 	s.subMu.RLock()
-	subs := append([]func(contracts.Event){}, s.subs...)
+	subs := make([]func(contracts.Event), 0, len(s.subs))
+	for _, sub := range s.subs {
+		if sub.active {
+			subs = append(subs, sub.fn)
+		}
+	}
 	s.subMu.RUnlock()
 	for _, fn := range subs {
 		go fn(ev)

@@ -52,6 +52,11 @@ const (
 	// CodeBudgetExceeded 表示本次 run 的预算（100 次工具调用 / 30 分钟）已用尽。
 	// 与 CLEANUP_FAILED 分开：预算用尽是正常终止理由，不是清理失败。
 	CodeBudgetExceeded = "BUDGET_EXCEEDED"
+
+	// CodeCompatibility 表示 Pi 的完成语义无法识别（协议不匹配）。
+	// 与 PROVIDER_ERROR 分开：provider 报错是模型侧失败，这里是宿主与 Pi 的
+	// 协议契约对不上——前者重试可能好，后者只有换版本/修适配才能好。
+	CodeCompatibility = "COMPATIBILITY"
 )
 
 // AppError 是统一的错误结构。Code 机器可解析，Retryable 指示是否可重试。

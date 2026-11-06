@@ -695,7 +695,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		StartWorker: workerStarter,
 	})
 	if emitter != nil {
-		svc.Subscribe(emitter)
+		// 退订函数在本层还无人调用：桌面宿主目前没有“UI 断开”的显式信号，
+		// 订阅者随进程存活。保留返回值语义（F05-B），不伪造断开事件。
+		_ = svc.Subscribe(emitter)
 	}
 
 	d.mu.Lock()
