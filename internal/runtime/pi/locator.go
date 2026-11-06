@@ -113,6 +113,12 @@ func Locate(ctx context.Context, preferred string) ([]PiInstallation, error) {
 	return out, prefErr
 }
 
+// CommonLocations 返回各平台常见的 Pi 安装位置（供 F08 Discover 复用）。
+func CommonLocations() []string { return commonLocations() }
+
+// ManagedRoot 返回托管 Pi 根目录（供 F08 Discover 复用；F06 负责实际填充）。
+func ManagedRoot() string { return managedRoot() }
+
 // commonLocations 返回各平台常见的 Pi 安装位置。
 func commonLocations() []string {
 	var dirs []string

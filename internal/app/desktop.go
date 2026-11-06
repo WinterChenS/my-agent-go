@@ -132,6 +132,10 @@ type Desktop struct {
 	// 生产路径不设它。
 	workerStarter run.WorkerStarter
 
+	// piRequestOverride 允许测试覆盖 Pi 发现环境（PATH/常见位置/版本探针），
+	// 免得测试结论依赖宿主机真实 PATH。生产恒为 nil。
+	piRequestOverride func(pi.DiscoveryRequest) pi.DiscoveryRequest
+
 	// rtMu 串行化运行时构建/重建，避免两次 Start 同时建出两个 Pi 运行时。
 	rtMu sync.Mutex
 	// runtimeKey 描述当前运行时的模型来源；模型或配置变了就要重建。

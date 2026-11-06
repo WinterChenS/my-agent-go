@@ -126,6 +126,12 @@ func integrationCases() []integrationCase {
 		{ID: "PI02", Package: piTests, Run: "TestProbeHasNoUserConfigSideEffects|TestProbePs1NotDirectlyExecutable"},
 		{ID: "PI03", Package: piTests, Run: "TestCaptureRealPiProtocol|TestProtocolGolden|TestWorkerWithRealPi"},
 		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe"},
+		// F08：发现/兼容状态。两条 case 的观察值都由测试自己写进 ANVIL_OBSERVATION_DIR
+		// （PI_DISC01 → candidates.json，PI_DISC02 → rejected.json）。
+		{ID: "PI_DISC01", Package: piTests, Run: "TestDiscoverReturnsAllCandidatesAndSelectsDeterministically|TestDiscoverMapsVersionToCompatibilityState|TestDiscoverSkipsBrokenSavedPath",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"candidates.json"}}},
+		{ID: "PI_DISC02", Package: piTests, Run: "TestDiscoverRejectsWechatNodeShim|TestDiscoverNeverModifiesExternalFilesOrPath|TestSelectRejectsUnknownOrUnusableCandidate",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"rejected.json"}}},
 
 		// ── RPC ──
 		{ID: "RPC01", Package: piTests, Run: "TestLFFramingUnicodeAndLargeRecord"},

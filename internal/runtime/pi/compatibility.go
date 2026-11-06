@@ -103,6 +103,12 @@ type VersionPolicy struct {
 	Certified map[string]bool
 	// Minimum 是允许的最低版本（仅用于诊断提示）。
 	Minimum string
+	// PreCertifiedHashes 是"已认证版本 → 允许的可执行体 sha256"白名单（F08）。
+	//
+	// 它随发行包下发，默认为空——空表意味着**任何**本机可执行体都不能标
+	// ready_verified（只能 ready_compatible）。禁止在运行期把"本机跑通过一次"
+	// 的哈希写进来：那是自证，不是认证。
+	PreCertifiedHashes map[string]map[string]bool
 }
 
 // DefaultPolicy 当前仅认证 1.5.0。1.4.0（PATH 上现有）属已知但 unverified，不可标 Ready。
