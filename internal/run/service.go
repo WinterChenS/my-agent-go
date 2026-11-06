@@ -19,7 +19,12 @@ import (
 
 // 默认值。与基线 §6 对齐。
 const (
-	defaultMaxActive    = 2
+	// globalMaxActive 是应用进程**唯一**的活跃上限（基线 §6）。
+	//
+	// 它不是 Options 里的可调项：交互会话、C08 连接器和 C09 调度共用同一个
+	// admission queue，任何第二处能够改这个数的地方都会让“全局最多两个 worker”
+	// 变成一句没有实现的话。
+	globalMaxActive     = 2
 	defaultPromptWait   = 60 * time.Second
 	defaultStopGrace    = 5 * time.Second
 	defaultStopDeadline = 10 * time.Second
@@ -90,7 +95,6 @@ type Options struct {
 	// 谁提供端点谁负责写 mcp.json，两边共用同一份环境变量。
 	HarnessEnv []string
 
-	MaxActive   int
 	StartWorker WorkerStarter
 	Now         func() time.Time
 
@@ -198,13 +202,14 @@ type runState struct {
 	finished     chan struct{}
 	finishedOnce sync.Once
 	released     atomic.Bool
+
+	// queuePos 是这个 run 最近一次上报的排队位次（0 表示不在队列里）。
+	// 只在 Service.mu 下读写。
+	queuePos int
 }
 
 // New 创建 RunService。
 func New(opts Options) *Service {
-	if opts.MaxActive <= 0 {
-		opts.MaxActive = defaultMaxActive
-	}
 	if opts.StartWorker == nil {
 		opts.StartWorker = pi.StartWorker
 	}
@@ -336,18 +341,18 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		finished: make(chan struct{}),
 	}
 	s.runs[id] = rs
-	canStart := s.active < s.opts.MaxActive && len(s.queue) == 0
+	canStart := s.active < globalMaxActive && len(s.queue) == 0
 	if canStart {
 		s.active++
+	} else {
+		// 排队不启动：这是 RUN03 的核心断言——第三个 run 不能偷偷跑起来。
+		// 入队与位次上报在同一个临界区里完成，避免"入队了但位次还是 0"。
+		s.queue = append(s.queue, id)
+		s.publishQueuePositionsLocked()
 	}
 	s.mu.Unlock()
 
 	if !canStart {
-		// 排队不启动：这是 RUN03 的核心断言——第三个 run 不能偷偷跑起来。
-		s.mu.Lock()
-		s.queue = append(s.queue, id)
-		s.mu.Unlock()
-		s.emit(rs, EventRunState, statePayload{State: contracts.RunStateQueued})
 		// 排队也是一个真实状态：索引里必须能看到它，否则重启后 UI 只知道
 		// "有个 run"，不知道它当时还没拿到槽位。
 		s.recordHistory(rs)
@@ -363,6 +368,29 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		return rs.snapshot(), err
 	}
 	return rs.snapshot(), nil
+}
+
+// publishQueuePositionsLocked 把当前队列位次上报给 UI。必须持有 s.mu。
+//
+// 位次变化也要上报：排队 run 从第 2 位变成第 1 位却没人告诉前端，
+// 界面就只能一直显示一个过期的名次。
+func (s *Service) publishQueuePositionsLocked() {
+	for i, id := range s.queue {
+		rs, ok := s.runs[id]
+		if !ok {
+			continue
+		}
+		pos := i + 1
+		if rs.queuePos == pos {
+			continue
+		}
+		rs.queuePos = pos
+		s.emit(rs, EventRunState, statePayload{
+			State:         contracts.RunStateQueued,
+			Previous:      contracts.RunStateQueued,
+			QueuePosition: pos,
+		})
+	}
 }
 
 // validate 检查启动前置条件。缺任何一项都不能"先跑起来再说"。
@@ -914,6 +942,9 @@ func (s *Service) Abort(ctx context.Context, id contracts.RunID) error {
 	}
 	if queuedIdx >= 0 {
 		s.queue = append(s.queue[:queuedIdx], s.queue[queuedIdx+1:]...)
+		rs.queuePos = 0
+		// 后面排队的人名次前移了，必须如实上报：否则界面会一直显示旧名次。
+		s.publishQueuePositionsLocked()
 	}
 	s.mu.Unlock()
 
@@ -1071,8 +1102,11 @@ func (s *Service) release(rs *runState) {
 	}
 	nextID := s.queue[0]
 	s.queue = s.queue[1:]
+	// 队列缩短了：还排在后面的人名次前移，如实上报。
+	s.publishQueuePositionsLocked()
 	next, ok := s.runs[nextID]
 	if ok {
+		next.queuePos = 0
 		s.active++
 	}
 	s.mu.Unlock()

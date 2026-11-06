@@ -36,7 +36,11 @@ type runErrorPayload struct {
 }
 
 // statePayload 是 EventRunState 的载荷。
+//
+// QueuePosition 只在排队时出现（omitempty）：前端据此显示“你前面还有几个”，
+// 服务内部字段不算证据，名次必须从事件里读。
 type statePayload struct {
-	State    string `json:"state"`
-	Previous string `json:"previous"`
+	State         string `json:"state"`
+	Previous      string `json:"previous"`
+	QueuePosition int    `json:"queuePosition,omitempty"`
 }
