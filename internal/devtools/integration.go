@@ -196,7 +196,13 @@ func integrationCases() []integrationCase {
 			// 观察值来自磁盘上的托管技能目录（source: filesystem）：导入/删除/CAS
 			// 到底在磁盘上留下了什么，用 filepath.Walk 从盘上读，不问服务。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"skills-tree.json"}}},
-		{ID: "RES02", Steps: []integrationStep{{Package: "internal/resources", Run: "TestDisabledManagedSkillAbsentInNextRun", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}}}},
+		{ID: "RES02", Steps: []integrationStep{{Package: "internal/resources", Run: "TestDisabledManagedSkillAbsentInNextRun", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)}},
+			// 缺真实 Pi 包/Node 时不是 FAIL 也不是 PASS：这条 case 的观察装置就是
+			// 真实 Pi，缺件只能 BLOCKED，并保留修复步骤（不静默降级成假的观察值）。
+			Blocked: realPiBlockedReason(),
+			// 观察值来自 fixture provider（source: http-server）自己收到的请求体，
+			// 加真实交给 Pi 的 argv；两者都从磁盘上的 artifact 读回。
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"provider-request.json"}}},
 		{ID: "RES03", Steps: []integrationStep{{Package: "internal/resources", Run: "TestMissingDependencyMarksUnavailable|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape"}}},
 		{ID: "RES04", Steps: []integrationStep{
 			{Package: "internal/resources", Run: "TestSystemExtensionCannotBeDisabled|TestThirdPartyExtensionDefaultsDisabled|TestEnableThirdPartyExtensionAffectsArgs|TestUnknownExtensionRejected"},
@@ -270,6 +276,30 @@ func baselinePathEnv() []string {
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+// realPiBlockedReason 判断 RES02 的观察装置（真实 Pi 包 + 能跑它的 Node）在不在。
+//
+// 为什么不是 FAIL：RES02 要观察的就是“真实 Pi 读到了什么”。缺 Pi 包时能测的只剩
+// 测试自己的拼装逻辑，那不是这条 case 的范围；按 AGENTS.md 写 BLOCKED 并保留修复步骤。
+//
+// 只做文件探测，不启动任何进程，也不改 .tools/pi（只读参考包）。
+func realPiBlockedReason() string {
+	root, err := repoFile("go.mod")
+	if err != nil {
+		return "无法定位仓库根，无法探测 .tools/pi：" + err.Error()
+	}
+	base := filepath.Join(filepath.Dir(root), ".tools", "pi")
+	matches, _ := filepath.Glob(filepath.Join(base, "*", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"))
+	if len(matches) == 0 {
+		return "本机没有 .tools/pi 安装件（node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js）；" +
+			"修复：按 docs 用应用托管安装流程把 Pi 装到 .tools/pi（不要覆盖外部 Pi），然后重跑 " +
+			"scripts/devtools.ps1 verify --suite=integration --target=win-x64 --gate=G2 --case=RES02"
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		return "PATH 上找不到 node（真实 Pi bundle 需要 Node ≥ 22.8）；修复：把基线 Node 放到 PATH 首位后重跑 RES02"
+	}
+	return ""
 }
 
 // RunIntegration 是 `verify --suite=integration` 的入口。

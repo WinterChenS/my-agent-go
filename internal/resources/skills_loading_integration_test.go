@@ -45,12 +45,19 @@ import (
 // 只看第一份：它就是 system prompt 被组装好、第一次发给模型的那一次。
 func skillPromptBody(t *testing.T, svc *Service, skills []string, work, home string) string {
 	t.Helper()
+	return skillPromptRun(t, svc, skills, work, home).Prompt
+}
+
+// skillPromptRun 与 skillPromptBody 相同，但把整份测量产物（请求体 + argv）交给调用方。
+// RES02 要落盘 provider 收到的原文与真实 argv，只拿到 Prompt 字符串做不到。
+func skillPromptRun(t *testing.T, svc *Service, skills []string, work, home string) promptRun {
+	t.Helper()
 	if os.Getenv("MYAGENT_PI_WORKER_INTEGRATION") != "1" {
 		t.Skip("设置 MYAGENT_PI_WORKER_INTEGRATION=1 才跑真实 Pi 的技能加载测试")
 	}
 
 	spec := pi.IsolationSpec{Skills: skills}
-	return skillPromptWithArgs(t, probeInstallation(t), spec.Args(), work, home).Prompt
+	return skillPromptWithArgs(t, probeInstallation(t), spec.Args(), work, home)
 }
 
 // promptRun 是一次真实 Pi 启动的原始产物：fixture provider 收到的首份请求体
@@ -99,7 +106,14 @@ func skillPromptWithArgs(t *testing.T, inst pi.PiInstallation, isoArgs []string,
 	// 测技能是否加载，会得到一个永远为"没加载"的假结论。
 	args = append(args, "--no-session", "--tools", "read",
 		"--provider", "probe", "--model", "probe-model")
-	argv := append(append([]string{inst.Executable}, inst.Args...), args...)
+	// argv 走产品自己的 BuildLaunch，而不是在测试里再拼一次：
+	// .cmd/.ps1 启动器会被包成 cmd.exe /c 或 powershell -File，手拼的 argv
+	// 会和真正 exec 的那条不一致，证据就成了"测试以为的参数"。
+	launchExe, launchArgs, err := pi.BuildLaunch(inst, args...)
+	if err != nil {
+		t.Fatalf("构造 Pi 启动参数: %v", err)
+	}
+	argv := append([]string{launchExe}, launchArgs...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -275,12 +289,44 @@ func TestDisabledManagedSkillAbsentInNextRun(t *testing.T) {
 		t.Fatalf("禁用不应删除文件: %v", statErr)
 	}
 
-	prompt := promptText(t, skillPromptBody(t, svc, plan.Paths, work, home))
+	run := skillPromptRun(t, svc, plan.Paths, work, home)
+	prompt := promptText(t, run.Prompt)
 
 	// 托管的那一份（已禁用）：不在 --skill 里，且托管目录不被 Pi 自动发现 → 不出现。
 	if strings.Contains(prompt, managed) {
 		t.Fatalf("已禁用的托管技能仍出现在系统提示里——禁用没有生效: %s", clip(prompt, 800))
 	}
+
+	// RES02 的外部观察（source: http-server）：把 fixture provider **自己收到的**
+	// 首份请求体原样落盘，事实再从这份文件读回来（不是拿上面的 prompt 变量自证）。
+	if resourcesObservationDir() == "" {
+		return
+	}
+	writeResourcesArtifact(t, "provider-request.json", map[string]any{
+		"capturedBy":  "internal/resources providerSim（httptest server 收到的第一份请求体）",
+		"promptBytes": len(run.Prompt),
+		"argv":        run.Argv,
+		"body":        run.Prompt,
+	})
+	artifact := readResourcesArtifact(t, "provider-request.json")
+	body, _ := artifact["body"].(string)
+	argv, _ := artifact["argv"].([]any)
+	argvStrings := make([]string, 0, len(argv))
+	for _, a := range argv {
+		if s, ok := a.(string); ok {
+			argvStrings = append(argvStrings, s)
+		}
+	}
+	_, statErr := os.Stat(filepath.Join(root, "skills", "shut-skill", "SKILL.md"))
+	writeResourcesObservation(t, map[string]any{
+		"promptBytes":         len(body),
+		"sentinelPresent":     strings.Contains(body, managed),
+		"argv":                argvStrings,
+		"argvLen":             len(argvStrings),
+		"providerRequestFile": "provider-request.json",
+		"managedSkillInArgv":  strings.Contains(strings.Join(argvStrings, " "), "shut-skill"),
+		"managedDirOnDisk":    statErr == nil,
+	}, nil)
 }
 
 // skillDocForTest 造一份 SKILL.md 内容。
