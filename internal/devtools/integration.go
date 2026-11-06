@@ -106,7 +106,11 @@ func integrationCases() []integrationCase {
 		// PATH 必须用子进程环境构造，不能改宿主：本机交互式 shell 的 PATH 首个 node
 		// 是 WorkBuddy 托管的 v22，而基线要求 v24.16.0。脚本本身仍然独立校验，
 		// 这里只是让"被测环境"等于基线声明的环境，不是把断言绕过去。
-		{ID: "ENV01", External: toolchainCommand(), Env: baselinePathEnv()},
+		// 观察值不由测试进程给出：scripts/check-toolchain.ps1 在
+		// ANVIL_OBSERVATION_DIR 非空时把「实际解析到的绝对路径 + 二进制自报版本 +
+		// 锁文件 sha256」写进磁盘，runner 只封装这些文件。
+		{ID: "ENV01", External: toolchainCommand(), Env: baselinePathEnv(),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"toolchain.json"}}},
 		{ID: "ENV02", External: toolchainCommand(), Env: baselinePathEnv()},
 		{ID: "ENV03", External: toolchainCommand(), Env: baselinePathEnv()},
 
