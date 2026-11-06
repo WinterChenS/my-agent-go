@@ -137,7 +137,12 @@ func TestContractProbePassesProviderAndModel(t *testing.T) {
 		}
 	}
 
-	// 不传模型时不得凭空补一个：探测不能假装有模型可用。
+	// 不传模型时**必须**用探测自带的 stub provider，而不是"什么都不传"。
+	//
+	// 2026-11-06 生产路径实测：不传 provider/model 时真实 Pi 回
+	// "No API key found for the selected model."，rpc/settled/abort 三项必然失败，
+	// 一个完全可用的 Pi 被判 incompatible。探测要回答的是协议问题，不能依赖用户
+	// 是否配了模型，所以这里必须见到 anvil-probe（且绝不能见到用户的任何 provider）。
 	plain, plainCapture := captureStarter()
 	opts2 := contractOptions(t, plain)
 	opts2.Timeout = 5 * time.Second
@@ -146,8 +151,13 @@ func TestContractProbePassesProviderAndModel(t *testing.T) {
 		t.Fatalf("探测本身不应报错: %v", err)
 	}
 	for i, spec := range plainCapture() {
-		if containsArg(spec.Args, "--provider") || containsArg(spec.Args, "--model") {
-			t.Fatalf("未指定模型时第 %d 次启动不得带 --provider/--model（argv=%v）", i+1, spec.Args)
+		if !containsPair(spec.Args, "--provider", contractStubProviderID) {
+			t.Fatalf("未指定模型时第 %d 次启动必须带探测自带的 --provider %s（argv=%v）",
+				i+1, contractStubProviderID, spec.Args)
+		}
+		if !containsPair(spec.Args, "--model", contractStubModelID) {
+			t.Fatalf("未指定模型时第 %d 次启动必须带探测自带的 --model %s（argv=%v）",
+				i+1, contractStubModelID, spec.Args)
 		}
 	}
 }

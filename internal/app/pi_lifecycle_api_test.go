@@ -425,3 +425,93 @@ func TestSelectPiRejectsBogusInstallationID(t *testing.T) {
 		t.Fatalf("Selected = %+v", sel.Selected)
 	}
 }
+
+// TestDiscoverPiAcceptsRealPiThroughProductionProbe 是 F08-E 的端到端证据。
+//
+// 背景（2026-11-06 实测）：argv 修好之后真实 Pi 的 mcp/extension 已经能过，但生产默认
+// 探测不传 provider/model，隔离 agentDir 里也没有 models.json，于是真实 Pi 回
+// "No API key found for the selected model."，rpc/settled/abort 全失败——
+// 一个完全可用的 Pi 被判 incompatible。这条测试走**绑定层的真实路径**
+// （DiscoverPi → defaultContractProbe），不注入任何探针。
+func TestDiscoverPiAcceptsRealPiThroughProductionProbe(t *testing.T) {
+	// 目标目录按宿主命名，和 internal/runtime/pi 的真实 Pi 用例同一口径
+	//（win-x64 / mac-arm64 / linux-arm64 …）：缺包就是失败（带修复步骤），
+	// 不是 skip——否则"没装包"会被读成"探测通过"。
+	target := appStandaloneTarget()
+	name := "pi"
+	if runtime.GOOS == "windows" {
+		name = "pi.exe"
+	}
+	rootDir := repoRootForAppTest(t)
+	dir := "v1.5.0-" + target
+	exe := filepath.Join(rootDir, ".tools", "pi", "standalone", dir, name)
+	if _, err := os.Stat(exe); err != nil {
+		t.Fatalf("本机没有官方独立包（%s）。修复：把官方 Pi 1.5.0 独立包解到 "+
+			".tools/pi/standalone/%s/（只读引用，不覆盖任何外部 Pi）后重跑 "+
+			"scripts/devtools.ps1 verify --suite=integration --target=%s --gate=G0 --case=PI_COMP01。", exe, dir, target)
+	}
+
+	d, _ := newTestDesktop(t)
+	d.piRequestOverride = func(req pi.DiscoveryRequest) pi.DiscoveryRequest {
+		req.Preferred = exe
+		req.ManagedRoot = ""
+		req.PathEnv = nil
+		req.CommonLocations = nil
+		// 不注入 VersionProbe / ProbeFunc：走生产默认的 ContractProbe。
+		return req
+	}
+
+	res, err := d.DiscoverPi()
+	if err != nil {
+		t.Fatalf("DiscoverPi: %v", err)
+	}
+	if res.Selected == nil {
+		t.Fatalf("真实 Pi 没有被选中: state=%s diagnostics=%v", res.State, res.Diagnostics)
+	}
+	if res.State == pi.StateIncompatible {
+		t.Fatalf("真实 Pi 被判 incompatible：%v", res.Diagnostics)
+	}
+	joined := strings.Join(res.Diagnostics, "\n")
+	if strings.Contains(joined, "No API key") {
+		t.Fatalf("探测仍然借用了用户的模型配置（没有自带模型）：%s", joined)
+	}
+	if res.State != pi.StateReadyCompatible && res.State != pi.StateReadyVerified {
+		t.Fatalf("真实 Pi 状态 = %s，期望 ready_compatible/ready_verified；诊断：%v", res.State, res.Diagnostics)
+	}
+}
+
+// repoRootForAppTest 从当前包目录向上找 go.mod，返回仓库根。
+func repoRootForAppTest(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("读取当前目录: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("向上找不到 go.mod，无法定位仓库根")
+		}
+		dir = parent
+	}
+}
+
+// appStandaloneTarget 把 GOOS/GOARCH 映射成官方独立包的目录名（win-x64 等）。
+func appStandaloneTarget() string {
+	goos := runtime.GOOS
+	switch goos {
+	case "windows":
+		goos = "win"
+	case "darwin":
+		goos = "mac"
+	}
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64":
+		arch = "x64"
+	}
+	return goos + "-" + arch
+}

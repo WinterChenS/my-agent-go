@@ -161,6 +161,33 @@ func ContractProbe(ctx context.Context, inst PiInstallation, opts ContractOption
 	}
 	iso.ExtraExtensions = append(iso.ExtraExtensions, extPath)
 
+	// 探测回合必须有一个**它自己的**模型，不能借用用户的模型配置：
+	//   - 用户可能一个模型都没配（新装机器），真实 Pi 会回
+	//     "No API key found for the selected model."，rpc/settled/abort 三项必然失败，
+	//     于是一个完全可用的 Pi 被判 incompatible（2026-11-06 实测）；
+	//   - 就算配了，探测也不该拿用户的密钥去发真实请求：探测只回答协议问题。
+	// 所以生产路径（Provider/Model 都没给）由探测自己在隔离 agentDir 里起一个
+	// 只绑回环的 stub provider 并写 models.json；探测结束（含失败/取消）立即关闭。
+	//
+	// 调用方给了 Provider/Model 的场景（测试夹具、自定义端点）：models.json 归调用方
+	// 所有，这里不写、也不覆盖。两者只给一个属于配置错误——那样 models.json 该由谁
+	// 写就说不清了，静默挑一边会让"探测通过"取决于运气。
+	providerSet := strings.TrimSpace(opts.Provider) != ""
+	modelSet := strings.TrimSpace(opts.Model) != ""
+	if providerSet != modelSet {
+		return report, contracts.NewAppError(contracts.CodeConfigMissing,
+			"契约探测的 Provider/Model 必须同时给出或同时留空（当前 provider="+opts.Provider+" model="+opts.Model+"）", false)
+	}
+	if !providerSet {
+		stub, err := startContractStubProvider(opts.AgentDir)
+		if err != nil {
+			return report, err
+		}
+		defer stub.Close()
+		opts.Provider = stub.ProviderID
+		opts.Model = stub.ModelID
+	}
+
 	p := &contractProber{inst: inst, opts: opts, iso: iso}
 	checks := []struct {
 		name string
