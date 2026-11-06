@@ -43,6 +43,13 @@ const EventName = "myagent:run-event"
 type Settings struct {
 	// PiPath 是 Pi 可执行文件；若指向 .js 入口，则用 NodePath 启动。
 	PiPath string `json:"piPath"`
+	// PiSavedPath 是上一次在候选里选定的 Pi（saved-path 来源）。
+	// 与 PiPath（用户显式指定，优先级更高）分开：用户指定的路径失效时仍要报
+	// preferred 不可用，而选定的路径失效时要报"上次选的 Pi 不在了"。
+	//
+	// 它只是**发现来源**，不是运行路径的第三优先级：resolveInstallation 仍是
+	// settings.piPath → <managed>/active.json → CONFIG_MISSING，不读这个字段。
+	PiSavedPath string `json:"piSavedPath,omitempty"`
 	// NodePath 仅在 PiPath 为 .js 时使用。
 	NodePath string `json:"nodePath"`
 	// Provider 是 models.json 里的 provider 键名。

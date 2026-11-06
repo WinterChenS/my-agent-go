@@ -4,19 +4,23 @@ package app
 //
 // 三条纪律：
 //   - 发现是只读的：不改 PATH、不写设置、不创建目录、不动用户真实 Pi 配置；
-//   - 请求字段来源显式：settings.piPath 是用户指定，PATH 取进程环境的一份拷贝，
+//   - 请求字段来源显式：settings.piPath 是用户指定，settings.piSavedPath 是
+//     “上一次选定的 Pi”（F07 持久化），PATH 取进程环境的一份拷贝，
 //     托管根由 pi.ManagedRoot() 给出（F06 才负责填充）；
 //   - 选择绝不静默回退：不认识的 id、不可用的候选都报结构化错误。
 //
-// 已知缺口（记录在 F08-A 报告里）：F07 目前没有"已保存的 Pi 路径"字段，
-// 因此 Saved 传空串；等配置里出现该字段时在这里接上，不新造文件格式。
+// “选定”与“运行”是两件事：这里只维护发现来源与 persisted 的 saved 路径，
+// 运行路径仍由 resolveInstallation 决定（settings.piPath → active.json → 缺失），
+// saved 不是第三优先级。
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/piinstall"
 	"my-agent-go/internal/runtime/pi"
 )
@@ -26,8 +30,9 @@ func (d *Desktop) piDiscoveryRequest() pi.DiscoveryRequest {
 	s := d.Settings()
 	req := pi.DiscoveryRequest{
 		Preferred: s.PiPath,
-		// Saved 为空：配置里还没有"上次选中的 Pi 路径"字段（见文件头说明）。
-		Saved:           "",
+		// 上次选定的 Pi（F07）：失效时由 F08 报成 missing-path 候选与诊断，
+		// 不静默消失、也不自动换成 PATH 上的另一个。
+		Saved:           s.PiSavedPath,
 		ManagedRoot:     managedDiscoveryRoot(pi.ManagedRoot()),
 		PathEnv:         splitPathEntries(os.Getenv("PATH")),
 		CommonLocations: pi.CommonLocations(),
@@ -50,12 +55,37 @@ func (d *Desktop) DiscoverPi() (pi.DiscoveryResult, error) {
 }
 
 // SelectPi 在已发现候选里选择指定 installationID；不在候选里或不可用则报错，绝不静默回退。
+//
+// 选中后会把这个候选的可执行体路径写进 settings.piSavedPath（既有配置 API：
+// persistSettings），使选择跨重启保留。三条约束：
+//   - 只有选择成功才写盘：失败的选择必须让 settings.json 字节不变；
+//   - 走 persistSettings 而不是 SaveSettings：选 Pi 不能把正在跑的 run 连根拔掉，
+//     新选择与其它配置一样在下一个 run 生效；
+//   - 写盘失败就是没生效：返回错误，并且不把这次 Selected 当作已落地结果交出去。
 func (d *Desktop) SelectPi(installationID string) (pi.DiscoveryResult, error) {
 	res, err := d.DiscoverPi()
 	if err != nil {
 		return res, err
 	}
-	return pi.Select(context.Background(), res, installationID)
+	sel, err := pi.Select(context.Background(), res, installationID)
+	if err != nil {
+		return sel, err
+	}
+	if sel.Selected == nil {
+		return sel, contracts.NewAppError(contracts.CodeInternal,
+			"选择成功但没有选中项，拒绝持久化: "+installationID, false)
+	}
+
+	next := d.Settings()
+	// 存**解析后的真实路径**（Installation.Executable），与发现层的真实路径
+	// 去重口径一致：存启动器别名会让下次发现多出一条同源候选。
+	next.PiSavedPath = sel.Selected.Installation.Executable
+	if err := d.persistSettings(next); err != nil {
+		// 落盘失败：内存设置已在 persistSettings 里保持不动，这里也不把
+		// 新 Selected 交出去——否则调用方会以为选择已经生效。
+		return res, fmt.Errorf("保存选中的 Pi 路径失败: %w", err)
+	}
+	return sel, nil
 }
 
 // managedDiscoveryRoot 返回交给 F08 发现的托管根。
