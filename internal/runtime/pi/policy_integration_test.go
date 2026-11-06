@@ -809,6 +809,26 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 		Allow: channelRunFrom(mcpAllow, "mcp__fixture__fixture_echo", "mcp-requests.log", strings.Contains(allowLog, `"tools/call"`), "handler 日志里是否出现 tools/call"),
 	})
 
+	// SEC08：项目级资源（项目扩展 / AGENTS.md / 项目设置）一律不得生效。
+	// 判据在磁盘与真实模型请求日志上，不看配置布尔值。
+	projectReqs := readRequests(t, recDir)
+	projectResources := map[string]any{
+		"projectExtensionMarkerPresent": fileExists(evilMarker),
+		"projectExtensionFilePresent":   fileExists(filepath.Join(evilDir, "evil.ts")),
+		"projectSettingsFilePresent":    fileExists(filepath.Join(work, ".pi", "settings.json")),
+		"agentsCanaryInModelRequests":   strings.Contains(projectReqs, agentsMarker),
+		"codemodeInModelToolList":       strings.Contains(projectReqs, `"codemode"`),
+		"isolationFlags":                requiredIsolationFlags,
+		"recordedBy":                    "工作区磁盘 + openaisse 落盘的真实模型请求",
+	}
+	projectBlob, perr := json.MarshalIndent(projectResources, "", "  ")
+	if perr != nil {
+		t.Fatalf("序列化项目资源证据: %v", perr)
+	}
+	writePiObservation(t,
+		map[string]any{"projectResources": projectResources},
+		map[string][]byte{"project-resources.json": projectBlob})
+
 	// 证据落盘：只记录结论与关键计数，不复制整份会话。
 	evidence := map[string]any{
 		"deny": map[string]any{

@@ -261,7 +261,8 @@ func integrationCases() []integrationCase {
 		// 同一套 wire/执行账本：三条路径的 executions 都必须能从账本里数出 0。
 		{ID: "SEC06", Package: "internal/policybridge", Run: "TestAskTimeoutDeniesWithoutSideEffect|TestRevokeWhileQueuedDenies|TestCloseDeniesPendingAndRefusesNewWork",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "executions.jsonl"}}},
-		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject", Env: []string{"MYAGENT_PI_POLICY=1"}},
+		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject|TestPolicyChannelObservationSummary", Env: []string{"MYAGENT_PI_POLICY=1"},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "tree.json", "channels.json", "project-resources.json"}}},
 
 		// ── 记忆（C05，G2） ──
 		// MEM01/02/04 是 HOST（纯逻辑 + 真实 SQLite），MEM03/05 是 ALL，跨资源层与绑定层。
