@@ -304,6 +304,20 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 		return rep, nil
 	}
 
+	// 平台最低 OS 要求每个 gate 评估只加载一次（GOV05）。
+	// 读不到就拿不到最低线，这时必须判死——「默认放行」等于把最低系统要求变成装饰。
+	plats, platsErr := LoadPlatformsFromRepo()
+	if platsErr != nil {
+		failGate(rep, fmt.Sprintf("无法加载目标最低 OS 要求（%s）: %v", platformsRelPath, platsErr))
+		return rep, nil
+	}
+	for _, t := range KnownTargets {
+		if _, ok := plats.Target(t); !ok {
+			failGate(rep, fmt.Sprintf("平台配置 %s 缺 target %s 的最低 OS 要求", platformsRelPath, t))
+			return rep, nil
+		}
+	}
+
 	// 收集证据树中的所有 result.json；caseId 取目录名，target/display 取内容。
 	byCase := map[string][]evidenceFile{}
 	walkErr := filepath.Walk(evidenceRoot, func(p string, info os.FileInfo, err error) error {
@@ -387,7 +401,7 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 		eval.Found = true
 		var probs []string
 		for _, ev := range hits {
-			probs = append(probs, validateEvidence(ev, r.CaseID, gateID, base, entryByID[r.CaseID])...)
+			probs = append(probs, validateEvidence(ev, r.CaseID, gateID, base, entryByID[r.CaseID], plats)...)
 		}
 		probs = append(probs, caseProblems[r.CaseID]...)
 		if len(probs) > 0 {
@@ -416,7 +430,7 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 			if requiredKeys[key] {
 				continue // 必需位已单独校验，不重复报
 			}
-			if probs := validateEvidence(ev, caseID, gateID, base, entryByID[caseID]); len(probs) > 0 {
+			if probs := validateEvidence(ev, caseID, gateID, base, entryByID[caseID], plats); len(probs) > 0 {
 				reason := strings.Join(dedupe(probs), "; ")
 				rep.PerRequirement = append(rep.PerRequirement, RequirementEval{
 					Requirement: Requirement{CaseID: caseID, Target: target, Display: normalizeDisplay(target, ev.Display)},
@@ -550,7 +564,7 @@ func failGate(rep *GateReport, reason string) {
 // validateEvidence 校验单条证据的完整性。
 //
 // 注意：gate 只能校验人工证据的结构完整性；结构通过不等于事实审查通过。
-func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline, entry CaseEntry) []string {
+func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline, entry CaseEntry, plats *Platforms) []string {
 	var p []string
 	if ev.GateID != gateID {
 		p = append(p, fmt.Sprintf("证据的 gateId=%q 与请求的 %s 不一致（目录 %s）",
@@ -588,8 +602,68 @@ func validateEvidence(ev evidenceFile, caseID, gateID string, base GateBaseline,
 	if evidenceAllSkippedOrEmpty(ev.GateEvidence) {
 		p = append(p, "报告为空或全部 SKIP，不能冒充通过")
 	}
+	p = append(p, validateEnvironment(ev, plats)...)
 	p = append(p, validateCaseStatuses(ev.GateEvidence, caseID, ev.dir, entry)...)
 	return p
+}
+
+// validateEnvironment 校验证据真实存在的环境身份与目标最低 OS 要求（GOV05）。
+//
+// 三条独立结论：
+//   - 身份必须存在（os/osVersion/arch 非空），否则谈不上「在哪台机器上产生的」；
+//   - 身份必须与目标一致（os/arch/display），否则这份证据证明的不是这个目标；
+//   - 身份必须达到目标最低 OS（版本分量 + build 号），否则只能算开发证据。
+//
+// 最后一条就是本机（Windows 10 build 19045）win-x64 证据被拒的原因，属预期行为。
+func validateEnvironment(ev evidenceFile, plats *Platforms) []string {
+	env := ev.Environment
+	if strings.TrimSpace(env.OS) == "" || strings.TrimSpace(env.OSVersion) == "" || strings.TrimSpace(env.Arch) == "" {
+		return []string{"证据缺环境身份（environment.os/osVersion/arch 为空），无法判定它出自哪台机器"}
+	}
+	tm, ok := plats.Target(ev.TargetID)
+	if !ok {
+		return []string{fmt.Sprintf("平台配置 %s 缺 target %s 的最低 OS 要求，无法判定环境", platformsRelPath, ev.TargetID)}
+	}
+	var p []string
+	if env.OS != tm.GOOS || env.Arch != tm.GOARCH {
+		p = append(p, fmt.Sprintf("environment.os/arch=%s/%s 与目标 %s（%s/%s）不一致，证据证明的不是这个目标",
+			env.OS, env.Arch, ev.TargetID, tm.GOOS, tm.GOARCH))
+	}
+	p = append(p, validateEnvironmentDisplay(ev)...)
+	if below, why := tm.BelowMinimum(env); below {
+		p = append(p, fmt.Sprintf("证据环境低于目标 %s 的最低要求: %s", ev.TargetID, why))
+	}
+	return p
+}
+
+// validateEnvironmentDisplay 校验 environment.display 与证据的 display 维度一致。
+//
+// 非 Linux：两边归一化后必须都是 desktop（集成证据写 ""，原生证据写 "desktop"）。
+// Linux：原生证据必须精确一致（x11/wayland 不能互相顶替）；集成证据的 display
+// 本就不区分会话（""），允许 environment.display 如实记录真实会话。
+// 后者如果不放行，一台真实的 Wayland 机器上产出的 Linux 集成证据会永远被拒，
+// 而那条证据的必需位是「不区分会话」的。
+func validateEnvironmentDisplay(ev evidenceFile) []string {
+	evDisp := normalizeDisplay(ev.TargetID, ev.Display)
+	envDisp := normalizeDisplay(ev.TargetID, ev.Environment.Display)
+	if !strings.HasPrefix(ev.TargetID, "linux-") {
+		if envDisp != evDisp || envDisp != DisplayDesktop {
+			return []string{fmt.Sprintf("environment.display=%q 与证据 display=%q 不一致（非 Linux 目标必须都是 desktop）",
+				ev.Environment.Display, ev.Display)}
+		}
+		return nil
+	}
+	if evDisp == "" {
+		if envDisp != "" && envDisp != DisplayX11 && envDisp != DisplayWayland {
+			return []string{fmt.Sprintf("environment.display=%q 不是合法的 Linux 会话（x11/wayland 或空）", ev.Environment.Display)}
+		}
+		return nil
+	}
+	if envDisp != evDisp {
+		return []string{fmt.Sprintf("environment.display=%q 与证据 display=%q 不一致（Linux 原生证据必须精确对应当前会话）",
+			ev.Environment.Display, ev.Display)}
+	}
+	return nil
 }
 
 // caseResultMatches 判断单条 CaseResult 是否属于该 case。

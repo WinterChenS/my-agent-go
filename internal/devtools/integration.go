@@ -299,6 +299,13 @@ func RunIntegrationForGate(target, gate string) int {
 		return 2
 	}
 
+	// GOV05：证据必须带真实环境身份。探测失败就退出 2，不能写猜测值。
+	env, envErr := HostEnvironment(integrationEnvironmentDisplay(target))
+	if envErr != nil {
+		fmt.Fprintf(os.Stderr, "宿主环境探测失败，不能写证据: %v\n", envErr)
+		return 2
+	}
+
 	idx, err := LoadCasesIndex("tests/acceptance/cases.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -335,6 +342,9 @@ func RunIntegrationForGate(target, gate string) int {
 	root := evidenceRoot(rev, gate, target, "")
 	fmt.Printf("== verify --suite=integration --target=%s --gate=%s ==\n", target, gate)
 	fmt.Printf("证据根: %s\n", root)
+	fmt.Printf("宿主环境: os=%s version=%s build=%s arch=%s display=%s\n",
+		env.OS, env.OSVersion, orNone(env.OSBuild), env.Arch, orNone(env.Display))
+	warnIfBelowMinimum(env, target)
 	if dirty {
 		// 证据照写（可诊断），但必须带 dirty 标记：门禁会拒绝它。
 		// 不做「把改动藏起来当作干净 revision」这种假归属。
@@ -344,7 +354,7 @@ func RunIntegrationForGate(target, gate string) int {
 	fails := 0
 	for _, id := range runnable {
 		c := table[id]
-		res := runIntegrationCase(c, gate, target, root)
+		res := runIntegrationCase(c, gate, target, root, env)
 		if res.blocked {
 			blocks++
 		} else if !res.passed {
@@ -391,8 +401,24 @@ type caseOutcome struct {
 	blocked bool
 }
 
+// integrationEnvironmentDisplay 返回集成证据要记录的真实显示会话。
+//
+// 集成证据的 display 必需位是「不区分会话」（Windows/macOS 归一化为 desktop；
+// Linux 为空），但 environment.display 记录的是机器真实会话：Linux 优先读
+// XDG_SESSION_TYPE（x11/wayland），读不到就留空。两者用途不同，不违背归一化。
+func integrationEnvironmentDisplay(target string) string {
+	if !strings.HasPrefix(target, "linux-") {
+		return DisplayDesktop
+	}
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("XDG_SESSION_TYPE"))); v {
+	case DisplayX11, DisplayWayland:
+		return v
+	}
+	return ""
+}
+
 // runIntegrationCase 执行一条 case 并写证据。
-func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcome {
+func runIntegrationCase(c integrationCase, gate, target, root string, environment contracts.Environment) caseOutcome {
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 	// 子进程的 cwd 不是仓库根，而是它自己的包目录（go test 会把 cwd 设成包目录）。
@@ -412,6 +438,7 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 		WorktreeDirty:    worktreeDirty(),
 		VersionsLockHash: versionsHash(),
 		TargetID:         target,
+		Environment:      environment,
 		StartedAt:        started.Format(time.RFC3339),
 		Reviewer: contracts.Reviewer{
 			Name:       "devtools-integration-runner",

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -39,12 +40,42 @@ func writeEvidence(t *testing.T, root, rev, gate, target, caseID, lockHash strin
 	return writeEvidenceAt(t, filepath.Join(root, rev, gate, target, caseID), rev, gate, target, caseID, lockHash, mutate)
 }
 
+// platformMinimumEnvironment 返回某目标「恰好等于最低要求」的环境身份（GOV05）。
+//
+// 测试默认就用最低线：这样任何拒绝都来自明确的 GOV05 判定，而不是
+// 「默认值刚好不满足环境检查」。
+func platformMinimumEnvironment(t *testing.T, target string) contracts.Environment {
+	t.Helper()
+	plats, err := LoadPlatformsFromRepo()
+	if err != nil {
+		t.Fatalf("加载 build/platforms.json: %v", err)
+	}
+	tm, ok := plats.Target(target)
+	if !ok {
+		// 未知 target 的负例（例如 "mars"）只需要证据能被写出来，
+		// 环境身份由 validateEnvironment 另行判死；这里不能 Fatalf。
+		return contracts.Environment{}
+	}
+	display := ""
+	if !strings.HasPrefix(target, "linux-") {
+		display = DisplayDesktop
+	}
+	return contracts.Environment{
+		OS:        tm.GOOS,
+		OSVersion: tm.MinOSVersion,
+		OSBuild:   strconv.FormatInt(int64(tm.MinOSBuild), 10),
+		Arch:      tm.GOARCH,
+		Display:   display,
+	}
+}
+
 // writeEvidenceAt 在指定目录写证据。重复证据测试需要写到非规范路径。
 func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash string, mutate func(*contracts.GateEvidence)) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
+	minimum := platformMinimumEnvironment(t, target)
 	ev := contracts.GateEvidence{
 		SchemaVersion:    1,
 		GateID:           gate,
@@ -52,6 +83,7 @@ func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash stri
 		SourceRevision:   rev,
 		VersionsLockHash: lockHash,
 		TargetID:         target,
+		Environment:      minimum,
 		StartedAt:        "2026-11-03T00:00:00Z",
 		EndedAt:          "2026-11-03T00:01:00Z",
 		Command:          "echo ok",
@@ -63,6 +95,12 @@ func writeEvidenceAt(t *testing.T, dir, rev, gate, target, caseID, lockHash stri
 	}
 	if mutate != nil {
 		mutate(&ev)
+	}
+	// 环境身份未被子测试改写时，按证据自己的 display 归一化补全：
+	// 否则「Linux x11 证据」会因为在 environment.display 上不一致而被额外拒绝，
+	// 掩盖掉本测试真正要断言的那条判定。
+	if ev.Environment == minimum {
+		ev.Environment.Display = normalizeDisplay(target, ev.Display)
 	}
 	b, _ := json.MarshalIndent(ev, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "result.json"), b, 0o644); err != nil {
@@ -740,6 +778,265 @@ func TestGateRejectsAtomicCaseWithoutScope(t *testing.T) {
 	}
 	if rep.Passed || rep.ExitCode != 2 {
 		t.Fatalf("缺 scope 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+	}
+}
+
+// ---- GOV05：证据环境身份与目标最低 OS ----
+
+// writeMinimumEvidenceForAllTargets 给六个目标各写一份「恰好等于最低要求」的证据，
+// 只对 mutateTarget 施加破坏。这样一条判死只能来自被破坏的那个目标。
+func writeMinimumEvidenceForAllTargets(t *testing.T, root string, base GateBaseline, caseID, gate, mutateTarget string, mutate func(*contracts.GateEvidence)) {
+	t.Helper()
+	for _, target := range KnownTargets {
+		var m func(*contracts.GateEvidence)
+		if target == mutateTarget {
+			m = mutate
+		}
+		writeEvidence(t, root, base.SourceRevision, gate, target, caseID, base.VersionsLockHash, m)
+	}
+}
+
+func TestGateRejectsEvidenceMissingEnvironment(t *testing.T) {
+	idx := testIndexG0(t)
+	root := t.TempDir()
+	base := testBaseline()
+	for _, id := range ResolveRequiredAtomicCases(idx, "G0") {
+		writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", id, base.VersionsLockHash, func(e *contracts.GateEvidence) {
+			e.Environment = contracts.Environment{}
+		})
+	}
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode == 0 {
+		t.Fatalf("缺环境身份应判死，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+	}
+	if !reasonMentions(rep, "环境") {
+		t.Fatalf("拒绝原因必须点名环境身份，实际 reasons=%v", rep.Reasons)
+	}
+}
+
+func TestGateRejectsEnvironmentOSTargetMismatch(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "ALL", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "win-x64", func(e *contracts.GateEvidence) {
+		e.Environment.OS = "linux"
+	})
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if rep.Passed || rep.ExitCode != 2 {
+		t.Fatalf("环境 OS 与目标不符应判死，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+	}
+	if !reasonMentions(rep, "environment.os") {
+		t.Fatalf("拒绝原因应点名 environment.os，实际 reasons=%v", rep.Reasons)
+	}
+
+	// 反向对照：改回正确 OS 后必须通过（否则上面的判死可能只是「永远判死」）。
+	writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, nil)
+	rep2, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if !rep2.Passed || rep2.ExitCode != 0 {
+		t.Fatalf("环境与目标一致时不应判死，实际 passed=%v reasons=%v", rep2.Passed, rep2.Reasons)
+	}
+}
+
+func TestGateRejectsBelowMinimumOSVersion(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "ALL", Gates: []string{"G0"}})
+
+	t.Run("windows-below-build", func(t *testing.T) {
+		root := t.TempDir()
+		base := testBaseline()
+		// 本机真实身份：Windows 10 22H2 build 19045，低于 Windows 11 24H2 (26100)。
+		writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "win-x64", func(e *contracts.GateEvidence) {
+			e.Environment.OSVersion = "10"
+			e.Environment.OSBuild = "19045"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil {
+			t.Fatalf("EvaluateGate error: %v", err)
+		}
+		if rep.Passed || rep.ExitCode != 2 {
+			t.Fatalf("Windows 10 build 19045 证据应判死，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
+		}
+	})
+
+	t.Run("macos-below-version", func(t *testing.T) {
+		root := t.TempDir()
+		base := testBaseline()
+		writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "mac-x64", func(e *contracts.GateEvidence) {
+			e.Environment.OSVersion = "13.6"
+			e.Environment.OSBuild = "0"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil {
+			t.Fatalf("EvaluateGate error: %v", err)
+		}
+		if rep.Passed || rep.ExitCode != 2 {
+			t.Fatalf("macOS 13.6 证据应判死，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
+		}
+	})
+
+	t.Run("unparsable-version", func(t *testing.T) {
+		root := t.TempDir()
+		base := testBaseline()
+		writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "linux-x64", func(e *contracts.GateEvidence) {
+			e.Environment.OSVersion = "twenty-four"
+		})
+		rep, err := EvaluateGate(idx, "G0", root, base)
+		if err != nil {
+			t.Fatalf("EvaluateGate error: %v", err)
+		}
+		if rep.Passed || rep.ExitCode != 2 {
+			t.Fatalf("无法解析的 OS 版本应判死，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
+		}
+	})
+}
+
+// TestGateAcceptsEvidenceMatchingPlatformMinimums 是正向对照：
+// 恰好等于最低要求的证据必须通过，证明 GOV05 不是「一律判死」。
+func TestGateAcceptsEvidenceMatchingPlatformMinimums(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "ENV03", Owner: "F00", Required: true, Scope: "ALL", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "", nil)
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate error: %v", err)
+	}
+	if !rep.Passed || rep.ExitCode != 0 {
+		t.Fatalf("恰好等于最低要求的证据应通过，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
+	}
+}
+
+// TestPlatformMinimumsCoverEveryTarget 钉住 build/platforms.json 的最低要求：
+// 缺字段或被人调低都会被这里拦住（GOV05 的核心口径）。
+func TestPlatformMinimumsCoverEveryTarget(t *testing.T) {
+	plats, err := LoadPlatformsFromRepo()
+	if err != nil {
+		t.Fatalf("加载 build/platforms.json: %v", err)
+	}
+	want := map[string][2]string{
+		"win-x64": {"11", "26100"}, "win-arm64": {"11", "26100"},
+		"mac-x64": {"14", "0"}, "mac-arm64": {"14", "0"},
+		"linux-x64": {"24.04", "0"}, "linux-arm64": {"24.04", "0"},
+	}
+	for target, expected := range want {
+		tm, ok := plats.Target(target)
+		if !ok {
+			t.Fatalf("build/platforms.json 缺 target %s", target)
+		}
+		if tm.MinOSVersion != expected[0] {
+			t.Fatalf("%s minOSVersion=%q，期望 %q", target, tm.MinOSVersion, expected[0])
+		}
+		if strconv.FormatInt(int64(tm.MinOSBuild), 10) != expected[1] {
+			t.Fatalf("%s minOSBuild=%d，期望 %s", target, tm.MinOSBuild, expected[1])
+		}
+	}
+}
+
+// TestHostEnvironmentReportsRealValues 断言宿主探测读的是真实环境，不是常量。
+func TestHostEnvironmentReportsRealValues(t *testing.T) {
+	env, err := HostEnvironment(DisplayDesktop)
+	if err != nil {
+		t.Fatalf("HostEnvironment: %v", err)
+	}
+	if env.OS != runtime.GOOS || env.Arch != runtime.GOARCH {
+		t.Fatalf("environment.os/arch 必须来自 runtime，实际 %q/%q", env.OS, env.Arch)
+	}
+	if strings.TrimSpace(env.OSVersion) == "" {
+		t.Fatalf("environment.osVersion 不能为空: %+v", env)
+	}
+	if env.Display != DisplayDesktop {
+		t.Fatalf("environment.display 应原样保留调用方归一化后的值，实际 %q", env.Display)
+	}
+	if runtime.GOOS == "windows" {
+		// 不硬编码本机的 19045：按 Windows 自身的版本号规则核对一致性，
+		// 同时钉住「Windows 10 不会自称 11」。
+		build, err := strconv.Atoi(env.OSBuild)
+		if err != nil || build <= 0 {
+			t.Fatalf("environment.osBuild 必须是真实十进制 build 号，实际 %q", env.OSBuild)
+		}
+		wantVersion := "10"
+		if build >= 22000 {
+			wantVersion = "11"
+		}
+		if env.OSVersion != wantVersion {
+			t.Fatalf("build %d 应报告 OSVersion %q，实际 %q", build, wantVersion, env.OSVersion)
+		}
+	}
+}
+
+// TestGateEvidenceSchemaRequiresEnvironment 钉住 schema 与 Go 结构一致（GOV05）：
+// 证据 JSON 必须带 environment，五个字段全部必填。
+func TestGateEvidenceSchemaRequiresEnvironment(t *testing.T) {
+	path, err := repoFile("schemas/gate-evidence.schema.json")
+	if err != nil {
+		t.Fatalf("repoFile: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取 schema: %v", err)
+	}
+	type propSchema struct {
+		Type                 string                `json:"type"`
+		AdditionalProperties *bool                 `json:"additionalProperties"`
+		Required             []string              `json:"required"`
+		Properties           map[string]propSchema `json:"properties"`
+	}
+	var schema propSchema
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("解析 schema: %v", err)
+	}
+	if !contains(schema.Required, "environment") {
+		t.Fatalf("schema 必须把 environment 列为 required，实际 %v", schema.Required)
+	}
+	envSchema, ok := schema.Properties["environment"]
+	if !ok {
+		t.Fatalf("schema 缺 environment 属性定义")
+	}
+	if envSchema.Type != "object" {
+		t.Fatalf("environment 必须是 object，实际 %q", envSchema.Type)
+	}
+	if envSchema.AdditionalProperties == nil || *envSchema.AdditionalProperties {
+		t.Fatalf("environment 必须 additionalProperties:false")
+	}
+	for _, field := range []string{"os", "osVersion", "osBuild", "arch", "display"} {
+		if !contains(envSchema.Required, field) {
+			t.Fatalf("environment 必须要求 %s，实际 %v", field, envSchema.Required)
+		}
+		ps, ok := envSchema.Properties[field]
+		if !ok || ps.Type != "string" {
+			t.Fatalf("environment.%s 必须是 string，实际 %+v", field, ps)
+		}
+	}
+
+	// 结构侧一致性：GateEvidence 序列化后必须真的带这五个字段（无 omitempty）。
+	b, err := json.Marshal(contracts.GateEvidence{})
+	if err != nil {
+		t.Fatalf("marshal GateEvidence: %v", err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("unmarshal GateEvidence: %v", err)
+	}
+	rawEnv, ok := decoded["environment"]
+	if !ok {
+		t.Fatalf("GateEvidence 序列化后缺 environment 字段")
+	}
+	var decodedEnv map[string]json.RawMessage
+	if err := json.Unmarshal(rawEnv, &decodedEnv); err != nil {
+		t.Fatalf("environment 不是对象: %v", err)
+	}
+	for _, field := range []string{"os", "osVersion", "osBuild", "arch", "display"} {
+		if _, ok := decodedEnv[field]; !ok {
+			t.Fatalf("GateEvidence.environment 序列化后缺 %s（不能 omitempty）", field)
+		}
 	}
 }
 

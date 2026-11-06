@@ -180,6 +180,13 @@ func RunNative(target, display string) int {
 		return 2
 	}
 
+	// GOV05：原生证据同样必须带真实环境身份；display 用已归一化的当前会话。
+	env, envErr := HostEnvironment(display)
+	if envErr != nil {
+		fmt.Fprintf(os.Stderr, "宿主环境探测失败，不能写证据: %v\n", envErr)
+		return 2
+	}
+
 	idx, err := LoadCasesIndex("tests/acceptance/cases.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -226,6 +233,9 @@ func RunNative(target, display string) int {
 	root := evidenceRoot(rev, "G1", target, display)
 	fmt.Printf("== verify --suite=native --target=%s --display=%s ==\n", target, display)
 	fmt.Printf("证据根: %s\n", root)
+	fmt.Printf("宿主环境: os=%s version=%s build=%s arch=%s display=%s\n",
+		env.OS, env.OSVersion, orNone(env.OSBuild), env.Arch, orNone(env.Display))
+	warnIfBelowMinimum(env, target)
 	if dirty {
 		fmt.Println("[警告] 工作区不干净：本次证据带 worktreeDirty=true，gate 会判死，不能用作正式结论。")
 	}
@@ -233,7 +243,7 @@ func RunNative(target, display string) int {
 	blocks, fails := 0, 0
 	for _, r := range runnable {
 		nc, _ := lookupNativeCase(table, r, target, display)
-		res := runNativeCase(nc, target, display, root)
+		res := runNativeCase(nc, target, display, root, env)
 		if res.blocked {
 			blocks++
 		} else if !res.passed {
@@ -288,7 +298,7 @@ func lookupNativeCase(table []nativeCase, r Requirement, target, display string)
 }
 
 // runNativeCase 执行一条 native case 并写证据。
-func runNativeCase(c nativeCase, target, display, root string) caseOutcome {
+func runNativeCase(c nativeCase, target, display, root string, environment contracts.Environment) caseOutcome {
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 
@@ -302,6 +312,7 @@ func runNativeCase(c nativeCase, target, display, root string) caseOutcome {
 		VersionsLockHash: versionsHash(),
 		TargetID:         target,
 		Display:          display,
+		Environment:      environment,
 		StartedAt:        started.Format(time.RFC3339),
 		Reviewer: contracts.Reviewer{
 			Name:       "devtools-native-runner",

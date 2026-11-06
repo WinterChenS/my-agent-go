@@ -12,6 +12,7 @@
     "sourceRevision",
     "versionsLockHash",
     "targetId",
+    "environment",
     "startedAt",
     "endedAt",
     "command",
@@ -29,6 +30,19 @@
       "type": "string",
       "enum": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
       "description": "未知 target 必须判死"
+    },
+    "environment": {
+      "type": "object",
+      "description": "生成证据时的真实宿主环境（GOV05）；低于目标最低 OS 或与 target 不符必须判死",
+      "additionalProperties": false,
+      "required": ["os", "osVersion", "osBuild", "arch", "display"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1, "description": "runtime.GOOS" },
+        "osVersion": { "type": "string", "minLength": 1, "description": "Windows \"10\"/\"11\"；macOS \"14.5\"；Linux \"24.04\"" },
+        "osBuild": { "type": "string", "description": "Windows build \"19045\"；macOS build；Linux 留空" },
+        "arch": { "type": "string", "minLength": 1, "description": "runtime.GOARCH" },
+        "display": { "type": "string", "description": "desktop / x11 / wayland；Linux 集成证据可为空" }
+      }
     },
     "startedAt": { "type": "string", "format": "date-time" },
     "endedAt": { "type": "string", "format": "date-time" },
@@ -52,7 +66,20 @@
           "expected": { "type": "string" },
           "actual": { "type": "string" },
           "oraclePath": { "type": "string" },
-          "startedAt": { "type": "string", "format": "date-time" },
+          "environment": {
+      "type": "object",
+      "description": "生成证据时的真实宿主环境（GOV05）；低于目标最低 OS 或与 target 不符必须判死",
+      "additionalProperties": false,
+      "required": ["os", "osVersion", "osBuild", "arch", "display"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1, "description": "runtime.GOOS" },
+        "osVersion": { "type": "string", "minLength": 1, "description": "Windows \"10\"/\"11\"；macOS \"14.5\"；Linux \"24.04\"" },
+        "osBuild": { "type": "string", "description": "Windows build \"19045\"；macOS build；Linux 留空" },
+        "arch": { "type": "string", "minLength": 1, "description": "runtime.GOARCH" },
+        "display": { "type": "string", "description": "desktop / x11 / wayland；Linux 集成证据可为空" }
+      }
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
           "endedAt": { "type": "string", "format": "date-time" }
         }
       }

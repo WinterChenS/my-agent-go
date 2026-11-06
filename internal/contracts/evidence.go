@@ -51,6 +51,26 @@ type ArtifactRef struct {
 	Hash string `json:"hash,omitempty"`
 }
 
+// Environment 记录生成证据时的真实运行环境（GOV05）。
+//
+// 为什么证据必须自带环境身份：同一份 PASS 在 Windows 10 build 19045 上产生的
+// 和 Windows 11 24H2 上产生的，结论强度完全不同。只贴 targetId 时两者长得一模一样，
+// 门禁无法拒绝「低于最低验收系统」的证据。这里记录的是 runner 实测值，
+// 不是目标声明值；写声明值等于自证，门禁会按目标最低要求校验。
+//
+// 字段口径：
+//   - os/arch：runtime.GOOS / runtime.GOARCH；
+//   - osVersion：Windows "10"/"11"；macOS "14.5"；Linux VERSION_ID "24.04"；
+//   - osBuild：Windows build "19045"；macOS buildVersion；Linux 留空；
+//   - display：desktop / x11 / wayland；Linux 集成证据可为空（不区分会话）。
+type Environment struct {
+	OS        string `json:"os"`
+	OSVersion string `json:"osVersion"`
+	OSBuild   string `json:"osBuild"`
+	Arch      string `json:"arch"`
+	Display   string `json:"display"`
+}
+
 // GateEvidence 是一条用例门禁证据。
 // 关键纪律：绝不允许用写出 passed.json 冒充执行；子进程真实 exit code 与
 // 原始 stdout/stderr 必须保留。reportHash 在证据生成时由 evidence 工具计算，
@@ -62,6 +82,9 @@ type GateEvidence struct {
 	SourceRevision   string `json:"sourceRevision"`
 	VersionsLockHash string `json:"versionsLockHash"`
 	TargetID         string `json:"targetId"`
+	// Environment 是生成证据时的真实宿主环境（GOV05）。
+	// 不加 omitempty：缺环境身份的证据必须显式判死，而不是被序列化悄悄省略。
+	Environment Environment `json:"environment"`
 	// Display 是原生/显示会话标识（Linux: x11/wayland；Windows/macOS: desktop）。
 	// 不区分显示的用例留空：门禁会把非 Linux 目标的空值归一化为 desktop。
 	// 加这个维度是因为「gate 按 case 汇总」会丢平台维度：linux 只跑 X11 也能

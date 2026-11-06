@@ -74,7 +74,7 @@ func TestIntegrationWritesExternalObservationOracle(t *testing.T) {
 		Env:         []string{"ANVIL_OBSERVATION_HELPER=write"},
 		Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}},
 	}
-	res := runIntegrationCase(c, "G2", "win-x64", root)
+	res := runIntegrationCase(c, "G2", "win-x64", root, platformMinimumEnvironment(t, "win-x64"))
 	if !res.passed {
 		t.Fatalf("声明了 observation 且写出了 artifact 的 case 应 PASS，实际 passed=%v blocked=%v", res.passed, res.blocked)
 	}
@@ -135,7 +135,7 @@ func TestIntegrationRejectsMissingObservation(t *testing.T) {
 		Env:         []string{"ANVIL_OBSERVATION_HELPER=nowrite"},
 		Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"counter.txt"}},
 	}
-	res := runIntegrationCase(c, "G2", "win-x64", root)
+	res := runIntegrationCase(c, "G2", "win-x64", root, platformMinimumEnvironment(t, "win-x64"))
 	if res.passed {
 		t.Fatal("没有产出 observation.json 的 case 不能被判 PASS：那是 runner 替 case 自证")
 	}
