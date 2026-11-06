@@ -155,6 +155,8 @@ func TestRetryExhaustedSettlesAsFailedProviderError(t *testing.T) {
 	if !sawError {
 		t.Fatal("message.done 必须带 stopReason=error（真实记录里 assistant 消息就是 error）")
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestSettledDuringCompactionDoesNotComplete 覆盖"压缩上下文期间的 settle 不得提前完成"。
@@ -201,6 +203,8 @@ func TestSettledDuringCompactionDoesNotComplete(t *testing.T) {
 	if firstCompleted < 0 {
 		t.Fatal("缺少 completed 状态事件")
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestSettledDuringAutoRetryDoesNotComplete 覆盖"自动重试期间的 settle 不得提前完成"。
@@ -240,6 +244,8 @@ func TestSettledDuringAutoRetryDoesNotComplete(t *testing.T) {
 			t.Fatal("重试成功的 run 不应 failed")
 		}
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestUnknownSettledPayloadIsCompatibilityError 覆盖 RUN01.service 的
@@ -265,6 +271,8 @@ func TestUnknownSettledPayloadIsCompatibilityError(t *testing.T) {
 			t.Fatal("完成语义未知时绝不能 completed")
 		}
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestSubscriberDisconnectDeniesPendingApproval 覆盖 RUN04.service 的断开侧：
@@ -372,4 +380,6 @@ func TestSubscriberDisconnectDeniesPendingApproval(t *testing.T) {
 	if pending != 0 {
 		t.Fatalf("被拒绝的审批必须从 pending 里移除，实际还剩 %d 条", pending)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }

@@ -192,6 +192,8 @@ func TestThirdRunQueuesAndQueuedCancelNeverStarts(t *testing.T) {
 	if snap, _ := svc.Get(third.RunID); snap.State != contracts.RunStateCancelled {
 		t.Fatalf("排队 run 取消后状态应为 cancelled，实际 %s", snap.State)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestSettledCompletesRun 验证只有 agent_settled 才 completed。
@@ -235,6 +237,8 @@ func TestSettledCompletesRun(t *testing.T) {
 		s, _ := svc.Get(snap.RunID)
 		t.Fatalf("agent_settled 后应为 completed，实际 %s", s.State)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestStreamCloseWithoutSettledIsInterrupted 验证"事件流提前关闭"不得冒充完成。
@@ -295,6 +299,8 @@ func TestReplayReturnsOnlyNewEvents(t *testing.T) {
 	if len(tail) != 0 {
 		t.Fatalf("afterSeq 之后不应有事件，实际 %d 条", len(tail))
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestAbortReachesVisibleStateQuickly 验证 stop 在 2 秒内可见（RUN04）。
@@ -715,6 +721,8 @@ func TestStopVisibleImmediatelyAndNoEscalationOnCleanClose(t *testing.T) {
 	if next.State != contracts.RunStateRunning {
 		t.Fatalf("正常停止后同会话应能重启，实际 %s", next.State)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestStopEscalatesForceKillAtFiveSeconds 覆盖 RUN04 的中段：
@@ -782,4 +790,6 @@ func TestStopEscalatesForceKillAtFiveSeconds(t *testing.T) {
 	}) {
 		t.Fatalf("强杀后清理返回应为 cancelled，实际 %s", mustRunState(t, svc, snap.RunID))
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }

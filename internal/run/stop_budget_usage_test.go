@@ -83,6 +83,8 @@ func TestStopCleanupFailedAtTenSecondsBlocksSession(t *testing.T) {
 	if next.State != contracts.RunStateRunning {
 		t.Fatalf("清除阻断后应能重启，实际 %s", next.State)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestBudgetDenies101stToolCall 覆盖 RUN06 的工具调用预算：
@@ -150,6 +152,8 @@ func TestBudgetDenies101stToolCall(t *testing.T) {
 	if n := len(eventsOfType(t, svc, snap.RunID, EventBudgetExceeded)); n != 1 {
 		t.Fatalf("重复超限不得重复发事件，实际 %d 条", n)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestBudgetGateBlocksToolCallThroughPolicyBridge 守"闸门真的挂在执行前授权端点上"：
@@ -204,6 +208,8 @@ func TestBudgetGateBlocksToolCallThroughPolicyBridge(t *testing.T) {
 	if pending != 0 {
 		t.Fatalf("超预算的调用不得创建审批（否则会白等人确认），实际 %d 条", pending)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestTimeBudgetStopsRun 覆盖 RUN06 的时间预算：
@@ -257,6 +263,8 @@ func TestTimeBudgetStopsRun(t *testing.T) {
 	if p.Kind != contracts.BudgetReasonTime || p.LimitMs != 1800000 {
 		t.Fatalf("时间预算事件载荷不符: %+v", p)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestUsageUnavailableIsNotZero 守 RUN06 的"usage 缺失显示 unavailable，不显示伪 0"。
@@ -316,6 +324,8 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 	if _, ok := usageDoc["totalTokens"]; ok {
 		t.Fatalf("没有用量时不得出现 totalTokens（伪 0 用量）: %s", raw)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestToolCallsDeniedAfterStopRequested 守 RUN04 的后段：
@@ -364,6 +374,8 @@ func TestToolCallsDeniedAfterStopRequested(t *testing.T) {
 	if n := len(eventsOfType(t, svc, snap.RunID, EventBudgetExceeded)); n != 0 {
 		t.Fatalf("停止后的拒绝不是预算用尽，不得发预算事件，实际 %d 条", n)
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestUsageUnknownPriceOmitsCost 守 RUN06 的"缺失价格不能显示伪 0 费用"。
@@ -415,6 +427,8 @@ func TestUsageUnknownPriceOmitsCost(t *testing.T) {
 	if _, ok := usageDoc["costUsd"]; ok {
 		t.Fatalf("价格未知时不得出现 costUsd 键: %s", doc["usage"])
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestUsageReportedFromPiEvents 覆盖 RUN06 的"有 usage 就照实报"。
@@ -459,6 +473,8 @@ func TestUsageReportedFromPiEvents(t *testing.T) {
 	if u.Estimated {
 		t.Fatal("provider 报告的用量不是我们的估算，estimated 必须为 false")
 	}
+	// 本 case 的证据 artifact：把这次 run 的事件日志写进 ANVIL_OBSERVATION_DIR（未设置时不产出）
+	writeCaseJournal(t, svc)
 }
 
 // TestUsageDedupesRepeatedAssistantMessage 守"message_end 与 agent_end 重复同一条
@@ -518,6 +534,8 @@ func TestUsageDedupesRepeatedAssistantMessage(t *testing.T) {
 			if u.CostUSD == nil || *u.CostUSD != 0.0123 {
 				t.Fatalf("重复消息导致费用翻倍: %+v", u.CostUSD)
 			}
+			// RUN06.service 的证据 artifact（子测试里的事件日志）
+			writeCaseJournal(t, svc)
 		})
 	}
 }

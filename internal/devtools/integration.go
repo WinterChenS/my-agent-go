@@ -35,6 +35,28 @@ var targetPlatforms = map[string][2]string{
 	"linux-arm64": {"linux", "arm64"},
 }
 
+// observationSpec 声明一个 case 必须产出的 external-observation oracle。
+//
+// 为什么需要它：RUN* 在用例索引里声明 oracleKind=external，门禁会对这类 case 调用
+// validateOraclePath(..., wantExternal=true)，test-process 自证一律被拒；而 oracle
+// 欠账 allowlist 是只减不增的棘轮，新 case 不能往里加。所以 runner 必须能把
+// "case 自己写出的外部观察值" 变成合格的 external-observation oracle。
+//
+// 声明位置：case 级（c.Observation）作用于整条 case，观察目录就是该 case 的证据目录；
+// step 级（integrationStep.Observation）只允许一个 step 声明，用于"这条 case 的
+// 副作用只在某一个命令里产生"的写法。两者同时声明时必须完全一致，否则判配置错误——
+// 宁可判错也不能猜哪一份才是真的。
+//
+// 声明之后没有退路：case 不产出 observation.json 就是 FAIL，runner 不会替它
+// 编观察值，也不会退回 test-process oracle。
+type observationSpec struct {
+	// Source 必须是 evidence.go 里 externalOracleSources 的合法值
+	// （fixture-counter/http-server/database/filesystem/process-tree/os-signature/manual-review）。
+	Source string
+	// Artifacts 是相对 case 证据目录的原始文件，必须由 case 自己写出来且非空。
+	Artifacts []string
+}
+
 // integrationCase 是一条集成 case 的真实执行方式。
 type integrationCase struct {
 	// ID 必须与 tests/acceptance/cases.json 中的 case id 完全一致。
@@ -54,6 +76,8 @@ type integrationCase struct {
 	Steps []integrationStep
 	// Blocked 非空表示当前环境无法执行，值为可复核的原因。
 	Blocked string
+	// Observation 非空表示该 case 必须产出 external-observation oracle。
+	Observation *observationSpec
 }
 
 // integrationStep 是一次 go test / 外部命令。
@@ -62,6 +86,8 @@ type integrationStep struct {
 	Run      string
 	External []string
 	Env      []string
+	// Observation 见 observationSpec 的说明；只影响 oracle 生成，不影响命令本身。
+	Observation *observationSpec
 }
 
 // integrationCases 是 G0 需要的 case 到真实命令的映射。
@@ -72,6 +98,7 @@ func integrationCases() []integrationCase {
 	gateTests := "internal/devtools"
 	piTests := "internal/runtime/pi"
 	policyTests := "internal/policy"
+	runTests := "internal/run"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -146,6 +173,29 @@ func integrationCases() []integrationCase {
 
 		// ── 配置隔离 ──
 		{ID: "CFG03.isolation", Package: piTests, Run: "TestIsolationArgsCoverEveryProjectChannel|TestHarnessMCPRequiresExplicitEnable|TestIsolationRequiresExistingAbsoluteExtension"},
+
+		// ── 运行语义（F05，G2）──
+		//
+		// RUN* 在用例索引里都是 oracleKind=external，所以每条都必须声明 Observation，
+		// 由 internal/run 的测试把观察值和原始 artifact 写进 $ANVIL_OBSERVATION_DIR。
+		// 注意 artifact 的诚实性：events.jsonl 是**产品自己的事件日志**（filesystem），
+		// 不是实现边界之外的副作用；真正的外部副作用只有 RUN05 的 counter.txt
+		// （由子进程里的 fixture 工具写出）。
+		//
+		// 复合 case（RUN01/RUN04/RUN06）没有自己的证据，不能列在这里：它们由子 case 各自取证。
+		{ID: "RUN01.service", Package: runTests, Run: "TestSettledCompletesRun|TestRetryExhaustedSettlesAsFailedProviderError|TestSettledDuringCompactionDoesNotComplete|TestSettledDuringAutoRetryDoesNotComplete|TestUnknownSettledPayloadIsCompatibilityError",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
+		{ID: "RUN02", Package: runTests, Run: "TestReplayReturnsOnlyNewEvents|TestDeltaCoalescingDoesNotDropToolResults",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
+		{ID: "RUN03", Package: runTests, Run: "TestThirdRunQueuesAndQueuedCancelNeverStarts",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
+		{ID: "RUN04.service", Package: runTests, Run: "TestStopVisibleImmediatelyAndNoEscalationOnCleanClose|TestStopEscalatesForceKillAtFiveSeconds|TestStopCleanupFailedAtTenSecondsBlocksSession|TestToolCallsDeniedAfterStopRequested|TestSubscriberDisconnectDeniesPendingApproval",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
+		// RUN05：唯一的真外部副作用——计数文件由 fakeworker 子进程追加，不在测试进程里。
+		{ID: "RUN05", Package: runTests, Run: "TestInterruptedRunDoesNotReplayUnknownWrite",
+			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"counter.txt"}}},
+		{ID: "RUN06.service", Package: runTests, Run: "TestBudgetDenies101stToolCall|TestBudgetGateBlocksToolCallThroughPolicyBridge|TestTimeBudgetStopsRun|TestUsageUnavailableIsNotZero|TestUsageReportedFromPiEvents|TestUsageDedupesRepeatedAssistantMessage|TestUsageUnknownPriceOmitsCost",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
 	}
 	return cases
 }
@@ -339,6 +389,13 @@ type caseOutcome struct {
 func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcome {
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
+	// 子进程的 cwd 不是仓库根，而是它自己的包目录（go test 会把 cwd 设成包目录）。
+	// 所以交给 case 的观察目录必须是绝对路径：给相对路径时测试会写进
+	// internal/run/docs/...，既找不到证据，又把仓库弄脏（runner 自己会因此判配置失败）。
+	absDir, absErr := filepath.Abs(dir)
+	if absErr != nil {
+		absDir = dir
+	}
 
 	started := time.Now().UTC()
 	ev := contracts.GateEvidence{
@@ -367,7 +424,21 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 
 	var cmdline, stdout, stderr string
 	exit := 0
+	// external-observation 声明：source 不合法或 case/step 互相矛盾时直接判配置错误，不执行命令。
+	obs, obsErr := resolveObservation(c)
+	if obs != nil {
+		// 观察文件必须由本次执行重新产出：先清掉上一轮的残留，
+		// 否则「这次什么都没写」会被旧文件掩盖成 PASS。
+		clearObservationArtifacts(dir, obs)
+	}
+	caseEnv := append(append([]string{}, c.Env...), observationEnv(obs, absDir)...)
+
 	switch {
+	case obsErr != nil:
+		cr.Status = contracts.StatusFail
+		cr.Actual = obsErr.Error()
+		cmdline = "(未执行：observation 声明冲突)"
+		exit = 2
 	case c.Blocked != "":
 		cr.Status = contracts.StatusBlocked
 		cr.Actual = c.Blocked
@@ -375,22 +446,23 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 		cmdline = "(未执行：环境或实现缺失)"
 	case len(c.External) > 0:
 		cmdline = strings.Join(c.External, " ")
-		exit, stdout, stderr, _ = runWithEnv(c.Env, c.External[0], c.External[1:]...)
+		exit, stdout, stderr, _ = runWithEnv(caseEnv, c.External[0], c.External[1:]...)
 	case c.Package != "":
 		args := []string{"test", "./" + c.Package, "-run", c.Run, "-count=1", "-v"}
 		cmdline = "go " + strings.Join(args, " ")
-		exit, stdout, stderr, _ = runWithEnv(c.Env, "go", args...)
+		exit, stdout, stderr, _ = runWithEnv(caseEnv, "go", args...)
 	case len(c.Steps) > 0:
 		var cmdlines, stdouts, stderrs []string
 		for _, step := range c.Steps {
 			code, out, errOut := 0, "", ""
+			stepEnv := append(append([]string{}, step.Env...), observationEnv(obs, absDir)...)
 			if len(step.External) > 0 {
 				cmdlines = append(cmdlines, strings.Join(step.External, " "))
-				code, out, errOut, _ = runWithEnv(step.Env, step.External[0], step.External[1:]...)
+				code, out, errOut, _ = runWithEnv(stepEnv, step.External[0], step.External[1:]...)
 			} else {
 				args := []string{"test", "./" + step.Package, "-run", step.Run, "-count=1", "-v"}
 				cmdlines = append(cmdlines, "go "+strings.Join(args, " "))
-				code, out, errOut, _ = runWithEnv(step.Env, "go", args...)
+				code, out, errOut, _ = runWithEnv(stepEnv, "go", args...)
 			}
 			exit = code
 			stdouts = append(stdouts, "### $ "+cmdlines[len(cmdlines)-1]+"\n"+out)
@@ -419,12 +491,28 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 	}
 	cr.EndedAt = time.Now().UTC().Format(time.RFC3339)
 
+	if cr.Status == contracts.StatusPass && obs != nil {
+		// external-observation：观察值必须由 case 自己写出来，runner 只负责封装。
+		// 失败时不写任何 oracle —— 绝不能退回 test-process 自证。
+		if err := writeExternalObservationOracle(dir, obs); err != nil {
+			cr.Status = contracts.StatusFail
+			cr.Actual = err.Error()
+		}
+	}
+
 	ev.Command = cmdline
 	ev.ExitCode = exit
 	ev.CaseResults = []contracts.CaseResult{cr}
 	ev.EndedAt = cr.EndedAt
 
-	writeEvidenceDir(dir, &ev, cmdline, stdout, stderr)
+	// oracle 已由 external 路径写好时不能再覆盖成 test-process。
+	var oracleFn func() error
+	if obs == nil {
+		oracleFn = func() error {
+			return writeProcessOracle(dir, cmdline, ev.ExitCode, []byte(stdout), []byte(stderr))
+		}
+	}
+	writeEvidenceDirWithOracle(dir, &ev, cmdline, stdout, stderr, oracleFn)
 
 	fmt.Printf("  [%s] %s — %s\n", cr.Status, c.ID, firstLine(cr.Actual))
 	return caseOutcome{passed: cr.Status == contracts.StatusPass, blocked: cr.Status == contracts.StatusBlocked}
@@ -435,10 +523,23 @@ func runIntegrationCase(c integrationCase, gate, target, root string) caseOutcom
 // 顺序不能换：哈希覆盖 result.json 自身（清空 reportHash 后）+ 三个原始文件，
 // 所以必须先把原始文件写全、先写一版 result.json，再算哈希回填。
 func writeEvidenceDir(dir string, ev *contracts.GateEvidence, cmdline, stdout, stderr string) {
+	writeEvidenceDirWithOracle(dir, ev, cmdline, stdout, stderr, func() error {
+		return writeProcessOracle(dir, cmdline, ev.ExitCode, []byte(stdout), []byte(stderr))
+	})
+}
+
+// writeEvidenceDirWithOracle 同 writeEvidenceDir，但 oracle 由调用方决定。
+//
+// oracleFn 为 nil 表示 oracle 已经被写好了（external-observation 路径）：这里
+// 不能再用 test-process 覆盖它，否则声明了 external 的 case 会被自己的 runner
+// 悄悄降级成自证。
+func writeEvidenceDirWithOracle(dir string, ev *contracts.GateEvidence, cmdline, stdout, stderr string, oracleFn func() error) {
 	_ = os.WriteFile(filepath.Join(dir, "command.txt"), []byte(cmdline+"\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "stdout.log"), []byte(stdout), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "stderr.log"), []byte(stderr), 0o644)
-	_ = writeProcessOracle(dir, cmdline, ev.ExitCode, []byte(stdout), []byte(stderr))
+	if oracleFn != nil {
+		_ = oracleFn()
+	}
 
 	ev.ReportHash = ""
 	if b, err := json.MarshalIndent(ev, "", "  "); err == nil {
@@ -464,6 +565,116 @@ func runWithEnv(env []string, name string, args ...string) (int, string, string,
 		return ee.ExitCode(), out.String(), errb.String(), nil
 	}
 	return 2, out.String(), errb.String(), err
+}
+
+// resolveObservation 解析 case 与 step 上的 observation 声明。
+//
+// 规则（宁可否决，不靠猜）：
+//   - 只有 case 级：用它；
+//   - 只有 step 级：最多一个 step 能声明，用它；
+//   - 两级都有：必须完全一致，否则判配置错误（同一 case 两份观察口径会互相覆盖）；
+//   - 都没有：返回 nil，走原有的 test-process oracle。
+func resolveObservation(c integrationCase) (*observationSpec, error) {
+	var fromStep *observationSpec
+	for _, step := range c.Steps {
+		if step.Observation == nil {
+			continue
+		}
+		if fromStep != nil {
+			return nil, fmt.Errorf("case %s 有多个 step 声明了 observation，无法确定唯一的观察口径", c.ID)
+		}
+		fromStep = step.Observation
+	}
+	switch {
+	case c.Observation == nil:
+		return fromStep, nil
+	case fromStep == nil:
+		return c.Observation, nil
+	case sameObservation(c.Observation, fromStep):
+		return c.Observation, nil
+	}
+	return nil, fmt.Errorf("case %s 在 case 级与 step 级都声明了 observation 且不一致（source %q/%q）",
+		c.ID, c.Observation.Source, fromStep.Source)
+}
+
+func sameObservation(a, b *observationSpec) bool {
+	if a.Source != b.Source || len(a.Artifacts) != len(b.Artifacts) {
+		return false
+	}
+	for i := range a.Artifacts {
+		if a.Artifacts[i] != b.Artifacts[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// observationEnv 把观察目录交给子进程。声明了 observation 的 case 必须拿到它，
+// 否则测试无处写观察值，case 会以“未产出 observation.json”失败——这正是想要的：
+// 宁可判死，也不要 runner 替 case 编观察值。
+func observationEnv(obs *observationSpec, dir string) []string {
+	if obs == nil {
+		return nil
+	}
+	return []string{"ANVIL_OBSERVATION_DIR=" + dir}
+}
+
+// clearObservationArtifacts 清掉上一轮残留的观察文件。
+// 证据目录按 revision 复用，不清会让“这次什么都没写”被旧文件掩盖成 PASS。
+func clearObservationArtifacts(dir string, obs *observationSpec) {
+	if obs == nil {
+		return
+	}
+	_ = os.Remove(filepath.Join(dir, "observation.json"))
+	for _, artifact := range obs.Artifacts {
+		clean := filepath.Clean(artifact)
+		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, clean))
+	}
+}
+
+// writeExternalObservationOracle 把 case 自己写出的观察值封装成 external-observation oracle。
+//
+// 为什么不让 runner 自己构造 observation：observation.json 由 case 的测试写出，
+// 里面是它真正观察到的产物值（计数行数、状态、事件条数）。runner 只做封装和完整性
+// 校验；一旦替 case 生成内容，“外部观察”就退化成了 runner 自证。
+func writeExternalObservationOracle(dir string, obs *observationSpec) error {
+	if !externalOracleSources[obs.Source] {
+		return fmt.Errorf("observation source %q 不合法（允许值见 externalOracleSources）", obs.Source)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "observation.json"))
+	if err != nil {
+		return fmt.Errorf("case 未产出 observation.json（声明 source=%s）：外部观察值必须由 case 自己写出，不能用测试进程自证: %v", obs.Source, err)
+	}
+	var probe any
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return fmt.Errorf("case 的 observation.json 不是合法 JSON: %v", err)
+	}
+	if len(obs.Artifacts) == 0 {
+		return fmt.Errorf("observation 未声明任何 artifact，无法核对副作用是否真的发生")
+	}
+	for _, artifact := range obs.Artifacts {
+		if err := validateEvidenceArtifact(dir, artifact); err != nil {
+			return fmt.Errorf("observation artifact %q: %v", artifact, err)
+		}
+	}
+	oracle := externalOracle{
+		SchemaVersion: 1,
+		Kind:          "external-observation",
+		Source:        obs.Source,
+		Observation:   json.RawMessage(raw),
+		Artifacts:     obs.Artifacts,
+	}
+	data, err := json.MarshalIndent(oracle, "", "  ")
+	if err != nil {
+		return fmt.Errorf("封装 external oracle 失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "oracle.json"), data, 0o644); err != nil {
+		return fmt.Errorf("写 external oracle 失败: %v", err)
+	}
+	return nil
 }
 
 func versionsHash() string {
@@ -512,6 +723,9 @@ func taskForCase(id string) string {
 		return "F07"
 	case strings.HasPrefix(id, "CONN"):
 		return "C08"
+	case strings.HasPrefix(id, "RUN"):
+		// RUN01–RUN07 属于运行语义/F05；任务书里就是按 F05-A..F05-D 切的。
+		return "F05"
 	case strings.HasPrefix(id, "SCH"):
 		return "C09"
 	case strings.HasPrefix(id, "UPD"):

@@ -509,6 +509,12 @@ func (s *Service) pump(rs *runState, ctx context.Context) {
 				s.interrupted(rs, "Pi 事件流在最终 idle 之前关闭（进程退出或输出中断）")
 				return
 			}
+			// 文本必须先于后续非文本事件落地（RUN02）：否则界面会先显示 tool.start，
+			// 再补上「我来执行一个命令」这句说明，叙述顺序颠倒；事件日志里 delta
+			// 也会排到工具结果之后，回放时同样错位。
+			if ev.Type != "message_update" {
+				flush()
+			}
 			if s.handleRaw(rs, ev, &pending) {
 				flush()
 				return

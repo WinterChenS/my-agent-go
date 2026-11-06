@@ -19,12 +19,14 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "echo", "echo|outoforder|stderrflood|stdoutflood|malformed|grandchild|hang")
+	mode := flag.String("mode", "echo", "echo|outoforder|stderrflood|stdoutflood|malformed|grandchild|hang|crashafterwrite")
 	expect := flag.Int("expect", 0, "outoforder：先收满 N 条命令再倒序回复")
 	floodBytes := flag.Int("flood-bytes", 4<<20, "洪泛总字节数")
 	marker := flag.String("marker", "", "grandchild 子进程的心跳文件")
 	pidFile := flag.String("pidfile", "", "把自身 pid 写入该文件")
 	child := flag.Bool("child", false, "以孙进程身份运行：只写心跳，不读 stdin")
+	counter := flag.String("counter", "", "crashafterwrite：副作用计数器文件，每执行一次写入追加一行")
+	wait := flag.String("wait", "", "crashafterwrite：回应 prompt 后等这个文件出现（上限 10s）再制造崩溃")
 	flag.Parse()
 
 	if *pidFile != "" {
@@ -33,6 +35,11 @@ func main() {
 
 	if *child {
 		runChildHeartbeat(*marker)
+		return
+	}
+
+	if *mode == "crashafterwrite" {
+		runCrashAfterWrite(*counter, *wait)
 		return
 	}
 
@@ -64,6 +71,73 @@ func runChildHeartbeat(marker string) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// runCrashAfterWrite 复现 RUN05 的场景：工具已经写完，进程随即崩掉，没有 agent_settled。
+//
+// 顺序不能换：
+//  1. 先回复 prompt——否则上层 Call 会把它判成「命令结果未知」，run 直接 failed，
+//     测出来的就不是「写入后崩溃」而是「启动失败」；
+//  2. 等测试侧的信号文件（-wait）出现——不在崩溃前 sleep：sleep 是在和上层
+//     launch 的状态迁移赛跑，信号文件把「先 running、后崩溃」变成确定性时序；
+//  3. 发 tool_execution_start、执行真实写入（追加计数器）、发 tool_execution_end；
+//  4. 退出码 1 且不发 agent_settled：真实崩溃就是「没有最终 idle」。
+//
+// 副作用写在子进程里，不在测试进程里：这是 RUN05 能用 fixture-counter 作为
+// 外部观察源的前提。
+func runCrashAfterWrite(counter, wait string) {
+	if counter == "" {
+		fmt.Fprint(os.Stderr, "crashafterwrite 需要 -counter\n")
+		os.Exit(2)
+	}
+	in := bufio.NewReader(os.Stdin)
+	for {
+		line, err := in.ReadString('\n')
+		if s := strings.TrimSpace(line); s != "" {
+			var cmd struct {
+				ID   string `json:"id"`
+				Type string `json:"type"`
+			}
+			if json.Unmarshal([]byte(s), &cmd) == nil && cmd.Type != "" {
+				fmt.Fprint(os.Stdout, makeResponse(cmd.ID, cmd.Type)+"\n")
+				break
+			}
+		}
+		if err != nil {
+			os.Exit(2)
+		}
+	}
+
+	// 等测试侧信号文件：测试先确认 run 已进入 running，再落这个文件。
+	// 超时就直接报错退出（不静默继续）——宁可让 case 在结构上失败，也不要
+	// 让崩溃发生在 running 之前而把「写入后崩溃」测成「启动失败」。
+	if wait != "" {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			if _, statErr := os.Stat(wait); statErr == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				fmt.Fprintf(os.Stderr, "crashafterwrite: 等待信号文件 %s 超时\n", wait)
+				os.Exit(4)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	// 形状取自真实捕获 internal/runtime/pi/testdata/v1.5.0/tool.jsonl。
+	fmt.Fprint(os.Stdout, `{"type":"tool_execution_start","toolCallId":"call_crash_1","toolName":"fixture_write","args":{"path":"out.txt","content":"payload"}}`+"\n")
+	f, err := os.OpenFile(counter, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open counter: %v\n", err)
+		os.Exit(3)
+	}
+	_, _ = fmt.Fprintln(f, "fixture_write")
+	_ = f.Close()
+	fmt.Fprint(os.Stdout, `{"type":"tool_execution_end","toolCallId":"call_crash_1","toolName":"fixture_write","result":{"content":[{"type":"text","text":"wrote out.txt"}],"structuredContent":{"exit_code":0,"output":""}},"isError":false,"durationMs":7}`+"\n")
+
+	// 故意不发 agent_settled：崩溃就是「没有最终 idle」。
+	os.Exit(1)
 }
 
 func floodStderr(total int) {
