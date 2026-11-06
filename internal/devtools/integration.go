@@ -163,7 +163,15 @@ func integrationCases() []integrationCase {
 			Env:         []string{"MYAGENT_PI_WORKER_INTEGRATION=1"},
 			Blocked:     realPiBlockedReasonFor("G0", "PI03"),
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"provider-request.json", "frames.jsonl"}}},
-		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe"},
+		// PI04：官方独立包（pi.exe 单文件，不依赖宿主 Node）在无 Node 环境下必须可定位、
+		// 可探测且判 Ready。观察值由**OS shell 重定向**产生：
+		//   - standalone-version.txt：真实二进制自己的 stdout；
+		//   - probe-env.txt / probe-env.json：同一次执行里 shell 写下的子进程环境。
+		// 缺独立包时写 BLOCKED（不用 npm 形式冒充“无 Node”结论）。
+		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe",
+			Env:         []string{"MYAGENT_PI_STANDALONE=1"},
+			Blocked:     standaloneBlockedReasonFor("G0", "PI04"),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"standalone-version.txt", "probe-env.txt", "probe-env.json"}}},
 		// F08：发现/兼容状态。两条 case 的观察值都由测试自己写进 ANVIL_OBSERVATION_DIR
 		// （PI_DISC01 → candidates.json，PI_DISC02 → rejected.json）。
 		{ID: "PI_DISC01", Package: piTests, Run: "TestDiscoverReturnsAllCandidatesAndSelectsDeterministically|TestDiscoverMapsVersionToCompatibilityState|TestDiscoverSkipsBrokenSavedPath",
@@ -350,6 +358,24 @@ func realPiBlockedReasonFor(gate, caseID string) string {
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		return "PATH 上找不到 node（真实 Pi bundle 需要 Node ≥ 22.8）；修复：把基线 Node 放到 PATH 首位后重跑 " + caseID
+	}
+	return ""
+}
+
+// standaloneBlockedReasonFor 探测官方独立包是否存在（PI04 的观察装置）。
+//
+// 缺包时不能 skip 也不能 FAIL：这条 case 要观察的就是那个单文件二进制本身。
+// 只做文件探测，不启动进程、不改 .tools/pi。
+func standaloneBlockedReasonFor(gate, caseID string) string {
+	root, err := repoFile("go.mod")
+	if err != nil {
+		return "无法定位仓库根，无法探测 .tools/pi/standalone：" + err.Error()
+	}
+	exe := filepath.Join(filepath.Dir(root), ".tools", "pi", "standalone", "v1.5.0-win-x64", "pi.exe")
+	if _, statErr := os.Stat(exe); statErr != nil {
+		return "本机没有官方独立包（" + exe + "）；修复：下载官方 pi-windows-x64.zip 并解包到 " +
+			".tools/pi/standalone/v1.5.0-win-x64/，然后重跑 scripts/devtools.ps1 verify " +
+			"--suite=integration --target=win-x64 --gate=" + gate + " --case=" + caseID
 	}
 	return ""
 }

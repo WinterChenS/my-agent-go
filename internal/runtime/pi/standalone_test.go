@@ -175,6 +175,89 @@ func TestStandaloneNodeFreeProbe(t *testing.T) {
 	// 隔离目录里不应出现任何被改写的用户配置痕迹（PI02 的同一条纪律）。
 	entries, _ := os.ReadDir(iso)
 	t.Logf("隔离 agentDir 条目数=%d（Probe 只应写入运行时必要文件，不接触用户真实配置）", len(entries))
+
+	// ── PI04 的外部观察装置 ──
+	//
+	// 一次由 OS shell 负责的独立执行：`set > probe-env.txt & pi.exe --version > version.txt`。
+	// 版本行与环境变量都是**真实二进制/真实 shell** 自己写到磁盘上的，
+	// 测试进程不参与拼接（不把 --version 的输出读进内存再写一遍）。
+	obsDir := piObservationDir()
+	if obsDir == "" {
+		return // 本地 focused 运行：不落盘
+	}
+	if err := os.MkdirAll(obsDir, 0o755); err != nil {
+		t.Fatalf("创建观察目录失败: %v", err)
+	}
+	verPath := filepath.Clean(filepath.Join(obsDir, "standalone-version.txt"))
+	envPath := filepath.Clean(filepath.Join(obsDir, "probe-env.txt"))
+	_ = os.Remove(verPath)
+	_ = os.Remove(envPath)
+	line := `set > "` + envPath + `" & "` + exe + `" --version > "` + verPath + `"`
+	code := runViaCmdScript(t, t.TempDir(), "standalone-probe", line)
+
+	verRaw, verr := os.ReadFile(verPath)
+	if verr != nil {
+		t.Fatalf("读回独立包自己写下的版本文件失败（OS 重定向未生效）: %v", verr)
+	}
+	versionLine := firstLine(string(verRaw))
+	if !strings.Contains(versionLine, "1.5.0") {
+		t.Fatalf("独立包自报版本应含 1.5.0，实际 %q", versionLine)
+	}
+	if code != 0 {
+		t.Fatalf("独立包 --version 退出码应为 0，实际 %d", code)
+	}
+
+	if _, eerr := os.ReadFile(envPath); eerr != nil {
+		t.Fatalf("读回子进程环境失败（OS 重定向未生效）: %v", eerr)
+	}
+	envRecords := parseKVRecords(t, envPath)
+	if len(envRecords) == 0 {
+		t.Fatal("probe-env.txt 为空：无法证明子进程所在环境的形状")
+	}
+	childEnv := envRecords[0]
+	pathValue, ok := lookupEnvMap(childEnv, "PATH")
+	if !ok {
+		t.Fatal("子进程环境里没有 PATH")
+	}
+	pathEntries := 0
+	nodeOnPath := false
+	for _, dir := range filepath.SplitList(pathValue) {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		pathEntries++
+		for _, name := range []string{"node.exe", "node.cmd", "node.bat", "node"} {
+			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+				nodeOnPath = true
+			}
+		}
+	}
+	if nodeOnPath {
+		t.Fatalf("子进程所在 PATH 上仍有 node（PATH=%s）：不构成无 Node 环境", pathValue)
+	}
+	writeArtifact(t, "probe-env.json", map[string]any{
+		"PATH":        pathValue,
+		"pathEntries": pathEntries,
+		"nodeOnPath":  nodeOnPath,
+		"envCount":    len(childEnv),
+	})
+
+	exeInfo, statErr := os.Stat(exe)
+	if statErr != nil {
+		t.Fatalf("stat 独立包失败: %v", statErr)
+	}
+	writePiObservation(t, map[string]any{
+		"versionLine":     versionLine,
+		"versionBytes":    len(verRaw),
+		"exitCode":        code,
+		"nodeOnPath":      false,
+		"pathEntries":     pathEntries,
+		"childPath":       pathValue,
+		"probeEnvEntries": len(childEnv),
+		"standaloneExe":   exe,
+		"standaloneBytes": exeInfo.Size(),
+		"redirectedBy":    "OS shell（set > / pi.exe --version >）",
+	}, nil)
 }
 
 // TestStandaloneLoadsMCPAndExtension 验证独立包能加载本项目的薄 extension 与 MCP server。
