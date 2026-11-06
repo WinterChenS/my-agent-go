@@ -155,7 +155,14 @@ func integrationCases() []integrationCase {
 		// artifact 留在目录里（.ps1 受限执行在非 Windows 上不存在，不能写进必需清单）。
 		{ID: "PI02", Package: piTests, Run: "TestProbeHasNoUserConfigSideEffects|TestProbePs1NotDirectlyExecutable",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"fake-home-before.json", "fake-home-after.json", "child-env.txt", "child-env.json"}}},
-		{ID: "PI03", Package: piTests, Run: "TestCaptureRealPiProtocol|TestProtocolGolden|TestWorkerWithRealPi"},
+		// PI03：真实 Pi 1.5.0 + 受控 fixture provider。观察值来自两个外部装置：
+		//   - provider-request.json：httptest handler **在 HTTP 请求处理里**写下的第一个请求体；
+		//   - frames.jsonl：产品事件流的原始记录行逐条落盘（与已提交 golden 做骨架比对）。
+		// 缺 .tools/pi 安装件或 node 时写 BLOCKED，不用 fakeworker 冒充真实 Pi。
+		{ID: "PI03", Package: piTests, Run: "TestCaptureRealPiProtocol|TestProtocolGolden|TestWorkerWithRealPi",
+			Env:         []string{"MYAGENT_PI_WORKER_INTEGRATION=1"},
+			Blocked:     realPiBlockedReasonFor("G0", "PI03"),
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"provider-request.json", "frames.jsonl"}}},
 		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe"},
 		// F08：发现/兼容状态。两条 case 的观察值都由测试自己写进 ANVIL_OBSERVATION_DIR
 		// （PI_DISC01 → candidates.json，PI_DISC02 → rejected.json）。
@@ -325,7 +332,11 @@ func dirExists(p string) bool {
 // 测试自己的拼装逻辑，那不是这条 case 的范围；按 AGENTS.md 写 BLOCKED 并保留修复步骤。
 //
 // 只做文件探测，不启动任何进程，也不改 .tools/pi（只读参考包）。
-func realPiBlockedReason() string {
+func realPiBlockedReason() string { return realPiBlockedReasonFor("G2", "RES02") }
+
+// realPiBlockedReasonFor 是 realPiBlockedReason 的参数化版本：修复指令里的 gate/case
+// 必须指向真的能复现这条 case 的命令，否则 BLOCKED 的修复步骤会把人带到别的用例上。
+func realPiBlockedReasonFor(gate, caseID string) string {
 	root, err := repoFile("go.mod")
 	if err != nil {
 		return "无法定位仓库根，无法探测 .tools/pi：" + err.Error()
@@ -335,10 +346,10 @@ func realPiBlockedReason() string {
 	if len(matches) == 0 {
 		return "本机没有 .tools/pi 安装件（node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js）；" +
 			"修复：按 docs 用应用托管安装流程把 Pi 装到 .tools/pi（不要覆盖外部 Pi），然后重跑 " +
-			"scripts/devtools.ps1 verify --suite=integration --target=win-x64 --gate=G2 --case=RES02"
+			"scripts/devtools.ps1 verify --suite=integration --target=win-x64 --gate=" + gate + " --case=" + caseID
 	}
 	if _, err := exec.LookPath("node"); err != nil {
-		return "PATH 上找不到 node（真实 Pi bundle 需要 Node ≥ 22.8）；修复：把基线 Node 放到 PATH 首位后重跑 RES02"
+		return "PATH 上找不到 node（真实 Pi bundle 需要 Node ≥ 22.8）；修复：把基线 Node 放到 PATH 首位后重跑 " + caseID
 	}
 	return ""
 }
