@@ -135,7 +135,7 @@ func TestIndexEntriesAreActionable(t *testing.T) {
 // 只允许下调：把某个旧 runner 改成输出 external-observation 后，从
 // oracle-allowlist.json 移除并同步下调本常量。上调意味着有人想让新 case 自证，
 // 必须作为显式代码改动经过审查，不能只改 JSON。
-const legacyProcessOracleCeiling = 12
+const legacyProcessOracleCeiling = 4
 
 // TestOracleKindIsDeclaredOrGrandfathered：新 case 不能用 test-process 自证。
 //
