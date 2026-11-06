@@ -116,7 +116,10 @@ func integrationCases() []integrationCase {
 		// 不声称六目标；runner 只封装。
 		{ID: "ENV02", External: toolchainCommand(), Env: baselinePathEnv(),
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"host-environment.json"}}},
-		{ID: "ENV03", External: toolchainCommand(), Env: baselinePathEnv()},
+		// ENV03：三份锁文件的 sha256 由脚本从磁盘算出（frontend/package-lock.json、
+		// go.sum、build/versions.lock.json），不是从记忆/常量里拄。
+		{ID: "ENV03", External: toolchainCommand(), Env: baselinePathEnv(),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"lock-hashes.json"}}},
 
 		// ── 门禁自身 ──
 		// GOV01：缺证据/未知 gate/未知 target 返回 2；目标×显示维度缺失也判死，
