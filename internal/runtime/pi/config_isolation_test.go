@@ -1,9 +1,12 @@
 package pi
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"my-agent-go/internal/contracts"
 )
@@ -76,6 +79,49 @@ func TestIsolationArgsCoverEveryProjectChannel(t *testing.T) {
 	if !containsPair(args, "-e", spec.PolicyExtension) {
 		t.Fatalf("策略扩展必须显式 -e 加载，实际 %v", args)
 	}
+
+	// CFG03.isolation 的外部观察（filesystem）：把同一批隔离参数交给 fakeworker，
+	// argv/env 由**子进程自己**写下，父进程只读文件。
+	// env 用产品自己的 overrideEnv（probe 隔离契约：HOME/USERPROFILE/APPDATA 全部
+	// 重定向到隔离目录），观察的是"子进程实际收到什么"，不是"我以为它收到什么"。
+	iso := t.TempDir()
+	// 基座先按 worker 的真实做法去掉父进程的 PI_*（buildEnv 会做同一件事），
+	// 否则 spec.Env 会把宿主上的 PI_* 又带回去，noUserHome 之外的事实也会被污染。
+	env := overrideEnv(envWithoutPi(os.Environ()),
+		"PI_CODING_AGENT_DIR", iso,
+		"HOME", iso,
+		"USERPROFILE", iso,
+		"APPDATA", iso,
+	)
+	launchRecordingFakeWorker(t, args, env, iso)
+	if piObservationDir() == "" {
+		return
+	}
+	rec := readChildRecorded(t)
+	home, _ := envLookup(rec.Env, "HOME")
+	profile, _ := envLookup(rec.Env, "USERPROFILE")
+	appdata, _ := envLookup(rec.Env, "APPDATA")
+	agentDirEnv, _ := envLookup(rec.Env, "PI_CODING_AGENT_DIR")
+	realHome, _ := os.UserHomeDir()
+	isoClean := filepath.Clean(iso)
+	noUserHome := home != "" && profile != "" && appdata != "" &&
+		strings.EqualFold(filepath.Clean(home), isoClean) &&
+		strings.EqualFold(filepath.Clean(profile), isoClean) &&
+		strings.EqualFold(filepath.Clean(appdata), isoClean) &&
+		(realHome == "" || !strings.EqualFold(isoClean, filepath.Clean(realHome)))
+	writePiObservation(t, map[string]any{
+		"argv":                    rec.Argv,
+		"argvLen":                 len(rec.Argv),
+		"isolationFlags":          isolationFlagsOf(rec.Argv),
+		"policyExtensionInArgv":   containsPair(rec.Argv, "-e", spec.PolicyExtension),
+		"userHomeInChild":         home,
+		"userProfileInChild":      profile,
+		"appDataInChild":          appdata,
+		"agentDirInChild":         agentDirEnv,
+		"noUserHome":              noUserHome,
+		"childEnvCount":           len(rec.Env),
+		"piPrefixedEnvFromParent": countPiPrefixed(rec.Env),
+	}, nil)
 }
 
 // TestValidateArgsDetectsEveryMissingFlag 是这张覆盖表的"有没有用"证明：
@@ -235,4 +281,83 @@ func requireCodeIso(t *testing.T, err error, code string) {
 	if app.Code != code {
 		t.Fatalf("错误码 = %s，期望 %s（消息: %s）", app.Code, code, app.Message)
 	}
+}
+
+// launchRecordingFakeWorker 用真实隔离参数启动 fakeworker，让子进程把 argv/env 写进
+// 观察目录（FAKEWORKER_RECORD_*），父进程只等文件出现。
+func launchRecordingFakeWorker(t *testing.T, args, env []string, agentDir string) {
+	t.Helper()
+	dir := piObservationDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录 %s 失败: %v", dir, err)
+	}
+	argvPath := filepath.Join(dir, "worker-argv.json")
+	envPath := filepath.Join(dir, "worker-env.json")
+	_ = os.Remove(argvPath)
+	_ = os.Remove(envPath)
+
+	// 观察路径走环境变量：argv 里只留产品真正会发出的隔离参数。
+	childEnv := append([]string{}, env...)
+	childEnv = append(childEnv,
+		"FAKEWORKER_RECORD_ARGV="+argvPath,
+		"FAKEWORKER_RECORD_ENV="+envPath,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	w, err := StartWorker(ctx, WorkerSpec{
+		Installation: PiInstallation{ID: "fixture:fakeworker", Executable: fakeWorkerExe(t)},
+		WorkingDir:   t.TempDir(),
+		AgentDir:     agentDir,
+		Env:          childEnv,
+		Args:         append([]string{}, args...),
+	})
+	if err != nil {
+		t.Fatalf("启动 fakeworker 失败: %v", err)
+	}
+	defer func() {
+		closeCtx, cc := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cc()
+		_ = w.Close(closeCtx)
+	}()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		_, argvErr := os.Stat(argvPath)
+		_, envErr := os.Stat(envPath)
+		if argvErr == nil && envErr == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等不到子进程写出的 argv/env（argvErr=%v envErr=%v）", argvErr, envErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// countPiPrefixed 数子进程收到的 PI_* 变量：buildEnv 会先滤掉父进程的 PI_*，
+// 只留下产品显式交付的那些。
+func countPiPrefixed(env []string) int {
+	n := 0
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 && strings.HasPrefix(strings.ToUpper(kv[:i]), "PI_") {
+			n++
+		}
+	}
+	return n
+}
+
+// envWithoutPi 去掉 PI_* 变量（与 buildEnv 对父进程环境的处理一致）。
+func envWithoutPi(base []string) []string {
+	out := make([]string, 0, len(base))
+	for _, kv := range base {
+		if i := strings.IndexByte(kv, '='); i > 0 && strings.HasPrefix(strings.ToUpper(kv[:i]), "PI_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

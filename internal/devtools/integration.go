@@ -216,7 +216,11 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"agent-config.json", "worker-argv.json"}}},
 
 		// ── 配置隔离 ──
-		{ID: "CFG03.isolation", Package: piTests, Run: "TestIsolationArgsCoverEveryProjectChannel|TestHarnessMCPRequiresExplicitEnable|TestIsolationRequiresExistingAbsoluteExtension"},
+		{ID: "CFG03.isolation", Package: piTests, Run: "TestIsolationArgsCoverEveryProjectChannel|TestHarnessMCPRequiresExplicitEnable|TestIsolationRequiresExistingAbsoluteExtension",
+			// argv/env 都由 fakeworker 子进程自己写下（FAKEWORKER_RECORD_*），
+			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
+			// 只能从子进程的视角看。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
 
 		// ── 运行语义（F05，G2）──
 		//
