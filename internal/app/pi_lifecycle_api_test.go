@@ -329,6 +329,67 @@ func TestSavedPiIsNotOverwrittenByPATHDiscovery(t *testing.T) {
 	}
 }
 
+// TestSelectPiDoesNotFreezeEnvOverrides 守一条容易被"顺手复用 persistSettings"破坏的性质：
+// 选择 Pi 只应写 piSavedPath，不能把本次进程的环境覆盖（MYAGENT_PI_PATH 等）固化进用户配置。
+//
+// 为什么重要：loadSettings 会把 MYAGENT_* 覆盖应用到内存 Settings 上。若 SelectPi 直接
+// persistSettings(d.Settings())，一次点击就把自动化/调试用的环境值永久钉进 settings.json；
+// 之后环境变量消失，resolveInstallation 对失效 piPath **不静默回退**，用户会突然启动不了任何 Pi。
+func TestSelectPiDoesNotFreezeEnvOverrides(t *testing.T) {
+	d, root := newTestDesktop(t)
+	name := appTestPiName()
+	pathDir := filepath.Join(root, "pathdir")
+	piOnPath := writeAppPiStub(t, pathDir, name)
+
+	// 模拟"本次进程带着环境覆盖启动"：内存设置里 piPath 是 env 值，磁盘上并没有。
+	envPi := filepath.Join(root, "from-env", name)
+	d.settings.PiPath = envPi
+	if err := d.persistSettings(Settings{Workspace: d.settings.Workspace}); err != nil {
+		t.Fatalf("先写一份不含 piPath 的配置: %v", err)
+	}
+	// persistSettings 会用入参整体替换内存设置，这里把 env 覆盖重新放回去。
+	d.mu.Lock()
+	d.settings.PiPath = envPi
+	d.mu.Unlock()
+
+	stubPiDiscovery(d, pathDir)
+	res, err := d.DiscoverPi()
+	if err != nil {
+		t.Fatalf("DiscoverPi: %v", err)
+	}
+	if res.Selected == nil {
+		t.Fatalf("应选中 PATH 上的 Pi: %+v", res.Candidates)
+	}
+	if _, err := d.SelectPi(res.Selected.Installation.ID); err != nil {
+		t.Fatalf("SelectPi: %v", err)
+	}
+
+	onDisk := settingsOnDisk(t, root)
+	if onDisk.PiSavedPath == "" {
+		t.Fatal("选择后 piSavedPath 必须落盘")
+	}
+	// 比较"是否同一个文件"而不是字符串：临时目录可能以 8.3 短名出现在环境里，
+	// 发现层给出的是解析后的长名，两者指同一个文件。
+	eitherFile, err := os.Stat(piOnPath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", piOnPath, err)
+	}
+	savedFile, err := os.Stat(onDisk.PiSavedPath)
+	if err != nil {
+		t.Fatalf("stat piSavedPath %s: %v", onDisk.PiSavedPath, err)
+	}
+	if !os.SameFile(eitherFile, savedFile) {
+		t.Fatalf("piSavedPath = %q 与期望 %q 不是同一个文件", onDisk.PiSavedPath, piOnPath)
+	}
+	if onDisk.PiPath != "" {
+		t.Fatalf("选择 Pi 不得把环境覆盖的 piPath 固化进配置，实际 %q", onDisk.PiPath)
+	}
+	// 内存里这次进程仍然用 env 值，不影响下一个 run 的行为。
+	if got := d.Settings().PiPath; !samePath(got, envPi) {
+		t.Fatalf("内存设置里的 piPath = %q，期望仍是本次进程的覆盖值 %q", got, envPi)
+	}
+}
+
 func TestSelectPiRejectsBogusInstallationID(t *testing.T) {
 	d, root := newTestDesktop(t)
 	name := appTestPiName()

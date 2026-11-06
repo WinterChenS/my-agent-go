@@ -15,6 +15,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,8 +60,8 @@ func (d *Desktop) DiscoverPi() (pi.DiscoveryResult, error) {
 // 选中后会把这个候选的可执行体路径写进 settings.piSavedPath（既有配置 API：
 // persistSettings），使选择跨重启保留。三条约束：
 //   - 只有选择成功才写盘：失败的选择必须让 settings.json 字节不变；
-//   - 走 persistSettings 而不是 SaveSettings：选 Pi 不能把正在跑的 run 连根拔掉，
-//     新选择与其它配置一样在下一个 run 生效；
+//   - 走 persistPiSelection 而不是 persistSettings/SaveSettings：选 Pi 不能把
+//     正在跑的 run 连根拔掉，新选择与其它配置一样在下一个 run 生效；
 //   - 写盘失败就是没生效：返回错误，并且不把这次 Selected 当作已落地结果交出去。
 func (d *Desktop) SelectPi(installationID string) (pi.DiscoveryResult, error) {
 	res, err := d.DiscoverPi()
@@ -76,16 +77,54 @@ func (d *Desktop) SelectPi(installationID string) (pi.DiscoveryResult, error) {
 			"选择成功但没有选中项，拒绝持久化: "+installationID, false)
 	}
 
-	next := d.Settings()
 	// 存**解析后的真实路径**（Installation.Executable），与发现层的真实路径
 	// 去重口径一致：存启动器别名会让下次发现多出一条同源候选。
-	next.PiSavedPath = sel.Selected.Installation.Executable
-	if err := d.persistSettings(next); err != nil {
+	if err := d.persistPiSelection(sel.Selected.Installation.Executable); err != nil {
 		// 落盘失败：内存设置已在 persistSettings 里保持不动，这里也不把
 		// 新 Selected 交出去——否则调用方会以为选择已经生效。
 		return res, fmt.Errorf("保存选中的 Pi 路径失败: %w", err)
 	}
 	return sel, nil
+}
+
+// persistPiSelection 只把"上次选定的 Pi"写进 settings.json，不提交整份内存快照。
+//
+// 为什么不能直接复用 persistSettings(d.Settings())：内存里的 Settings 已经过
+// applyEnvOverrides，把整份快照写回磁盘等于把这一次进程的环境变量（MYAGENT_PI_PATH
+// 等）永久钉进用户配置。选一个 Pi 是一次点击动作，不该顺带固化一组用户没输入过的值；
+// 固化之后即使环境变量消失，配置里也留着那条路径，而 resolveInstallation 对失效的
+// piPath 是**不静默回退**的，用户会突然打不开任何 Pi。
+//
+// 所以这里以磁盘上的文档为基线（没有文件就是默认值），只改这一个字段。
+// 环境覆盖仍在 loadSettings 时应用，优先级没变：本次进程内 piPath 还是覆盖值，
+// 只是不再被写进文件。
+func (d *Desktop) persistPiSelection(path string) error {
+	base := defaultSettings(d.root)
+	if raw, err := os.ReadFile(d.settingsPath()); err == nil {
+		if err := json.Unmarshal(raw, &base); err != nil {
+			// 解析失败不静默覆盖用户文件：宁可报错，也不要拿默认值把
+			// 一份用户手改坏了的配置抹掉。
+			return fmt.Errorf("解析 settings.json 失败，未写入选择: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("读取 settings.json 失败: %w", err)
+	}
+	base.PiSavedPath = path
+
+	raw, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(d.settingsPath(), raw, 0o600); err != nil {
+		return fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+
+	// 内存里也只同步这一个字段：其它字段仍是本次进程的实际生效值（含环境覆盖），
+	// 下次发现请求读到的 saved 必须与磁盘一致。
+	d.mu.Lock()
+	d.settings.PiSavedPath = path
+	d.mu.Unlock()
+	return nil
 }
 
 // managedDiscoveryRoot 返回交给 F08 发现的托管根。
