@@ -9,13 +9,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/storage"
 )
@@ -264,6 +268,32 @@ func TestNoImplicitModelOrNetworkCall(t *testing.T) {
 		return nil, errors.New("测试期不允许网络调用")
 	})
 
+	// MEM03 的外部观察（source: http-server）：把 fixture 端点写成**唯一**
+	// 配置的 provider 端点，然后跑完整的记忆路径。观察值来自这个 server 自己的
+	// 请求日志（0 条）——不是在进程内挂一个 RoundTripper 自己数自己。
+	var (
+		reqMu    sync.Mutex
+		requests = make([]string, 0, 2)
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		reqMu.Lock()
+		requests = append(requests, r.Method+" "+r.URL.Path+" "+string(body))
+		reqMu.Unlock()
+		http.Error(w, "fixture provider：记忆路径不应调用模型", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	store, err := config.NewStore(filepath.Join(t.TempDir(), "config"))
+	if err != nil {
+		t.Fatalf("创建配置存储: %v", err)
+	}
+	providerDoc := json.RawMessage(`{"schemaVersion":1,"providers":[{"id":"fixture","baseUrl":"` + srv.URL +
+		`/v1","models":[{"id":"probe-model"}]}],"model":{"provider":"fixture","id":"probe-model"}}`)
+	if _, err := store.CompareAndSwap(ctx, "user", 0, providerDoc); err != nil {
+		t.Fatalf("写入唯一 provider 配置: %v", err)
+	}
+
 	saved := save(t, svc, MemoryDraft{
 		Scope:   ScopeUser,
 		Content: "用户偏好：回答先给结论",
@@ -280,6 +310,29 @@ func TestNoImplicitModelOrNetworkCall(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("记忆路径发起了 %d 次 HTTP 调用；默认不应有后台模型/网络调用", calls)
 	}
+
+	reqMu.Lock()
+	recorded := make([]string, len(requests))
+	copy(recorded, requests)
+	reqMu.Unlock()
+	if len(recorded) != 0 {
+		t.Fatalf("fixture provider 收到了 %d 条请求；记忆路径不应发出任何模型调用: %v", len(recorded), recorded)
+	}
+	artifact, err := json.MarshalIndent(map[string]any{
+		"endpoint":     srv.URL,
+		"configuredAs": "本测试环境里唯一配置的 provider 端点（config key=user）",
+		"configKey":    "user",
+		"requestCount": len(recorded),
+		"requests":     recorded,
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("序列化 http-requests.json 失败: %v", err)
+	}
+	writeMemoryObservation(t, map[string]any{
+		"httpRequests":     len(recorded),
+		"providerEndpoint": srv.URL,
+		"memoryDbPath":     svc.DB().Path(),
+	}, map[string][]byte{"http-requests.json": artifact})
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

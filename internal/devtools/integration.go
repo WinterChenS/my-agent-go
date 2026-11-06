@@ -179,7 +179,9 @@ func integrationCases() []integrationCase {
 		{ID: "MEM03", Steps: []integrationStep{
 			{Package: "internal/app", Run: "TestMemoryBindingsRoundTrip"},
 			{Package: "internal/memory", Run: "TestNoImplicitModelOrNetworkCall"},
-		}},
+		},
+			// 两个 artifact 缺一不可：库里的真实行 + fixture provider 自己的请求日志。
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json", "http-requests.json"}}},
 		{ID: "MEM04", Steps: []integrationStep{{Package: "internal/memory", Run: "TestMemoryContextBounded"}},
 			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json"}}},
 		{ID: "MEM05", Steps: []integrationStep{

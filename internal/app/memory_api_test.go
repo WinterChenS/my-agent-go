@@ -112,6 +112,16 @@ func TestMemoryBindingsRoundTrip(t *testing.T) {
 	if !strings.Contains(exported.JSON, "数据库连接池上限为二十") {
 		t.Fatal("导出应含中文原文")
 	}
+
+	// MEM03 的外部观察（database）：应用数据根下的 memory.db 里真实存了什么。
+	memSvc, err := d.memoryService()
+	if err != nil {
+		t.Fatalf("memoryService: %v", err)
+	}
+	observeAppMemoryDB(t, memSvc.DB().Path(), map[string]any{
+		"bindingRoundTrip": true,
+		"exportItemCount":  exported.ItemCount,
+	})
 }
 
 func TestMemoryDeleteNotInjectedNextRun(t *testing.T) {
