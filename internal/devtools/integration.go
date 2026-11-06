@@ -220,7 +220,13 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "process-tree", Artifacts: []string{"grandchild.pid", "process-table-before.json", "process-table-after.json"}}},
 
 		// ── 权限 ──
-		{ID: "SEC01", Package: policyTests, Run: "TestApprovalBinds|TestControlGenerationInvalidatesApproval|TestSessionScopeGrantAllowsSubsequentCalls|TestPermissionDeniesWithoutApproval"},
+		// SEC01：ask 不执行 / 一次性不可重放 / 会话级放行 / 接管后失效。
+		// 观察装置是**独立执行进程**（internal/policy/testdata/executor）：它自己把每次
+		// 真实执行追加进 executions.jsonl（时间戳/pid/标签/工具/目标/argv）并写出目标
+		// 文件；tree.json 是父进程对沙箱根的磁盘遍历。断言与观察值都从盘上读回，
+		// 测试进程内的计数器不再参与判定。
+		{ID: "SEC01", Package: policyTests, Run: "TestApprovalBinds|TestControlGenerationInvalidatesApproval|TestSessionScopeGrantAllowsSubsequentCalls|TestPermissionDeniesWithoutApproval",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"executions.jsonl", "tree.json"}}},
 		// SEC02：三条内置写通道（bash/write/edit）逐条做拒绝+允许对照。
 		{ID: "SEC02", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels", Env: []string{"MYAGENT_PI_POLICY=1"}},
 		// SEC03.runtime：六条通道的真实对照，各自"拒绝 → 副作用不发生 / 允许 → 发生"：
