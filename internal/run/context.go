@@ -37,6 +37,23 @@ const (
 	EnvPermissionRef = "ANVIL_PERMISSION_REF"
 	// EnvPolicySnapshot 是本次 run 冻结的权限快照（JSON）。
 	EnvPolicySnapshot = "ANVIL_POLICY_SNAPSHOT"
+
+	// EnvAttachmentURL / EnvAttachmentToken / EnvAttachmentSession 是本次 run 的
+	// 只读附件 broker（C06f）。字节只能经这个端点取，且只能经**同一个打开句柄**
+	// 校验过 size/sha256 之后才交出去；worker 永远拿不到可写附件路径。
+	//
+	// 令牌每 run 一枚、只经环境变量交付（与 policybridge 同一口径）：写在 argv
+	// 会被进程列表看到，写进 DTO 会进前端与日志。
+	EnvAttachmentURL     = "ANVIL_ATTACHMENT_URL"
+	EnvAttachmentToken   = "ANVIL_ATTACHMENT_TOKEN"
+	EnvAttachmentSession = "ANVIL_ATTACHMENT_SESSION"
+
+	// EnvClarificationToken 是本次 run 的澄清身份令牌（C06f）。
+	//
+	// 产品自带的澄清扩展把它放在每个 extension UI 请求的标题前缀里，Go 侧据此
+	// 确认"这个 UI 请求来自产品自带的澄清工具"——按**身份**而不是按工具名。
+	// 第三方同名工具发出的 UI 请求没有这枚令牌，不会被当成澄清（见 clarification.go）。
+	EnvClarificationToken = "ANVIL_CLARIFICATION_TOKEN"
 )
 
 // PolicySnapshot 是一次 run 冻结的权限快照。
@@ -68,6 +85,20 @@ type PermissionResolver interface {
 	ResolvePermission(ref string) (PolicySnapshot, error)
 }
 
+// AttachmentRef 是一次 run 请求携带的附件引用（C06f）。
+//
+// 它只含**元数据**：没有路径、没有字节。字节只能经 app 托管的只读 broker 按 ID
+// 取，并且 broker 会在交付前用同一个打开句柄重新校验 size/sha256。
+// 这四项在 admission 时随 workspace/policy 一起冻结：界面不能在 run 期间把它们
+// 换成另一份内容。
+type AttachmentRef struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	MediaType   string `json:"mediaType,omitempty"`
+}
+
 // ExecutionBinding 是一次 run 的执行身份与策略。
 //
 // ExecutionContext 仍然由 contracts 定义（不改它）：这里只负责把 per-run 的身份
@@ -79,6 +110,9 @@ type ExecutionBinding struct {
 	ProfileID        contracts.ProfileID        `json:"profileId,omitempty"`
 	PermissionRef    string                     `json:"permissionRef,omitempty"`
 	PolicySnapshot   PolicySnapshot             `json:"policySnapshot"`
+	// Attachments 是这次 run 冻结的附件引用（C06f）。空表示没有附件。
+	// 它只带元数据，因此可以安全地进快照与事件；路径与令牌不在这里。
+	Attachments []AttachmentRef `json:"attachments,omitempty"`
 }
 
 // SessionID 是本次 run 所属会话。

@@ -326,7 +326,14 @@ func (d *Desktop) persistSettings(s Settings) error {
 // 结果是界面显示 --no-mcp、实际却启用了 harness MCP——
 // 诊断信息不准比没有诊断信息更糟，它会把人带去错误的方向。
 func isolationSpec(policyExt string) pi.IsolationSpec {
-	return pi.IsolationSpec{PolicyExtension: policyExt, HarnessMCP: true}
+	return pi.IsolationSpec{
+		PolicyExtension: policyExt,
+		HarnessMCP:      true,
+		// C06f：产品自带、不可关闭的系统扩展（内容澄清 + 附件只读投递）。
+		// 由产品以绝对路径 -e 加载，不从用户配置目录发现——它们是产品能力，
+		// 不是用户可以关掉的插件。
+		ExtraExtensions: productExtensionPaths(),
+	}
 }
 
 // isolationSpecWith 在隔离参数上追加本次要加载的技能与托管扩展。
@@ -334,10 +341,12 @@ func isolationSpec(policyExt string) pi.IsolationSpec {
 // 单独一个函数而不是改 isolationSpec 的签名：Status 只需要"隔离参数"，
 // 给它多传两个参数会让展示路径与启动路径的构造点再次分叉。
 func isolationSpecWith(policyExt string, skills, extraExts []string) pi.IsolationSpec {
+	// 系统扩展永远在最前面：托管扩展再多也不能把产品自带的澄清/附件扩展挤掉。
+	exts := append(productExtensionPaths(), extraExts...)
 	return pi.IsolationSpec{
 		PolicyExtension: policyExt,
 		HarnessMCP:      true,
-		ExtraExtensions: extraExts,
+		ExtraExtensions: exts,
 		Skills:          skills,
 	}
 }
@@ -594,7 +603,11 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := setup.key() + "|sk:" + skills.Digest + "|ex:" + extPlan.Digest + "|mcp:" + mcpPlan.Digest
+	// 产品自带扩展也进签名：它们决定"澄清桥开不开"与"附件能不能投递"，
+	// 路径变化（开发态换了仓库位置、发布包换了布局）必须重建运行时，
+	// 否则"界面说能澄清、实际没加载扩展"会长期存在。
+	key := setup.key() + "|sk:" + skills.Digest + "|ex:" + extPlan.Digest +
+		"|mcp:" + mcpPlan.Digest + "|pext:" + strings.Join(productExtensionPaths(), ",")
 
 	d.mu.Lock()
 	if d.svc != nil && d.runtimeKey == key {
@@ -758,8 +771,12 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		},
 		PolicySnapshot: run.PolicySnapshot{Permissions: permissions},
 		// 自有 MCP 的环境 + 外部 MCP 的凭证环境（只经子进程环境交付）。
-		HarnessEnv:  append(harness.Env(), mcpPlan.Env...),
-		StartWorker: workerStarter,
+		HarnessEnv: append(harness.Env(), mcpPlan.Env...),
+		// C06f：附件只经 app 托管的 blob store 读取（run 只认识这一个入口），
+		// 澄清按产品自带扩展的身份建立桥。
+		Attachments:   desktopAttachmentReader{d: d},
+		Clarification: d.clarificationOptions(),
+		StartWorker:   workerStarter,
 	})
 	if emitter != nil {
 		// 退订函数在本层还无人调用：桌面宿主目前没有“UI 断开”的显式信号，
@@ -1126,28 +1143,66 @@ func (d *Desktop) version() string {
 //
 // 打包后扩展随可执行文件分发；开发态从当前工作目录向上找。
 func findPolicyExtension() (string, error) {
+	p, ok := findProductExtension("harness-policy.ts", "MYAGENT_POLICY_EXT")
+	if !ok {
+		return "", contracts.NewAppError(contracts.CodeConfigMissing,
+			"找不到策略扩展 pi-extensions/harness-policy.ts；没有它工具调用没有执行前授权", false)
+	}
+	return p, nil
+}
+
+// findProductExtension 在"可执行文件旁 → 上级 → 当前目录 → 上级"里找一个扩展文件。
+//
+// 只做文件定位，不读内容、不执行：扩展是有权限的代码，加载决定权在隔离参数里。
+func findProductExtension(name, envKey string) (string, bool) {
 	candidates := []string{}
-	if v := strings.TrimSpace(os.Getenv("MYAGENT_POLICY_EXT")); v != "" {
-		candidates = append(candidates, v)
+	if envKey != "" {
+		if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
+			candidates = append(candidates, v)
+		}
 	}
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)
 		candidates = append(candidates,
-			filepath.Join(dir, "pi-extensions", "harness-policy.ts"),
-			filepath.Join(dir, "..", "pi-extensions", "harness-policy.ts"))
+			filepath.Join(dir, "pi-extensions", name),
+			filepath.Join(dir, "..", "pi-extensions", name))
 	}
 	if wd, err := os.Getwd(); err == nil {
 		candidates = append(candidates,
-			filepath.Join(wd, "pi-extensions", "harness-policy.ts"),
-			filepath.Join(wd, "..", "pi-extensions", "harness-policy.ts"))
+			filepath.Join(wd, "pi-extensions", name),
+			filepath.Join(wd, "..", "pi-extensions", name))
 	}
 	for _, c := range candidates {
 		if abs, err := filepath.Abs(c); err == nil && fileExists(abs) {
-			return abs, nil
+			return abs, true
 		}
 	}
-	return "", contracts.NewAppError(contracts.CodeConfigMissing,
-		"找不到策略扩展 pi-extensions/harness-policy.ts；没有它工具调用没有执行前授权", false)
+	return "", false
+}
+
+// productExtensionPaths 返回产品自带、不可关闭的系统扩展（只含实际存在的）。
+//
+// 找不到就不加：宁可在诊断里少一条"已加载"，也不要给 Pi 一个不存在的 -e 路径
+// 让它在启动阶段直接失败。缺失的事实由 Status/LastError 说明（见 ProductExtensions）。
+func productExtensionPaths() []string {
+	out := make([]string, 0, 2)
+	for _, name := range []string{"anvil-clarification.ts", "anvil-attachment.ts"} {
+		if p, ok := findProductExtension(name, productExtensionEnvKey(name)); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// productExtensionEnvKey 是产品扩展路径的测试/发布覆盖入口（与 MYAGENT_POLICY_EXT 同口径）。
+func productExtensionEnvKey(name string) string {
+	switch name {
+	case "anvil-clarification.ts":
+		return "ANVIL_CLARIFICATION_EXT"
+	case "anvil-attachment.ts":
+		return "ANVIL_ATTACHMENT_EXT"
+	}
+	return ""
 }
 
 func fileExists(p string) bool {

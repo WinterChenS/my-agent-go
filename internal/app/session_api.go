@@ -16,6 +16,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/history"
 	"my-agent-go/internal/policy"
+	"my-agent-go/internal/run"
 	"my-agent-go/internal/session"
 	"my-agent-go/internal/storage"
 )
@@ -381,4 +383,146 @@ func (d *Desktop) ExportSession(sessionID, format, target string) SessionExportR
 		Redactions: res.Redactions,
 		WrittenAt:  res.WrittenAt,
 	}
+}
+
+// ---------------------------------------------------------------------------
+// C06f：附件投递 seam 与澄清桥的装配
+// ---------------------------------------------------------------------------
+
+// desktopAttachmentReader 把 run 侧的窄接口接到 app 托管的附件存储上。
+//
+// run 只认识 OpenAttachment 这一个入口，不认识 blob 路径、不认识表结构；
+// 存储打不开时返回结构化错误（run 侧 fail closed，不会"给个空附件"）。
+type desktopAttachmentReader struct {
+	d *Desktop
+}
+
+// OpenAttachment 返回已经校验过 size/sha256 的字节。
+//
+// 校验发生在 internal/session（同一个打开句柄上先验后发），这里只做转接：
+// 绑定层不再自己读一遍文件——两份校验逻辑迟早会分叉。
+func (r desktopAttachmentReader) OpenAttachment(id string) (io.ReadCloser, error) {
+	if r.d == nil {
+		return nil, contracts.NewAppError(contracts.CodeInternal, "附件读取缺少桌面宿主", false)
+	}
+	store, err := r.d.attachmentStore()
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := store.OpenAttachment(id)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// clarificationOptions 返回澄清桥的装配参数。
+//
+// Enabled 只在产品自带的澄清扩展真的存在时为真：找不到扩展就没有"产品身份的
+// 澄清工具"，这时既不建立澄清桥，也不能把任何同名工具当成"本地无副作用"。
+func (d *Desktop) clarificationOptions() run.ClarificationOptions {
+	ext, ok := findProductExtension("anvil-clarification.ts", productExtensionEnvKey("anvil-clarification.ts"))
+	if !ok {
+		return run.ClarificationOptions{}
+	}
+	return run.ClarificationOptions{Enabled: true, ExtensionPath: ext}
+}
+
+// ProductExtensions 返回产品自带、不可关闭的系统扩展路径（诊断/测试可见）。
+//
+// 它回答"这一轮 Pi 会额外加载哪几条产品扩展"，与隔离参数读同一份定位逻辑。
+func (d *Desktop) ProductExtensions() []string { return productExtensionPaths() }
+
+// AnswerClarification 提交一次内容澄清答复。
+//
+// 它只走澄清桥：不经过 ResolveApproval，不创建 approval、session grant 或
+// 任何工具/站点权限（C06 的明确要求）。会话归属由 run 侧校验：
+// 一个会话不能替另一个会话回答内容问题。
+func (d *Desktop) AnswerClarification(sessionID, requestID string, response run.ClarificationResponse) error {
+	svc, err := d.runtime()
+	if err != nil {
+		return err
+	}
+	return svc.AnswerClarification(context.Background(), contracts.SessionID(strings.TrimSpace(sessionID)), requestID, response)
+}
+
+// StartSessionRun 是会话级提交入口：消息 + 已选附件。
+//
+// 附件只以 capability ID 的形式进来，绑定层在这里把它解析成冻结的引用：
+// 过期/不存在的 ID 直接拒绝（而不是带一个永远读不到的引用进 run）。
+func (d *Desktop) StartSessionRun(sessionID, message string, attachmentIDs []string) (contracts.RunSnapshot, error) {
+	ctx := context.Background()
+	workspaceID, err := d.assertWorkspaceReady(ctx)
+	if err != nil {
+		d.setLastErr(err.Error())
+		return contracts.RunSnapshot{}, err
+	}
+	refs, err := d.attachmentRefs(attachmentIDs)
+	if err != nil {
+		d.setLastErr(err.Error())
+		return contracts.RunSnapshot{}, err
+	}
+	message = d.withMemoryContext(ctx, message)
+	svc, err := d.ensureRuntime()
+	if err != nil {
+		d.setLastErr(err.Error())
+		return contracts.RunSnapshot{}, err
+	}
+
+	d.mu.Lock()
+	runtimeSession := contracts.SessionID(d.runtimeSessionID)
+	workspaceDir := strings.TrimSpace(d.settings.Workspace)
+	d.mu.Unlock()
+
+	// 会话必须显式给出时才用它：空值沿用运行时默认会话（兼容旧入口）。
+	sid := contracts.SessionID(strings.TrimSpace(sessionID))
+	if sid == "" {
+		sid = runtimeSession
+	}
+
+	snap, err := svc.Start(ctx, run.StartRunRequest{
+		Message:      message,
+		SessionID:    sid,
+		WorkspaceID:  workspaceID,
+		WorkspaceDir: workspaceDir,
+		Attachments:  refs,
+	})
+	if err != nil {
+		d.setLastErr(err.Error())
+		return snap, err
+	}
+	return snap, nil
+}
+
+// attachmentRefs 把 capability ID 解析成冻结的附件引用。
+//
+// 三件事在这里一次做完：ID 必须仍然有效（Lookup）、产品必须能读（Attachment 扩展
+// 已加载）、引用只带元数据（没有路径）。
+func (d *Desktop) attachmentRefs(ids []string) ([]run.AttachmentRef, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if _, ok := findProductExtension("anvil-attachment.ts", productExtensionEnvKey("anvil-attachment.ts")); !ok {
+		return nil, contracts.NewAppError(contracts.CodeConfigMissing,
+			"找不到附件读取扩展 pi-extensions/anvil-attachment.ts：带附件的 run 无法把内容交给模型，拒绝提交", false)
+	}
+	store, err := d.attachmentStore()
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]run.AttachmentRef, 0, len(ids))
+	for _, id := range ids {
+		meta, err := store.Lookup(strings.TrimSpace(id))
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, run.AttachmentRef{
+			ID:          meta.ID,
+			DisplayName: meta.DisplayName,
+			Size:        meta.Size,
+			SHA256:      meta.SHA256,
+			MediaType:   meta.MediaType,
+		})
+	}
+	return refs, nil
 }

@@ -112,6 +112,13 @@ type Options struct {
 	// 谁提供端点谁负责写 mcp.json，两边共用同一份环境变量。
 	HarnessEnv []string
 
+	// Attachments 是 app 托管的附件只读存储（C06f）。为空时带附件的提交会被拒。
+	// run 只经它取字节，不自己开第二套 blob store：blob 的所有权在绑定层。
+	Attachments AttachmentReader
+	// Clarification 是本产品自带澄清扩展的身份与超时（C06f）。
+	// Enabled=false 时不建澄清桥，也不把任何工具当作本地无副作用澄清。
+	Clarification ClarificationOptions
+
 	StartWorker WorkerStarter
 	Now         func() time.Time
 
@@ -223,6 +230,15 @@ type runState struct {
 	// binding 是 admission 时解析并冻结的身份与策略（C06a）。
 	// 只写一次（Start 建 runState 时），之后只读：run 期间不得重新解析。
 	binding ExecutionBinding
+	// attachBroker 是本次 run 的只读附件端点（C06f）；nil 表示这次 run 没有附件。
+	attachBroker *attachmentBroker
+	// clarifications 是等待用户回答的澄清（C06f），按 Pi 的 extension UI 请求 ID 索引。
+	// 只在 rs.mu 下读写。
+	clarifications map[string]*pendingClarification
+	// clarificationOpts / clarificationToken 是 admission 时冻结的澄清桥配置与
+	// per-run 身份令牌（C06f）。令牌只经子进程环境与 UI 标题前缀流通。
+	clarificationOpts  ClarificationOptions
+	clarificationToken string
 	// queuePos 是这个 run 最近一次上报的排队位次（0 表示不在队列里）。
 	// 只在 Service.mu 下读写。
 	queuePos int
@@ -288,6 +304,11 @@ type StartRunRequest struct {
 	PolicySnapshot *PolicySnapshot `json:"policySnapshot,omitempty"`
 	// ConfigRevision 是这次 run 依据的配置版本；0 表示沿用服务默认值。
 	ConfigRevision uint64 `json:"configRevision,omitempty"`
+	// Attachments 是这次 run 要投递的附件引用（C06f）。
+	//
+	// 只带元数据、不带路径与字节，并且会在 admission 时随 workspace/policy 一起
+	// 冻结进 ExecutionBinding：run 期间界面换不了它们。
+	Attachments []AttachmentRef `json:"attachments,omitempty"`
 }
 
 // Subscribe 注册事件订阅者，返回幂等的退订函数。回调在独立 goroutine 中执行，
@@ -392,6 +413,17 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		done:     make(chan struct{}),
 		finished: make(chan struct{}),
 	}
+	// 澄清桥的配置与 per-run 身份令牌在 admission 时冻结：run 期间不得重新解析。
+	// 拿不到令牌就不建桥（宁可没有澄清，也不要一个无法验证身份的"澄清"）。
+	rs.clarificationOpts = s.opts.Clarification.normalize()
+	if rs.clarificationOpts.Enabled {
+		token, terr := newClarificationToken()
+		if terr != nil {
+			s.mu.Unlock()
+			return contracts.RunSnapshot{}, terr
+		}
+		rs.clarificationToken = token
+	}
 	s.runs[id] = rs
 	canStart := s.active < globalMaxActive && len(s.queue) == 0
 	if canStart {
@@ -480,6 +512,8 @@ func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (Execu
 		ProfileID:      req.ProfileID,
 		PermissionRef:  ref,
 		PolicySnapshot: snapshot,
+		// 附件引用与工作区/策略同一条规矩：admission 时冻结，run 期间不得替换。
+		Attachments: append([]AttachmentRef{}, req.Attachments...),
 	}, nil
 }
 
@@ -577,6 +611,18 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 			},
 			// 预算在执行前授权之前判定：超限的调用连审批都不会创建。
 			Gate: gate.check,
+			// C06f：产品自带的澄清工具是**本地无副作用**的。判据是身份
+			// （工具名 + 加载它的扩展路径），不是工具名——第三方同名工具
+			// 路径不同，仍然走下面正常的 policy.Authorize（ask/deny）。
+			LocalTools: func(call policy.ToolCall, identity string) (policy.Result, bool) {
+				if rs.clarificationOpts.MatchesToolCall(call, identity) {
+					return policy.Result{
+						Decision: policy.DecisionAllow,
+						Reason:   "产品自带的本地无副作用澄清工具（按扩展身份识别）",
+					}, true
+				}
+				return policy.Result{}, false
+			},
 			OnPending: func(p policy.ApprovalRequest) {
 				rs.mu.Lock()
 				rs.pending[p.ID] = p
@@ -605,6 +651,28 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 	// 不写进 mcp.json 明文（那里只有 ${...} 引用）。
 	env = append(env, s.opts.ModelEnv...)
 	env = append(env, s.opts.HarnessEnv...)
+
+	// C06f：附件只经每 run 一枚令牌的只读端点交付。端点必须在启动 worker 之前
+	// 就绪（令牌要进环境）；WorkerSpec 落地之后它就随 run 一起关。
+	if len(binding.Attachments) > 0 {
+		broker, berr := startAttachmentBroker(runCtx, s.opts.Attachments, binding)
+		if berr != nil {
+			cancel()
+			s.closeBridge(rs)
+			s.finishFailed(rs, berr)
+			return berr
+		}
+		rs.mu.Lock()
+		rs.attachBroker = broker
+		rs.mu.Unlock()
+		env = append(env, broker.Env()...)
+	}
+	// 澄清身份令牌：产品自带的澄清扩展把它放进每个 UI 请求的标题前缀，
+	// Go 侧据此确认"这个请求来自产品自带的澄清工具"（不是猜工具名）。
+	if rs.clarificationToken != "" {
+		env = append(env, EnvClarificationToken+"="+rs.clarificationToken)
+	}
+
 	// per-run 身份与策略**最后**追加：同名的实例级环境变量不能把这一份事实
 	// 盖掉（os/exec 同名去重时以最后一次出现为准）。
 	env = append(env, binding.Env()...)
@@ -831,6 +899,10 @@ func (s *Service) handleRaw(rs *runState, ev pi.RawEvent, pending *strings.Build
 		}
 		_ = json.Unmarshal(ev.Record, &d)
 		s.emit(rs, EventDiagnostic, map[string]any{"kind": d.Kind, "message": d.Message})
+	case pi.TypeExtensionUIRequest:
+		// C06f：扩展 UI 请求 → 类型化澄清事件（或者 fail-closed 拒绝）。
+		// 它不终结本轮，所以不返回 true。
+		s.handleExtensionUIRequest(rs, ev)
 	}
 	return false
 }
@@ -1108,6 +1180,11 @@ func (s *Service) Abort(ctx context.Context, id contracts.RunID) error {
 	rs.stopRequested = true
 	rs.mu.Unlock()
 
+	// C06f：停止时先把未回答的澄清收口为 cancelled。
+	// 不先收口的话，Pi 侧的 dialog 还在等一个永远不会来的答复，
+	// 有序停止就变成等到超时才强杀。
+	s.cancelPendingClarifications(rs, "run_stopped")
+
 	_ = s.transition(rs, contracts.RunStateStopping)
 	go s.stopRun(rs)
 	return nil
@@ -1224,16 +1301,46 @@ func (s *Service) closeBridge(rs *runState) {
 	}
 }
 
+// closeAttachmentBroker 关闭本次 run 的附件端点（幂等）。
+//
+// 端点随 run 关闭：run 结束后即使有人拿着 URL+令牌过来，也只能拿到 CLOSED。
+func (s *Service) closeAttachmentBroker(rs *runState) {
+	rs.mu.Lock()
+	broker := rs.attachBroker
+	rs.attachBroker = nil
+	rs.mu.Unlock()
+	if broker != nil {
+		_ = broker.Close()
+	}
+}
+
 // release 释放并发槽位并按 FIFO 启动下一个排队 run。重复调用无副作用。
 func (s *Service) release(rs *runState) {
 	if !rs.released.CompareAndSwap(false, true) {
 		return
 	}
+	// C06f：run 终止时把未回答的澄清收口为 cancelled 并清理 pending。
+	// 必须在关 worker 之前发：发不出去的答复只能当诊断，但"永远挂着的请求"不是选项。
+	s.cancelPendingClarifications(rs, "run_terminated")
+	s.closeAttachmentBroker(rs)
 	rs.finishedOnce.Do(func() { close(rs.finished) })
 	s.closeBridge(rs)
 	if rs.cancel != nil {
 		rs.cancel()
 	}
+	// 正常结束（completed/failed）不经过 stopRun，所以这里必须自己关 worker。
+	//
+	// 不关的后果是真实存在的：Pi 在 agent_settled 之后仍在跑，自己的工作目录、
+	// 事件流句柄都还占着（C06f 的真实 Pi 端到端测试就是被它卡在 TempDir 上）。
+	// 关闭是幂等的：停止路径已经关过时这里返回同一个结果，不会二次杀进程。
+	go func() {
+		if err := s.stopWorkerWait(rs); err != nil {
+			s.emit(rs, EventDiagnostic, map[string]any{
+				"kind":    "run.worker_close_failed",
+				"message": "run 结束后关闭 worker 未完成：" + err.Error(),
+			})
+		}
+	}()
 
 	s.mu.Lock()
 	if s.active > 0 {

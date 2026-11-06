@@ -26,6 +26,14 @@ const (
 	EventDiagnostic = "diagnostic"
 	// EventBudgetExceeded 预算用尽。payload 见 budgetExceededPayload。
 	EventBudgetExceeded = "budget.exceeded"
+	// EventClarificationRequested 需要用户回答一个内容澄清问题（C06f）。
+	// payload: {"requestId","kind"(select|confirm|input|editor),"question","options"?}
+	//
+	// 它**不是**审批：回答它不产生任何许可（见 clarification.go）。
+	EventClarificationRequested = "clarification.requested"
+	// EventClarificationResolved 澄清已收口。
+	// payload: {"requestId","outcome"(value|confirmed|cancelled),"kind"?, "value"?,"confirmed"?,"reason"?}
+	EventClarificationResolved = "clarification.resolved"
 )
 
 // runErrorPayload 是 EventRunError 的载荷。
