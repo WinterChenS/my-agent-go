@@ -21,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +53,12 @@ type policyRun struct {
 	stderr  string
 	code    int
 	pending int32 // 策略端点收到的待审批次数
+	// label 标识这一次运行（用于 tree.json 里的键），由场景与结论派生。
+	label string
+	// wire 是本次运行期间记录代理写下的请求日志切片（从磁盘读回）。
+	wire []bridgeWireRecord
+	// tree 是本次运行结束时对 work 目录的磁盘遍历结果。
+	tree []treeEntry
 	// asked 是按工具名统计的审批请求数。
 	// 它回答一个单看总数回答不了的问题：嵌套调用（codemode → bash）究竟有没有
 	// 单独触发一次策略询问。只有总数而不分工具，"嵌套被拦"和"外层被拦"分不开。
@@ -76,6 +84,29 @@ type runScenario struct {
 	// 如果两层用同一个结论，"外层被拒"会让脚本根本没跑，嵌套通道等于没被测到——
 	// 那就会得到一个"看起来通过、实际没覆盖"的假证据。
 	choices map[string]policy.ApprovalChoice
+}
+
+// label 给这次运行一个稳定且唯一的名字：同一个场景用不同结论跑多次时，
+// tree.json 里的键不能撞车。
+func (sc runScenario) label() string {
+	parts := []string{sc.scenario, string(sc.choice)}
+	if sc.harnessMCP {
+		parts = append(parts, "mcp")
+	}
+	if len(sc.extraExtensions) > 0 {
+		parts = append(parts, "ext"+strconv.Itoa(len(sc.extraExtensions)))
+	}
+	if len(sc.choices) > 0 {
+		keys := make([]string, 0, len(sc.choices))
+		for k := range sc.choices {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			parts = append(parts, k+"="+string(sc.choices[k]))
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 // choiceFor 返回某个工具名对应的审批结论。
@@ -144,8 +175,20 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 	}
 	extra := append(spec.Args(), sc.extraArgs...)
 
+	// 外部观察：在端点前面加一层记录代理，Pi 只认识代理的 URL。
+	// 未配置 ANVIL_OBSERVATION_DIR 时保持原样（直连端点），不影响断言。
+	wirePath := policyWireLogPath()
+	wireBase := 0
+	if wirePath != "" {
+		wireBase = bridgeWireLen(t, wirePath)
+	}
 	launch := nodeLaunch(captureNodePath(t), piCLIPath(t, root))
-	launch.env = append(launch.env, srv.Env()...)
+	launchEnv := srv.Env()
+	if wirePath != "" {
+		proxy := startBridgeWireProxy(t, srv.Endpoint().URL, wirePath, t.Name())
+		launchEnv = envWithPolicyURL(launchEnv, proxy.URL)
+	}
+	launch.env = append(launch.env, launchEnv...)
 
 	recs, stderr, code := runPiRPC(t, launch, work, agentDir,
 		[][]string{{promptCmd("req-policy", sc.scenario)}}, 1, true, extra, 0, 120*time.Second)
@@ -157,7 +200,20 @@ func runPolicyCase(t *testing.T, root, work, agentDir string, sc runScenario) po
 	}
 	askedMu.Unlock()
 
-	return policyRun{records: recs, stderr: stderr, code: code, pending: atomic.LoadInt32(&pending), asked: askedCopy}
+	run := policyRun{
+		records: recs, stderr: stderr, code: code,
+		pending: atomic.LoadInt32(&pending), asked: askedCopy,
+		label: sc.label(),
+		tree:  walkTree(t, work),
+	}
+	if wirePath != "" {
+		all := readBridgeWire(t, wirePath)
+		if wireBase <= len(all) {
+			run.wire = all[wireBase:]
+		}
+	}
+	recordWorkTree(t, work, run)
+	return run
 }
 
 // resolveViaBridge 从端点环境变量里取出 URL/令牌，提交人工结论。
@@ -202,6 +258,7 @@ func TestRealPiPolicyBlocksWriteAndEditChannels(t *testing.T) {
 
 	// ── write：拒绝 ──
 	_ = os.Remove(writeMarker)
+	writeBaseline := sentinelBaseline(t, work, "write-ran.txt")
 	writeDeny := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-write", choice: policy.ApprovalDeny})
 	t.Logf("write 拒绝：%d 条记录，待审批 %d 次", len(writeDeny.records), writeDeny.pending)
 	if writeDeny.pending == 0 {
@@ -226,6 +283,7 @@ func TestRealPiPolicyBlocksWriteAndEditChannels(t *testing.T) {
 	if err := os.WriteFile(editTarget, []byte("before\n"), 0o644); err != nil {
 		t.Fatalf("写 edit 目标文件: %v", err)
 	}
+	editBaseline := sentinelBaseline(t, work, "edit-target.txt")
 	editDeny := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-edit", choice: policy.ApprovalDeny})
 	t.Logf("edit 拒绝：%d 条记录，待审批 %d 次", len(editDeny.records), editDeny.pending)
 	if editDeny.pending == 0 {
@@ -244,6 +302,20 @@ func TestRealPiPolicyBlocksWriteAndEditChannels(t *testing.T) {
 			got, truncate(joinRecords(editAllow.records), 1200))
 	}
 	editAllowContent := readIfExists(editTarget)
+
+	// ── 外部观察：write / edit 两条通道的磁盘证据 ──
+	// blocked/allowed 由"运行前后的磁盘 sha256 + 请求日志里的结论条数"判定，
+	// 不来自上面那些断言变量。
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "write", ToolName: "write", Sentinel: "write-ran.txt", Baseline: writeBaseline,
+		Deny:  channelRunFrom(writeDeny, "write", "write-ran.txt", treePresent(writeDeny.tree, "write-ran.txt"), "write-ran.txt 是否被写出"),
+		Allow: channelRunFrom(writeAllow, "write", "write-ran.txt", treePresent(writeAllow.tree, "write-ran.txt"), "write-ran.txt 是否被写出"),
+	})
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "edit", ToolName: "edit", Sentinel: "edit-target.txt", Baseline: editBaseline,
+		Deny:  channelRunFrom(editDeny, "edit", "edit-target.txt", true, "内容是否仍为 before"),
+		Allow: channelRunFrom(editAllow, "edit", "edit-target.txt", true, "内容是否被改成 after"),
+	})
 
 	// 证据必须在每个场景结束时立刻取快照：跑完全部场景再读，读到的是最终状态，
 	// 会让 deny 的记录看起来"也写了文件"——那不是事实，是采集时机错了。
@@ -536,6 +608,8 @@ func TestRealPiPolicyBlocksCodemodeNestedChannel(t *testing.T) {
 	}
 	allowContent := readIfExists(marker)
 
+	// 关键一步是"外层允许 + 内层拒绝"：它才证明嵌套调用被单独拦下。
+	// 所以 deny 侧取 r2（内层 bash 被拒），allow 侧取 r3（两层都允许）。
 	evidence := map[string]any{
 		"channel":  "codemode-nested",
 		"scenario": "tool-codemode（脚本内调用 bash）",
@@ -602,6 +676,7 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 
 	// ── 场景 1：拒绝 ──
 	_ = os.Remove(toolMarker)
+	toolBaseline := sentinelBaseline(t, work, "tool-ran.txt")
 	denyRun := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-file", choice: policy.ApprovalDeny})
 	allDeny := joinRecords(denyRun.records)
 	t.Logf("拒绝场景：%d 条记录，退出码 %d，待审批 %d 次", len(denyRun.records), denyRun.code, denyRun.pending)
@@ -644,6 +719,7 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 	writeMCPConfigWithLog(t, root, agentDir, mcpLog)
 
 	_ = os.Remove(mcpLog)
+	mcpBaseline := sentinelBaseline(t, work, "mcp-requests.log")
 	mcpDeny := runPolicyCase(t, root, work, agentDir, runScenario{scenario: "tool-mcp", choice: policy.ApprovalDeny, harnessMCP: true})
 	denyLog := readIfExists(mcpLog)
 	t.Logf("MCP 拒绝场景：%d 条记录，待审批 %d 次", len(mcpDeny.records), mcpDeny.pending)
@@ -696,6 +772,20 @@ func TestRealPiPolicyBlocksToolAndProjectResources(t *testing.T) {
 	if reqs := readRequests(t, recDir); strings.Contains(reqs, `"codemode"`) {
 		t.Fatal("项目 .pi/settings.json 被应用了（工具列表出现 codemode）")
 	}
+
+	// ── 外部观察：bash / 外部 MCP 两条通道 + SEC08 的项目级资源 ──
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "bash", ToolName: "bash", Sentinel: "tool-ran.txt", Baseline: toolBaseline,
+		Deny:  channelRunFrom(denyRun, "bash", "tool-ran.txt", treePresent(denyRun.tree, "tool-ran.txt"), "tool-ran.txt 是否被写出"),
+		Allow: channelRunFrom(allowRun, "bash", "tool-ran.txt", treePresent(allowRun.tree, "tool-ran.txt"), "tool-ran.txt 是否被写出"),
+	})
+	// 外部 MCP 的哨兵是"日志里出现 tools/call"，不是文件存在：
+	// 日志本身一定有 initialize 等请求，只按文件判定会把"被拦"误读成"跑了"。
+	recordChannelEvidence(t, channelEvidence{
+		Channel: "external-mcp", ToolName: "mcp__fixture__fixture_echo", Sentinel: "mcp-requests.log", Baseline: mcpBaseline,
+		Deny:  channelRunFrom(mcpDeny, "mcp__fixture__fixture_echo", "mcp-requests.log", strings.Contains(denyLog, `"tools/call"`), "handler 日志里是否出现 tools/call"),
+		Allow: channelRunFrom(mcpAllow, "mcp__fixture__fixture_echo", "mcp-requests.log", strings.Contains(allowLog, `"tools/call"`), "handler 日志里是否出现 tools/call"),
+	})
 
 	// 证据落盘：只记录结论与关键计数，不复制整份会话。
 	evidence := map[string]any{

@@ -228,7 +228,15 @@ func integrationCases() []integrationCase {
 		{ID: "SEC01", Package: policyTests, Run: "TestApprovalBinds|TestControlGenerationInvalidatesApproval|TestSessionScopeGrantAllowsSubsequentCalls|TestPermissionDeniesWithoutApproval",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"executions.jsonl", "tree.json"}}},
 		// SEC02：三条内置写通道（bash/write/edit）逐条做拒绝+允许对照。
-		{ID: "SEC02", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels", Env: []string{"MYAGENT_PI_POLICY=1"}},
+		//
+		// 外部观察装置（三条 case 共用，观察链见 internal/runtime/pi/policy_observation_test.go）：
+		//   - wire.jsonl：策略端点**前面**的记录代理写的服务端请求日志（工具名、结论、
+		//     状态码；令牌只记 present/absent，本体永不落盘）；
+		//   - tree.json：每次运行结束后对工作区的磁盘遍历（大小/权限/sha256）；
+		//   - channels.json：由上两份文件派生的"拒绝后无副作用 / 允许后有副作用"证据；
+		//   - project-resources.json（仅 SEC08）：项目扩展/AGENTS.md/项目设置是否生效。
+		{ID: "SEC02", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestRealPiPolicyBlocksWriteAndEditChannels|TestPolicyChannelObservationSummary", Env: []string{"MYAGENT_PI_POLICY=1"},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "tree.json", "channels.json"}}},
 		// SEC03.runtime：六条通道的真实对照，各自"拒绝 → 副作用不发生 / 允许 → 发生"：
 		// builtin(bash)、内置写(write/edit)、外部 MCP、自有 MCP、扩展工具、codemode 嵌套。
 		// 自有 MCP 用到 internal/harnessmcp 的真实 server，判定同时看文件系统与 handler 计数。
