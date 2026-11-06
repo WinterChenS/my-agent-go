@@ -437,3 +437,60 @@ func TestMain(m *testing.M) {
 	}
 	os.Exit(m.Run())
 }
+
+// TestGateDeniesBeforeAuthorizationAndCreatesNoApproval 覆盖 RUN06 的预算闸门接点：
+// 闸门必须在策略服务之前拦截——不创建审批、不产生副作用，连审批序号都不能被占用。
+//
+// 为什么强调"在 Authorize 之前"：闸门如果挂在判定结果之后，被预算拦下的调用仍然会
+// 签发一条审批并推给 UI，用户会看到一个永远执行不了的确认框。
+func TestGateDeniesBeforeAuthorizationAndCreatesNoApproval(t *testing.T) {
+	var pendingCount int32
+	h := newHarness(t, func(o *Options) {
+		prev := o.OnPending
+		o.OnPending = func(p policy.ApprovalRequest) {
+			atomic.AddInt32(&pendingCount, 1)
+			prev(p)
+		}
+		o.Gate = func(ctx context.Context, call policy.ToolCall) error {
+			if call.Name == "write" {
+				return fmt.Errorf("预算用尽：测试闸门拒绝 %s", call.Name)
+			}
+			return nil
+		}
+	})
+
+	dec, reason := h.attempt(context.Background(), h.writeCall(filepath.Join(h.root, "gated.txt")))
+	if dec != policy.DecisionDeny {
+		t.Fatalf("闸门报错必须 deny，实际 %s", dec)
+	}
+	if !strings.Contains(reason, "预算用尽") {
+		t.Fatalf("拒绝原因应带闸门的消息，实际 %q", reason)
+	}
+	if got := atomic.LoadInt32(h.counter); got != 0 {
+		t.Fatalf("闸门拒绝不得产生副作用，实际 %d", got)
+	}
+	if got := atomic.LoadInt32(&pendingCount); got != 0 {
+		t.Fatalf("闸门拒绝不得推送审批请求，实际 %d 条", got)
+	}
+	select {
+	case p := <-h.pending:
+		t.Fatalf("闸门拒绝不得创建审批，实际收到 %+v", p)
+	default:
+	}
+
+	// "没有创建审批"的硬证据：策略服务的审批 id 带单调序号（apr-<seq>-...）。
+	// 闸门若在 Authorize 之后才拦，序号已经被占用，下面这条真实审批就不会是第 1 条。
+	res, err := h.svc.Authorize(context.Background(), h.exec, h.writeCall(filepath.Join(h.root, "real.txt")))
+	if err != nil {
+		t.Fatalf("直接授权失败: %v", err)
+	}
+	if res.Decision != policy.DecisionAsk {
+		t.Fatalf("写操作应进入审批环节，实际 %s（%s）", res.Decision, res.Reason)
+	}
+	if !strings.HasPrefix(res.ApprovalID, "apr-1-") {
+		t.Fatalf("闸门拒绝的调用不应占用审批序号，实际 %s", res.ApprovalID)
+	}
+	if _, err := h.svc.Pending(context.Background(), res.ApprovalID); err != nil {
+		t.Fatalf("真实审批应可查到: %v", err)
+	}
+}

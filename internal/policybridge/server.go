@@ -64,6 +64,12 @@ type Options struct {
 	OnPending func(policy.ApprovalRequest)
 	// Now 便于测试注入时钟（只影响等待时长判定），生产留空。
 	Now func() time.Time
+	// Gate 是 Service.Authorize 之前的一道闸门（RUN06 预算、停机拒绝等）。
+	//
+	// 非 nil 错误 => 直接 deny：HTTP 200、decision="deny"、reason=err.Error()，
+	// 不创建审批、不调策略服务、不产生任何副作用。放在 Authorize 之前是刻意的：
+	// 若排在之后，被拦下的调用仍会签一条审批并弹给用户，而它永远执行不了。
+	Gate func(ctx context.Context, call policy.ToolCall) error
 }
 
 // Endpoint 是交给上层的端点描述。
@@ -82,6 +88,7 @@ type Server struct {
 	askTimeout time.Duration
 	maxBody    int64
 	onPending  func(policy.ApprovalRequest)
+	gate       func(ctx context.Context, call policy.ToolCall) error
 	now        func() time.Time
 
 	ln   net.Listener
@@ -126,6 +133,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		askTimeout: opts.AskTimeout,
 		maxBody:    opts.MaxBodyBytes,
 		onPending:  opts.OnPending,
+		gate:       opts.Gate,
 		now:        opts.Now,
 		ln:         ln,
 		port:       port,
@@ -299,6 +307,19 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		Origin:        req.Origin,
 		ResourceScope: req.ResourceScope,
 	}
+	// 闸门排在策略服务之前：非 nil 错误直接 deny，不签发审批、不产生副作用。
+	// 顺序不能反——排在 Authorize 之后的话，被预算拦下的调用仍会弹一个
+	// 永远执行不了的确认框，用户只能靠猜。
+	if s.gate != nil {
+		if gerr := s.gate(r.Context(), call); gerr != nil {
+			writeJSON(w, http.StatusOK, authorizeResponse{
+				Decision: string(policy.DecisionDeny),
+				Reason:   gerr.Error(),
+			})
+			return
+		}
+	}
+
 	exec := contracts.ExecutionContext{
 		SessionID:         s.binding.SessionID,
 		RunID:             s.binding.RunID,

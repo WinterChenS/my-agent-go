@@ -25,6 +25,48 @@ const (
 	SkillDiscoveryDisabled = "disabled"
 )
 
+// RunUsage.Availability 的取值（RUN06）。
+//
+// 只有这两种，不允许第三种"看起来像 0"的中间态：没看到用量就是 unavailable，
+// 看到用量才写数字。把"没报告"写成 0 会让用户以为自己这一轮没花钱。
+const (
+	UsageReported    = "reported"
+	UsageUnavailable = "unavailable"
+)
+
+// RunBudget.ExceededReason 的取值（RUN06）。
+const (
+	BudgetReasonToolCalls = "tool_calls"
+	BudgetReasonTime      = "time"
+)
+
+// RunUsage 是一次 run 的用量报告（RUN06）。
+//
+// 缺失用量时只有 Availability="unavailable"，其余字段因为 omitempty 一律不出现：
+// 快照里没有 costUsd 这个键，才等于"不知道费用"；写成 0 是把未知冒充成确定。
+// 反过来，provider 明确报告 0 时 CostUSD 必须指向 0（有键、值为 0），两者不可混同。
+type RunUsage struct {
+	Availability string   `json:"availability"`
+	InputTokens  int64    `json:"inputTokens,omitempty"`
+	OutputTokens int64    `json:"outputTokens,omitempty"`
+	TotalTokens  int64    `json:"totalTokens,omitempty"`
+	CostUSD      *float64 `json:"costUsd,omitempty"`     // nil => 不出现；提供方报告的 0 保留为 0
+	PriceSource  string   `json:"priceSource,omitempty"` // "provider" 提供方账单；"catalog" Pi 按本地价目表估算
+	Estimated    bool     `json:"estimated"`
+}
+
+// RunBudget 是一次 run 的预算执行情况（RUN06）。
+//
+// 记的是"实际用了多少、有没有超、为什么超"，而不是只记限额：
+// 只写限额的话，界面无法解释一次 run 为什么失败。
+type RunBudget struct {
+	MaxToolCalls   int    `json:"maxToolCalls"`
+	MaxDurationMs  int64  `json:"maxDurationMs"`
+	ToolCalls      int    `json:"toolCalls"`
+	Exceeded       bool   `json:"exceeded"`
+	ExceededReason string `json:"exceededReason,omitempty"` // "tool_calls" | "time"
+}
+
 // RunSnapshot 是 run 的持久化快照（基线 §6）。
 // Error 仅在 failed/interrupted 等异常态存在，正常态为 nil（omitempty）。
 //
@@ -52,7 +94,13 @@ type RunSnapshot struct {
 	SkillAutoDiscovery string `json:"skillAutoDiscovery,omitempty"`
 	// Provider/Model 是这次 run 实际使用的 provider 键与模型名（MOD04）。
 	// 记录"真实使用"而不是"设置里写着"：模型切换后，旧 run 的审计线索不能跟着变。
-	Provider string    `json:"provider,omitempty"`
-	Model    string    `json:"model,omitempty"`
-	Error    *AppError `json:"error,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// Budget 是这次 run 的预算执行情况；run 创建时就写入限额，之后随工具调用与
+	// 时间推进实时更新（不是只在结束时补记），界面才能显示"已用 87/100"。
+	Budget *RunBudget `json:"budget,omitempty"`
+	// Usage 是用量报告。run 进入终态时一定会有一份：看到用量是 reported，
+	// 没看到就是 unavailable——不能因为"没数据"就把字段留空让界面自己猜。
+	Usage *RunUsage `json:"usage,omitempty"`
+	Error *AppError `json:"error,omitempty"`
 }

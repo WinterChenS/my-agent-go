@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +27,16 @@ type fakeWorker struct {
 	calls   []json.RawMessage
 	closed  bool
 	closeEr error
+
+	// 以下三个字段只允许在 StartWorker 返回前设置（之后只读），用来复现
+	// "Close 迟迟不返回 / 强杀也不管用"这类停止时序，而不用真等 10 秒。
+	//
+	// closeGate 非 nil 时 Close 阻塞到它被关闭；ignoreForceKill 为真时
+	// ForceKill 只计数、不解开阻塞（模拟强杀也清不干净）。
+	closeGate       chan struct{}
+	gateOnce        sync.Once
+	ignoreForceKill bool
+	forceKills      atomic.Int32
 }
 
 func newFakeWorker() *fakeWorker {
@@ -41,6 +53,10 @@ func (f *fakeWorker) Call(ctx context.Context, command json.RawMessage) (json.Ra
 func (f *fakeWorker) Events() <-chan pi.RawEvent { return f.events }
 
 func (f *fakeWorker) Close(ctx context.Context) error {
+	gate := f.closeGate
+	if gate != nil {
+		<-gate
+	}
 	f.once.Do(func() {
 		f.mu.Lock()
 		f.closed = true
@@ -49,6 +65,25 @@ func (f *fakeWorker) Close(ctx context.Context) error {
 	})
 	return f.closeEr
 }
+
+// ForceKill 模拟"停止升级"：默认解开 Close 的阻塞（强杀确实让清理有结果了）。
+func (f *fakeWorker) ForceKill() error {
+	f.forceKills.Add(1)
+	if !f.ignoreForceKill {
+		f.openGate()
+	}
+	return nil
+}
+
+// openGate 解开 Close 的阻塞（同一次只会关一次）。
+func (f *fakeWorker) openGate() {
+	if f.closeGate == nil {
+		return
+	}
+	f.gateOnce.Do(func() { close(f.closeGate) })
+}
+
+func (f *fakeWorker) forceKillCount() int { return int(f.forceKills.Load()) }
 
 func (f *fakeWorker) PID() int                   { return 4321 }
 func (f *fakeWorker) StderrTail() (string, bool) { return "", false }
@@ -462,5 +497,289 @@ func TestSnapshotLeavesAutoDiscoveryUnknownWhenNotProvided(t *testing.T) {
 	}
 	if _, ok := decodeSnapshotJSON(t, snap)["skillAutoDiscovery"]; ok {
 		t.Fatal("未知状态不应出现在 JSON 里：缺失=未知，界面据此显示未知")
+	}
+}
+
+// ---- F05-A：可控时钟、停止升级、预算与用量 ----
+//
+// 这一段测的都是"时限"与"审计字段"，与 Pi 协议本身无关：因此一律用
+// fakeClock + fakeWorker 把时序钉死，不靠真等 5/10 秒或 30 分钟。
+
+// fakeClock 是可控时钟：只有 Advance 才会让定时器到期。
+//
+// 注意 50ms 文本合并窗口**刻意**不走这个时钟：那是 UI 刷新节奏，
+// 不是语义时限；如果它也走假时钟，流式文本的测试就得自己推时钟才能出字。
+type fakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeTimer
+	regs   int
+}
+
+type fakeTimer struct {
+	due   time.Time
+	ch    chan time.Time
+	fired bool
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) After(d time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.regs++
+	t := &fakeTimer{due: c.now.Add(d), ch: make(chan time.Time, 1)}
+	c.timers = append(c.timers, t)
+	return t.ch
+}
+
+// Advance 推进时钟并触发所有到期定时器。
+// 投递用带缓冲的非阻塞发送：没人再读的定时器（例如 run 早已结束）不能把测试卡住。
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	now := c.now
+	due := make([]*fakeTimer, 0, len(c.timers))
+	kept := c.timers[:0]
+	for _, t := range c.timers {
+		if t.fired || t.due.After(now) {
+			kept = append(kept, t)
+			continue
+		}
+		t.fired = true
+		due = append(due, t)
+	}
+	c.timers = kept
+	c.mu.Unlock()
+	for _, t := range due {
+		select {
+		case t.ch <- now:
+		default:
+		}
+	}
+}
+
+// registrations 返回累计登记过的定时器数（单调递增）。
+func (c *fakeClock) registrations() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.regs
+}
+
+// waitRegistrations 等到累计登记数达到 want 之后再推进时钟。
+//
+// 这一步不是形式主义：若 After 在"推进之后"才登记，到期时刻会被算到新的 now 上，
+// 那个定时器就永远不会在本次推进中触发——测试会以一种极难定位的方式假红。
+func (c *fakeClock) waitRegistrations(t *testing.T, want int) {
+	t.Helper()
+	if !eventually(t, 3*time.Second, func() bool { return c.registrations() >= want }) {
+		t.Fatalf("等待第 %d 个计时器登记超时（当前 %d）", want, c.registrations())
+	}
+}
+
+func startRunForTest(t *testing.T, svc *Service, text string) contracts.RunSnapshot {
+	t.Helper()
+	snap, err := svc.Start(context.Background(), StartRunRequest{Message: text})
+	if err != nil {
+		t.Fatalf("启动 run 失败: %v", err)
+	}
+	return snap
+}
+
+func mustRunState(t *testing.T, svc *Service, id contracts.RunID) string {
+	t.Helper()
+	snap, err := svc.Get(id)
+	if err != nil {
+		t.Fatalf("读取快照失败: %v", err)
+	}
+	return snap.State
+}
+
+// runStateOf 取内部 runState：白盒测试需要直接驱动本次 run 的预算闸门，
+// 并检查"会话是否被阻止重启"这类不对外暴露的状态。
+func runStateOf(t *testing.T, svc *Service, id contracts.RunID) *runState {
+	t.Helper()
+	svc.mu.Lock()
+	rs := svc.runs[id]
+	svc.mu.Unlock()
+	if rs == nil {
+		t.Fatalf("run 不存在: %s", id)
+	}
+	return rs
+}
+
+func eventsOfType(t *testing.T, svc *Service, id contracts.RunID, typ string) []contracts.Event {
+	t.Helper()
+	all, err := svc.Replay(id, 0)
+	if err != nil {
+		t.Fatalf("重放事件失败: %v", err)
+	}
+	out := make([]contracts.Event, 0, len(all))
+	for _, ev := range all {
+		if ev.Type == typ {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func lastRunErrorCode(t *testing.T, svc *Service, id contracts.RunID) string {
+	t.Helper()
+	evs := eventsOfType(t, svc, id, EventRunError)
+	if len(evs) == 0 {
+		t.Fatalf("run %s 没有任何 run.error 事件", id)
+	}
+	var p runErrorPayload
+	if err := json.Unmarshal(evs[len(evs)-1].Payload, &p); err != nil {
+		t.Fatalf("解析 run.error 载荷失败: %v", err)
+	}
+	return p.Code
+}
+
+type budgetPayload struct {
+	Kind    string `json:"kind"`
+	Limit   int    `json:"limit"`
+	Used    int    `json:"used"`
+	LimitMs int64  `json:"limitMs"`
+}
+
+// TestStopVisibleImmediatelyAndNoEscalationOnCleanClose 覆盖 RUN04 的前两段：
+// Abort 返回时 stopping 必须已经可见（不依赖任何计时器）；清理在宽限内正常返回时
+// 只标 cancelled，不升级强杀，也不阻止同一会话继续启动。
+func TestStopVisibleImmediatelyAndNoEscalationOnCleanClose(t *testing.T) {
+	clk := newFakeClock()
+	opts := testOptions(t)
+	opts.Clock = clk
+	w := newFakeWorker()
+	w.closeGate = make(chan struct{}) // Close 先卡住，好让"stopping 立刻可见"可判定
+	// 后续 run 用新的假 worker：同一条已经关闭的事件流被两个 run 读，会让后一个 run
+	// 一起步就看到"流已关闭"，与本次要测的停止时序无关。
+	started := false
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		if !started {
+			started = true
+			return w, nil
+		}
+		return newFakeWorker(), nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap := startRunForTest(t, svc, "hi")
+	if err := svc.Abort(context.Background(), snap.RunID); err != nil {
+		t.Fatalf("停止失败: %v", err)
+	}
+	// 不推进时钟、不等任何异步：Abort 返回时状态就必须是 stopping。
+	if got := mustRunState(t, svc, snap.RunID); got != contracts.RunStateStopping {
+		t.Fatalf("Abort 返回时状态应为 stopping，实际 %s", got)
+	}
+
+	// 清理正常返回（宽限内），且是在时钟未推进的情况下返回的。
+	w.openGate()
+	if !eventually(t, 2*time.Second, func() bool {
+		return mustRunState(t, svc, snap.RunID) == contracts.RunStateCancelled
+	}) {
+		t.Fatalf("清理正常返回后应为 cancelled，实际 %s", mustRunState(t, svc, snap.RunID))
+	}
+
+	// 已经终结之后再越过 5 秒、10 秒：既不得升级强杀，也不得改终态。
+	clk.Advance(5 * time.Second)
+	clk.Advance(5 * time.Second)
+	if got := w.forceKillCount(); got != 0 {
+		t.Fatalf("清理已正常返回，不得再强制终止进程树，实际 ForceKill 调用 %d 次", got)
+	}
+	if got := mustRunState(t, svc, snap.RunID); got != contracts.RunStateCancelled {
+		t.Fatalf("终态被改成了 %s", got)
+	}
+	for _, ev := range eventsOfType(t, svc, snap.RunID, EventDiagnostic) {
+		var p struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal(ev.Payload, &p)
+		if p.Kind == "stop.escalated" {
+			t.Fatalf("升级诊断不得出现在正常停止的 run 上: %s", ev.Payload)
+		}
+	}
+
+	// 正常停止不阻断会话：同一会话可以再起一个 run。
+	next := startRunForTest(t, svc, "再来")
+	if next.State != contracts.RunStateRunning {
+		t.Fatalf("正常停止后同会话应能重启，实际 %s", next.State)
+	}
+}
+
+// TestStopEscalatesForceKillAtFiveSeconds 覆盖 RUN04 的中段：
+// 5 秒仍未退出就终止 worker 进程树，发出说明时限的诊断事件，
+// 但**不**在拿到清理结果之前宣布终态。
+func TestStopEscalatesForceKillAtFiveSeconds(t *testing.T) {
+	clk := newFakeClock()
+	opts := testOptions(t)
+	opts.Clock = clk
+	w := newFakeWorker()
+	w.closeGate = make(chan struct{}) // 只有测试显式放行才会返回
+	// 强杀不解开阻塞：要先验证"升级之后、拿到清理结论之前仍是 stopping"，
+	// 如果 ForceKill 顺手把 Close 也放行了，这两件事就永远无法同时观察到。
+	w.ignoreForceKill = true
+	opts.StartWorker = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		return w, nil
+	}
+
+	svc := New(opts)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	snap := startRunForTest(t, svc, "hi")
+	if err := svc.Abort(context.Background(), snap.RunID); err != nil {
+		t.Fatalf("停止失败: %v", err)
+	}
+	// 时间预算计时器 + 停止宽限计时器都登记之后再推进。
+	clk.waitRegistrations(t, 2)
+	clk.Advance(5 * time.Second)
+
+	if !eventually(t, 2*time.Second, func() bool { return w.forceKillCount() == 1 }) {
+		t.Fatalf("5 秒后必须升级到强制终止进程树，实际 ForceKill 调用 %d 次", w.forceKillCount())
+	}
+	if got := w.forceKillCount(); got != 1 {
+		t.Fatalf("升级只能做一次，实际 %d 次", got)
+	}
+	if got := mustRunState(t, svc, snap.RunID); got != contracts.RunStateStopping {
+		t.Fatalf("还没拿到清理结果时只应停在 stopping，实际 %s", got)
+	}
+
+	// 诊断事件必须写明是"超过 5 秒宽限才升级"：静默强杀等于把真相藏起来。
+	var escalated string
+	for _, ev := range eventsOfType(t, svc, snap.RunID, EventDiagnostic) {
+		var p struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			t.Fatalf("解析诊断载荷失败: %v", err)
+		}
+		if p.Kind == "stop.escalated" {
+			escalated = p.Message
+		}
+	}
+	if escalated == "" {
+		t.Fatal("升级强杀必须发出 stop.escalated 诊断事件")
+	}
+	if !strings.Contains(escalated, "5") {
+		t.Fatalf("诊断必须说明触发的时限（5 秒），实际 %q", escalated)
+	}
+
+	// 清理明确返回（模拟强杀之后进程树确实清干净了）→ cancelled。
+	w.openGate()
+	if !eventually(t, 2*time.Second, func() bool {
+		return mustRunState(t, svc, snap.RunID) == contracts.RunStateCancelled
+	}) {
+		t.Fatalf("强杀后清理返回应为 cancelled，实际 %s", mustRunState(t, svc, snap.RunID))
 	}
 }

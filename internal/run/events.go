@@ -24,6 +24,8 @@ const (
 	EventRunError = "run.error"
 	// EventDiagnostic 协议/运行时诊断。payload: {"kind","message"}
 	EventDiagnostic = "diagnostic"
+	// EventBudgetExceeded 预算用尽。payload 见 budgetExceededPayload。
+	EventBudgetExceeded = "budget.exceeded"
 )
 
 // runErrorPayload 是 EventRunError 的载荷。

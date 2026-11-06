@@ -48,6 +48,10 @@ const (
 	CodeRpcCommandFailed = "RPC_COMMAND_FAILED"
 	CodeWorkerClosed     = "WORKER_CLOSED"
 	CodeWorkerStartFail  = "WORKER_START_FAILED"
+
+	// CodeBudgetExceeded 表示本次 run 的预算（100 次工具调用 / 30 分钟）已用尽。
+	// 与 CLEANUP_FAILED 分开：预算用尽是正常终止理由，不是清理失败。
+	CodeBudgetExceeded = "BUDGET_EXCEEDED"
 )
 
 // AppError 是统一的错误结构。Code 机器可解析，Retryable 指示是否可重试。

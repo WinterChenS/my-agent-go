@@ -21,9 +21,14 @@ import (
 const (
 	defaultMaxActive    = 2
 	defaultPromptWait   = 60 * time.Second
+	defaultStopGrace    = 5 * time.Second
 	defaultStopDeadline = 10 * time.Second
 	defaultDeltaWindow  = 50 * time.Millisecond
 	maxReplayEvents     = 20000
+
+	// 每 run 预算（基线 §6）：100 次工具调用、30 分钟。
+	defaultMaxToolCalls   = 100
+	defaultMaxRunDuration = 30 * time.Minute
 )
 
 // WorkerStarter 允许注入 worker 构造（测试用假 worker；生产用 pi.StartWorker）。
@@ -80,6 +85,17 @@ type Options struct {
 	MaxActive   int
 	StartWorker WorkerStarter
 	Now         func() time.Time
+
+	// Clock 是停止与预算计时的时钟；为空时由 Now + time.After 组成（生产路径）。
+	Clock Clock
+	// StopGrace 是"等待 worker 有序退出"的宽限期，默认 5 秒。
+	StopGrace time.Duration
+	// StopDeadline 是从发起停止算起的清理结论时限，默认 10 秒。
+	StopDeadline time.Duration
+	// MaxToolCalls 是每 run 的工具调用上限，默认 100。
+	MaxToolCalls int
+	// MaxRunDuration 是每 run 的运行时长上限，默认 30 分钟。
+	MaxRunDuration time.Duration
 }
 
 // Service 管理 run 的生命周期。并发安全。
@@ -91,6 +107,9 @@ type Service struct {
 	queue  []contracts.RunID
 	active int
 	closed bool
+	// cleanupFailed 记录"上次清理未完成"的会话与原因（RUN04）。
+	// 只存在内存里：应用重启后没有残留的 owned 进程可以继承，安全性由进程边界保证。
+	cleanupFailed map[contracts.SessionID]string
 
 	subMu sync.RWMutex
 	subs  []func(contracts.Event)
@@ -110,13 +129,26 @@ type runState struct {
 	worker pi.Worker
 	bridge *policybridge.Server
 	token  string
+	// budget 是本次 run 的预算闸门；Policy 未启用时它仍然存在（工具调用预算
+	// 与时间预算都要记账），只是没有端点来调用它。
+	budget *budgetGate
+	// usage 汇总 Pi 报的用量（只在 rs.mu 下读写）。
+	usage usageAccumulator
+	// stopRequested 表示"这次停止是本进程发起的"（Abort 或预算用尽）。
+	// 它不属于状态机，只影响一件事：事件流关闭时不要把主动停止误报成
+	// "Pi 意外中断"，也不要在清理结果出来之前抢先写下终态。
+	stopRequested bool
 
 	pending map[string]policy.ApprovalRequest
 
 	cancel   context.CancelFunc
 	done     chan struct{}
 	doneOnce sync.Once
-	released atomic.Bool
+	// finished 在 run 释放时关闭：运行时长预算的计时器据此退出，
+	// 不会在 run 结束很久之后突然"超时"。
+	finished     chan struct{}
+	finishedOnce sync.Once
+	released     atomic.Bool
 }
 
 // New 创建 RunService。
@@ -127,12 +159,34 @@ func New(opts Options) *Service {
 	if opts.StartWorker == nil {
 		opts.StartWorker = pi.StartWorker
 	}
+	if opts.Clock == nil {
+		// 只给了 Now（既有字段）时，时钟的 Now 跟着它，定时器仍是真实时间：
+		// 把 Now 换成假时间的人不该连带伪造"已经过了 5 秒"。
+		opts.Clock = realClock{now: opts.Now}
+	}
 	if opts.Now == nil {
-		opts.Now = time.Now
+		opts.Now = opts.Clock.Now
+	}
+	if opts.StopGrace <= 0 {
+		opts.StopGrace = defaultStopGrace
+	}
+	if opts.StopDeadline <= opts.StopGrace {
+		// 结论时限必须晚于升级时限，否则"先升级再判定"没有意义。
+		opts.StopDeadline = defaultStopDeadline
+		if opts.StopDeadline <= opts.StopGrace {
+			opts.StopDeadline = opts.StopGrace
+		}
+	}
+	if opts.MaxToolCalls <= 0 {
+		opts.MaxToolCalls = defaultMaxToolCalls
+	}
+	if opts.MaxRunDuration <= 0 {
+		opts.MaxRunDuration = defaultMaxRunDuration
 	}
 	return &Service{
-		opts: opts,
-		runs: map[contracts.RunID]*runState{},
+		opts:          opts,
+		runs:          map[contracts.RunID]*runState{},
+		cleanupFailed: map[contracts.SessionID]string{},
 	}
 }
 
@@ -169,6 +223,12 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		s.mu.Unlock()
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeInternal, "服务已关闭", false)
 	}
+	// 清理结果未知的会话不得自动重启：放行等于把"不确定"显示成"清理成功"（RUN04）。
+	if reason, blocked := s.cleanupFailed[s.opts.SessionID]; blocked {
+		s.mu.Unlock()
+		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeCleanupFailed,
+			fmt.Sprintf("会话 %s 上次清理未完成，拒绝重启：%s", s.opts.SessionID, reason), false)
+	}
 	id := contracts.RunID(fmt.Sprintf("run-%d-%d", s.opts.Now().Unix(), s.runSeq.Add(1)))
 	rs := &runState{
 		id:   id,
@@ -186,9 +246,16 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 			// 空数组照样序列化成 []（不是 null/缺失），避免被读成"没记录"。
 			ManagedSkills:      append([]string{}, s.opts.ManagedSkillIDs...),
 			SkillAutoDiscovery: s.opts.SkillAutoDiscovery,
+			// 预算限额从 run 创建时就写进快照：界面在第一次工具调用之前就能
+			// 显示"0/100、30 分钟"，而不是等用过之后才突然出现。
+			Budget: &contracts.RunBudget{
+				MaxToolCalls:  s.opts.MaxToolCalls,
+				MaxDurationMs: s.opts.MaxRunDuration.Milliseconds(),
+			},
 		},
-		pending: map[string]policy.ApprovalRequest{},
-		done:    make(chan struct{}),
+		pending:  map[string]policy.ApprovalRequest{},
+		done:     make(chan struct{}),
+		finished: make(chan struct{}),
 	}
 	s.runs[id] = rs
 	canStart := s.active < s.opts.MaxActive && len(s.queue) == 0
@@ -244,6 +311,10 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	rs.cancel = cancel
 
+	// 预算闸门必须在建端点之前就位：端点拿到的 Gate 就是它。
+	gate := s.newBudgetGate(rs)
+	rs.budget = gate
+
 	// 每个 run 一个策略端点：审批绑定 session+run，跨 run 不共享结论。
 	var env []string
 	if s.opts.Policy != nil {
@@ -255,6 +326,8 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 				ConfigRevision:    s.opts.ConfigRevision,
 				ControlGeneration: 1,
 			},
+			// 预算在执行前授权之前判定：超限的调用连审批都不会创建。
+			Gate: gate.check,
 			OnPending: func(p policy.ApprovalRequest) {
 				rs.mu.Lock()
 				rs.pending[p.ID] = p
@@ -321,7 +394,11 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 		s.finishFailed(rs, err)
 		return err
 	}
-	return s.transition(rs, contracts.RunStateRunning)
+	if err := s.transition(rs, contracts.RunStateRunning); err != nil {
+		return err
+	}
+	s.startRunBudget(rs, gate)
+	return nil
 }
 
 // stopWorker 异步关闭 worker，不在调用方栈上阻塞。
@@ -365,6 +442,11 @@ func (s *Service) pump(rs *runState, ctx context.Context) {
 		case ev, ok := <-events:
 			if !ok {
 				flush()
+				if rs.isStopRequested() {
+					// 停止是本进程发起的：终态由 stopRun/预算路径按清理结论决定。
+					// 这里再记一次 interrupted 会把"正常取消"谎报成"清理未完成"。
+					return
+				}
 				// 事件流关闭（进程退出）而没有 settled：这是"结果未知"，不是完成。
 				s.interrupted(rs, "Pi 事件流在最终 idle 之前关闭（进程退出或输出中断）")
 				return
@@ -425,14 +507,17 @@ func (s *Service) handleRaw(rs *runState, ev pi.RawEvent, pending *strings.Build
 		}
 	case "message_end":
 		var e struct {
-			Message struct {
-				Role string `json:"role"`
-			} `json:"message"`
+			Message piMessage `json:"message"`
 		}
 		_ = json.Unmarshal(ev.Record, &e)
 		if e.Message.Role == "assistant" {
+			s.recordUsage(rs, e.Message)
 			s.emit(rs, EventMessageDone, map[string]any{})
 		}
+	case "agent_end":
+		// agent_end 会把整轮消息重发一遍：只补 message_end 没覆盖到的用量，
+		// 重复的同一条靠去重键挡掉（否则费用会翻倍）。
+		s.recordAgentEndUsage(rs, ev.Record)
 	case pi.TypeAgentSettled:
 		var h struct {
 			Aborted bool `json:"aborted"`
@@ -513,30 +598,81 @@ func (s *Service) Abort(ctx context.Context, id contracts.RunID) error {
 		return nil
 	}
 
+	// 先标记"停止是本进程发起的"，再迁移状态：pump 一旦看到事件流关闭，
+	// 就不会把它误报成 Pi 意外中断（那个谎会盖掉真实的清理结论）。
+	rs.mu.Lock()
+	rs.stopRequested = true
+	rs.mu.Unlock()
+
 	_ = s.transition(rs, contracts.RunStateStopping)
 	go s.stopRun(rs)
 	return nil
 }
 
-// stopRun 执行有序停止，并守住"必须有明确清理结果"的底线。
+// stopRun 执行有序停止，并守住"必须有明确清理结果"的底线（RUN04）。
+//
+// 时间线（基线 §6）：
+//  1. stopping 由 Abort 同步迁移，2 秒内可见，不依赖这里；
+//  2. StopGrace（默认 5 秒）仍未退出 → 强制终止 worker 进程树 + 诊断事件；
+//  3. StopDeadline（默认 10 秒，总计）还没有明确清理结果 → interrupted +
+//     CLEANUP_FAILED，并阻止同一会话重启。
+//
+// "进程被杀了"不等于"清理完成"：升级之后仍然要等 Close 的结论（RPC05）。
 func (s *Service) stopRun(rs *runState) {
 	done := make(chan error, 1)
 	go func() { done <- s.stopWorkerWait(rs) }()
 
 	select {
 	case err := <-done:
-		if err != nil {
-			// 清理未完成时不能显示"已取消"：如实报 interrupted + 原因。
-			s.finishInterrupted(rs, err.Error())
-			return
-		}
-		if st := rs.snapshot().State; st == contracts.RunStateStopping {
-			_ = s.transition(rs, contracts.RunStateCancelled)
-		}
-		s.release(rs)
-	case <-time.After(defaultStopDeadline):
-		s.finishInterrupted(rs, "停止超时：10 秒内未拿到明确的清理结果")
+		s.finishStopped(rs, err)
+		return
+	case <-s.after(s.opts.StopGrace):
 	}
+
+	s.escalateStop(rs)
+	select {
+	case err := <-done:
+		s.finishStopped(rs, err)
+		return
+	case <-s.after(s.opts.StopDeadline - s.opts.StopGrace):
+	}
+
+	reason := fmt.Sprintf("停止超时：%s 内未拿到明确的清理结果", s.opts.StopDeadline)
+	s.markCleanupFailed(reason)
+	s.finishInterrupted(rs, reason)
+}
+
+// finishStopped 按清理结果收尾：只有 Close 明确返回成功才算 cancelled。
+func (s *Service) finishStopped(rs *runState, err error) {
+	if err != nil {
+		// 清理未完成时不能显示"已取消"：如实报 interrupted + 原因，并阻断会话重启。
+		s.markCleanupFailed(err.Error())
+		s.finishInterrupted(rs, err.Error())
+		return
+	}
+	if st := rs.snapshot().State; st == contracts.RunStateStopping {
+		_ = s.transition(rs, contracts.RunStateCancelled)
+	}
+	s.release(rs)
+}
+
+// escalateStop 在宽限过后强制终止 worker 进程树，并如实记一条诊断。
+//
+// 诊断必须说明"到哪个时限才升级"：静默强杀会让排查者误以为进程是自己退出的。
+func (s *Service) escalateStop(rs *runState) {
+	fk, ok := rs.worker.(interface{ ForceKill() error })
+	if !ok {
+		s.emit(rs, EventDiagnostic, map[string]any{
+			"kind":    "stop.escalation_unavailable",
+			"message": fmt.Sprintf("停止超过 %s 仍未退出，但当前 worker 不支持强制终止进程树", s.opts.StopGrace),
+		})
+		return
+	}
+	msg := fmt.Sprintf("停止超过 %s 仍未退出，已强制终止 worker 进程树", s.opts.StopGrace)
+	if err := fk.ForceKill(); err != nil {
+		msg += "（强制终止失败：" + err.Error() + "）"
+	}
+	s.emit(rs, EventDiagnostic, map[string]any{"kind": "stop.escalated", "message": msg})
 }
 
 func (s *Service) stopWorkerWait(rs *runState) error {
@@ -589,6 +725,7 @@ func (s *Service) release(rs *runState) {
 	if !rs.released.CompareAndSwap(false, true) {
 		return
 	}
+	rs.finishedOnce.Do(func() { close(rs.finished) })
 	s.closeBridge(rs)
 	if rs.cancel != nil {
 		rs.cancel()
@@ -637,6 +774,11 @@ func (s *Service) transition(rs *runState, to string) error {
 			fmt.Sprintf("非法状态迁移: %s → %s", from, to), false)
 	}
 	rs.snap.State = to
+	if IsTerminal(to) {
+		// 终态必须给出 usage 结论：没看到用量就是 unavailable，
+		// 不能留空让界面把"没数据"显示成 0 token / 0 元。
+		rs.finalizeUsageLocked()
+	}
 	rs.mu.Unlock()
 
 	s.emit(rs, EventRunState, statePayload{State: to, Previous: from})
@@ -811,6 +953,41 @@ func (s *Service) Close(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// after 把 duration 换成时钟通道；d<=0 时立刻触发（"总时限已到"这种边界）。
+func (s *Service) after(d time.Duration) <-chan time.Time {
+	if d <= 0 {
+		ch := make(chan time.Time, 1)
+		ch <- s.opts.Clock.Now()
+		return ch
+	}
+	return s.opts.Clock.After(d)
+}
+
+// isStopRequested 报告本次 run 的停止是否由本进程发起。
+func (rs *runState) isStopRequested() bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.stopRequested
+}
+
+// markCleanupFailed 记录"这个会话上次清理未完成"及原因，阻止它被自动重启。
+func (s *Service) markCleanupFailed(reason string) {
+	s.mu.Lock()
+	s.cleanupFailed[s.opts.SessionID] = reason
+	s.mu.Unlock()
+}
+
+// ClearCleanupFailure 清除"上次清理未完成"的阻断标记，允许同一会话再次启动。
+//
+// 只有显式的用户/操作员动作才能调用它：清理结果未知时自动放行，等于把
+// "不确定"显示成"清理成功"（RUN04 明确禁止）。阻断只存在本次进程内存里，
+// 应用重启同样会清掉——重启后没有残留的 owned 进程可以被继承。
+func (s *Service) ClearCleanupFailure(sessionID contracts.SessionID) {
+	s.mu.Lock()
+	delete(s.cleanupFailed, sessionID)
+	s.mu.Unlock()
 }
 
 // EnsureAgentDir 保证隔离 agentDir 存在。

@@ -95,6 +95,10 @@ type worker struct {
 
 	stderr *stderrRing
 	tree   *processTree
+	// treeMu 保护"强制终止"与"关闭句柄"这对并发操作：停止升级可能在 Close
+	// 还在等待进程退出时调用 ForceKill，两边同时动同一个句柄是数据竞争。
+	treeMu     sync.Mutex
+	treeClosed bool
 
 	lastActivity atomic.Int64 // UnixNano
 	closing      atomic.Bool
@@ -250,6 +254,52 @@ func (w *worker) Limitations() []string {
 		out = append(out, note)
 	}
 	return out
+}
+
+// ForceKill 立即终止本 worker 拥有的进程树（停止升级路径，基线 §6）。
+//
+// 与 Close 的关系：
+//   - 可并发调用：句柄关闭与强杀由 treeMu 串行化；
+//   - 幂等：进程树已经死掉时再次强杀仍然返回 nil；
+//   - 句柄已经关闭（Close 走完了）则返回错误——这时"能不能清干净"只能由
+//     Close 的结论回答，不能让上层以为还有一次强杀可用；
+//   - 只杀 owned 进程树（Job Object / 进程组），不按可执行文件名误杀别人的进程。
+//
+// 它不属于 Worker 接口：那是 RPC 协议契约，停机升级只是可选能力，
+// 用窄接口在调用点探测即可，免得所有实现与 fake 都被迫加一个方法。
+func (w *worker) ForceKill() error {
+	w.treeMu.Lock()
+	defer w.treeMu.Unlock()
+	if w.treeClosed {
+		return contracts.NewAppError(contracts.CodeCleanupFailed,
+			"worker 的进程树句柄已关闭，无法强制终止", false)
+	}
+	if err := w.tree.kill(); err != nil {
+		return contracts.NewAppError(contracts.CodeCleanupFailed,
+			"强制终止 worker 进程树失败: "+err.Error(), false)
+	}
+	return nil
+}
+
+// killTree 是 Close 内部的强杀入口，与 ForceKill 共用同一把锁。
+func (w *worker) killTree() error {
+	w.treeMu.Lock()
+	defer w.treeMu.Unlock()
+	if w.treeClosed {
+		return contracts.NewAppError(contracts.CodeCleanupFailed, "worker 的进程树句柄已关闭", false)
+	}
+	return w.tree.kill()
+}
+
+// closeTree 关闭进程树句柄。重复调用无副作用。
+func (w *worker) closeTree() error {
+	w.treeMu.Lock()
+	defer w.treeMu.Unlock()
+	if w.treeClosed {
+		return nil
+	}
+	w.treeClosed = true
+	return w.tree.close()
 }
 
 // Call 发送命令并等待同 id 响应。
@@ -572,14 +622,14 @@ func (w *worker) Close(ctx context.Context) error {
 
 		exited := w.waitExit(w.spec.KillTimeout)
 		if !exited {
-			_ = w.tree.kill()
+			_ = w.killTree()
 			exited = w.waitExit(w.spec.KillTimeout)
 		}
 
 		// 主进程可能已退出但子孙（MCP server 等）仍持有管道与进程槽位。
 		remaining, verifiable := w.waitTreeEmpty(w.spec.CleanupLimit)
 		if !verifiable || remaining != 0 {
-			_ = w.tree.kill()
+			_ = w.killTree()
 			remaining, verifiable = w.waitTreeEmpty(2 * time.Second)
 		}
 
@@ -593,7 +643,7 @@ func (w *worker) Close(ctx context.Context) error {
 		}
 
 		limitation := w.tree.limitation()
-		_ = w.tree.close()
+		_ = w.closeTree()
 
 		var problems []string
 		if !exited {
