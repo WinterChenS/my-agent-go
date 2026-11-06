@@ -147,7 +147,14 @@ func integrationCases() []integrationCase {
 		// executedPath 取自子进程自述，不取自 Locate 的返回值；后者只做交叉核对。
 		{ID: "PI01", Package: piTests, Run: "TestLocate",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"located-tree.json", "child-self.log", "child-record.json"}}},
-		{ID: "PI02", Package: piTests, Run: "TestProbeHasNoUserConfigSideEffects|TestProbePs1NotDirectlyExecutable"},
+		// PI02：probe 不得碰用户配置。观察值全部来自磁盘：
+		//   - fake-home-before/after.json：只读磁盘遍历出的用户 HOME 快照（前后 diff）；
+		//   - child-env.txt：**probe 子进程自己** dump 的环境变量（cmd 的 set / env）；
+		//   - child-env.json：上者规范化后的副本（父进程不代写内容）。
+		// 另有 Windows 专项的 ps1-self.json / ps1-restricted-stderr.txt 作为未声明的附加
+		// artifact 留在目录里（.ps1 受限执行在非 Windows 上不存在，不能写进必需清单）。
+		{ID: "PI02", Package: piTests, Run: "TestProbeHasNoUserConfigSideEffects|TestProbePs1NotDirectlyExecutable",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"fake-home-before.json", "fake-home-after.json", "child-env.txt", "child-env.json"}}},
 		{ID: "PI03", Package: piTests, Run: "TestCaptureRealPiProtocol|TestProtocolGolden|TestWorkerWithRealPi"},
 		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe"},
 		// F08：发现/兼容状态。两条 case 的观察值都由测试自己写进 ANVIL_OBSERVATION_DIR

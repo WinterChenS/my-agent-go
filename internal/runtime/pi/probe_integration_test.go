@@ -29,6 +29,9 @@ func hashFile(t *testing.T, path string) string {
 // 形态必须跟着平台走：BuildLaunch 按扩展名推导启动包装（.cmd → cmd /c，.ps1 → powershell -File，
 // 其余按可执行文件直接启动）。若在任何平台都生成 .cmd，Unix 上测到的是"缺 cmd.exe"这条依赖分支，
 // 而不是 probe 的隔离/版本策略逻辑——CI 上正是这样红的（DependencyMissing: cmd.exe not found）。
+//
+// 设置 FAKEWORKER_RECORD_ENV 时，shim 会把**它自己收到的环境变量**落盘（PI02 的外部观察源）：
+// 父进程只能读那个文件，不能替子进程说它看到了什么。
 func makeVersionShim(t *testing.T, dir, version string) PiInstallation {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -37,10 +40,16 @@ func makeVersionShim(t *testing.T, dir, version string) PiInstallation {
 	var p, content string
 	if runtime.GOOS == "windows" {
 		p = filepath.Join(dir, "pi.cmd")
-		content = "@echo off\r\nif \"%1\"==\"--version\" echo " + version + "\r\n"
+		content = "@echo off\r\n" +
+			"if \"%FAKEWORKER_RECORD_ENV%\"==\"\" goto version\r\n" +
+			"set > \"%FAKEWORKER_RECORD_ENV%\"\r\n" +
+			":version\r\n" +
+			"if \"%1\"==\"--version\" echo " + version + "\r\n"
 	} else {
 		p = filepath.Join(dir, "pi")
-		content = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo " + version + "; fi\n"
+		content = "#!/bin/sh\n" +
+			"if [ -n \"$FAKEWORKER_RECORD_ENV\" ]; then env > \"$FAKEWORKER_RECORD_ENV\"; fi\n" +
+			"if [ \"$1\" = \"--version\" ]; then echo " + version + "; fi\n"
 	}
 	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
 		t.Fatalf("write shim: %v", err)
@@ -89,6 +98,28 @@ func TestProbeHasNoUserConfigSideEffects(t *testing.T) {
 
 	inst := makeVersionShim(t, filepath.Join(t.TempDir(), "bin"), "1.5.0")
 
+	// PI02 的外部观察装置（filesystem）：
+	//   - fake-home-before/after.json：只读磁盘遍历出来的用户 HOME 快照（前后对比）；
+	//   - child-env.txt / child-env.json：**probe 子进程自己**把 os.Environ 落盘的副本，
+	//     父进程只读。childHome / childAgentDir 取自那个文件，不取自 Probe 的入参。
+	obsDir := piObservationDir()
+	var (
+		childEnvRaw  string
+		beforeTree   []treeEntry
+		childEnvPath string
+	)
+	if obsDir != "" {
+		if err := os.MkdirAll(obsDir, 0o755); err != nil {
+			t.Fatalf("创建观察目录失败: %v", err)
+		}
+		beforeTree = walkTree(t, userHome)
+		writeArtifact(t, "fake-home-before.json", beforeTree)
+		childEnvRaw = filepath.Clean(filepath.Join(obsDir, "child-env.txt"))
+		_ = os.Remove(childEnvRaw)
+		childEnvPath = childEnvRaw
+		t.Setenv("FAKEWORKER_RECORD_ENV", childEnvPath)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -127,6 +158,76 @@ func TestProbeHasNoUserConfigSideEffects(t *testing.T) {
 	if _, statErr := os.Stat(agentDir); statErr != nil {
 		t.Fatalf("隔离 agentDir 未被创建/使用: %v", statErr)
 	}
+
+	if obsDir == "" {
+		return // 本地 focused 运行：不落盘
+	}
+
+	// 读回外部观察值：用户 HOME 的前后快照 + 子进程自述环境。
+	afterTree := walkTree(t, userHome)
+	writeArtifact(t, "fake-home-after.json", afterTree)
+	added, removed, changed := diffTrees(beforeTree, afterTree)
+
+	childEnv := parseKVRecords(t, childEnvRaw)
+	if len(childEnv) == 0 {
+		t.Fatal("probe 子进程没有写下环境变量：外部观察值不能退回测试进程里的推断")
+	}
+	if len(childEnv) != 1 {
+		t.Fatalf("期望子进程只被启动一次（一份环境快照），实际 %d 份", len(childEnv))
+	}
+	env := childEnv[0]
+	childHome, childHomeOK := lookupEnvMap(env, "HOME")
+	childProfile, childProfileOK := lookupEnvMap(env, "USERPROFILE")
+	childAppData, childAppDataOK := lookupEnvMap(env, "APPDATA")
+	childAgentDir, childAgentDirOK := lookupEnvMap(env, "PI_CODING_AGENT_DIR")
+	isoClean := filepath.Clean(agentDir)
+
+	// 子进程视角的隔离必须成立：它的 HOME/USERPROFILE/APPDATA/agentDir 都指向隔离目录，
+	// 而不是用户在测试里扮演的真实 home。
+	for _, want := range []struct {
+		name  string
+		value string
+		found bool
+	}{
+		{"HOME", childHome, childHomeOK},
+		{"USERPROFILE", childProfile, childProfileOK},
+		{"APPDATA", childAppData, childAppDataOK},
+		{"PI_CODING_AGENT_DIR", childAgentDir, childAgentDirOK},
+	} {
+		if !want.found || want.value == "" {
+			t.Fatalf("子进程环境里没有 %s：无法证明隔离生效", want.name)
+		}
+		if !strings.EqualFold(filepath.Clean(want.value), isoClean) {
+			t.Fatalf("子进程的 %s 未被重定向到隔离目录：%q（期望 %q）", want.name, want.value, isoClean)
+		}
+		if strings.EqualFold(filepath.Clean(want.value), filepath.Clean(userHome)) {
+			t.Fatalf("子进程的 %s 仍指向用户 HOME（%q）：probe 产生了用户配置副作用风险", want.name, want.value)
+		}
+	}
+
+	writeArtifact(t, "child-env.json", map[string]any{
+		"HOME":                childHome,
+		"USERPROFILE":         childProfile,
+		"APPDATA":             childAppData,
+		"PI_CODING_AGENT_DIR": childAgentDir,
+		"envCount":            len(env),
+	})
+
+	writePiObservation(t, map[string]any{
+		"filesAdded":        added,
+		"filesRemoved":      removed,
+		"filesChanged":      changed,
+		"userHomeEntries":   len(afterTree),
+		"userHomeDigest":    treeDigest(t, afterTree),
+		"childHome":         childHome,
+		"childUserProfile":  childProfile,
+		"childAppData":      childAppData,
+		"childAgentDir":     childAgentDir,
+		"childEnvCount":     len(env),
+		"probeState":        string(res.State),
+		"probeVersion":      res.Version,
+		"probeChildStarted": true,
+	}, nil)
 }
 
 // TestProbePs1NotDirectlyExecutable 验证：.ps1 在执行策略禁止（不带 -ExecutionPolicy Bypass）
@@ -143,11 +244,69 @@ func TestProbePs1NotDirectlyExecutable(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "pi.ps1")
 	// 一个正常内容；重点在于执行策略禁止时它无法运行。
-	content := "param()\r\nif ($args -contains '--version') { Write-Output '1.5.0' }\r\n"
+	//
+	// 脚本自己把**它的视角**（$PSCommandPath、$MyInvocation、$PSHOME、$args）写进
+	// FAKEWORKER_RECORD_SELF：正向对照靠这个文件证明".ps1 是由 powershell -File 启动的"，
+	// 而不是被当成可执行文件直接 CreateProcess。
+	content := "param()\r\n" +
+		"if ($env:FAKEWORKER_RECORD_SELF) {\r\n" +
+		"  $lines = @(\r\n" +
+		"    \"scriptPath=$PSCommandPath\",\r\n" +
+		"    \"invokedAs=$($MyInvocation.InvocationName)\",\r\n" +
+		"    \"hostName=$($Host.Name)\",\r\n" +
+		"    \"args=$($args -join ' ')\",\r\n" +
+		"    \"pshome=$PSHOME\",\r\n" +
+		"    \"agentDir=$env:PI_CODING_AGENT_DIR\"\r\n" +
+		"  )\r\n" +
+		"  Add-Content -Path $env:FAKEWORKER_RECORD_SELF -Value $lines\r\n" +
+		"}\r\n" +
+		"if ($args -contains '--version') { Write-Output '1.5.0' }\r\n"
 	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
 		t.Fatalf("write ps1: %v", err)
 	}
 	inst := PiInstallation{ID: "fixture:" + p, Executable: p, Origin: OriginExternal}
+
+	// PI02 的外部观察（正向对照）：执行策略允许时，BuildLaunch 给出的启动器
+	// （powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ps1>）能真的跑到脚本，
+	// 且脚本自己确认了它被谁、以什么参数启动。
+	obsDir := piObservationDir()
+	var ps1SelfRaw string
+	if obsDir != "" {
+		if err := os.MkdirAll(obsDir, 0o755); err != nil {
+			t.Fatalf("创建观察目录失败: %v", err)
+		}
+		ps1SelfRaw = filepath.Clean(filepath.Join(obsDir, "ps1-self.log"))
+		_ = os.Remove(ps1SelfRaw)
+		t.Setenv("FAKEWORKER_RECORD_SELF", ps1SelfRaw)
+
+		exe, args, berr := BuildLaunch(inst, "--version")
+		if berr != nil {
+			t.Fatalf("BuildLaunch 失败: %v", berr)
+		}
+		bypass := exec.Command(exe, args...)
+		bypass.Env = os.Environ()
+		out, runErr := bypass.CombinedOutput()
+		if runErr != nil {
+			t.Fatalf("执行策略允许时 .ps1 应能经启动器运行，实际失败: %v（输出 %q）", runErr, string(out))
+		}
+		if !strings.Contains(string(out), "1.5.0") {
+			t.Fatalf("启动器执行 .ps1 的输岀应含版本号，实际 %q", string(out))
+		}
+		self := parseKVRecords(t, ps1SelfRaw)
+		if len(self) == 0 {
+			t.Fatal(".ps1 没有写下自述：无法证明它被启动器执行")
+		}
+		if got := self[0]["scriptPath"]; !sameFile(got, p) {
+			t.Fatalf("被执行的不是 fixture .ps1：子进程自述 %q（fixture=%q）", got, p)
+		}
+		writeArtifact(t, "ps1-self.json", self)
+		writePiObservation(t, map[string]any{
+			"ps1LauncherExe":  exe,
+			"ps1LauncherArgs": args,
+			"ps1SelfReport":   self,
+			"ps1Ran":          true,
+		}, nil)
+	}
 
 	// 自建受限前提（Process 作用域）。
 	t.Setenv("PSExecutionPolicyPreference", "Restricted")
@@ -178,6 +337,75 @@ func TestProbePs1NotDirectlyExecutable(t *testing.T) {
 	if !strings.Contains(joined, "不可直接执行") && !strings.Contains(joined, "执行策略") {
 		t.Fatalf("诊断未说明不可直接执行/执行策略禁止；diag=%v err=%v", res.Diagnostics, err)
 	}
+
+	if obsDir == "" {
+		return // 本地 focused 运行：不落盘
+	}
+
+	// 反向观察：把同一条启动器命令行交给 OS shell 执行，把**子进程的 stderr** 重定向到磁盘。
+	// 执行策略禁止时 .ps1 的脚本体根本不会运行（所以它写不出自述），
+	// 能拿到的事实是启动器自己的诊断与退出码 —— 这正是"不可直接执行"的证据。
+	exe, args, berr := BuildLaunch(inst, "--version")
+	if berr != nil {
+		t.Fatalf("BuildLaunch 失败: %v", berr)
+	}
+	stderrPath := filepath.Clean(filepath.Join(obsDir, "ps1-restricted-stderr.txt"))
+	_ = os.Remove(stderrPath)
+	beforeSum := ""
+	if raw, rerr := os.ReadFile(ps1SelfRaw); rerr == nil {
+		beforeSum = sha256Of(raw)
+	}
+	line := shellQuote(exe)
+	for _, a := range args {
+		line += " " + shellQuote(a)
+	}
+	line += ` 2> "` + stderrPath + `"`
+	code := runViaCmdScript(t, t.TempDir(), "ps1-restricted", line)
+
+	rawStderr, rerr := os.ReadFile(stderrPath)
+	if rerr != nil {
+		t.Fatalf("读回 .ps1 受限执行的 stderr 失败（OS 重定向未生效）: %v", rerr)
+	}
+	if code == 0 {
+		t.Fatalf(".ps1 在执行策略禁止下不应返回 0，实际 %d（stderr: %s）", code, clip(string(rawStderr), 300))
+	}
+	if len(strings.TrimSpace(string(rawStderr))) == 0 {
+		t.Fatal("受限执行的 stderr 为空：无法证明启动器真的尝试了 .ps1")
+	}
+	// 错误信息里必然出现脚本路径（ASCII），不依赖系统语言的措辞。
+	// powershell 报长名、t.TempDir 给 8.3 短名，两者尾部相同（<测试目录>\pi.ps1），
+	// 所以比对尾部而不是整串。
+	tail := filepath.Base(filepath.Dir(p)) + `\` + filepath.Base(p)
+	namesScript := strings.Contains(string(rawStderr), tail)
+	if !namesScript {
+		t.Fatalf("受限执行的 stderr 没有提到 .ps1 路径 %q：stderr=%s", p, clip(string(rawStderr), 400))
+	}
+	afterSum := ""
+	if raw, rerr := os.ReadFile(ps1SelfRaw); rerr == nil {
+		afterSum = sha256Of(raw)
+	}
+	if afterSum != beforeSum {
+		t.Fatal("执行策略禁止时 .ps1 脚本体竟然运行了（自述文件被改写）")
+	}
+
+	writePiObservation(t, map[string]any{
+		"restrictedExitCode":          code,
+		"restrictedStderrNamesScript": namesScript,
+		"restrictedStderrBytes":       len(rawStderr),
+		"restrictedScriptBodyRan":     false,
+		"ps1DirectlyExecutable":       false,
+	}, nil)
+}
+
+// shellQuote 在需要时给参数加双引号（路径可能含空格）。
+func shellQuote(s string) string {
+	if s == "" {
+		return `""`
+	}
+	if strings.ContainsAny(s, " 	") {
+		return `"` + s + `"`
+	}
+	return s
 }
 
 func errString(err error) string {

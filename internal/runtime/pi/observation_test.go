@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -192,4 +194,89 @@ func isolationFlagsOf(argv []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// diffTrees 对比两次磁盘遍历，给出新增/删除/变化的相对路径。
+// 只读两棵树的记录，不假设"应该没变"。
+func diffTrees(before, after []treeEntry) (added, removed, changed []string) {
+	added, removed, changed = []string{}, []string{}, []string{}
+	toMap := func(in []treeEntry) map[string]treeEntry {
+		m := make(map[string]treeEntry, len(in))
+		for _, e := range in {
+			m[e.Path] = e
+		}
+		return m
+	}
+	b, a := toMap(before), toMap(after)
+	for p, ae := range a {
+		be, ok := b[p]
+		if !ok {
+			added = append(added, p)
+			continue
+		}
+		if be.Size != ae.Size || be.SHA256 != ae.SHA256 || be.Mode != ae.Mode {
+			changed = append(changed, p)
+		}
+	}
+	for p := range b {
+		if _, ok := a[p]; !ok {
+			removed = append(removed, p)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	sort.Strings(changed)
+	return added, removed, changed
+}
+
+// runViaCmdScript 让 OS 的 shell 负责执行与重定向，返回真实退出码。
+//
+// 为什么不直接把带 > 的字符串交给 cmd /c：Go 在 Windows 上给含引号/空格的参数
+// 加的是反斜杠转义，cmd.exe 不认，路径含空格时会静默错位。落一个 .cmd 文件
+// 是最不容易出错的写法，而且"谁在重定向"依然是 OS shell，不是测试进程。
+func runViaCmdScript(t *testing.T, dir, name, body string) int {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		p := filepath.Join(dir, name+".cmd")
+		if err := os.WriteFile(p, []byte("@echo off\r\n"+body+"\r\n"), 0o644); err != nil {
+			t.Fatalf("写 %s 失败: %v", p, err)
+		}
+		cmd := exec.Command("cmd.exe", "/c", p)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				t.Logf("%s 退出码 %d，输出：%s", name, ee.ExitCode(), strings.TrimSpace(string(out)))
+				return ee.ExitCode()
+			}
+			t.Fatalf("执行 %s 失败: %v", p, err)
+		}
+		return 0
+	}
+	p := filepath.Join(dir, name+".sh")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("写 %s 失败: %v", p, err)
+	}
+	cmd := exec.Command("/bin/sh", p)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			t.Logf("%s 退出码 %d，输出：%s", name, ee.ExitCode(), strings.TrimSpace(string(out)))
+			return ee.ExitCode()
+		}
+		t.Fatalf("执行 %s 失败: %v", p, err)
+	}
+	return 0
+}
+
+// lookupEnvMap 在"子进程自己 dump 出来的环境变量"里按名字取值（大小写不敏感：
+// Windows 的环境变量名本来就不区分大小写）。
+func lookupEnvMap(env map[string]string, key string) (string, bool) {
+	for k, v := range env {
+		if strings.EqualFold(k, key) {
+			return v, true
+		}
+	}
+	return "", false
 }
