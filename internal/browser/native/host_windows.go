@@ -236,6 +236,10 @@ func (h *host) Present(ctx context.Context, tab browser.TabID, slot browser.Slot
 //
 // 同时也切 controller 的 IsVisible：只隐藏父级 HWND 会留下一个"看不见但在
 // 合成"的 WebView2，遮挡判断和截图都会受影响。
+//
+// controller 可见性走 setControllerVisible（vtable 直调 + 读回），不用依赖库的
+// Show()/Hide()：它把线程 last-error 当 HRESULT 比较，会把**成功**的调用报成失败
+// （BR04 分栏第 9 轮实测 "Invalid window handle"）。详见 controller_visibility_windows.go。
 func (h *host) SetVisible(ctx context.Context, visible bool) error {
 	return h.runOnUI(ctx, func() error {
 		if !h.attached || h.childHWND.Load() == 0 {
@@ -244,16 +248,12 @@ func (h *host) SetVisible(ctx context.Context, visible bool) error {
 		child := h.childHWND.Load()
 		if visible {
 			showWindow(child, swShow)
-			if h.chromium != nil {
-				if err := h.chromium.Show(); err != nil {
-					return appErr(contracts.CodeInternal, "ICoreWebView2Controller.PutIsVisible(true) 失败: %v", err)
-				}
+			if err := setControllerVisible(h.ctrl, true); err != nil {
+				return err
 			}
 		} else {
-			if h.chromium != nil {
-				if err := h.chromium.Hide(); err != nil {
-					return appErr(contracts.CodeInternal, "ICoreWebView2Controller.PutIsVisible(false) 失败: %v", err)
-				}
+			if err := setControllerVisible(h.ctrl, false); err != nil {
+				return err
 			}
 			showWindow(child, swHide)
 		}
