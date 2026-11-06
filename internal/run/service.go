@@ -34,6 +34,14 @@ const (
 // WorkerStarter 允许注入 worker 构造（测试用假 worker；生产用 pi.StartWorker）。
 type WorkerStarter func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error)
 
+// HistorySink 记录 run 索引。实现由 internal/history 提供（依赖方向 history → run）。
+//
+// nil 表示不落索引（单元测试与无 DB 场景）。本包只依赖这个最小接口，
+// 不认识数据库，也不认识 transcript：索引写在哪、怎么定位 Pi 会话由实现决定。
+type HistorySink interface {
+	RecordRun(ctx context.Context, snap contracts.RunSnapshot) error
+}
+
 // Options 构造 RunService。
 type Options struct {
 	WorkspaceID  contracts.WorkspaceID
@@ -96,6 +104,18 @@ type Options struct {
 	MaxToolCalls int
 	// MaxRunDuration 是每 run 的运行时长上限，默认 30 分钟。
 	MaxRunDuration time.Duration
+
+	// History 是 run 索引写入器（RUN07）。为空表示不落索引。
+	//
+	// 写入是**同步**的，发生在状态迁移之后（不在 emit 里，emit 太热）。
+	// 写到数据库会占住调用方的栈：事件泵的 goroutine 会等这次写完成再继续。
+	// 这是刻意的取舍——索引落后于事件流，比索引与状态互相追逐更容易解释；
+	// 单连接 SQLite 本来也是串行的，异步写只会把串行点藏进后台 goroutine。
+	//
+	// 写失败不会让 run 失败：只发一条 diagnostic{kind:"history.record_failed"}。
+	// 丢一次索引更新很糟，但把一次可重扫的索引故障变成"这一轮 run 失败"更糟——
+	// run 的实际副作用已经发生，把状态报成 failed 会误导用户重试。
+	History HistorySink
 }
 
 // Service 管理 run 的生命周期。并发安全。
@@ -328,6 +348,9 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		s.queue = append(s.queue, id)
 		s.mu.Unlock()
 		s.emit(rs, EventRunState, statePayload{State: contracts.RunStateQueued})
+		// 排队也是一个真实状态：索引里必须能看到它，否则重启后 UI 只知道
+		// "有个 run"，不知道它当时还没拿到槽位。
+		s.recordHistory(rs)
 		return rs.snapshot(), nil
 	}
 
@@ -1055,7 +1078,33 @@ func (s *Service) transition(rs *runState, to string) error {
 	rs.mu.Unlock()
 
 	s.emit(rs, EventRunState, statePayload{State: to, Previous: from})
+	// 在状态与 seq 都已更新（emit 里推进 seq）之后才写索引：sink 看到的
+	// 必须是迁移**后**的事实，而不是一个马上就被覆盖的旧快照。
+	// 不放在 emit 里：emit 是本服务最热的路径（每个 delta 都走它）。
+	s.recordHistory(rs)
 	return nil
+}
+
+// recordHistory 把当前快照写给 HistorySink（RUN07）。
+//
+// 失败只发诊断，不让 run 变失败：索引是**派生**数据（可以从 transcript 与事件
+// 重建），而 run 已经产生真实副作用。把一次写盘故障升级成"这一轮失败了"，
+// 用户会看到一个其实做完的 run 被标成失败并去重试。
+//
+// 用 context.Background() 而不是 runCtx：终态迁移往往发生在 run 被取消之后，
+// 用已取消的 ctx 写索引会把"取消"错报成"索引写入失败"。写入由调用方同步
+// 等待（不做后台 goroutine，RUN07 禁止常驻历史 worker）。
+func (s *Service) recordHistory(rs *runState) {
+	if s.opts.History == nil {
+		return
+	}
+	snap := rs.snapshot()
+	if err := s.opts.History.RecordRun(context.Background(), snap); err != nil {
+		s.emit(rs, EventDiagnostic, map[string]any{
+			"kind":    "history.record_failed",
+			"message": fmt.Sprintf("写入历史索引失败（run %s，状态 %s）：%v", snap.RunID, snap.State, err),
+		})
+	}
 }
 
 // emit 写入事件（seq 单调递增并保留用于重放）并广播给订阅者。

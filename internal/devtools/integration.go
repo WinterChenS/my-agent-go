@@ -99,6 +99,7 @@ func integrationCases() []integrationCase {
 	piTests := "internal/runtime/pi"
 	policyTests := "internal/policy"
 	runTests := "internal/run"
+	historyTests := "internal/history"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -196,6 +197,11 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"counter.txt"}}},
 		{ID: "RUN06.service", Package: runTests, Run: "TestBudgetDenies101stToolCall|TestBudgetGateBlocksToolCallThroughPolicyBridge|TestTimeBudgetStopsRun|TestUsageUnavailableIsNotZero|TestUsageReportedFromPiEvents|TestUsageDedupesRepeatedAssistantMessage|TestUsageUnknownPriceOmitsCost",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"events.jsonl"}}},
+		// RUN07：历史索引与 transcript 定位。观察值来自数据库文件本身
+		// （source:"database"）：index-dump.json 由测试用第二个 storage.DB 句柄
+		// 从磁盘读出，不是问被测服务"你记对了吗"。
+		{ID: "RUN07", Package: historyTests, Run: "TestRunIndexSurvivesRestart|TestTranscriptReadableAfterRestart|TestIndexStoresLocatorsNotContent|TestSingleWriterPerSession|TestNoPersistentHistoryWorker",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"index-dump.json"}}},
 	}
 	return cases
 }
