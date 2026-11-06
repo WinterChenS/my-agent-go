@@ -61,6 +61,14 @@ func captureProcessTable(t *testing.T, phase, filter string) processTableFile {
 			return existing
 		}
 	}
+	if phase == "after" {
+		// WebView2 的子进程是异步退出的：controller Close 之后到进程表里真的消失
+		// 之间有一段窗口。这里先按文档口径等这段时间，再抓表——否则抓到的
+		// "还有 3 个进程" 只是抓早了，不是没回收（实测 2026-11-06 出现过）。
+		if waited := waitForNoWebView2Processes(t, filter, webView2ReapWindow); waited > 0 {
+			t.Logf("process-table-after：等待 %s 后浏览器子进程才全部退出", waited.Round(time.Millisecond))
+		}
+	}
 	path := observationPath(name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("创建观察目录失败: %v", err)
@@ -95,6 +103,30 @@ $json = $doc | ConvertTo-Json -Depth 6
 		t.Fatalf("进程表 %s 记录到错误: %s", name, table.Error)
 	}
 	return table
+}
+
+// webView2ReapWindow 是"controller 关掉后子进程退出"的宽限窗口。
+//
+// 取 10s 而不是 1s：退出延迟取决于机器负载（50 轮 soak 时进程销毁更慢），
+// 宽限太短会把"正在退出"记成"没回收"。超出窗口仍未退出才算真泄漏。
+const webView2ReapWindow = 10 * time.Second
+
+// waitForNoWebView2Processes 轮询到没有带该 filter 的 msedgewebview2 进程，最多等 limit。
+//
+// 返回实际等待时长；limit 内没清空就返回 limit（调用方照常抓表并让断言失败）。
+func waitForNoWebView2Processes(t *testing.T, filter string, limit time.Duration) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for {
+		n, err := CountWebView2Processes(filter)
+		if err == nil && n.Count == 0 {
+			return time.Since(start)
+		}
+		if time.Since(start) >= limit {
+			return limit
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // pidsOf 取进程表里的 PID 列表（保持进程表顺序）。
