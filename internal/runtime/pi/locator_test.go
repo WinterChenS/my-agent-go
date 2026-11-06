@@ -212,3 +212,164 @@ func TestClassifyVersion(t *testing.T) {
 		t.Fatalf("空版本应为 unverified（UnsupportedVersion），实际 %s", state)
 	}
 }
+
+// ---- PI01 的外部观察装置 ----
+//
+// 上面几条用例断言的是"定位结果长什么样"。这一条补的是**谁真的被执行了**：
+// 候选 shim 把自身视角（真实路径、argv0、工作目录、启动命令行）追加到记录文件，
+// 父进程只读那个文件；磁盘上的 fixture 树也一并落盘（路径/大小/模式/哈希）。
+//
+// 记录文件路径通过环境变量交给 shim，而不是塞进 argv：否则观察装置会污染
+// 被观察的 argv（被测产品真正发出的参数就看不到了）。
+
+// writeRecordingShim 写一个会自我记录的版本 shim。
+// Windows 用 .cmd（走 cmd.exe /c 启动），其它平台用同名脚本（直接执行）。
+func writeRecordingShim(t *testing.T, dir, version string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if runtime.GOOS == "windows" {
+		p := filepath.Join(dir, "pi.cmd")
+		body := "@echo off\r\n" +
+			"if \"%FAKEWORKER_RECORD_SELF%\"==\"\" goto version\r\n" +
+			">>\"%FAKEWORKER_RECORD_SELF%\" echo self=%~f0\r\n" +
+			">>\"%FAKEWORKER_RECORD_SELF%\" echo argv0=%0\r\n" +
+			">>\"%FAKEWORKER_RECORD_SELF%\" echo cwd=%CD%\r\n" +
+			">>\"%FAKEWORKER_RECORD_SELF%\" echo cmdline=%CMDCMDLINE%\r\n" +
+			">>\"%FAKEWORKER_RECORD_SELF%\" echo arg1=%1\r\n" +
+			":version\r\n" +
+			"if \"%1\"==\"--version\" echo " + version + "\r\n"
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("write shim: %v", err)
+		}
+		return p
+	}
+	p := filepath.Join(dir, "pi")
+	body := "#!/bin/sh\n" +
+		"if [ -n \"$FAKEWORKER_RECORD_SELF\" ]; then\n" +
+		"  {\n" +
+		"    printf 'self=%s\n' \"$0\"\n" +
+		"    printf 'argv0=%s\n' \"$0\"\n" +
+		"    printf 'cwd=%s\n' \"$PWD\"\n" +
+		"    printf 'cmdline=%s\n' \"$0 $*\"\n" +
+		"    printf 'arg1=%s\n' \"$1\"\n" +
+		"  } >> \"$FAKEWORKER_RECORD_SELF\"\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"--version\" ]; then echo " + version + "; fi\n"
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatalf("write shim: %v", err)
+	}
+	return p
+}
+
+// TestLocateRecordsChildSelfReport 是 PI01 的 external-observation 取证点。
+//
+// 观察链路：Locate → probeVersion → 真实子进程 → 子进程自己写记录文件 → 测试读回。
+// 事实（executedPath / executedFromShim / priorityOrder / treeSha256）全部来自磁盘，
+// 不是从 Locate 的返回值里推断的；Locate 的返回值只用于**交叉核对**（不一致即判失败）。
+func TestLocateRecordsChildSelfReport(t *testing.T) {
+	root := t.TempDir()
+	isolate(t) // 清掉宿主真实 Pi 的其它发现来源
+	bin := filepath.Join(root, "bin")
+	shim := writeRecordingShim(t, bin, "1.5.0")
+	t.Setenv("PATH", bin)
+
+	obs := piObservationDir()
+	var recordPath string
+	if obs != "" {
+		// Clean 同时把分隔符规范成平台形式：cmd.exe 的 >> 重定向不认 D:/a/b 这种写法，
+		// 写成正斜杠时文件会被静默丢弃（实测）。
+		recordPath = filepath.Clean(filepath.Join(obs, "child-self.log"))
+		// 目录必须先存在：cmd.exe 的 >> 重定向在父目录不存在时会**静默**丢内容，
+		// 那样"子进程没写"和"目录没建"就分不开了。
+		if err := os.MkdirAll(filepath.Dir(recordPath), 0o755); err != nil {
+			t.Fatalf("创建观察目录失败: %v", err)
+		}
+		_ = os.Remove(recordPath)
+		t.Setenv("FAKEWORKER_RECORD_SELF", recordPath)
+	}
+
+	got, err := Locate(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Locate 不应报错: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("隔离 PATH 下应只发现 1 个 Pi，实际 %d: %+v", len(got), got)
+	}
+	if got[0].Version != "1.5.0" {
+		t.Fatalf("版本应为 1.5.0，实际 %q（Note=%q）", got[0].Version, got[0].Note)
+	}
+	if !got[0].Runnable {
+		t.Fatalf("可执行的版本 shim 应标 Runnable: %+v", got[0])
+	}
+
+	if obs == "" {
+		return // 本地 focused 运行：不落盘
+	}
+
+	entries := walkTree(t, root)
+	writeArtifact(t, "located-tree.json", entries)
+	digest := treeDigest(t, entries)
+
+	recs := parseKVRecords(t, recordPath)
+	if len(recs) == 0 {
+		t.Fatal("定位过程没有真正执行候选：子进程没有写下任何自述记录")
+	}
+	writeArtifact(t, "child-record.json", recs)
+
+	var order []string
+	viaLauncher := "direct"
+	for _, rec := range recs {
+		if p := strings.TrimSpace(rec["self"]); p != "" {
+			order = append(order, p)
+		}
+		if strings.Contains(strings.ToLower(rec["cmdline"]), "cmd.exe") {
+			viaLauncher = "cmd.exe /c"
+		}
+	}
+	if len(order) == 0 {
+		t.Fatal("子进程自述里没有自身路径，无法判定真正执行的是哪个文件")
+	}
+
+	// 交叉核对：产品报告的 Executable 必须就是子进程自己说的那个文件。
+	// 不一致说明定位结果与真实执行脱节（例如被 shell 重新拆分/解析到别处）。
+	// 8.3 短名（ADMINI~1）与长名指向同一文件，所以用 os.SameFile 而不是纯字符串比较。
+	if !sameFile(order[0], got[0].Executable) {
+		t.Fatalf("定位结果与真实执行的路径不一致：Locate=%s 子进程自述=%s",
+			got[0].Executable, order[0])
+	}
+	if !sameFile(shim, order[0]) {
+		t.Fatalf("被执行的不是 fixture shim：%s（shim=%s）", order[0], shim)
+	}
+
+	writePiObservation(t, map[string]any{
+		"executedPath":               order[0],
+		"executedFromShim":           viaLauncher == "cmd.exe /c",
+		"viaLauncher":                viaLauncher,
+		"locatorExecutable":          got[0].Executable,
+		"executedPathMatchesLocator": true,
+		"priorityOrder":              order,
+		"probeCount":                 len(recs),
+		"treeSha256":                 digest,
+		"treeEntries":                len(entries),
+		"fixtureShim":                shim,
+		"recordedCwd":                recs[0]["cwd"],
+		"recordedArg1":               recs[0]["arg1"],
+	}, nil)
+}
+
+// sameFile 判断两个路径指向同一个文件（容忍 8.3 短名与大小写差异）。
+// 不能用纯字符串比较：cmd.exe 会把 %~f0 展开成短名（ADMINI~1），
+// 而产品报的是长名——两者是同一个文件，比较错了会把真观察判成假失败。
+func sameFile(a, b string) bool {
+	if strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
+		return true
+	}
+	ai, aerr := os.Stat(a)
+	bi, berr := os.Stat(b)
+	if aerr != nil || berr != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}

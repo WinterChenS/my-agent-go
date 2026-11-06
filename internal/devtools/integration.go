@@ -140,7 +140,13 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"gate-run.json"}}},
 
 		// ── Pi 定位与探测 ──
-		{ID: "PI01", Package: piTests, Run: "TestLocate"},
+		// PI01：定位结果必须与**真正被执行的文件**一致。观察值来自两个方向：
+		//   - 磁盘上的 fixture 树（located-tree.json：路径/大小/模式/sha256）；
+		//   - 候选 shim 子进程自己追加的自述记录（child-self.log：真实路径、argv0、cwd、
+		//     启动命令行），规范化后是 child-record.json。
+		// executedPath 取自子进程自述，不取自 Locate 的返回值；后者只做交叉核对。
+		{ID: "PI01", Package: piTests, Run: "TestLocate",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"located-tree.json", "child-self.log", "child-record.json"}}},
 		{ID: "PI02", Package: piTests, Run: "TestProbeHasNoUserConfigSideEffects|TestProbePs1NotDirectlyExecutable"},
 		{ID: "PI03", Package: piTests, Run: "TestCaptureRealPiProtocol|TestProtocolGolden|TestWorkerWithRealPi"},
 		{ID: "PI04", Package: piTests, Run: "TestClassifyVersion|TestStandaloneNodeFreeProbe"},
