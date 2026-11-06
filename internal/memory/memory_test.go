@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -417,6 +418,41 @@ func TestExportIsReadableJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "数据库连接池上限为二十") {
 		t.Fatal("导出应包含中文原文")
+	}
+
+	// MEM05 的外部观察（filesystem）：产品导出的文档写进磁盘后**从磁盘读回**，
+	// 事实（条数/字节数/被删除条目是否漏出）都从这份文件里取，不是从内存里的 doc。
+	if observationDir() != "" {
+		writeMemoryArtifact(t, "export.json", raw)
+		exportFacts := inspectExportArtifact(t, "export.json")
+		exportFacts["exportExcludesDeleted"] = !strings.Contains(string(raw), drop.ID)
+		observeMemoryDB(t, svc.DB().Path(), exportFacts)
+	}
+}
+
+// inspectExportArtifact 从观察目录里的导出文件读回事实。
+// 读不到就判失败：声明了 export.json 却拿不到文件，等于没有观察值。
+func inspectExportArtifact(t *testing.T, name string) map[string]any {
+	t.Helper()
+	path := filepath.Join(observationDir(), name)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读回导出文件 %s 失败: %v", path, err)
+	}
+	var parsed ExportDocument
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("磁盘上的导出文件不是合法 JSON: %v", err)
+	}
+	ids := make([]string, 0, len(parsed.Items))
+	for _, it := range parsed.Items {
+		ids = append(ids, it.ID)
+	}
+	return map[string]any{
+		"exportPath":          path,
+		"exportBytes":         len(raw),
+		"exportItems":         len(parsed.Items),
+		"exportItemIDs":       ids,
+		"exportSchemaVersion": parsed.SchemaVersion,
 	}
 }
 

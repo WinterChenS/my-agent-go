@@ -56,6 +56,12 @@ func observeAppMemoryDB(t *testing.T, path string, extra map[string]any) {
 	for k, v := range facts {
 		own[k] = v
 	}
+	// MEM05 的 memory 步骤也会写 deletedRows；后写入者直接覆盖会把“删除后那一行
+	// 到底是什么状态”抹成空数组。集合类事实取并集，数字类不取：
+	// 不同步骤用的是不同临时库，相加只会得到一个不对应任何真实库的数字。
+	for _, key := range []string{"deletedRows"} {
+		facts[key] = unionAppListFact(t, key, facts[key])
+	}
 	facts["byTest:"+t.Name()] = own
 	writeAppObservation(t, facts, map[string][]byte{"memory-dump.json": artifact})
 }
@@ -163,6 +169,56 @@ func dumpAppMemoryFile(t *testing.T, path string) ([]byte, map[string]any) {
 	}
 }
 
+// unionAppListFact 把本次观察到的列表与已有 observation.json 里的同名列表取并集。
+func unionAppListFact(t *testing.T, key string, cur any) any {
+	t.Helper()
+	dir := appObservationDir()
+	if dir == "" {
+		return cur
+	}
+	prior := map[string]any{}
+	if raw, err := os.ReadFile(filepath.Join(dir, "observation.json")); err == nil {
+		if err := json.Unmarshal(raw, &prior); err != nil {
+			t.Fatalf("已有 observation.json 不是合法 JSON: %v", err)
+		}
+	}
+	encode := func(v any) string {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	out := make([]any, 0, 4)
+	seen := map[string]bool{}
+	for _, src := range []any{prior[key], cur} {
+		var items []any
+		switch v := src.(type) {
+		case []any:
+			items = v
+		case nil:
+			continue
+		default:
+			b, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			if err := json.Unmarshal(b, &items); err != nil {
+				continue
+			}
+		}
+		for _, item := range items {
+			k := encode(item)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func writeAppObservation(t *testing.T, facts map[string]any, files map[string][]byte) {
 	t.Helper()
 	dir := appObservationDir()
@@ -209,5 +265,56 @@ func writeAppObservation(t *testing.T, facts map[string]any, files map[string][]
 	}
 	if err := os.WriteFile(filepath.Join(dir, "observation.json"), data, 0o644); err != nil {
 		t.Fatalf("写 observation.json 失败: %v", err)
+	}
+}
+
+// observeAppExport 把产品导出的文档写到观察目录，并**从磁盘读回**事实。
+//
+// 为什么不让调用方直接传 doc：MEM05 要证明的是"导出的文件里到底有什么"，
+// 内存里的结构体是同一份代码的另一种表示，读回磁盘才是边界之外的核对。
+func observeAppExport(t *testing.T, exportJSON string) map[string]any {
+	t.Helper()
+	dir := appObservationDir()
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建观察目录 %s 失败: %v", dir, err)
+	}
+	path := filepath.Join(dir, "export.json")
+	if err := os.WriteFile(path, []byte(exportJSON), 0o644); err != nil {
+		t.Fatalf("写 export.json 失败: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读回 export.json 失败: %v", err)
+	}
+	var doc struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		WorkspaceID   string `json:"workspaceId"`
+		Items         []struct {
+			ID          string `json:"id"`
+			Status      string `json:"status"`
+			Scope       string `json:"scope"`
+			WorkspaceID string `json:"workspaceId"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("磁盘上的 export.json 不是合法 JSON: %v", err)
+	}
+	ids := make([]string, 0, len(doc.Items))
+	statuses := make([]string, 0, len(doc.Items))
+	for _, it := range doc.Items {
+		ids = append(ids, it.ID)
+		statuses = append(statuses, it.Status)
+	}
+	return map[string]any{
+		"exportPath":          path,
+		"exportBytes":         len(raw),
+		"exportItems":         len(doc.Items),
+		"exportItemIDs":       ids,
+		"exportItemStatuses":  statuses,
+		"exportSchemaVersion": doc.SchemaVersion,
+		"exportWorkspaceID":   doc.WorkspaceID,
 	}
 }

@@ -187,7 +187,9 @@ func integrationCases() []integrationCase {
 		{ID: "MEM05", Steps: []integrationStep{
 			{Package: "internal/memory", Run: "TestDeleteNotInjectedNextRun|TestExportIsReadableJSON"},
 			{Package: "internal/app", Run: "TestMemoryDeleteNotInjectedNextRun|TestMemoryScopeToggleAndWorkspaceIsolation"},
-		}},
+		},
+			// export.json 是产品导出的真实文档（从磁盘读回），memory-dump.json 是库里的真实行。
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json", "export.json"}}},
 
 		// ── 技能与扩展（C03，G2；RES02 需要真实 Pi） ──
 		{ID: "RES01", Steps: []integrationStep{{Package: "internal/resources", Run: "TestImportCopiesWithoutExecutingSource|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape|TestImportRejectsDuplicateWithoutOverwrite|TestOverwriteSkillReplacesContentAndKeepsEnabled|TestDeleteSkillRemovesDirAndAllowsReimport|TestSkillCASConflictIsRejected|TestSaveSkillContentGuardsIdentity"}}},

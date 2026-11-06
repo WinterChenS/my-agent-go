@@ -162,6 +162,18 @@ func TestMemoryDeleteNotInjectedNextRun(t *testing.T) {
 		}
 	}
 	t.Logf("删除后注入原文: %q", after)
+
+	// MEM05 的外部观察：导出文件从磁盘读回 + 库里那一行的真实 status。
+	exported := d.ExportMemories()
+	if exported.Error != nil {
+		t.Fatalf("ExportMemories: %+v", exported.Error)
+	}
+	facts := observeAppExport(t, exported.JSON)
+	memSvc, err := d.memoryService()
+	if err != nil {
+		t.Fatalf("memoryService: %v", err)
+	}
+	observeAppMemoryDB(t, memSvc.DB().Path(), facts)
 }
 
 func TestMemoryScopeToggleAndWorkspaceIsolation(t *testing.T) {
@@ -223,6 +235,21 @@ func TestMemoryScopeToggleAndWorkspaceIsolation(t *testing.T) {
 	if len(listB.Items) != 1 || listB.Items[0].ID != userMem.Item.ID {
 		t.Fatalf("B 项目应只看到 user 记忆，实际 %+v", listB.Items)
 	}
+
+	// MEM05 的外部观察：换工作区后的导出文件（只含 user 记忆）+ 库里的 scope 开关状态。
+	exported := d.ExportMemories()
+	if exported.Error != nil {
+		t.Fatalf("ExportMemories: %+v", exported.Error)
+	}
+	facts := observeAppExport(t, exported.JSON)
+	if facts != nil {
+		facts["workspaceSwitched"] = true
+	}
+	memSvc, err := d.memoryService()
+	if err != nil {
+		t.Fatalf("memoryService: %v", err)
+	}
+	observeAppMemoryDB(t, memSvc.DB().Path(), facts)
 }
 
 func TestMemorySecretRejectedAtBinding(t *testing.T) {
