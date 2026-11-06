@@ -632,12 +632,16 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 权限只在这里算一次：既交给策略服务，也交给 RunService 作为 per-run 快照
+	// 的默认值。两处读同一份事实，不会出现"策略服务允许 shell、而 run 的快照
+	// 里写着别的"的分叉。
+	permissions := config.Permissions{
+		Filesystem: "workspace",
+		Shell:      s.ShellAllowed,
+		Network:    false,
+	}
 	pol := policy.New(policy.Options{
-		Permissions: config.Permissions{
-			Filesystem: "workspace",
-			Shell:      s.ShellAllowed,
-			Network:    false,
-		},
+		Permissions: permissions,
 		PathGuard:   guard,
 		ApprovalTTL: 60 * time.Second,
 	})
@@ -690,6 +694,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	isolationArgs := iso.Args()
 
 	sessionID := contracts.SessionID(fmt.Sprintf("sess-%d", time.Now().Unix()))
+	// 这是应用进程里**唯一**的 RunService，也就是唯一的 admission queue：
+	// 交互会话、C08 连接器与 C09 调度都往它里面提交，全局活跃上限固定为 2。
+	// 因此这里不能按会话建服务，也不传 MaxActive。
 	svc := run.New(run.Options{
 		WorkspaceID:  "ws-default",
 		SessionID:    sessionID,
@@ -708,6 +715,7 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		ManagedSkillIDs:    skills.IDs,
 		SkillAutoDiscovery: skillAutoDiscoveryFromArgs(isolationArgs),
 		Policy:             pol,
+		PolicySnapshot:     run.PolicySnapshot{Permissions: permissions},
 		// 自有 MCP 的环境 + 外部 MCP 的凭证环境（只经子进程环境交付）。
 		HarnessEnv:  append(harness.Env(), mcpPlan.Env...),
 		StartWorker: workerStarter,
@@ -892,20 +900,36 @@ func activePointerError(managedRoot string, ptr *piinstall.ActivePointer, cause 
 // 启动前先确认工作区存在且已信任。这道检查必须在绑定层，
 // 不能只靠 UI 灰掉发送按钮——UI 可以被绕过（直接调绑定、未来的 CLI），
 // 而"未信任不执行"是数据层不变量。
+//
+// 这里把 Desktop 的设置解析成一次**per-run** 提交（身份 + 工作区），
+// 而不是依赖 RunService 实例上的某个默认会话：服务只有一个，提交者有很多。
 func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
-	if err := d.assertWorkspaceReady(context.Background()); err != nil {
+	ctx := context.Background()
+	workspaceID, err := d.assertWorkspaceReady(ctx)
+	if err != nil {
 		d.setLastErr(err.Error())
 		return contracts.RunSnapshot{}, err
 	}
 	// 注入必须在启动 Pi 之前完成：Pi 只看到最终这一条 prompt。
 	// 记忆是参考数据；注入失败（含短消息 QueryTooShort）不阻断发送。
-	message = d.withMemoryContext(context.Background(), message)
+	message = d.withMemoryContext(ctx, message)
 	svc, err := d.ensureRuntime()
 	if err != nil {
 		d.setLastErr(err.Error())
 		return contracts.RunSnapshot{}, err
 	}
-	snap, err := svc.Start(context.Background(), run.StartRunRequest{Message: message})
+
+	d.mu.Lock()
+	sessionID := contracts.SessionID(d.runtimeSessionID)
+	workspaceDir := strings.TrimSpace(d.settings.Workspace)
+	d.mu.Unlock()
+
+	snap, err := svc.Start(ctx, run.StartRunRequest{
+		Message:      message,
+		SessionID:    sessionID,
+		WorkspaceID:  workspaceID,
+		WorkspaceDir: workspaceDir,
+	})
 	if err != nil {
 		d.setLastErr(err.Error())
 		return snap, err
@@ -913,17 +937,17 @@ func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
 	return snap, nil
 }
 
-// assertWorkspaceReady 把设置里的工作区路径登记成工作区并检查信任。
+// assertWorkspaceReady 把设置里的工作区路径登记成工作区并检查信任，返回工作区 ID。
 //
 // 每次 Start 都做一次幂等登记，而不是只在设置保存时做：
 // 设置里的路径可能已经被删掉、被改成软链接或换了大小写，
 // 只在保存时检查会留下一段"设置说 OK、实际目录已经不是那个"的窗口。
-func (d *Desktop) assertWorkspaceReady(ctx context.Context) error {
+func (d *Desktop) assertWorkspaceReady(ctx context.Context) (contracts.WorkspaceID, error) {
 	d.mu.Lock()
 	path := strings.TrimSpace(d.settings.Workspace)
 	d.mu.Unlock()
 	if path == "" {
-		return contracts.NewAppError(
+		return "", contracts.NewAppError(
 			contracts.CodeConfigMissing,
 			"尚未选择工作区：请先在设置里添加一个目录，并信任它之后再发起任务",
 			false,
@@ -931,26 +955,26 @@ func (d *Desktop) assertWorkspaceReady(ctx context.Context) error {
 	}
 	ws, _, err := d.coreServices()
 	if err != nil {
-		return err
+		return "", err
 	}
 	item, err := ws.CreateWorkspace(ctx, path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := ws.AssertRunnable(ctx, item.ID); err != nil {
 		var appErr *contracts.AppError
 		// 只给"未信任"补一句修复指引；其它错误原样透出，
 		// 重写文案会把配置冲突之类的原因掩盖成"未信任"。
 		if errors.As(err, &appErr) && appErr.Code == contracts.CodeUnauthorized {
-			return contracts.NewAppError(
+			return "", contracts.NewAppError(
 				appErr.Code,
 				"工作区「"+item.Name+"」尚未信任，不能在其中执行代码；请在设置里确认信任后重试",
 				false,
 			)
 		}
-		return err
+		return "", err
 	}
-	return nil
+	return item.ID, nil
 }
 
 // Abort 停止一次 run。

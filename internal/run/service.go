@@ -48,6 +48,11 @@ type HistorySink interface {
 }
 
 // Options 构造 RunService。
+//
+// 注意身份字段的语义：WorkspaceID/SessionID/WorkspaceDir/ConfigRevision 是
+// **兼容默认值**，只在 StartRunRequest 没带这一项时使用（旧 Start(message) 入口）。
+// 服务不再把某个会话绑在实例上：同一个实例服务所有会话、所有提交者，
+// 每个 run 的身份与策略由请求给出（见 ExecutionBinding）。
 type Options struct {
 	WorkspaceID  contracts.WorkspaceID
 	SessionID    contracts.SessionID
@@ -89,6 +94,9 @@ type Options struct {
 	// Policy 为空时不启用执行前授权端点。生产路径必须提供：
 	// 没有端点时策略扩展 fail-closed，工具调用一律被拒。
 	Policy *policy.Service
+
+	// PolicySnapshot 是请求没带快照时使用的默认快照（旧 Start 入口）。
+	PolicySnapshot PolicySnapshot
 
 	// HarnessEnv 是自有 MCP 服务的端点与令牌（harnessmcp.Server.Env()）。
 	// run 包只负责透传给 worker，不依赖 harnessmcp 包本身：
@@ -203,6 +211,10 @@ type runState struct {
 	finishedOnce sync.Once
 	released     atomic.Bool
 
+	// binding 是 admission 时解析并冻结的身份与策略（C06a）。
+	// 只写一次（Start 建 runState 时），之后只读：run 期间不得重新解析。
+	binding ExecutionBinding
+
 	// queuePos 是这个 run 最近一次上报的排队位次（0 表示不在队列里）。
 	// 只在 Service.mu 下读写。
 	queuePos int
@@ -244,9 +256,28 @@ func New(opts Options) *Service {
 	}
 }
 
-// StartRunRequest 描述一次用户请求。
+// StartRunRequest 描述一次提交。
+//
+// 身份与策略是 per-run 输入：同一个 RunService 同时服务多个会话与 C08/C09 的
+// 自动化提交，所以这里没有"默认会话"以外的实例级绑定。空字段表示沿用
+// Options 里的兼容默认值（旧 Start(message) 路径就是全空）。
 type StartRunRequest struct {
 	Message string `json:"message"`
+
+	// SessionID 是这次 run 所属会话；空表示沿用服务默认会话。
+	SessionID contracts.SessionID `json:"sessionId,omitempty"`
+	// WorkspaceID 是这次 run 所属工作区；空表示沿用服务默认工作区。
+	WorkspaceID contracts.WorkspaceID `json:"workspaceId,omitempty"`
+	// WorkspaceDir 是这次 run 的工作目录（worker 的 cwd）；空表示沿用默认值。
+	WorkspaceDir string `json:"workspaceDir,omitempty"`
+	// ProfileID 是这次 run 使用的 Profile；空表示没有指定。
+	ProfileID contracts.ProfileID `json:"profileId,omitempty"`
+	// PermissionRef 指向一份不可变策略快照，随 run 冻结，run 期间不再重新解析。
+	PermissionRef string `json:"permissionRef,omitempty"`
+	// PolicySnapshot 是调用方要求的权限快照；为空时用 Options.PolicySnapshot。
+	PolicySnapshot *PolicySnapshot `json:"policySnapshot,omitempty"`
+	// ConfigRevision 是这次 run 依据的配置版本；0 表示沿用服务默认值。
+	ConfigRevision uint64 `json:"configRevision,omitempty"`
 }
 
 // Subscribe 注册事件订阅者，返回幂等的退订函数。回调在独立 goroutine 中执行，
@@ -292,12 +323,22 @@ func (s *Service) Subscribe(fn func(contracts.Event)) (unsubscribe func()) {
 //
 // 返回时的状态一定是真实状态：能立刻启动就是 running，槽位满就是 queued。
 // 不会出现"返回 running 但其实还在排队"这种谎报。
+//
+// 旧入口（只填 Message）仍然有效：身份与策略从 Options 的默认值补齐，
+// 它走的还是这同一个队列，不是另一条轻量路径。
 func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.RunSnapshot, error) {
 	text := strings.TrimSpace(req.Message)
 	if text == "" {
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeUnsupported, "消息为空", false)
 	}
-	if err := s.validate(); err != nil {
+
+	// 身份在 admission 时解析并冻结（C06a）：run 期间不再重新解析。
+	id := contracts.RunID(fmt.Sprintf("run-%d-%d", s.opts.Now().Unix(), s.runSeq.Add(1)))
+	binding, err := s.resolveBinding(req, id)
+	if err != nil {
+		return contracts.RunSnapshot{}, err
+	}
+	if err := s.validate(binding); err != nil {
 		return contracts.RunSnapshot{}, err
 	}
 
@@ -307,21 +348,21 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeInternal, "服务已关闭", false)
 	}
 	// 清理结果未知的会话不得自动重启：放行等于把"不确定"显示成"清理成功"（RUN04）。
-	if reason, blocked := s.cleanupFailed[s.opts.SessionID]; blocked {
+	if reason, blocked := s.cleanupFailed[binding.SessionID()]; blocked {
 		s.mu.Unlock()
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeCleanupFailed,
-			fmt.Sprintf("会话 %s 上次清理未完成，拒绝重启：%s", s.opts.SessionID, reason), false)
+			fmt.Sprintf("会话 %s 上次清理未完成，拒绝重启：%s", binding.SessionID(), reason), false)
 	}
-	id := contracts.RunID(fmt.Sprintf("run-%d-%d", s.opts.Now().Unix(), s.runSeq.Add(1)))
 	rs := &runState{
-		id:   id,
-		text: text,
+		id:      id,
+		text:    text,
+		binding: binding,
 		snap: contracts.RunSnapshot{
 			RunID:          id,
-			SessionID:      s.opts.SessionID,
-			WorkspaceID:    s.opts.WorkspaceID,
+			SessionID:      binding.SessionID(),
+			WorkspaceID:    binding.WorkspaceID,
 			State:          contracts.RunStateQueued,
-			ConfigRevision: s.opts.ConfigRevision,
+			ConfigRevision: binding.ConfigRevision(),
 			PiVersion:      s.opts.Installation.Version,
 			Provider:       s.opts.Provider,
 			Model:          s.opts.Model,
@@ -370,6 +411,49 @@ func (s *Service) Start(ctx context.Context, req StartRunRequest) (contracts.Run
 	return rs.snapshot(), nil
 }
 
+// resolveBinding 在 admission 解析 per-run 身份与策略，并冻结成 ExecutionBinding。
+//
+// 解析顺序：请求显式字段 → Options 默认值。策略快照取请求给的那一份，
+// 没给就用 Options.PolicySnapshot。
+func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (ExecutionBinding, error) {
+	sessionID := req.SessionID
+	if strings.TrimSpace(string(sessionID)) == "" {
+		sessionID = s.opts.SessionID
+	}
+	workspaceID := req.WorkspaceID
+	if strings.TrimSpace(string(workspaceID)) == "" {
+		workspaceID = s.opts.WorkspaceID
+	}
+	workspaceDir := strings.TrimSpace(req.WorkspaceDir)
+	if workspaceDir == "" {
+		workspaceDir = s.opts.WorkspaceDir
+	}
+	revision := req.ConfigRevision
+	if revision == 0 {
+		revision = s.opts.ConfigRevision
+	}
+
+	snapshot := s.opts.PolicySnapshot
+	if req.PolicySnapshot != nil {
+		snapshot = *req.PolicySnapshot
+	}
+
+	return ExecutionBinding{
+		ExecutionContext: contracts.ExecutionContext{
+			WorkspaceID:       workspaceID,
+			SessionID:         sessionID,
+			RunID:             id,
+			ConfigRevision:    revision,
+			ControlGeneration: 1,
+		},
+		WorkspaceID:    workspaceID,
+		WorkspaceDir:   workspaceDir,
+		ProfileID:      req.ProfileID,
+		PermissionRef:  strings.TrimSpace(req.PermissionRef),
+		PolicySnapshot: snapshot,
+	}, nil
+}
+
 // publishQueuePositionsLocked 把当前队列位次上报给 UI。必须持有 s.mu。
 //
 // 位次变化也要上报：排队 run 从第 2 位变成第 1 位却没人告诉前端，
@@ -394,11 +478,11 @@ func (s *Service) publishQueuePositionsLocked() {
 }
 
 // validate 检查启动前置条件。缺任何一项都不能"先跑起来再说"。
-func (s *Service) validate() error {
+func (s *Service) validate(binding ExecutionBinding) error {
 	if strings.TrimSpace(s.opts.Installation.Executable) == "" {
 		return contracts.NewAppError(contracts.CodeConfigMissing, "未指定 Pi 可执行文件", false)
 	}
-	if strings.TrimSpace(s.opts.WorkspaceDir) == "" {
+	if strings.TrimSpace(binding.WorkspaceDir) == "" {
 		return contracts.NewAppError(contracts.CodeConfigMissing, "未指定工作区目录", false)
 	}
 	if strings.TrimSpace(s.opts.AgentDir) == "" {
@@ -416,7 +500,12 @@ func (s *Service) validate() error {
 func (s *Service) IsolationArgs() []string { return s.opts.Isolation.Args() }
 
 // launch 启动 worker、建策略端点、下发 prompt。失败时负责资源清理与终态收尾。
+//
+// 这里的每一个与身份相关的东西（工作目录、会话、配置 revision、策略快照、
+// 端点绑定）都读 rs.binding：它是 admission 时冻结的那一份。实例上的 Options
+// 只提供与 run 无关的安装件与隔离参数。
 func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
+	binding := rs.binding
 	runCtx, cancel := context.WithCancel(context.Background())
 	rs.cancel = cancel
 
@@ -430,10 +519,10 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 		srv, err := policybridge.Start(runCtx, policybridge.Options{
 			Service: s.opts.Policy,
 			Binding: policybridge.Binding{
-				SessionID:         s.opts.SessionID,
+				SessionID:         binding.SessionID(),
 				RunID:             rs.id,
-				ConfigRevision:    s.opts.ConfigRevision,
-				ControlGeneration: 1,
+				ConfigRevision:    binding.ConfigRevision(),
+				ControlGeneration: binding.ExecutionContext.ControlGeneration,
 			},
 			// 预算在执行前授权之前判定：超限的调用连审批都不会创建。
 			Gate: gate.check,
@@ -465,6 +554,9 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 	// 不写进 mcp.json 明文（那里只有 ${...} 引用）。
 	env = append(env, s.opts.ModelEnv...)
 	env = append(env, s.opts.HarnessEnv...)
+	// per-run 身份与策略**最后**追加：同名的实例级环境变量不能把这一份事实
+	// 盖掉（os/exec 同名去重时以最后一次出现为准）。
+	env = append(env, binding.Env()...)
 
 	args := append([]string{"--mode", "rpc"}, s.opts.Isolation.Args()...)
 	// 会话必须落在隔离 agentDir 下：否则 Pi 会写进用户真实配置目录，
@@ -479,7 +571,7 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 
 	w, err := s.opts.StartWorker(ctx, pi.WorkerSpec{
 		Installation: s.opts.Installation,
-		WorkingDir:   s.opts.WorkspaceDir,
+		WorkingDir:   binding.WorkspaceDir,
 		AgentDir:     s.opts.AgentDir,
 		Env:          env,
 		Args:         args,
@@ -890,7 +982,7 @@ func (s *Service) denyApproval(rs *runState, approvalID, reason string) {
 	if rs.bridge == nil {
 		return
 	}
-	client := policybridge.NewClient(rs.bridge.Endpoint(), rs.token, s.opts.SessionID, 10*time.Second)
+	client := policybridge.NewClient(rs.bridge.Endpoint(), rs.token, rs.snapshot().SessionID, 10*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := client.Resolve(ctx, approvalID, policy.ApprovalDeny)
@@ -999,7 +1091,7 @@ func (s *Service) stopRun(rs *runState) {
 	}
 
 	reason := fmt.Sprintf("停止超时：%s 内未拿到明确的清理结果", s.opts.StopDeadline)
-	s.markCleanupFailed(reason)
+	s.markCleanupFailed(rs, reason)
 	s.finishInterrupted(rs, reason)
 }
 
@@ -1007,7 +1099,7 @@ func (s *Service) stopRun(rs *runState) {
 func (s *Service) finishStopped(rs *runState, err error) {
 	if err != nil {
 		// 清理未完成时不能显示"已取消"：如实报 interrupted + 原因，并阻断会话重启。
-		s.markCleanupFailed(err.Error())
+		s.markCleanupFailed(rs, err.Error())
 		s.finishInterrupted(rs, err.Error())
 		return
 	}
@@ -1187,13 +1279,15 @@ func (s *Service) emit(rs *runState, typ string, payload any) {
 	ev := contracts.Event{
 		SchemaVersion: contracts.EventSchemaVersion,
 		EventID:       fmt.Sprintf("%s-%d", rs.id, rs.seq),
-		WorkspaceID:   s.opts.WorkspaceID,
-		SessionID:     s.opts.SessionID,
-		RunID:         rs.id,
-		Seq:           rs.seq,
-		Type:          typ,
-		OccurredAt:    s.opts.Now().UTC(),
-		Payload:       raw,
+		// 事件归属读**这个 run 自己的**身份：一个服务同时服务多个会话，
+		// 把实例上的 session 写进事件会让前端把 A 会话的事件挂到 B 会话下。
+		WorkspaceID: rs.snap.WorkspaceID,
+		SessionID:   rs.snap.SessionID,
+		RunID:       rs.id,
+		Seq:         rs.seq,
+		Type:        typ,
+		OccurredAt:  s.opts.Now().UTC(),
+		Payload:     raw,
 	}
 	rs.state = append(rs.state, ev)
 	if len(rs.state) > maxReplayEvents {
@@ -1273,7 +1367,7 @@ func (s *Service) ResolveApproval(ctx context.Context, id contracts.RunID, appro
 	if err != nil {
 		return err
 	}
-	client := policybridge.NewClient(rs.bridge.Endpoint(), rs.token, s.opts.SessionID, 10*time.Second)
+	client := policybridge.NewClient(rs.bridge.Endpoint(), rs.token, rs.snapshot().SessionID, 10*time.Second)
 	if err := client.Resolve(ctx, approvalID, c); err != nil {
 		return err
 	}
@@ -1368,9 +1462,12 @@ func (rs *runState) isStopRequested() bool {
 }
 
 // markCleanupFailed 记录"这个会话上次清理未完成"及原因，阻止它被自动重启。
-func (s *Service) markCleanupFailed(reason string) {
+//
+// 按 run 自己的会话记：同一个服务上别的会话没理由因为这一轮清理失败而被拦住。
+func (s *Service) markCleanupFailed(rs *runState, reason string) {
+	sessionID := rs.snapshot().SessionID
 	s.mu.Lock()
-	s.cleanupFailed[s.opts.SessionID] = reason
+	s.cleanupFailed[sessionID] = reason
 	s.mu.Unlock()
 }
 

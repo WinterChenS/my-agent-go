@@ -223,7 +223,7 @@ func (s *Service) enforceTimeBudget(g *budgetGate) {
 		if err := s.stopWorkerWait(rs); err != nil {
 			// 清理没做完必须留痕并阻止会话重启：预算用尽不等于"进程已经收干净"。
 			reason := "预算用尽后清理未完成：" + err.Error()
-			s.markCleanupFailed(reason)
+			s.markCleanupFailed(rs, reason)
 			s.emit(rs, EventDiagnostic, map[string]any{
 				"kind":    "stop.cleanup_failed",
 				"message": reason,
