@@ -524,3 +524,44 @@ func TestRunDetailsMarksUnknown(t *testing.T) {
 		t.Fatalf("JSON 里必须能看到 unavailable 段落：%s", raw)
 	}
 }
+
+// TestRecorderKeepsLocatorsInOversizedPayloads 守"超限载荷也要保留定位字段"。
+//
+// 工具事件的 args/text 很容易把载荷撑过上限。只留一个"被截断"标记会让 run 详情
+// 变成一份没有工具名、没有错误码的空壳——诊断价值归零。这里钉住：截断后的载荷
+// 仍然是合法 JSON、仍然带 toolName/toolCallId，并且不含原始 args 里的 sentinel。
+func TestRecorderKeepsLocatorsInOversizedPayloads(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+
+	sentinel := "oversizedPayloadSentinel0001"
+	big := strings.Repeat("x", maxEventPayloadBytes+1024)
+	payload := []byte(`{"toolName":"read_file","toolCallId":"call-9","args":{"path":"` + sentinel + `","body":"` + big + `"}}`)
+	env.rec.RecordEvent(contracts.Event{
+		EventID: "run-2-5", RunID: "run-2", SessionID: "sess-1", Seq: 5,
+		Type: "tool.start", OccurredAt: time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC),
+		Payload: payload,
+	})
+
+	var (
+		stored    string
+		truncated int
+	)
+	if err := env.db.SQL().QueryRowContext(ctx,
+		`SELECT payload, payload_truncated FROM run_events WHERE run_id='run-2' AND seq=5`).
+		Scan(&stored, &truncated); err != nil {
+		t.Fatalf("读事件行: %v", err)
+	}
+	if truncated != 1 {
+		t.Fatalf("超限载荷应标记截断，实际 %d", truncated)
+	}
+	if !json.Valid([]byte(stored)) {
+		t.Fatalf("截断后的载荷必须是合法 JSON：%s", stored)
+	}
+	if !strings.Contains(stored, "read_file") || !strings.Contains(stored, "call-9") {
+		t.Fatalf("截断后的载荷必须保留工具定位字段：%s", stored)
+	}
+	if strings.Contains(stored, sentinel) || strings.Contains(stored, big) {
+		t.Fatalf("截断后的载荷不应保留原始 args：%s", stored)
+	}
+}

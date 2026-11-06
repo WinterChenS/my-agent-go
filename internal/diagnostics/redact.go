@@ -34,7 +34,7 @@ func redactPayload(raw []byte) (string, bool, int) {
 		return "", false, 0
 	}
 	if len(raw) > maxEventPayloadBytes {
-		return fmt.Sprintf(`{"payload_truncated":true,"bytes":%d}`, len(raw)), true, 0
+		return summarizeTruncatedPayload(raw), true, 0
 	}
 	text, textHits := redact.DiagnosticsText(string(raw))
 	if json.Valid([]byte(text)) {
@@ -52,8 +52,50 @@ func redactPayload(raw []byte) (string, bool, int) {
 	return value, false, extra
 }
 
-// redactJSONValue 解码后再编码，对每个字符串值跑脱敏。
+// payloadKeyFields 是超限载荷里**必须留下**的定位键。
 //
+// 只留一个 "被截断" 标记不够：run 详情靠 toolName/approvalId/code 这些字段
+// 说清"哪个工具、哪次审批、什么错误码"。它们的值都很短，而占体积的是 args/text。
+var payloadKeyFields = []string{
+	"type", "toolName", "toolCallId", "approvalId", "choice", "code", "kind",
+	"reason", "isError", "exitCode", "state", "previous", "message",
+}
+
+// summarizeTruncatedPayload 在载荷超限时保留定位字段，其余丢弃。
+//
+// 结果仍然是合法 JSON，并且仍然带 payload_truncated 与原始字节数：
+// 少一份 args 是一个可解释的损失，少一半 JSON 是一份读不了的诊断。
+func summarizeTruncatedPayload(raw []byte) string {
+	summary := map[string]any{"payload_truncated": true, "bytes": len(raw)}
+	var src map[string]any
+	if err := json.Unmarshal(raw, &src); err == nil {
+		for _, key := range payloadKeyFields {
+			// 嵌套一层（tool.start 的常见形态是平铺，但审批/参数可能嵌在 data 下）。
+			if v, ok := src[key]; ok {
+				summary[key] = v
+				continue
+			}
+			for _, nested := range []string{"data", "payload", "args"} {
+				child, ok := src[nested].(map[string]any)
+				if !ok {
+					continue
+				}
+				if v, ok := child[key]; ok {
+					summary[key] = v
+					break
+				}
+			}
+		}
+	}
+	// 保留下来的字段也要过脱敏：它们仍然是来自 run 的文本。
+	redacted, _ := redactAny(summary)
+	enc, err := json.Marshal(redacted)
+	if err != nil {
+		return fmt.Sprintf(`{"payload_truncated":true,"bytes":%d}`, len(raw))
+	}
+	return string(enc)
+}
+
 // 键名是结构，不改：改了键名等于改文档结构，读取侧就找不到字段了。
 // 键名里出现秘密的形态（`"sk-..."` 当键）由文本层负责。
 func redactJSONValue(raw []byte) (string, int, error) {
