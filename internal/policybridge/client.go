@@ -50,6 +50,15 @@ func NewClient(ep Endpoint, token string, session contracts.SessionID, timeout t
 // Authorize 请求一次执行前授权。返回的 decision 只可能是 allow/deny；
 // 人工确认在本调用内阻塞完成，因此调用方不需要额外状态机。
 func (c *Client) Authorize(ctx context.Context, call policy.ToolCall) (policy.Decision, string, error) {
+	return c.AuthorizeWithIdentity(ctx, call, "")
+}
+
+// AuthorizeWithIdentity 与 Authorize 相同，但多报一个**工具身份**（C06f）。
+//
+// identity 是扩展侧从 `pi.getAllTools()` 读到的 sourceInfo.path，用于让服务端
+// 判定"这是不是产品自带的那条工具"。不报身份（空串）等于"命中不了任何本地
+// catalog"，仍然照常走策略。
+func (c *Client) AuthorizeWithIdentity(ctx context.Context, call policy.ToolCall, identity string) (policy.Decision, string, error) {
 	body := authorizeRequest{
 		ToolCallID:    call.ID,
 		ToolName:      call.Name,
@@ -57,6 +66,7 @@ func (c *Client) Authorize(ctx context.Context, call policy.ToolCall) (policy.De
 		Origin:        call.Origin,
 		Arguments:     call.Arguments,
 		ResourceScope: call.ResourceScope,
+		ToolIdentity:  identity,
 	}
 	var resp authorizeResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/authorize", body, &resp); err != nil {

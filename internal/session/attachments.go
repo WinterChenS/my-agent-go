@@ -255,6 +255,34 @@ func (s *AttachmentStore) ResolveAttachments(sessionID string, reqs []Attachment
 	return result, nil
 }
 
+// Lookup 返回一个附件的元数据（不交付字节、不产生新能力）。
+//
+// 它给绑定层用：UI 选中附件后拿到的是能力 ID，把 ID 冻进 run 之前必须重新确认
+// “这个 ID 仍然有效”。过期/不存在的 ID 一律结构化失败，不允许把“已经不存在的
+// 引用”带进 run（模型只会拿到一个永远读不到的工具）。
+func (s *AttachmentStore) Lookup(id string) (AttachmentMeta, error) {
+	if s == nil {
+		return AttachmentMeta{}, contracts.NewAppError(contracts.CodeInternal, "附件存储未初始化", false)
+	}
+	key := strings.TrimSpace(id)
+	if key == "" {
+		return AttachmentMeta{}, contracts.NewAppError(contracts.CodeNotFound, "缺少附件 ID", false)
+	}
+	s.mu.Lock()
+	cap, ok := s.caps[key]
+	s.mu.Unlock()
+	if !ok {
+		return AttachmentMeta{}, contracts.NewAppError(contracts.CodeNotFound,
+			"附件能力不存在（可能已过期，或应用重启后未重新选择）: "+key, false)
+	}
+	meta := cap.meta()
+	if !s.now().UTC().Before(cap.expiresAt) {
+		return meta, contracts.NewAppError(contracts.CodeUnauthorized,
+			"附件读取能力已过期，请重新选择文件: "+cap.displayName, false)
+	}
+	return meta, nil
+}
+
 // OpenAttachment 是只读 broker：只有通过校验的字节才会被交出去。
 //
 // 顺序（任何一步失败都返回 nil 句柄）：

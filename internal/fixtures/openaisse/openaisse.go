@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -294,7 +295,35 @@ func ExtractText(raw string) string {
 
 // BuildScenario 构造具名回放脚本。hasTools 表示 Pi 本次请求是否声明了工具。
 func BuildScenario(name string, hasTools bool) Scenario {
+	// C06f：附件投递的脚本化调用。id 由用例通过 prompt 标记给出
+	// （[[scenario:attach:<id>]]），否则回放里写不出一个真实的 capability id。
+	if id, ok := strings.CutPrefix(name, "attach:"); ok {
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"我来读取这个附件。"},
+			ToolName: "anvil_read_attachment",
+			ToolArgs: []string{`{"attachmentId":` + strconv.Quote(strings.TrimSpace(id)) + `}`},
+			Finish:   "tool_calls",
+		}
+	}
+
 	switch name {
+	case "clarify-text", "clarify-editor", "clarify-select", "clarify-confirm":
+		// C06f：内容澄清的脚本化调用。工具名与参数形状固定（与
+		// pi-extensions/anvil-clarification.ts 的 schema 一致），kind 由场景名给出。
+		kind := strings.TrimPrefix(name, "clarify-")
+		args := map[string]any{"question": "需要你确认这次澄清的问题", "kind": kind}
+		if kind == "select" {
+			args["options"] = []string{"staging", "prod"}
+		}
+		raw, _ := json.Marshal(args)
+		return Scenario{
+			Name:     name,
+			Deltas:   []string{"我需要你先回答一个问题。"},
+			ToolName: "anvil_ask_user",
+			ToolArgs: []string{string(raw)},
+			Finish:   "tool_calls",
+		}
 	case "unicode":
 		// 覆盖分帧边界：多字节、U+2028、emoji、CRLF。
 		return Scenario{

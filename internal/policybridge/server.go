@@ -70,6 +70,17 @@ type Options struct {
 	// 不创建审批、不调策略服务、不产生任何副作用。放在 Authorize 之前是刻意的：
 	// 若排在之后，被拦下的调用仍会签一条审批并弹给用户，而它永远执行不了。
 	Gate func(ctx context.Context, call policy.ToolCall) error
+	// LocalTools 是**产品自带、本地无副作用**工具的 catalog（C06f）。
+	//
+	// 它比 Gate 多一个方向：命中时直接给出结论（通常是 allow），不签发审批、
+	// 不写 session grant、不产生任何权限——这正是"内容澄清不是审批"的落地位置。
+	// identity 来自扩展侧的报告（`pi.getAllTools()` 的 sourceInfo.path）；
+	// 判定必须看**身份**而不是工具名：第三方同名工具的路径不同，命中不了 catalog，
+	// 照常走 Service.Authorize。
+	//
+	// 与 Gate 的先后：Gate 先。预算/停机这类硬闸门不能因为"这是本地工具"
+	// 就被跳过。
+	LocalTools func(call policy.ToolCall, identity string) (policy.Result, bool)
 }
 
 // Endpoint 是交给上层的端点描述。
@@ -89,6 +100,7 @@ type Server struct {
 	maxBody    int64
 	onPending  func(policy.ApprovalRequest)
 	gate       func(ctx context.Context, call policy.ToolCall) error
+	localTools func(call policy.ToolCall, identity string) (policy.Result, bool)
 	now        func() time.Time
 
 	ln   net.Listener
@@ -134,6 +146,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		maxBody:    opts.MaxBodyBytes,
 		onPending:  opts.OnPending,
 		gate:       opts.Gate,
+		localTools: opts.LocalTools,
 		now:        opts.Now,
 		ln:         ln,
 		port:       port,
@@ -272,6 +285,11 @@ type authorizeRequest struct {
 	Origin        string          `json:"origin"`
 	Arguments     json.RawMessage `json:"arguments"`
 	ResourceScope string          `json:"resourceScope"`
+	// ToolIdentity 是这个工具**实际被谁注册**（扩展侧从 `pi.getAllTools()` 的
+	// sourceInfo.path 读出）。它不进参数指纹（那是参数的事），只用来判断
+	// "这是不是产品自带的那条工具"（C06f）。缺省是空串：旧扩展/第三方扩展
+	// 不报身份，于是命中不了任何本地 catalog，照常走策略。
+	ToolIdentity string `json:"toolIdentity"`
 }
 
 type authorizeResponse struct {
@@ -315,6 +333,19 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, authorizeResponse{
 				Decision: string(policy.DecisionDeny),
 				Reason:   gerr.Error(),
+			})
+			return
+		}
+	}
+
+	// 本地无副作用工具的 catalog（C06f）：命中即给结论，不签发审批、
+	// 不写 session grant、不产生权限。判定只看**身份**（产品自带扩展路径），
+	// 所以第三方注册的同名工具命中不了。
+	if s.localTools != nil {
+		if res, ok := s.localTools(call, strings.TrimSpace(req.ToolIdentity)); ok {
+			writeJSON(w, http.StatusOK, authorizeResponse{
+				Decision: string(res.Decision),
+				Reason:   res.Reason,
 			})
 			return
 		}

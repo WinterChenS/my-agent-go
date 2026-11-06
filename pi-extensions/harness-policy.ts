@@ -81,6 +81,27 @@ interface PolicyChannel {
 	session: string;
 }
 
+/**
+ * 取出这个工具**实际被谁注册**（C06f）。
+ *
+ * 为什么需要它：产品自带的 `anvil_ask_user` 是内容澄清，本地无副作用，不应变成
+ * 一次审批；但第三方扩展完全可以注册一个同名工具。只看 toolName 就无法区分两者。
+ * `pi.getAllTools()` 给出每个工具的 sourceInfo.path（对 `-e` 加载的扩展就是它的
+ * 文件路径），因此身份是“哪个扩展文件注册了它”，而不是“它叫什么”。
+ *
+ * 取不到就返回空串：空身份命中不了服务端的本地 catalog，仍然走正常策略（宁可误拒）。
+ */
+function toolIdentityOf(pi: ExtensionAPI, toolName: string): string {
+	try {
+		const all = pi.getAllTools();
+		const hit = all.find((t) => t.name === toolName);
+		const path = (hit?.sourceInfo as { path?: unknown } | undefined)?.path;
+		return typeof path === "string" ? path : "";
+	} catch {
+		return "";
+	}
+}
+
 export default function (pi: ExtensionAPI): void {
 	const url = (process.env[URL_ENV] ?? "").trim();
 	const token = (process.env[TOKEN_ENV] ?? "").trim();
@@ -107,6 +128,9 @@ export default function (pi: ExtensionAPI): void {
 			source: sourceOf(toolName),
 			arguments: input ?? {},
 			resourceScope: scopeOf(toolName, input),
+			// 工具身份：由哪个扩展文件注册的。服务端据此判断“是不是产品自带的
+			// 本地无副作用工具”，不看名字。
+			toolIdentity: toolIdentityOf(pi, toolName),
 		});
 
 		let resp: Response;

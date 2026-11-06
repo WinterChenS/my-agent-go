@@ -57,6 +57,32 @@ type WorkerSpec struct {
 	QueueLimit int
 }
 
+// TypeExtensionUIRequest 是 Pi 在 RPC 模式下发给客户端的扩展 UI 请求（C06f）。
+//
+// 形状取自 Pi 1.5.0 的 docs/rpc-extension-ui.md，并由真实捕获钉住
+// （run 包对 standalone pi.exe 的 clarification 端到端）。它**不是**命令响应：
+// 带自己的 id，需要客户端回一条 type=extension_ui_response，且回复里的 id 必须
+// 等于请求的 id。
+const TypeExtensionUIRequest = "extension_ui_request"
+
+// TypeExtensionUIResponse 是客户端回给 Pi 的扩展 UI 答复（子协议回复）。
+const TypeExtensionUIResponse = "extension_ui_response"
+
+// UIResponder 是能答复扩展 UI 请求的 worker。
+//
+// 它和 ForceKill 一样不属于 Worker 接口：那是 RPC 命令契约，答复 extension UI
+// 只是可选能力（只有真 Pi 有；负例 worker 不必实现）。调用方用窄接口探测，
+// 探测不到就 fail closed，而不是伪造一次答复。
+type UIResponder interface {
+	// RespondExtensionUI 发一条 extension_ui_response。
+	//
+	// requestID 必须是 Pi 发来的那个请求 id（不是命令 id）：这条记录是子协议
+	// 回复，不是新命令，所以不能经过 Call（Call 会重新分配 id，导致 Pi 把答复
+	// 当成一条无关回复而永远不解开对话框）。body 是分支字段：
+	// {"value":"..."} / {"confirmed":bool} / {"cancelled":true}。
+	RespondExtensionUI(ctx context.Context, requestID string, body map[string]any) error
+}
+
 // Worker 是一个 Pi RPC 子进程的监督者。
 type Worker interface {
 	// Call 发送一条命令并等待同 id 的响应。
@@ -236,6 +262,44 @@ func (w *worker) PID() int {
 }
 
 func (w *worker) Events() <-chan RawEvent { return w.events }
+
+// RespondExtensionUI 发送一条 extension_ui_response（C06f）。
+//
+// 与 Call 的区别不能混：Call 会分配新的命令 id 并等一个同 id 的响应；
+// extension_ui_response 是子协议**回复**，它的 id 必须是 Pi 发来的请求 id，
+// 而且不会有第二条响应回来。所以这里直接写一帧，不进 pending 表。
+func (w *worker) RespondExtensionUI(ctx context.Context, requestID string, body map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return contracts.NewAppError(contracts.CodeRpcCancelled, "答复前上下文已取消: "+err.Error(), false)
+	}
+	id := strings.TrimSpace(requestID)
+	if id == "" {
+		return contracts.NewAppError(contracts.CodeRpcInvalidCall, "缺少 extension UI 请求 id", false)
+	}
+	if w.closing.Load() {
+		return contracts.NewAppError(contracts.CodeWorkerClosed, "worker 正在关闭，无法答复扩展 UI 请求", false)
+	}
+	frame := map[string]any{
+		"type": TypeExtensionUIResponse,
+		"id":   id,
+	}
+	for k, v := range body {
+		// 只接受分支字段：多写字段会让 Pi 的严格解码拒绝整条答复。
+		frame[k] = v
+	}
+	payload, err := json.Marshal(frame)
+	if err != nil {
+		return contracts.NewAppError(contracts.CodeRpcInvalidCall, "序列化扩展 UI 答复失败: "+err.Error(), false)
+	}
+	w.writeMu.Lock()
+	_, werr := w.stdin.Write(append(payload, '\n'))
+	w.writeMu.Unlock()
+	if werr != nil {
+		return contracts.NewAppError(contracts.CodeRpcWriteFailed,
+			"写入扩展 UI 答复失败（不自动重发）: "+werr.Error(), false)
+	}
+	return nil
+}
 
 func (w *worker) StderrTail() (string, bool) { return w.stderr.snapshot() }
 
