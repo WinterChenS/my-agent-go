@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-03-v1-execution-baseline.md`、`docs/superpowers/specs/2026-11-05-anvil-v1-product-ui-lifecycle-design.md`；参考 `docs/wails-browser-design.md`、`docs/gooeypi-browser-review.md`。
 
+**Current handoff:** `docs/handoff-2026-11-06-anvil-v1-implementation.md`（当前状态、前置欠账、语义复核修订、首个任务与外部阻塞）。
+
 ## Global Constraints
 
 - R01–R14 与基线所有数值、状态、排除项适用于全部子任务。
@@ -55,7 +57,7 @@
 | [Anvil 产品 UI](2026-11-05-anvil-ui.md) | U00–U07 | 已有域 API；F08/F09/C08/C09 分阶段接入 | 品牌、i18n、主题、九页生产 UI、无障碍与真机证据 |
 | [集成与发行](2026-11-03-integration-release.md) | X01–X05 | G1/G2/G3依次 | 真模型E2E、Anvil 安装包、迁移、更新与正式发行 |
 
-建议关键路径：保留已完成的 F/C/B 基础 → F05 未闭合项与 F01 未闭合项（GOV05）→ F08 → U00 → C06/C07 → U01 → C08→C09→F09→F06 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。F01 的 oracle 欠账清零可与其它任务交替进行，但必须在 G4 前完成。U03–U05 不依赖 G2，可提前；U02 经 C06 依赖 G2。F06 是 G2 阶段最后一个后端功能，开发机上只用临时托管根（ADR 0002 安全约束）。共享文件 `internal/app/desktop.go`/`cmd/myagent/main.go` 按下方“共享写点”表的顺序串行。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
+建议关键路径：保留已完成的 F/C/B 基础 → F05 未闭合项与 F01 未闭合项（GOV05）→ F08 → U00 → C06/C07 → U01 → C08→C09→F09→F06 → U02–U06 → U07 → 扩展 G2/G3 → X03/X04 → G4/G5。F01 的 oracle 欠账清零可与其它任务交替进行，但必须在 G4 前完成。U03–U05 不依赖 G2，可提前；U02 经 C06 依赖 G2。C06 必须先把现有 session-scoped `run.Service` 收口为应用级全局 admission queue，并提供 per-run workspace/profile/policy snapshot、clarification 通道和普通会话附件复制；C08/C09 只能消费该边界，不能创建独立 queue 或旁路执行。F06 是 G2 阶段最后一个后端功能，开发机上只用临时托管根（ADR 0002 安全约束）。共享文件 `internal/app/desktop.go`/`cmd/myagent/main.go` 按下方“共享写点”表的顺序串行。B01–B07、macOS/Linux 原生矩阵可在不争用共享契约文件时并行推进；任何一端缺失仍保持对应 gate BLOCKED。
 
 上表不授权自行使用多 agent。只有用户选择并行执行后，才按文件所有权委派；contracts/schema 和 master gate 由主执行者串行维护。每个任务的依赖以对应计划为准，不能把表内斜杠当成全部可以并行。
 
@@ -67,7 +69,7 @@
 
 | 文件 | 写者顺序 |
 |---|---|
-| `internal/app/desktop.go`、`cmd/myagent/main.go` | F08 → U00 → C06 → C08 → C09 → F09 → F06。新增 API 放在独立的 `internal/app/*_api.go`（同一 `Desktop` 服务会自动绑定），只有结构字段与启动/关闭装配才改 desktop.go |
+| `internal/app/desktop.go`、`cmd/myagent/main.go` | F08 → U00 → C06 → C08 → C09 → F09 → F06。C06 在 `desktop.go` 装配唯一的全局 RunService；C08/C09 只注册 connector/scheduler，不得创建自己的 worker queue。新增 API 放在独立的 `internal/app/*_api.go`（同一 `Desktop` 服务会自动绑定），只有结构字段与启动/关闭装配才改 desktop.go |
 | `frontend/src/app/Router.tsx`、`navigation.ts` | U01 建立全部九个路由，C08/C09 只替换自己的占位页 |
 | `internal/contracts/*`、`schemas/*` | 当前持有任务独写（U00 改错误契约，U03 改 Profile），其余任务不碰 |
 | `tests/acceptance/cases.json`、`internal/devtools` | 主执行者串行；U07 期间归 U07 |
@@ -84,7 +86,7 @@
 | 006 | 全局搜索索引 | U01 |
 | 007 | 产物索引与 run usage | C07 |
 
-编号按实际合入顺序仍顺序执行；任务顺序与编号不一致时由主执行者重编号未合入的迁移，已合入的迁移不得改号。
+编号按登记表固定，不因任务实际合入顺序重编号；migration runner 按“已应用版本集合”补跑缺失版本，因此 C06 的 005 先合入也不会跳过后续 003/004。只有更新本表并由共享写点维护者审查后才能分配新编号，已登记或已合入的迁移不得自行改号。
 
 ### 外部依赖
 

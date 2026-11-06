@@ -46,6 +46,16 @@
 - Create: `internal/connectors/fixtures/servers.go`
 - Create: `internal/harnessmcp/connector_tools.go`
 - Create: `internal/harnessmcp/connector_tools_test.go`
+- Modify: `internal/harnessmcp/server.go`
+- Modify: `internal/harnessmcp/auth.go`
+- Modify: `internal/harnessmcp/server_test.go`
+- Modify: `internal/policybridge/server.go`
+- Modify: `internal/policybridge/server_test.go`
+- Create: `internal/runtime/pi/mcp_config.go`
+- Create: `internal/runtime/pi/mcp_config_test.go`
+- Modify: `pi-extensions/harness-policy.ts`
+- Modify: `internal/runtime/pi/policy_integration_test.go`
+- Modify: `internal/run/service.go`（为每个 run 申请/撤销短期 MCP capability；全局 admission 由 C06 提供）
 - Create: `internal/app/connector_api.go`
 - Create: `internal/app/connector_api_test.go`
 - Create: `frontend/src/features/connectors/ConnectorsPage.tsx`
@@ -59,6 +69,8 @@
 **Interfaces:**
 - Consumes: `policy.Service`, `CredentialStore`, `ExecutionContext`, app-owned MCP registration.
 - Produces: `SaveDefinition`, `Diagnose`, `ListActions`, and `Invoke`; each `ActionDescriptor` declares risk, scope, schema, idempotency, and capability.
+- MCP identity: C06 的全局 RunService 为每个 run 向 harness MCP 申请一个随机、短期、单 run capability。服务端以 capability 查找 C06 冻结的 `run.ExecutionBinding`（内含现有 `contracts.ExecutionContext`、workspace/profile/permission ref 与 immutable policy snapshot）；调用参数中的 session/run/workspace 字段一律拒绝或忽略，不能覆盖服务端绑定。run 终止或配置 revision 改变后 capability 立即失效。
+- Connector authorization: bearer capability 只证明“哪个 run 在调用”，不代表动作已获批。connector handler 是 connector namespace 的唯一权威 policy enforcement point：它在调用 driver 前按服务端绑定的 context、Anvil action catalog 和输入 schema 调统一 policy。Pi 配置编译器保留 app-owned harness server 名称并拒绝用户/外部 MCP collision；generic hook 仍调用 authenticated policybridge，只有 policybridge 根据当前 run 的服务端注册表和固定 connector catalog 返回显式 `delegate-to-handler` 决策时才委托，不能由工具名前缀或调用方字段触发。外部 MCP、扩展工具或只是同名的工具继续由 generic hook 正常判定。这样一次动作只产生一次审批，而直接 POST、自有 shell 子进程、其它 run 的 token 或过期 token 仍不能绕过审批。
 
 ```go
 type Driver interface {
@@ -82,6 +94,11 @@ type Invocation struct {
 func TestConnectorDefinitionStoresOnlyCredentialRef(t *testing.T) { /* sentinel absent from JSON/DB/log */ }
 func TestDeniedExternalSendNeverReachesDriver(t *testing.T) { /* handler counter remains zero */ }
 func TestConnectorCannotChooseAnotherSession(t *testing.T) { /* execution context is server-bound */ }
+func TestConnectorDirectMCPCallWithoutRunCapabilityIsDenied(t *testing.T) { /* POST tools/call; counter remains zero */ }
+func TestConnectorAnotherRunOrExpiredCapabilityIsDenied(t *testing.T) { /* cross-run/revoked token; counter remains zero */ }
+func TestConnectorApprovalIsConsumedExactlyOnce(t *testing.T) { /* one prompt/grant, one driver call */ }
+func TestConnectorNamedExternalMCPStillUsesGenericPolicy(t *testing.T) { /* same basename on external MCP cannot delegate */ }
+func TestExternalMCPCannotClaimReservedHarnessIdentity(t *testing.T) { /* config compilation rejects collision; counter remains zero */ }
 ```
 
 - [ ] **Step 2: Run the failing framework tests**
@@ -104,7 +121,7 @@ type Definition struct {
 }
 ```
 
-Validate each action input against its schema before authorization. Bind workspace/session/run on the server. Do not trust a driver-reported `readOnly` flag without the Anvil action catalog.
+Validate each action input against its schema before authorization. Bind workspace/session/run on the server through C06's `run.ExecutionBinding` and the per-run capability; never accept execution identity from tool arguments. Do not trust a driver-reported `readOnly` flag without the Anvil action catalog. For connector tools, the server-side handler performs the single authoritative policy decision before reaching a driver. The generic hook may delegate only on an authenticated `delegate-to-handler` response from policybridge, which derives ownership from the compiled app-owned server registry plus fixed connector catalog; matching a basename, namespace string or caller-supplied source is insufficient. Config compilation must reject any external MCP attempting to claim the reserved harness identity. Tokens are revoked when the run ends and must not be reused by a later run.
 
 - [ ] **Step 4: Add protocol fixtures with external side-effect counters**
 
@@ -112,18 +129,18 @@ Fixtures must expose independent counters for email send, DingTalk message, Feis
 
 - [ ] **Step 5: Implement per-connector authentication, then the six minimal adapters test-first**
 
-先实现认证，再实现读写动作：
+认证流按每个平台实际支持的桌面公共客户端能力选择，不把 client secret 编译进 Anvil：
 
 ```text
-mail:     IMAP/SMTP；应用专用密码或提供方要求时的 XOAUTH2
-GitHub:   OAuth 授权码 + PKCE，或用户提供的细粒度 PAT
-Slack:    OAuth v2 + PKCE（bot scope 按动作最小化）
-Notion:   OAuth + PKCE，或 internal integration token
-DingTalk: 企业自建应用 app key/secret 换取访问令牌
-Feishu:   企业自建应用 app id/secret 换取 tenant 令牌
+mail:     IMAP/SMTP；应用专用密码或提供方明确支持的 XOAUTH2 公共客户端流
+GitHub:   优先 device flow；也可用用户提供的细粒度 PAT；只有上游明确支持时才用 loopback + PKCE
+Slack:    用户/组织提供的 App 注册；若 token exchange 必须 client secret，则该 secret 由用户配置并只进 OS 凭证库，不能随二进制发布
+Notion:   internal integration token；public integration 只有在用户提供注册信息且不要求内置秘密时启用
+DingTalk: 企业自建应用 app key/secret，用户提供，secret 只进 OS 凭证库
+Feishu:   企业自建应用 app id/secret，用户提供，secret 只进 OS 凭证库
 ```
 
-OAuth 回调只用 RFC 8252 的 loopback 重定向：只绑定 `127.0.0.1` 随机端口，校验 `state` 与 PKCE verifier，只接受一次请求，5 分钟超时。V1 不用 `anvil://` 接 OAuth 回调。令牌只进 OS 凭证库，到期前刷新；刷新失败进入 `blocked`（需重新授权），不显示 connected。撤销授权删除凭证，工具从下一个 run 消失。认证测试至少覆盖：state 不匹配、非 loopback 重定向、刷新失败、撤销后不可调用。
+对支持授权码 + PKCE 的平台，OAuth 回调只用 RFC 8252 的 loopback 重定向：只绑定 `127.0.0.1` 随机端口，校验 `state` 与 PKCE verifier，只接受一次请求，5 分钟超时。V1 不用 `anvil://` 接 OAuth 回调。对不支持桌面 public-client/PKCE 的平台不得伪装支持：没有用户提供的应用注册或安全 broker 时返回 `blocked`。令牌与用户提供的 client secret 只进 OS 凭证库，到期前刷新；刷新失败进入 `blocked`（需重新授权），不显示 connected。撤销授权删除凭证，工具从下一个 run 消失。认证测试至少覆盖：state 不匹配、非 loopback 重定向、尝试从二进制/配置读取内置 client secret 被拒、刷新失败、撤销后不可调用。
 
 然后每个 adapter 先写一个读成功、一个写成功、一个写被拒、一个认证失败、一个超时和一个结果未知的测试。V1 动作严格如下：
 
@@ -158,7 +175,7 @@ Run: `"D:\Program Files\nodejs\npm.cmd" --prefix frontend test -- ConnectorsPage
 Run each real platform integration only with dedicated test accounts. Missing accounts produce BLOCKED evidence.
 
 ```bash
-git add internal/connectors internal/harnessmcp/connector_tools.go internal/harnessmcp/connector_tools_test.go internal/app/connector_api.go internal/app/connector_api_test.go internal/app/desktop.go internal/storage/migrations/003_connectors.sql frontend/src/features/connectors frontend/src/app/Router.tsx frontend/src/app/navigation.ts
+git add internal/connectors internal/harnessmcp/connector_tools.go internal/harnessmcp/connector_tools_test.go internal/harnessmcp/server.go internal/harnessmcp/auth.go internal/harnessmcp/server_test.go internal/policybridge/server.go internal/policybridge/server_test.go internal/runtime/pi/mcp_config.go internal/runtime/pi/mcp_config_test.go pi-extensions/harness-policy.ts internal/runtime/pi/policy_integration_test.go internal/run/service.go internal/app/connector_api.go internal/app/connector_api_test.go internal/app/desktop.go internal/storage/migrations/003_connectors.sql frontend/src/features/connectors frontend/src/app/Router.tsx frontend/src/app/navigation.ts
 git commit -m "C08: add policy-bound V1 connectors"
 ```
 
@@ -189,7 +206,7 @@ git commit -m "C08: add policy-bound V1 connectors"
 - Modify: `internal/run/service.go`
 
 **Interfaces:**
-- Consumes: F05 `RunService`, Profile/workspace references, policy snapshot, SQLite.
+- Consumes: C06 的全局 RunService 与 per-run policy snapshot、Profile/workspace references、SQLite。C09 不创建第二个 `run.Service`、独立 semaphore 或独立 worker queue。
 - Produces: `Create`, `Update`, `Pause`, `Resume`, `Delete`, `RunNow`, `List`, and scheduler events linked to a normal session/run.
 
 ```go
@@ -244,7 +261,9 @@ func TestBackwardClockJumpDoesNotDuplicateOccurrence(t *testing.T) { /* unique o
 
 - [ ] **Step 5: Implement dispatch through normal RunService**
 
-Create a normal session and `StartRunRequest`; never invoke Pi directly. Store schedule ID on the run. Reuse the global worker queue and record `queued`, `running`, `waiting_approval`, `completed`, `failed`, `cancelled`, or `skipped` from real events.
+Create a normal session and submit C06 `StartRunRequest` to the single application-wide RunService; never invoke Pi directly and never construct a per-schedule service. The request carries `SessionID`, `WorkspaceID`, `ProfileID`, resolved immutable `PolicySnapshot`, `PermissionRef`, and schedule ID. Before dispatch, resolve `PermissionRef` and prove it is no broader than system, workspace, and Profile ceilings; an invalid/stale reference blocks the occurrence. Store schedule ID on the run. Record `queued`, `running`, `waiting_approval`, `completed`, `failed`, `cancelled`, or `skipped` from real events.
+
+`TestSchedulerUsesGlobalRunLimitTwo` must mix two interactive sessions and one scheduled occurrence, observe the real worker/process counter, and prove that at most two are active globally while the third stays in the shared FIFO queue.
 
 - [ ] **Step 6: Write and implement unattended-approval behavior**
 

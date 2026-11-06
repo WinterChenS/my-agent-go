@@ -43,7 +43,7 @@
 
 **Interfaces:**
 - Consumes: existing `PiInstallation`, real Pi probe fixtures, isolated `AgentDir` and `WorkerSpec`.
-- Produces: `Discover(ctx, DiscoveryRequest) (DiscoveryResult, error)`, `Select(ctx, installationID string) error`, and `CompatibilityState` values `discovering`, `ready_verified`, `ready_compatible`, `upgrade_available`, `incompatible`, `missing`, `failed`.
+- Produces: `Discover(ctx, DiscoveryRequest) (DiscoveryResult, error)`, `Select(ctx, installationID string) error`, and shared `CompatibilityState` values `discovering`, `ready_verified`, `ready_compatible`, `upgrade_available`, `incompatible`, `missing`, `installing`, `rollback_available`, `failed`。F08 负责发现/兼容状态；F06 在安装事务期间和保留 previous 版本时提供 `installing`/`rollback_available`，统一通过 `PiDiscoveryResult`/`PiInstallResult` 返回，前端不得推断。
 - App API (Wails): `Desktop.DiscoverPi() PiDiscoveryResult`, `Desktop.SelectPi(installationID string) PiDiscoveryResult`。
 
 - [ ] **Step 1: Write failing discovery-order and wrong-PATH tests**
@@ -56,8 +56,12 @@ func TestDiscoverReturnsAllCandidatesAndSelectsDeterministically(t *testing.T) {
 }
 
 func TestDiscoverRejectsWechatNodeShim(t *testing.T) {
-    got := discoverWithPath(t, `C:\wechat-devtools;C:\Program Files\nodejs`)
-    if got.Selected.Origin == "wechat-devtools" { t.Fatal("selected unmanaged shim") }
+    // pi.cmd 本身位于安全目录，但 PATH 解析出的 node.exe 位于微信开发者工具目录。
+    got := discoverWithPath(t, `C:\safe-pi;C:\wechat-devtools;C:\Program Files\nodejs`)
+    rejected := requireRejectedCandidate(t, got.Diagnostics, `C:\safe-pi\pi.cmd`, "unexpected-node-origin")
+    if !pathIsWithin(rejected.RuntimeExecutable, `C:\wechat-devtools`) {
+        t.Fatalf("resolved runtime=%s", rejected.RuntimeExecutable)
+    }
 }
 ```
 
@@ -82,11 +86,13 @@ type PiCandidate struct {
     Origin       string // preferred | saved | managed | path | common
     Distribution string // standalone | npm；规格 §8.1 的“发行形式”
     ExecutableHash string
+    LauncherPath string
+    RuntimeExecutable string // 实际解析到的 node/native binary；与 launcher 一起进入诊断与信任判定
     Compatibility CompatibilityState
 }
 ```
 
-Resolve executable paths directly, retain all valid candidates, hash the executable, and never execute a user-provided shell string.
+Resolve launcher and runtime executable paths directly, retain all valid candidates, hash the executable chain used by the probe, and never execute a user-provided shell string. 对 `.cmd`/脚本入口必须记录 launcher 与实际解析的 Node；任一路径来自微信开发者工具或其它禁止 origin 都拒绝，并在 diagnostic 中返回实际命中的路径。
 
 - [ ] **Step 4: Write failing compatibility-range and capability-probe tests**
 
@@ -94,6 +100,16 @@ Resolve executable paths directly, retain all valid candidates, hash the executa
 func TestVersionInRangeStillRequiresContractProbe(t *testing.T) {
     result := probeSyntheticPi(t, "1.6.2", brokenSettledEventFixture)
     if result.State != Incompatible { t.Fatalf("state=%s", result.State) }
+}
+
+func TestVersionCertifiedWithUnrecognizedOrBrokenExecutableIsIncompatible(t *testing.T) {
+    result := probeFakeExecutable(t, "1.5.0", brokenSettledEventFixture)
+    if result.State != Incompatible { t.Fatalf("state=%s", result.State) }
+}
+
+func TestVersionCertifiedWithUnknownHashButPassingProbeIsOnlyCompatible(t *testing.T) {
+    result := probeFakeExecutable(t, "1.5.0", compatibleFixture)
+    if result.State != ReadyCompatible { t.Fatalf("state=%s", result.State) }
 }
 
 func TestUnknownPatchBecomesCompatibleOnlyAfterProbe(t *testing.T) {
@@ -116,11 +132,11 @@ type CompatibilityReport struct {
 }
 ```
 
-Treat 1.5.0 as pre-verified only after its existing fixture hash matches. Treat `>=1.5.0 <2.0.0` as probe candidates, not automatic success. Reject 2.x until a later signed compatibility manifest and contract suite are shipped.
+`ready_verified` 不是版本号白名单：候选的版本与 executable SHA-256 都必须匹配嵌入的预认证清单，并且当前 executable 完整隔离契约探测通过。现有 fixture hash 只保护 `testdata/v1.5.0/*.jsonl` 未漂移，不能认证本机可执行文件。自报 1.5.0 但 executable hash 未登记、契约探测通过的候选最多为 `ready_compatible`；探测失败则为 `incompatible`。Treat `>=1.5.0 <2.0.0` as probe candidates, not automatic success. Reject 2.x until a later signed compatibility manifest and contract suite are shipped.
 
 - [ ] **Step 6: Run focused and regression verification**
 
-Run: `go test ./internal/runtime/pi ./internal/app -run 'TestDiscover|TestVersionInRange|TestUnknownPatch|TestPiLifecycle' -count=1 -v`
+Run: `go test ./internal/runtime/pi ./internal/app -run 'TestDiscover|TestVersion|TestUnknownPatch|TestPiLifecycle' -count=1 -v`
 
 Run: `powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 verify --suite=integration --target=win-x64`
 
@@ -156,10 +172,11 @@ git commit -m "F08: add Pi discovery and compatibility negotiation"
 
 **Interfaces:**
 - Consumes: F08 compatibility probe, target ID, Anvil managed data root, embedded Pi manifest.
-- Produces: `Install(ctx, InstallRequest) (InstallID, error)`, `Cancel(ctx, InstallID) error`, `Rollback(ctx, installationID string) error`, and progress stages `download`, `verify`, `extract`, `probe`, `activate`.
-- App API (Wails): `Desktop.InstallPi(version string) PiInstallResult`, `Desktop.CancelPiInstall(installID string) PiInstallResult`, `Desktop.RollbackPi(installationID string) PiInstallResult`；进度以 `anvil:pi-install` 事件推送。
+- Produces: `Install(ctx, InstallRequest) (InstallID, error)`, `Cancel(ctx, InstallID) error`, `Rollback(ctx, installationID string) error`, progress stages `download`, `verify`, `extract`, `probe`, `activate`, and authoritative lifecycle states `installing`, `rollback_available`, `failed`, or the resulting ready state. `rollback_available` is true only while a verified previous managed version actually exists；进度以 `anvil:pi-install` 事件推送。
 
-- [ ] **Step 1: Write failing manifest, hash, redirect, and archive-boundary tests**
+- App API (Wails): `Desktop.InstallPi(version string) PiInstallResult`, `Desktop.CancelPiInstall(installID string) PiInstallResult`, `Desktop.RollbackPi(installationID string) PiInstallResult`。每个结果包含当前 authoritative lifecycle state；事件只提供进度，不能代替状态。
+
+- [ ] **Step 1: Write failing manifest, hash, redirect, archive-boundary, and lifecycle-state tests**
 
 ```go
 func TestHashMismatchNeverActivates(t *testing.T) {
@@ -307,11 +324,15 @@ func TestReadyUpdateDoesNotRestartActiveApp(t *testing.T) { /* process PID uncha
 func TestNextLaunchSwapsRealVersion(t *testing.T) { /* old --version then new --version */ }
 func TestFailedHealthCheckRestoresBinaryAndDatabase(t *testing.T) { /* hash + DB backup */ }
 func TestInterruptedSwapLeavesOneCompleteVersion(t *testing.T) { /* crash each transaction phase */ }
+func TestUpdateApplyRejectsStagedPackageTamperedAfterDownload(t *testing.T) { /* helper re-hash/re-sign; old version remains */ }
+func TestUpdateApplyRejectsJournalPathTampering(t *testing.T) { /* target outside install root; no external file changed */ }
 ```
 
 - [ ] **Step 5: Implement updater transaction and platform adapters**
 
-The helper reads the pre-verified pending journal, backs up the application and database, atomically switches files, launches the candidate with a health-check nonce, and commits only after acknowledgement. Windows swaps the signed installation directory, macOS verifies Team ID/bundle ID, AppImage swaps the active file, and `.deb` enters the OS package authorization flow or returns `blocked`.
+The helper treats the pending journal and staging directory as untrusted. Immediately before swap it copies the package into a helper-controlled locked location, re-verifies `manifest.json.sig`, target/channel/schema, package length/SHA-256 and package signature against the trust root compiled into the helper, and rejects symlink/reparse-point/path traversal. The journal may identify a transaction ID and expected version/hash but may not choose the installation target; the helper derives the canonical target from its own executable/install metadata and refuses paths outside that root. Any mismatch leaves the current app and database unchanged and records `failed`.
+
+After re-verification, the helper backs up the application and database, atomically switches files, launches the candidate with a single-use health-check nonce, and commits only after startup, required migrations, and health checks acknowledge that nonce. Timeout, malformed acknowledgement, launch failure, or migration failure restores both old program and data. Windows swaps the signed installation directory, macOS verifies Team ID/bundle ID, AppImage swaps the active file, and `.deb` enters the OS package authorization flow or returns `blocked`.
 
 安装范围与权限：Windows 安装包由 X03 按当前用户范围生成（Wails NSIS 模板的 `INSTALL_SCOPE=user`），helper 不需要管理员即可交换安装目录。如果用户按机器范围安装，或 macOS 上 `.app` 所在目录不可写，V1 不静默申请提权：更新状态为 `blocked`，并提示用户手动安装新版本。两种情况各写一个测试。
 

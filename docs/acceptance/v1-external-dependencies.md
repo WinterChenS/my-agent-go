@@ -22,14 +22,14 @@
 
 ## 3. 连接器账户与应用注册
 
-均须使用专用测试账户，不使用个人或生产账户（R09）。fixture server 只覆盖 CONN02–CONN06、CONN08 的策略与副作用语义；CONN01 的真实认证和读取必须使用下列账户。OAuth 回调一律用 `http://127.0.0.1:<随机端口>/callback` 这类 loopback 地址，注册应用时按各平台规则登记该回调。
+均须使用专用测试账户，不使用个人或生产账户（R09）。fixture server 只覆盖 CONN02–CONN06、CONN08 的策略与副作用语义；CONN01 的真实认证和读取必须使用下列账户。不能把 OAuth client secret 编译进桌面二进制：优先使用平台明确支持的 device flow/public-client + PKCE 或细粒度 token；必须使用 client secret 的平台由用户提供应用注册，secret 只进入 OS 凭证库。平台不支持桌面 public client 且没有用户注册或安全 broker 时，对应连接器保持 `blocked`。对支持授权码 + PKCE 的平台，回调只用 `http://127.0.0.1:<随机端口>/callback` 这类 loopback 地址，注册应用时按平台规则登记；不能假设每个平台都支持 PKCE。
 
 | 连接器 | 需要的注册 | 最小权限 | 影响 |
 |---|---|---|---|
 | 邮箱 | 专用测试邮箱，开启 IMAP/SMTP；应用专用密码，或提供方要求的 OAuth 客户端（XOAUTH2） | 只读收件箱 + 发信 | CONN01（mail）、E2E06 真实部分 |
-| GitHub | 测试组织与仓库；OAuth App 客户端 ID，或细粒度 PAT | 只授予测试仓库：Metadata 读、Contents 读、Issues 读写、Pull requests 读写 | CONN01（GitHub） |
-| Slack | 测试 workspace；Slack App（client id/secret） | 读频道历史、发消息到指定频道，按 V1 动作最小化 | CONN01（Slack） |
-| Notion | 测试 workspace；public integration（OAuth）或 internal integration token | 只共享测试页面；读、插入、更新内容 | CONN01（Notion） |
+| GitHub | 测试组织与仓库；device flow OAuth App 客户端 ID，或细粒度 PAT；只有上游明确支持时才用 loopback + PKCE | 只授予测试仓库：Metadata 读、Contents 读、Issues 读写、Pull requests 读写 | CONN01（GitHub） |
+| Slack | 测试 workspace；用户提供 Slack App（client id/secret）。secret 只进 OS 凭证库，不随 Anvil 发布 | 读频道历史、发消息到指定频道，按 V1 动作最小化 | CONN01（Slack） |
+| Notion | 测试 workspace；优先 internal integration token；public integration 需用户提供注册信息且不能依赖内置 secret | 只共享测试页面；读、插入、更新内容 | CONN01（Notion） |
 | 钉钉 | 企业测试组织；企业自建应用（AppKey/AppSecret）与测试群 | 读允许范围、群消息发送 | CONN01（DingTalk） |
 | 飞书 | 企业测试租户；企业自建应用（App ID/Secret） | 测试文档读写、发送消息 | CONN01（Feishu） |
 
