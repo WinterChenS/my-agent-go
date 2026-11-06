@@ -13,16 +13,22 @@ package resources
 //     argv（-record-argv），测试只读文件，不自己拼一份"应该是什么"。
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"my-agent-go/internal/runtime/pi"
 )
 
 var resourcesObservationMu sync.Mutex
@@ -98,11 +104,22 @@ func recordSkillsTree(t *testing.T, root string, label string, facts map[string]
 	writeResourcesArtifact(t, "skills-tree.json", merged)
 
 	fileCount := 0
+	skillDirs := map[string]bool{}
 	for _, e := range entries {
 		if !e.IsDir {
 			fileCount++
+			continue
+		}
+		// 顶层目录 = 一个已落盘的技能（只数一层，避免把 SKILL.md 之类算成技能）。
+		if parts := strings.Split(e.RelPath, "/"); len(parts) == 1 && parts[0] != "." {
+			skillDirs[parts[0]] = true
 		}
 	}
+	skillNames := make([]string, 0, len(skillDirs))
+	for name := range skillDirs {
+		skillNames = append(skillNames, name)
+	}
+	sort.Strings(skillNames)
 	if facts == nil {
 		facts = map[string]any{}
 	}
@@ -113,12 +130,16 @@ func recordSkillsTree(t *testing.T, root string, label string, facts map[string]
 	}
 	facts["skillsRoot"] = filepath.ToSlash(skillsRoot)
 	facts["fileCount"] = fileCount
+	facts["skillCount"] = len(skillNames)
+	facts["skillNames"] = unionResourcesListFact(t, "skillNames", skillNames)
 	facts["treeEntries"] = len(entries)
 	facts["treeLabel"] = label
 	facts["treeSnapshotCount"] = len(merged["snapshots"].([]any))
 	facts["byTest:"+t.Name()+"/"+label] = map[string]any{
 		"skillsRoot":  filepath.ToSlash(skillsRoot),
 		"fileCount":   fileCount,
+		"skillCount":  len(skillNames),
+		"skillNames":  skillNames,
 		"treeEntries": len(entries),
 	}
 	writeResourcesObservation(t, facts, nil)
@@ -262,4 +283,117 @@ func sha256File(t *testing.T, path string) string {
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// ---- RES03/RES04/CFG03：由子进程自己写 argv/env ----
+
+var (
+	fakeWorkerOnce sync.Once
+	fakeWorkerPath string
+	fakeWorkerErr  error
+)
+
+// buildFakeWorker 编译 fakeworker（整个包只编译一次）。
+//
+// 为什么不在测试里拼一份"应该是这样的 argv"：拼出来的东西只能证明测试自己的
+// 拼接逻辑。argv 必须由真正被启动的那个子进程写下来，父进程只读文件。
+func buildFakeWorker(t *testing.T) string {
+	t.Helper()
+	fakeWorkerOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "myagent-resources-fakeworker-*")
+		if err != nil {
+			fakeWorkerErr = err
+			return
+		}
+		name := "fakeworker"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		out := filepath.Join(dir, name)
+		cmd := exec.Command("go", "build", "-o", out, "my-agent-go/internal/runtime/pi/fakeworker")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			fakeWorkerErr = fmt.Errorf("编译 fakeworker 失败: %v\n%s", err, b)
+			return
+		}
+		fakeWorkerPath = out
+	})
+	if fakeWorkerErr != nil {
+		t.Fatal(fakeWorkerErr)
+	}
+	return fakeWorkerPath
+}
+
+// childRecord 是子进程自己写下的 argv/env 观察值（从磁盘读回）。
+type childRecord struct {
+	Argv []string `json:"argv"`
+	Env  []string `json:"env"`
+}
+
+// runRecordingChild 用真实隔离参数启动 fakeworker，让子进程把 argv/env 写进 outDir，
+// 父进程只负责读回。返回值来自文件，不来自这里的变量。
+func runRecordingChild(t *testing.T, isolationArgs []string) childRecord {
+	t.Helper()
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "worker-argv.json")
+	envPath := filepath.Join(dir, "worker-env.json")
+
+	exe := buildFakeWorker(t)
+	// 观察路径走环境变量：argv 里只保留产品真正会发出的隔离参数，
+	// 否则"-record-argv 出现在 argv 里"会让证据自证。
+	env := []string{
+		"FAKEWORKER_RECORD_ARGV=" + argvPath,
+		"FAKEWORKER_RECORD_ENV=" + envPath,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	w, err := pi.StartWorker(ctx, pi.WorkerSpec{
+		Installation: pi.PiInstallation{ID: "fixture:fakeworker", Executable: exe},
+		WorkingDir:   dir,
+		Env:          env,
+		Args:         append([]string{}, isolationArgs...),
+	})
+	if err != nil {
+		t.Fatalf("启动 fakeworker 失败: %v", err)
+	}
+	defer func() {
+		closeCtx, cc := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cc()
+		_ = w.Close(closeCtx)
+	}()
+
+	rec := childRecord{}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		argvRaw, argvErr := os.ReadFile(argvPath)
+		envRaw, envErr := os.ReadFile(envPath)
+		if argvErr == nil && envErr == nil {
+			if err := json.Unmarshal(argvRaw, &rec.Argv); err != nil {
+				t.Fatalf("子进程写下的 worker-argv.json 不是合法 JSON: %v", err)
+			}
+			if err := json.Unmarshal(envRaw, &rec.Env); err != nil {
+				t.Fatalf("子进程写下的 worker-env.json 不是合法 JSON: %v", err)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等不到子进程写出的 argv/env（argvErr=%v envErr=%v）", argvErr, envErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(rec.Argv) == 0 {
+		t.Fatal("子进程写下的 argv 为空：观察值不能是空的")
+	}
+	return rec
+}
+
+// envValue 从子进程写下的环境变量列表里取一个值。
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			return strings.TrimPrefix(kv, prefix)
+		}
+	}
+	return ""
 }

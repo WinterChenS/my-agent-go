@@ -19,6 +19,7 @@ import (
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/credentials"
+	"my-agent-go/internal/runtime/pi"
 )
 
 // newSkillService 构造带托管目录的资源服务。
@@ -307,6 +308,47 @@ func TestMissingDependencyMarksUnavailable(t *testing.T) {
 	if len(plan.Skipped) != 1 || plan.Skipped[0].ID != "dep-skill" {
 		t.Fatalf("应如实报告被跳过的技能，实际 %v", plan.Skipped)
 	}
+
+	// RES03 的外部观察（filesystem）：技能还在磁盘上，但编译出的启动参数里没有它。
+	// argv 由 fakeworker 子进程自己写下（-record-argv），父进程只读文件。
+	isoArgs := pi.IsolationSpec{Skills: plan.Paths}.Args()
+	rec := runRecordingChild(t, isoArgs)
+	if resourcesObservationDir() == "" {
+		return
+	}
+	writeResourcesArtifact(t, "compiled-args.json", map[string]any{
+		"capturedBy":    "fakeworker -record-argv（子进程自写）",
+		"isolationArgs": isoArgs,
+		"argv":          rec.Argv,
+		"env":           rec.Env,
+	})
+	compiled := readResourcesArtifact(t, "compiled-args.json")
+	argvAny, _ := compiled["argv"].([]any)
+	argv := make([]string, 0, len(argvAny))
+	for _, a := range argvAny {
+		if v, ok := a.(string); ok {
+			argv = append(argv, v)
+		}
+	}
+	skillFlags := 0
+	isolationFlags := make([]string, 0, 8)
+	for _, a := range argv {
+		if a == "--skill" {
+			skillFlags++
+		}
+		if strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "--no-") {
+			isolationFlags = append(isolationFlags, a)
+		}
+	}
+	recordSkillsTree(t, root, "after-unavailable-import", map[string]any{
+		"argv":               argv,
+		"argvLen":            len(argv),
+		"compiledSkillFlags": skillFlags,
+		"isolationFlags":     isolationFlags,
+		"childEnvCount":      len(rec.Env),
+		"childExe":           argv[0],
+		"skippedSkill":       plan.Skipped[0].ID,
+	})
 }
 
 // TestDeleteSkillRemovesDirAndAllowsReimport 守"删除真实落盘"。

@@ -203,7 +203,10 @@ func integrationCases() []integrationCase {
 			// 观察值来自 fixture provider（source: http-server）自己收到的请求体，
 			// 加真实交给 Pi 的 argv；两者都从磁盘上的 artifact 读回。
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"provider-request.json"}}},
-		{ID: "RES03", Steps: []integrationStep{{Package: "internal/resources", Run: "TestMissingDependencyMarksUnavailable|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape"}}},
+		{ID: "RES03", Steps: []integrationStep{{Package: "internal/resources", Run: "TestMissingDependencyMarksUnavailable|TestImportRejectsInvalidSkills|TestImportRejectsBrokenUTF8|TestImportRejectsSymlinkEscape"}},
+			// 两份 artifact 都是“从外部读回”：磁盘上的托管技能目录，加上 fakeworker
+			// 子进程自己写下的 argv（缺依赖 → 编译后的启动参数里不该出现 --skill）。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"skills-tree.json", "compiled-args.json"}}},
 		{ID: "RES04", Steps: []integrationStep{
 			{Package: "internal/resources", Run: "TestSystemExtensionCannotBeDisabled|TestThirdPartyExtensionDefaultsDisabled|TestEnableThirdPartyExtensionAffectsArgs|TestUnknownExtensionRejected"},
 			{Package: "internal/app", Run: "TestSkillToggleChangesRuntimeArgs"},

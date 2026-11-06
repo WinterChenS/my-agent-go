@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,41 @@ func main() {
 	child := flag.Bool("child", false, "以孙进程身份运行：只写心跳，不读 stdin")
 	counter := flag.String("counter", "", "crashafterwrite：副作用计数器文件，每执行一次写入追加一行")
 	wait := flag.String("wait", "", "crashafterwrite：回应 prompt 后等这个文件出现（上限 10s）再制造崩溃")
-	flag.Parse()
+	recordArgv := flag.String("record-argv", "", "把本进程实际收到的 argv 写成 JSON（观察用）")
+	recordEnv := flag.String("record-env", "", "把本进程实际收到的环境变量写成 JSON（观察用）")
+	// 真 Pi 的隔离参数（-na/-nc/--no-session/--tools read …）不是 fakeworker 的参数。
+	// CFG03/RES04 要求把**同一批**参数原样交给子进程，所以这里只把 fakeworker 自己
+	// 认识的参数交给 flag 包；其余原样留在 os.Args 里，由 -record-argv 落盘。
+	// 以前的做法是"干脆不传隔离参数"，那测出来的 argv 不是产品真正会发出的那一条。
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	if err := flag.CommandLine.Parse(ownArgs(os.Args[1:])); err != nil {
+		fmt.Fprintf(os.Stderr, "fakeworker 参数错误: %v\n", err)
+		os.Exit(2)
+	}
+
+	// 也允许从环境变量给路径：这样 -record-argv 不必出现在 argv 里，
+	// 观察到的 argv 就是产品真正会发出的那一条（CFG03 要求 argv 不被观察装置污染）。
+	if *recordArgv == "" {
+		*recordArgv = os.Getenv("FAKEWORKER_RECORD_ARGV")
+	}
+	if *recordEnv == "" {
+		*recordEnv = os.Getenv("FAKEWORKER_RECORD_ENV")
+	}
+
+	if *recordArgv != "" {
+		if err := writeJSONFile(*recordArgv, os.Args); err != nil {
+			fmt.Fprintf(os.Stderr, "写 -record-argv 失败: %v\n", err)
+			os.Exit(5)
+		}
+	}
+	if *recordEnv != "" {
+		env := os.Environ()
+		sort.Strings(env)
+		if err := writeJSONFile(*recordEnv, env); err != nil {
+			fmt.Fprintf(os.Stderr, "写 -record-env 失败: %v\n", err)
+			os.Exit(5)
+		}
+	}
 
 	if *pidFile != "" {
 		_ = os.WriteFile(*pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644)
@@ -304,4 +339,50 @@ func spawnChild(marker string) {
 	}
 	fmt.Fprintf(os.Stderr, "spawned grandchild pid=%d\n", cmd.Process.Pid)
 	// 故意不 Wait：让孙进程成为孤儿，只有进程树回收机制能带走它。
+}
+
+// ownArgs 从收到的参数里挑出 fakeworker 自己认识的参数，其余（真 Pi 的隔离参数、
+// 未来新增的 Pi 开关）原样忽略——不认识的参数不能把子进程直接顶死，
+// 否则"子进程收到了什么"这件事永远观察不到。
+func ownArgs(args []string) []string {
+	// 需要取值的参数；-child 是布尔开关，不能吞掉后面的 token。
+	valueFlags := map[string]bool{
+		"-mode": true, "-expect": true, "-flood-bytes": true, "-marker": true,
+		"-pidfile": true, "-counter": true, "-wait": true,
+		"-record-argv": true, "-record-env": true,
+	}
+	boolFlags := map[string]bool{"-child": true}
+
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name := a
+		hasValue := false
+		if eq := strings.IndexByte(a, '='); eq >= 0 {
+			name = a[:eq]
+			hasValue = true
+		}
+		switch {
+		case valueFlags[name]:
+			out = append(out, a)
+			if !hasValue && i+1 < len(args) {
+				out = append(out, args[i+1])
+				i++
+			}
+		case boolFlags[name]:
+			out = append(out, a)
+		default:
+			// 不属于 fakeworker：丢掉，让隔离参数原样出现在 -record-argv 里。
+		}
+	}
+	return out
+}
+
+// writeJSONFile 把观察值写到子进程自己的目录（父进程只读，不代写）。
+func writeJSONFile(path string, value any) error {
+	raw, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o644)
 }
