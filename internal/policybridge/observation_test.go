@@ -54,7 +54,11 @@ func bridgeArtifactDir(t *testing.T) string {
 const maxRecordedBody = 8 << 10
 
 // wireRecord 是一条真实的 HTTP 往返记录（由客户端 RoundTripper 写出）。
+//
+// Kind 只有账本自述行会用到（"ledger-open"）：账本必须存在且非空，但
+// "一条请求都没有"和"请求内容是什么"是两件事，自述行在读取时会被跳过。
 type wireRecord struct {
+	Kind          string          `json:"kind,omitempty"`
 	Seq           int             `json:"seq"`
 	TS            string          `json:"ts"`
 	Method        string          `json:"method"`
@@ -95,13 +99,26 @@ func newWireLog(t *testing.T, path string) *wireLog {
 	return &wireLog{inner: bridgeTransport(), path: path}
 }
 
+// ledgerOpenKind 是账本自述行的 kind：读取时跳过，但它让"零条记录"的账本
+// 仍然是一个非空的、可核对的文件（证据不允许用空文件表达"什么都没发生"）。
+const ledgerOpenKind = "ledger-open"
+
 // ensureLedger 保证账本文件存在且不截断已有内容。
 func ensureLedger(t *testing.T, path, kind string) {
 	t.Helper()
 	if _, err := os.Stat(path); err == nil {
 		return
 	}
-	if err := os.WriteFile(path, nil, 0o644); err != nil {
+	head, err := json.Marshal(map[string]any{
+		"kind": ledgerOpenKind,
+		"ts":   time.Now().UTC().Format(time.RFC3339Nano),
+		"pid":  os.Getpid(),
+		"note": kind + "账本：本行只是自述，不计入请求/执行条数",
+	})
+	if err != nil {
+		t.Fatalf("编码 %s 账本自述行失败: %v", kind, err)
+	}
+	if err := os.WriteFile(path, append(head, 0x0a), 0o644); err != nil {
 		t.Fatalf("创建 %s 账本失败: %v", kind, err)
 	}
 }
@@ -215,6 +232,9 @@ func readWireRecords(t *testing.T, path string) []wireRecord {
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			t.Fatalf("wire 记录不是合法 JSON: %v（原文 %s）", err, line)
 		}
+		if rec.Kind == ledgerOpenKind {
+			continue
+		}
 		out = append(out, rec)
 	}
 	return out
@@ -250,6 +270,7 @@ func scopeOf(rec wireRecord) string {
 
 // executionRecord 是工具处理器真正执行副作用时追加的一行。
 type executionRecord struct {
+	Kind   string `json:"kind,omitempty"`
 	Seq    int    `json:"seq"`
 	TS     string `json:"ts"`
 	Tool   string `json:"tool"`
@@ -316,6 +337,9 @@ func readExecutions(t *testing.T, path string) []executionRecord {
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			t.Fatalf("执行记录不是合法 JSON: %v（原文 %s）", err, line)
 		}
+		if rec.Kind == ledgerOpenKind {
+			continue
+		}
 		out = append(out, rec)
 	}
 	return out
@@ -325,7 +349,7 @@ func readExecutions(t *testing.T, path string) []executionRecord {
 func executedCount(records []executionRecord) int {
 	n := 0
 	for _, rec := range records {
-		if rec.Error == "" {
+		if rec.Error == "" && rec.Status == "executed" {
 			n++
 		}
 	}
@@ -419,6 +443,9 @@ func (h *harness) observe(t *testing.T, extra map[string]any) {
 	toolsOf := func(recs []executionRecord) []string {
 		out := make([]string, 0, len(recs))
 		for _, rec := range recs {
+			if rec.Tool == "" {
+				continue
+			}
 			out = append(out, rec.Tool)
 		}
 		return out
