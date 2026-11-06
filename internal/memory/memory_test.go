@@ -422,4 +422,7 @@ func TestTrigramProbeReportsRealFacts(t *testing.T) {
 	t.Logf("sqlite=%s ENABLE_FTS5=%d", version, fts5)
 	t.Logf("memory_fts DDL=%s", strings.Join(strings.Fields(schema), " "))
 	t.Logf("MATCH '连接池上' hits=%d", hits)
+
+	// MEM01 的外部观察：把库里真实存在的行从磁盘读出来（第二个句柄）。
+	observeMemoryDB(t, svc.DB().Path(), nil)
 }

@@ -122,6 +122,9 @@ func TestChineseTrigramScopeAndExpiry(t *testing.T) {
 	if _, err := svc.Search(ctx, MemoryQuery{WorkspaceID: "ws-a", Text: "ab", Limit: 5}); err == nil {
 		t.Fatal("2 个 ASCII 字符应报 QUERY_TOO_SHORT")
 	}
+
+	// MEM01 的外部观察：磁盘上真实存在哪些行（scope/status/expires_at 都是库里那一份）。
+	observeMemoryDB(t, svc.DB().Path(), nil)
 }
 
 // TestMemoryContextBounded 覆盖 MEM04：≤5 条、≤6000 UTF-8 bytes、rune 边界安全、

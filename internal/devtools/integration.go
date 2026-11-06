@@ -170,7 +170,10 @@ func integrationCases() []integrationCase {
 
 		// ── 记忆（C05，G2） ──
 		// MEM01/02/04 是 HOST（纯逻辑 + 真实 SQLite），MEM03/05 是 ALL，跨资源层与绑定层。
-		{ID: "MEM01", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestTrigramProbeReportsRealFacts"}}},
+		// 观察值来自数据库文件本身（source:"database"）：memory-dump.json 由测试用
+		// **第二个 storage.DB 句柄**从磁盘读出来，不是问被测 Service"你记对了吗"。
+		{ID: "MEM01", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestTrigramProbeReportsRealFacts"}},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"memory-dump.json"}}},
 		{ID: "MEM02", Steps: []integrationStep{{Package: "internal/memory", Run: "TestChineseTrigramScopeAndExpiry|TestScopeDisabledNotInjected|TestDeleteNotInjectedNextRun"}}},
 		{ID: "MEM03", Steps: []integrationStep{
 			{Package: "internal/app", Run: "TestMemoryBindingsRoundTrip"},
