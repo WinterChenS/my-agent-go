@@ -141,7 +141,7 @@ func NewAPI(opts APIOptions) (*API, error) {
 		counter: opts.counter(),
 		done:    make(chan struct{}),
 		tokens:  map[string]bool{},
-		docs:    map[string]string{"doc-fixture": "初始内容"},
+		docs:    map[string]string{"doc-fixture": "第一段\n第二段\n第三段\n第四段\n第五段"},
 		docRev:  1,
 		pages:   map[string]string{"page-1": "页面 1", "page-2": "页面 2"},
 		issues:  map[int]string{1: "初始议题一", 2: "初始议题二"},

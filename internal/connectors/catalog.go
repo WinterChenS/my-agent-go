@@ -133,10 +133,72 @@ func dingtalkActions() []ActionDescriptor {
 	}
 }
 
+// feishuActions 是飞书的 V1 动作。
+//
+// update_doc 是"整体替换文档内容"：重复写入同一份内容不会产生第二份文档，
+// 但飞书不接受幂等键，因此它仍然声明 none —— "内容相同"不等于"平台能去重"。
+func feishuActions() []ActionDescriptor {
+	return []ActionDescriptor{
+		{
+			ID:          "read_doc",
+			Kind:        KindFeishu,
+			Title:       "读取文档",
+			Description: "Read the blocks of one Feishu document (cursor paged, stable page tokens).",
+			Risk:        RiskRead,
+			Capability:  CapabilityFeishuRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"documentId": map[string]any{"type": "string", "description": "Feishu document id."},
+					"cursor":     map[string]any{"type": "string", "description": "page_token from the previous page."},
+					"limit":      map[string]any{"type": "integer", "description": "Page size, default 20, max 100."},
+				},
+				"required": []string{"documentId"},
+			},
+		},
+		{
+			ID:          "update_doc",
+			Kind:        KindFeishu,
+			Title:       "更新文档",
+			Description: "Replace the content of one Feishu document. Non-idempotent in the platform's terms: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskWrite,
+			Capability:  CapabilityFeishuWrite,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"documentId": map[string]any{"type": "string", "description": "Feishu document id."},
+					"content":    map[string]any{"type": "string", "description": "Full document text to write."},
+				},
+				"required": []string{"documentId", "content"},
+			},
+		},
+		{
+			ID:          "send_message",
+			Kind:        KindFeishu,
+			Title:       "发送飞书消息",
+			Description: "Send a text message to one Feishu chat. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskExternalSend,
+			Capability:  CapabilityFeishuSend,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"chatId": map[string]any{"type": "string", "description": "Feishu chat id (oc_...)."},
+					"text":   map[string]any{"type": "string", "description": "Plain text message body."},
+				},
+				"required": []string{"chatId", "text"},
+			},
+		},
+	}
+}
+
 // catalog 是 kind → 动作表的唯一注册点。
 var catalog = map[Kind][]ActionDescriptor{
 	KindMail:     mailActions(),
 	KindDingtalk: dingtalkActions(),
+	KindFeishu:   feishuActions(),
 }
 
 // Catalog 返回某个 kind 的动作副本。
