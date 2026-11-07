@@ -1,123 +1,117 @@
-// 外壳的渲染与键盘可达性测试。
+// 壳层渲染测试（U01 / UI05）。
 //
-// UI01 要求"键盘导航可用"。这里不测"某个 div 有没有 tabindex"，
-// 而是真的按方向键、检查导航被触发且焦点跟到新入口——
-// 焦点不跟随的话，视觉焦点会留在旧 tab，用户下一次按键还是从旧位置继续。
+// 断言的是"人在界面上能不能到达"：三个主入口与工具分组都在、当前页只有一个、
+// 工具分组能收起、搜索框与左栏历史都在 Tab 序列里，右栏开关是可识别的切换按钮。
+// 不断言 class 名或 DOM 层级——那些是实现细节，改了不该让测试红。
 
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Layout } from "./Layout";
-import { VIEWS } from "./Router";
+import { navGroups } from "./navigation";
+import { t } from "../i18n";
 
 type LayoutArgs = Parameters<typeof Layout>[0];
 
 function renderLayout(overrides: Partial<LayoutArgs> = {}) {
-  const { children, ...rest } = overrides;
   const onNavigate = vi.fn();
   const onToggleRight = vi.fn();
   const utils = render(
     <Layout
       status={null}
-      view="workbench"
+      current="workbench"
       onNavigate={onNavigate}
-      left={<div>左栏内容</div>}
-      right={<div>右栏内容</div>}
+      search={<input aria-label={t("search.title")} />}
+      history={<button>{t("shell.historyTitle")}</button>}
+      footer={<span>{t("shell.piStatus")}</span>}
+      right={<div>{t("common.details")}</div>}
       rightOpen={false}
       onToggleRight={onToggleRight}
-      {...rest}
+      {...overrides}
     >
-      {children ?? <div>主内容</div>}
+      {overrides.children ?? <button>{t("common.details")}</button>}
     </Layout>
   );
   return { ...utils, onNavigate, onToggleRight };
 }
 
 describe("Layout", () => {
-  it("五个入口都在 tablist 里，且只有当前那个被标记选中", () => {
+  it("三个主入口与工具分组都在导航里", () => {
     renderLayout();
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(VIEWS.length);
-    for (const spec of VIEWS) {
-      const tab = screen.getByRole("tab", { name: spec.label });
-      expect(tab).toBeInTheDocument();
-      // 悬停说明要能读到，否则"这个入口是干什么的"只能靠猜。
-      expect(tab).toHaveAttribute("title", spec.hint);
+    for (const group of navGroups()) {
+      for (const item of group.items) {
+        expect(screen.getByRole("button", { name: t(item.labelKey) })).toBeInTheDocument();
+      }
     }
-    const selected = tabs.filter((t) => t.getAttribute("aria-selected") === "true");
-    expect(selected).toHaveLength(1);
-    expect(selected[0]).toHaveTextContent("工作台");
   });
 
-  it("方向键切换入口，并把焦点带到新入口", async () => {
-    const user = userEvent.setup();
-    const { onNavigate, rerender } = renderLayout();
-
-    screen.getByRole("tab", { name: "工作台" }).focus();
-    await user.keyboard("{ArrowRight}");
-
-    expect(onNavigate).toHaveBeenCalledWith("resources");
-
-    // 父组件更新 view 之后，焦点应在"资源库"上。
-    rerender(
-      <Layout
-        status={null}
-        view="resources"
-        onNavigate={onNavigate}
-        left={<div />}
-        right={<div />}
-        rightOpen={false}
-        onToggleRight={() => {}}
-      >
-        <div />
-      </Layout>
-    );
-    expect(screen.getByRole("tab", { name: "资源库" })).toHaveAttribute("aria-selected", "true");
+  it("只有当前页面被标记为当前位置", () => {
+    renderLayout({ current: "settings" });
+    const marked = screen
+      .getAllByRole("button")
+      .filter((el) => el.getAttribute("aria-current") === "page");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent(t("nav.settings"));
   });
 
-  it("向左跨过第一个入口会绕到最后一个", async () => {
+  it("点击导航项会把目标路径交给上层", async () => {
     const user = userEvent.setup();
     const { onNavigate } = renderLayout();
-    screen.getByRole("tab", { name: "工作台" }).focus();
-    await user.keyboard("{ArrowLeft}");
-    expect(onNavigate).toHaveBeenCalledWith(VIEWS[VIEWS.length - 1].id);
+    await user.click(screen.getByRole("button", { name: t("nav.connectors") }));
+    expect(onNavigate).toHaveBeenCalledWith("/connectors");
   });
 
-  it("只有当前入口在 Tab 序列里（roving tabindex）", () => {
-    renderLayout();
-    const active = screen.getByRole("tab", { name: "工作台" });
-    const other = screen.getByRole("tab", { name: "设置" });
-    expect(active).toHaveAttribute("tabindex", "0");
-    expect(other).toHaveAttribute("tabindex", "-1");
-  });
-
-  it("Tab 键能从导航走到左栏与主内容里的可操作元素", async () => {
+  it("工具分组可以收起，收起后入口不再可达", async () => {
     const user = userEvent.setup();
-    renderLayout({
-      left: <button>添加工作区</button>,
-      children: <button>发送</button>,
-    });
+    renderLayout();
+    const toggle = screen.getByRole("button", { name: t("nav.toolsLabel") });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: t("nav.schedules") })).toBeInTheDocument();
 
-    // 顶栏的详情开关是第一个可 Tab 到的按钮。
-    await user.tab();
-    expect(screen.getByRole("button", { name: /详情栏/ })).toHaveFocus();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: t("nav.schedules") })).toBeNull();
 
-    // 当前 tab 进入序列。
-    await user.tab();
-    expect(screen.getByRole("tab", { name: "工作台" })).toHaveFocus();
-
-    // 继续 Tab 能到达左栏与主内容，而不是被导航吞掉。
-    await user.tab();
-    expect(screen.getByRole("button", { name: "添加工作区" })).toHaveFocus();
-    await user.tab();
-    expect(screen.getByRole("button", { name: "发送" })).toHaveFocus();
+    await user.click(toggle);
+    expect(screen.getByRole("button", { name: t("nav.schedules") })).toBeInTheDocument();
   });
 
-  it("详情栏开关是可被识别的切换按钮", () => {
+  it("Tab 顺序覆盖搜索、导航、历史与主内容", async () => {
+    const user = userEvent.setup();
+    renderLayout({ history: <button>{t("shell.loadMore")}</button> });
+
+    // 记录实际焦点序列再断言相对顺序：焦点能在 30 次 Tab 内走完整个壳层，
+    // 且搜索在前、导航次之、历史再次、主内容最后——没有一段被导航吞掉。
+    const focused: (Element | null)[] = [];
+    for (let i = 0; i < 30; i++) {
+      await user.tab();
+      focused.push(document.activeElement);
+    }
+    const indexOf = (predicate: (el: Element) => boolean) =>
+      focused.findIndex((el) => (el ? predicate(el) : false));
+
+    const searchIdx = indexOf((el) => el.getAttribute("aria-label") === t("search.title"));
+    const navIdx = indexOf((el) => el.textContent === t("nav.workbench"));
+    const historyIdx = indexOf((el) => el.textContent === t("shell.loadMore"));
+    const mainIdx = indexOf((el) => el.textContent === t("common.details"));
+
+    expect(searchIdx).toBeGreaterThanOrEqual(0);
+    expect(navIdx).toBeGreaterThan(searchIdx);
+    expect(historyIdx).toBeGreaterThan(navIdx);
+    expect(mainIdx).toBeGreaterThan(historyIdx);
+  });
+
+  it("右栏开关是可识别的切换按钮", async () => {
+    const user = userEvent.setup();
     const { onToggleRight } = renderLayout();
-    const toggle = screen.getByRole("button", { name: "展开详情栏" });
+    const toggle = screen.getByRole("button", { name: t("shell.showDetails") });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
-    toggle.click();
+    await user.click(toggle);
     expect(onToggleRight).toHaveBeenCalledTimes(1);
+  });
+
+  it("主内容区域有来自导航文案的可访问名称", () => {
+    renderLayout({ current: "agents" });
+    expect(screen.getByRole("main", { name: t("nav.agents") })).toBeInTheDocument();
   });
 });
