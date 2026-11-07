@@ -816,6 +816,53 @@ func observeBrowserPolicyDecisions(t *testing.T, h *policyHarness, section strin
 	writeBrowserTimeline(t, h)
 }
 
+// mergeBrowserObservationFromArtifacts 把落盘 artifact **读回来**再写 observation.json。
+//
+// 直接拿内存里的 counter 写 observation 等于自证；这里要求事实来自文件：
+// fixture-counters.jsonl 的最后一条、policy-decisions.jsonl 的行数、mcp-calls.jsonl 的调用数。
+func mergeBrowserObservationFromArtifacts(t *testing.T, section string) {
+	t.Helper()
+	dir := browserObserveDir()
+	if dir == "" {
+		return
+	}
+	readJSONL := func(name string) []map[string]any {
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+		if err != nil {
+			return nil
+		}
+		out := make([]map[string]any, 0, 8)
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			var row map[string]any
+			if json.Unmarshal([]byte(line), &row) == nil {
+				out = append(out, row)
+			}
+		}
+		return out
+	}
+
+	counters := readJSONL("fixture-counters.jsonl")
+	decisions := readJSONL("policy-decisions.jsonl")
+	calls := readJSONL("mcp-calls.jsonl")
+	if len(counters) == 0 {
+		return
+	}
+	last := counters[len(counters)-1]
+	mergeToolListObservation(t, map[string]any{
+		"browser:" + section: map[string]any{
+			"counterSamples":     len(counters),
+			"lastCounters":       last["primary"],
+			"policyRows":         len(decisions),
+			"mcpCallSamples":     len(calls),
+			"artifacts":          []string{"fixture-counters.jsonl", "policy-decisions.jsonl", "mcp-calls.jsonl", "action-timeline.jsonl", "mcp-session.json"},
+			"factsFromArtifacts": true,
+		},
+	})
+}
+
 func observeBrowserDenials(t *testing.T, h *policyHarness, section string) {
 	t.Helper()
 	if browserObserveDir() == "" {
@@ -828,6 +875,7 @@ func observeBrowserDenials(t *testing.T, h *policyHarness, section string) {
 		"runId":     h.exec.RunID,
 		"tabId":     h.tab,
 	})
+	mergeBrowserObservationFromArtifacts(t, section)
 }
 
 func observeBrowserFlow(t *testing.T, h *policyHarness, approvals []policy.ApprovalRequest) {

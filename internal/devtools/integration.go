@@ -323,7 +323,7 @@ func integrationCases() []integrationCase {
 		{ID: "BR11", Package: browserTests, Run: "TestQueuedActionRevokedOnTakeover|TestResumeRequiresFreshSnapshot",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "control-states.jsonl"}}},
 		{ID: "BR12", Package: browserTests, Run: "TestCrossSessionTabDenied|TestTabLimit",
-			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"counters-br12.json", "backend-actions.jsonl"}}},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"counters-cross-session.json", "counters-limits.json", "action-timeline.jsonl"}}},
 		// BR13：浏览器动作经 MCP + policy；拒绝/换 origin 时 fixture 计数必须为 0。
 		// harnessmcp 侧写 policy-decisions.jsonl / mcp-calls.jsonl / fixture-counters.jsonl。
 		{ID: "BR13", Package: harnessmcpTests, Run: "TestBrowserToolDeniedLeavesCounterZero|TestBrowserToolDeniedOriginChangeAtPolicyLayer|TestModelCannotSelfConfirm|TestSessionGrantCoversTabWritesAndTokenStaysSiteScoped",
