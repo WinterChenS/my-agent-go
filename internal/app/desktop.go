@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"my-agent-go/internal/config"
+	"my-agent-go/internal/connectors"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/credentials"
 	"my-agent-go/internal/harnessmcp"
@@ -176,6 +177,13 @@ type Desktop struct {
 	runtimeSkills       []string
 	runtimeSkillDigest  string
 	runtimeExtensionDig string
+	// connectorMu 保护 C08a 连接器服务单例与待审批请求。
+	// 与 d.mu 分开：连接器健康检查会做网络往返，不该连带把 Status 卡住。
+	connectorMu      sync.Mutex
+	connectorSvc     *connectors.Service
+	connectorDB      *storage.DB
+	connectorPending map[string]connectors.PendingApproval
+
 	// runtimeMCP/runtimeMCPDigest 是最近一次构建交给 Pi 的外部 MCP 集合。
 	// digest 参与运行时签名：改服务/改参数/改暴露策略都会重建 runtime，
 	// 有 run 在跑时则记 pending（旧 run 不静默变化）。
@@ -318,6 +326,18 @@ func (d *Desktop) persistSettings(s Settings) error {
 	d.settings = s
 	d.mu.Unlock()
 	return nil
+}
+
+// effectivePermissions 是权限上限的唯一计算点。
+//
+// 运行时策略服务与连接器服务（C08a）共用它：两处各算一份迟早会出现
+// "连接器按 A 判断、run 按 B 执行"的分叉。
+func effectivePermissions(s Settings) config.Permissions {
+	return config.Permissions{
+		Filesystem: "workspace",
+		Shell:      s.ShellAllowed,
+		Network:    false,
+	}
 }
 
 // isolationSpec 是"实际传给 Pi 的隔离参数"的唯一构造点。
@@ -656,14 +676,11 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 两处读同一份事实，不会出现"策略服务允许 shell、而某个 run 的声明快照里
+	// 也写着 shell 却没人核对"的分叉。
 	// 权限上限只在这里算一次：既交给策略服务，也交给 RunService 作为
-	// per-run 快照的天花板。两处读同一份事实，不会出现"策略服务允许 shell、
-	// 而某个 run 的声明快照里也写着 shell 却没人核对"的分叉。
-	permissions := config.Permissions{
-		Filesystem: "workspace",
-		Shell:      s.ShellAllowed,
-		Network:    false,
-	}
+	// per-run 快照的天花板。连接器服务（C08a）用同一个函数取同一份事实。
+	permissions := effectivePermissions(s)
 	pol := policy.New(policy.Options{
 		Permissions: permissions,
 		PathGuard:   guard,
@@ -1126,6 +1143,16 @@ func (d *Desktop) Shutdown() {
 	// 会话目录库同样与应用同寿命。
 	if sessionDB != nil {
 		_ = sessionDB.Close()
+	}
+	// 连接器库（定义 + 追加式审计）同样与应用同寿命。
+	d.connectorMu.Lock()
+	connectorDB := d.connectorDB
+	d.connectorDB = nil
+	d.connectorSvc = nil
+	d.connectorPending = nil
+	d.connectorMu.Unlock()
+	if connectorDB != nil {
+		_ = connectorDB.Close()
 	}
 }
 
