@@ -220,3 +220,27 @@ ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条�
 3. **CONN07/SCH06**（连接器页/调度页）、**RUN01/04/06.ui**（真实 Wails + Pi 端到端）。
 4. **X01 E2E01–07** → **X03 打包** → **X04 迁移/更新/性能** → **F09 更新服务** → **X05 REL01–04**。
 5. **BLOCKED**：签名预认证清单、托管包五目标 `sizeBytes`、真实 OAuth/连接器账号。
+
+## 10. 2026-11-08 第七波：U06（设置/观测）与 W01（浏览器面板接线）合并
+
+- **U06 合并**（`bd2fa35`）：设置页（常规/模型/权限/Pi/安全/更新/诊断）与观测页（usage/run details/诊断导出）。
+  Pi 分区展示真实候选（路径/版本/来源/hash/探测态）；**更新分区渲染 unavailable**（F09 还不存在，不画假进度）；
+  CAS 冲突呈现 `CONFIG_CONFLICT`。前端 309 测试 + typecheck + 文案门禁全绿。
+  报告的后端缺口：缺 `ListRunUsage`（观测页跨 run 列表）、缺 `CredentialStoreStatus`、缺 `PiInstallManifest`、
+  `SaveSettings` 无 revision（无法返回冲突）、导出缺 `HostTarget`。
+- **W01 合并**（`53a0fef`）：浏览器面板挂进聊天页右栏、`cmd/myagent/main.go` 注册 browser bridge、
+  遮挡协调器接到审批卡/澄清卡；修两处静默错误（面板 `h-full` 让原生 slot 量出 0×0；`updateSlot` 缺拒绝处理器）。
+  启动装配默认拒绝授权（`unwiredBrowserAuthorizer`），BR07.tool 的授权接线仍未做。
+  UI04.workbench / E2E03 = NOT_RUN（需真窗口手跑 + 录屏）。
+- **gate 在 `53a0fef` 仍全绿**：G0 31/31、G1 7/7、G2 69/69。
+- 再次确认：native 套件在负载下会偶发丢输入/计数（同提交第二次就全过）。取证单独跑并清理残留进程。
+
+### 剩余
+
+1. **U07**（唯一可写 `tests/acceptance/cases.json` 与 devtools UI runner 的任务）：可访问性、视觉回归、真机 UI 验收，
+   把 UI01–UI13、I18N/THEME/BRAND 的 NATIVE 外部证据做出来 → 这是 G3 的主杠杆。
+2. **BR07.tool**：浏览器写动作的授权接线（当前默认拒绝）。
+3. 后端缺口补齐：`ListRunUsage`、`CredentialStoreStatus`、`PiInstallManifest`、`SaveSettings(revision)`、
+   `HostTarget`、profile 的 Description/SystemPrompt/ReasoningLevel/ToolIDs + run 启动路径。
+4. **CONN07/SCH06** 页面、**RUN01/04/06.ui** 端到端。
+5. **X01 E2E** → **X03 打包** → **X04 迁移/更新/性能** → **F09** → **X05**。
