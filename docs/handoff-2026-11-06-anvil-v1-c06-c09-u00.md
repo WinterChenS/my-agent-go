@@ -31,77 +31,61 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 **本机证据一律是开发证据**：`build/platforms.json` 要求 win-x64 最低 Windows 11 build 26100。在 Win11 24H2
 或合规 CI 上重跑同一套命令，G0 的拒绝理由才会消失。不得把本机任何结果当作 win-x64 验收结论。
 
-## 2. 本轮完成（每个任务都有提交 + 原始证据 / 报告）
+## 2. 本轮完成（2026-11-06 夜：验收口径收敛 + 并行推进）
 
-### 2.1 C06：会话/运行域（六段）
+### 2.1 验收口径：ADR 0005（先读它）
 
-| 段 | 提交 | 要点 |
+六目标矩阵 + Windows 11 24H2 最低线意味着本机能产出的**每一条**证据都被 GOV05 拒收，任何 gate 都无法评估。
+用户明确要求本轮只需要 Windows 10，于是：
+
+- **ADR 0005**：本轮唯一验收目标 = `win-x64`，最低系统 = Windows 10 22H2（build 19045）；其余五目标
+  `active=false` 且必须写 `deferredBy`；它们的必需位在 gate 报告里**逐条打印为 deferred**
+  （不计缺失、也不计通过）；某 gate 的必需位全部停用时判**非通过**。
+- `build/platforms.json`、`activeTargets()`、`resolveRequiredEvidenceWithDeferred`、native runner 的
+  `--gate` 选择都已落地。恢复其它目标必须撤 ADR 并重跑矩阵——不能只把 `active` 改回 true。
+
+### 2.2 并行实现（各自独立 worktree，已合并）
+
+| 分支 | 任务 | 内容 |
 |---|---|---|
-| C06a | `dc6de61`→`fc5028b` | per-run `ExecutionBinding`（admission 解析并冻结）；一个全局 admission queue（`globalMaxActive=2`），排队 run 在 `run.state` 事件上报 `queuePosition`；策略上限在 admission 校验（越权结构化失败，不建 run/不占槽/不起 worker） |
-| C06b | `86e3c9a`→`9224c96` | 迁移 005（title/pinned/archived/updated_at/revision/deleted_at/kind）；keyset 分页（插入下稳定）；每个 mutation CAS revision；软删除保留 transcript 与产物 |
-| C06c | `51de3f1`/`8c219eb` | 附件 content-addressed blob store（`<appRoot>/blobs/aa/<sha256>`）+ 只读 broker：同一打开句柄校验 size/sha256 后才返回字节；symlink/junction/越界/并发替换/能力过期 fail closed |
-| C06e | `a240826`→`3970d7a` | 会话导出（html/markdown/json）取自 Pi transcript；HTML 结构化转义；`internal/redact` 共享脱敏规则（含与 `worker.go` 的漂移比对测试）；原子写 + 越界拒绝 |
-| C06f | `318fe72`→`8e9c2fc`、`5c17d84` | 附件投递（loopback+令牌只读端点，run 结束即关）与澄清桥（`anvil_ask_user` + typed `clarification.requested` + tagged union 答复）；权限隔离按**工具身份**不按名字；顺带修掉"正常结束的 run 从不关 worker"的真 bug |
+| `feat/u01` | U01 应用壳层 | 路由/导航（含 `anvil://`）、历史侧栏（分页/改名/置顶/归档/删除确认/重启持久化）、工作台摘要（缺数据 = `unavailable`）、全局搜索（`internal/search` + 迁移 006 + `Desktop.Search` + 前端搜索面板）、`not_implemented` 页 |
+| `feat/brnative` | B04 原生浏览器 | observe 的**稳定 ref**（`data-anvil-uid` + per-tab nonce，陈旧 ref 一律 `STALE_SNAPSHOT` 且不发出输入）、元素/文本/JSON 限额与 `Truncated`、密码值永不回显、CDP 命中测试、cross-origin/closed-shadow 明确 `Unsupported`、截图 ≤4 MiB 受控缩放、BR07.native/BR08–BR10 runner |
+| `feat/e02` | E02 证据接线 | MOD01–04、MCP01–05、SEC07.store、CONN03/04/05/08 共 14 条接 runner + 外部观察（8 条 PASS，6 条当次因 worktree 缺 `.tools/pi` 记 BLOCKED） |
 
-### 2.2 C07：产物 / usage / 诊断
+### 2.3 父会话做的修复与合并
 
-`59ed7b5`…`35e7f54` + `8476169`：迁移 007（artifacts / run_usage / run_events）；`GetArtifact` 每次读重新核对
-磁盘 → `drifted`/`missing`；usage 三态（无记录 / 有 tokens 无价格 / 两者都有），`unavailable` 绝不当 0；
-诊断导出复用 `internal/redact`，sentinel 命中 0 且保留错误码/版本/时间/事件 ID。
+- `F01: let the native runner write evidence for any gate`（`3fa435e`）：原生 case 不止 G1（BR08–BR10 是 G2），
+  证据路径按 gate 分开，runner 现在按 gate 选位与落盘；`verify --suite=native ... --gate=G2` 可用。
+- `F01: give the real-Pi MOD/MCP steps the baseline Node on PATH`：那 6 条在合并后由 BLOCKED 变 PASS
+  （worktree 缺 `.tools/pi`；主仓有，且必须用基线 Node，否则旧微信 node 报 `enableCompileCache`）。
+- 移除分支误加进共享 `.git/info/exclude` 的 `scratch/` 行；把两条红证据留档在 `scratch/red/`。
 
-**关键修正 `8476169`**：`run.Options.History` 只有一个槽位，C07 把诊断记录器装进去后 `history.Service`
-没有写者（真实运行过的会话查不到）。改为复合 sink：索引先写、诊断后写，一个坏了不把另一个判死。
+### 2.4 当前 gate 状态（HEAD `72a5546`，本机 Windows 10 19045）
 
-### 2.3 C08：连接器
+| gate | 结果 | 说明 |
+|---|---|---|
+| G0 | **passed=true exit 0** | 31 个必需位全 PASS；100 个 deferred（五目标）逐条打印 |
+| G1 | exit 2 | 6/7 PASS（BR00/01/04/05/06 + BR07.native）；缺 **UI04.native** runner（B07/U02 右栏） |
+| G2 | exit 2 | 集成 56/69 可跑全 PASS、原生 BR08–BR10 PASS；缺 13 条：`SEC03.browser`、`SEC04.browser`、`CFG01`、`BR11`–`BR17` |
 
-- C08a `76d27b4`…`21efae9`：框架（driver 接口、catalog、追加式审计、迁移 003）、loopback PKCE 鉴权、
-  SMTP/IMAP/OAuth fixture、mail 驱动、MCP 暴露、app 绑定。凭证只进 OS 凭证库，其余位置只有 ref。
-- C08b `dc607dd`…`0af6a41`：钉钉/飞书/Slack/Notion/GitHub 五个适配器；每个写操作在 catalog 显式声明幂等性
-  （五个平台都是 `none`，重试必须重新审批）；每平台限流；跨适配器同一道策略门（反证日志证明去掉门即红）。
-
-### 2.4 C09：调度器
-
-`18c1503`/`4b07358`：occurrence 唯一键 `(schedule_id, scheduled_at)` 让 DST 双向、时钟回跳、重启都不重复触发；
-misfire 最多补 `CatchUpLimit` 次；同任务不重叠（`skipped` + 稳定 reason）；无人值守审批 60s 超时后失败且
-副作用 0、不重放；连续两次失败 CAS 自动暂停；派发走**唯一** RunService（Runner 接口就是 `*run.Service` 的
-方法集）；调度会话 `kind=scheduled`，删除是软删除且保留产物。
-
-### 2.5 U00：品牌 / 错误契约 / i18n / 主题
-
-`b32b2cc`、`0f37424`：`AppError`/`CallError` 增量字段（`params`/`operation`/`cause`，全 `omitempty`）；
-`Preferences{Locale,Theme}` 走既有配置 CES；`UnsavedScopes()` 供 F09；`envLookup` 优先 `ANVIL_` 并对
-`MYAGENT_` 记一次弃用；品牌迁移一次性、幂等、不删旧目录、不碰 `~/.pi`；i18n 两语言 key 集一致且覆盖全部
-40 个 Go 错误码；主题 system/light/dark + 跟随系统；`AsyncState`/`StatusBadge`/`useUnsavedChanges`；
-`scripts/check-ui-contract.mjs` 作为文案门禁（历史 19 页 571 条文案列入基线，只许缩小）。
-
-### 2.6 证据与工具链
-
-| 提交 | 内容 |
-|---|---|
-| `9f4e490` | **GOV05 runner**：真实 devtools 二进制在四棵证据树上的退出码（最低线 0；缺环境/OS 不符/低于最低 build 各 2 并点名），事实从 `gate-run.json` 读回 |
-| `9c4aee6`…`0769d6a` | **E01 证据接线**：DB01–03、CFG02/04、CFG03.resources、SES01–03、ART01–03+SEC07.diagnostics、SCH01–05/07、CONN01/02/06 共 22 条 case 接上 runner 与 external observation |
-| `a81b040` | 前端 runner 改用基线 Node 的 PATH（首个 `node` 是旧微信构建，vitest 会误红）；`verify --suite=unit` 从此 exit 0 |
-| `aef1deb`、`c16bcff` | flake 根治：`Close` 等索引写在飞行的写入排空；`run.error` 有界等待；piinstall 安全快照只按内容哈希并做差异归因；clarification 测试替身的数据竞争 |
+四个套件：`static` 0、`unit` 0、`integration --gate=G0` 0、`native --gate=G1` 2（只缺 UI04.native）。
 
 ## 3. 仍未闭合（按影响排序）
 
-1. **109 条必需原子 case 没有 runner**：UI01–UI13（U01–U07 前端页面/搜索/资源库/记忆/观测）、
-   E2E01–07、PKG01–07/UPD01–14/PERF01–04/REL01–04（X03/X04/F09 打包与发布）、BR02/03/07–17（原生浏览器）、
-   INS01–07/PI_PKG01–02（F06 G4 半边）、CONN03/04/05/07/08、MOD01–04、MCP01–05、SCH06、
-   SEC03/04.browser、SEC07.store、CFG01、RES05、RUN01/04/06.ui。
-2. **签名预认证清单不存在**：没有任何发行私钥就没有 `ready_verified`（BLOCKED，需 X05）。
-3. **托管包五个目标没有精确 `sizeBytes`**：清单写 0 且 loader 拒绝（需发行流程回填后重新签名）。
-4. **文案与主题的逐页迁移**：U00 只建了地基，19 页历史文案仍在基线里，旧组件仍硬编码颜色。
-5. **`anvil://` 逻辑路由**与偏好首屏接线归 U01（`main.tsx` 目前只用本地镜像）。
-6. **macOS/Linux 无真机证据**：POSIX `#!`、tar.gz 解包、真实 Pi 契约探测、`Get-Clipboard` 等价物都要在对应
-   目标机重跑；六目标矩阵是 G0 失分的主要原因（本机只能出 win-x64）。
+1. **B05/B06（浏览器会话/接管/限额/策略/cookie/弹窗/下载）**：BR11–BR17 与 SEC03/04.browser，是 G2 的最后一块。
+2. **B07/U02（右栏与弹层遮挡）**：UI04.native 是 G1 的最后一块。
+3. **U02–U07 页面**：聊天、右栏、资源库、记忆、观测、主题/i18n 逐页迁移、品牌页；对应 UI01–UI13、E2E01–07。
+4. **CFG01**：合并 provenance 目前不落盘（纯函数），需要一处可观察的落点才能取证。
+5. **X03/X04 + F09**：打包（`devtools package` 仍是占位）、更新服务、性能与发布检查（PKG/UPD/PERF/REL/INS/PI_PKG）。
+6. **BLOCKED（外部条件）**：签名预认证清单（无发行私钥）、托管包五目标 `sizeBytes`、真实 OAuth/连接器账号、
+   macOS/Linux 真机（ADR 0005 下本轮不验收）。
 
-## 4. 建议的下一步顺序
+## 4. 下一步（并行波次，均独立 worktree）
 
-`U01`（壳层/路由/搜索/工作台，`desktop.go` 串行写点）→ `U02`–`U07`（页面，逐页把文案收进 catalog）→
-`E01` 续（MCP/ MOD / CONN08 / BR07.tool 等"装置已具备"的 case）→ `F09`（签名更新服务）→
-`X03/X04`（打包/发行）→ 在 Win11 24H2 机或合规 CI 重跑 G0→G1→G2 → `G4`。
+- 波次 2：`B05`（会话/接管/限额/策略 → BR11–BR14 + SEC03/04.browser）与 `U02`（聊天页 + 右栏 → UI01/UI02/UI04.native/RUN01.ui/RUN04.ui）并行。
+- 波次 3：`B06`（cookie/弹窗/下载 → BR15–BR17）与 `U03/U04/U05`（Agent/资源库/记忆）并行。
+- 波次 4：`U06/U07`（观测/主题/i18n/品牌）与 `F09`（更新服务）并行。
+- 波次 5：`X03`（打包）→ `X04`（迁移/更新/性能）→ `E01` 收尾（CFG01 等）。
 
 纪律不变：失败用例 → 最小实现 → focused 验证 → 原始证据 → 可独立审查的提交；**先提交、工作树完全干净
-（含未跟踪文件）再取证**（否则证据 `worktreeDirty` 会被门禁判死）；缺机器/凭证/签名就写 BLOCKED，不改口径、
-不伪造证据。
+（含未跟踪文件）再取证**；每个 worktree 分支合并后由父会话重跑证据（revision 变了旧证据即失效）。
