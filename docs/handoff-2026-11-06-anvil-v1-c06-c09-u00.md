@@ -89,3 +89,28 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 
 纪律不变：失败用例 → 最小实现 → focused 验证 → 原始证据 → 可独立审查的提交；**先提交、工作树完全干净
 （含未跟踪文件）再取证**；每个 worktree 分支合并后由父会话重跑证据（revision 变了旧证据即失效）。
+
+## 5. 2026-11-07：并行第二波（U02 合并、CFG01 取证、B05 半程）
+
+- **U02 已合并**（`8286862`）：聊天页、输入区（项目/会话、模型、思考级别、权限摘要、附件）、工具卡片、
+  审批卡、澄清卡、右栏四分区（浏览器/产物/引用/执行，缺数据 = `unavailable`）、窄窗抽屉不重建宿主节点。
+  前端 222 测试 + typecheck + 文案门禁全绿；审批只由 `approval.resolved` 推进（替换了那条冲突用例）。
+  后端缺口已写进报告：浏览器分区无绑定（B07）、`RunDetails` 缺 `Citations`、`StartSessionRun` 不收
+  ProfileID/ThinkingLevel、无上下文超限稳定错误码、`AttachmentRequest` 无 Skill 身份。
+- **CFG01 已取证**（`da75952`）：新增 `Desktop.EffectiveConfig()`（从磁盘层文档合并，返回 values/provenance/
+  warnings/存在的层）+ `SaveConfigLayer`（CAS 写）；观察值来自"第二个 store 实例读回的层文档"与
+  `effective-config.json`。G2 的缺 runner 从 13 条降到 12 条。
+- **B05 半程**（分支 `feat/b05`，2 个提交，未合并）：控制权状态机 + 每 tab 串行队列 + 限额 + 派发前二次授权，
+  浏览器动作已注册为 MCP 工具（经 policy bridge）。**缺**：BR11–BR14 / SEC03.browser / SEC04.browser 的
+  runner 条目与观察 artifact，以及"接管后 queued 归零""OutcomeUnknown 不重放"的端到端用例。
+  包内测试通过（`internal/browser`、`internal/harnessmcp`），但不足以取证。
+- 当前 HEAD 的四个套件：`static` 0、`unit` 0、`go test ./...` 0；`gate --id=G0` 仍 passed；
+  G1 只缺 `UI04.native`；G2 只缺 `SEC03.browser`、`SEC04.browser`、`BR11`–`BR17`。
+
+### 下一步（接手即做）
+
+1. 续做 B05：补 6 条 runner + 观察 artifact，跑 `verify --suite=integration --case=BR11..BR14,SEC03.browser,SEC04.browser`。
+2. B06：cookie/profile 隔离、弹窗继承、下载确认与 hash（BR15–BR17）。
+3. B07 + UI04.native：右栏原生 slot、遮挡协调、接管（G1 的最后一块）。
+4. U03–U07：Agent/资源库/记忆/观测/主题/i18n 逐页迁移（文案基线只许缩小）。
+5. X03/X04 + F09：打包（`devtools package` 仍是占位）、更新服务、性能与发布。
