@@ -236,12 +236,71 @@ func slackActions() []ActionDescriptor {
 	}
 }
 
+// notionActions 是 Notion 的 V1 动作。
+func notionActions() []ActionDescriptor {
+	return []ActionDescriptor{
+		{
+			ID:          "query",
+			Kind:        KindNotion,
+			Title:       "查询数据库",
+			Description: "Query one Notion database and return its pages (cursor paged).",
+			Risk:        RiskRead,
+			Capability:  CapabilityNotionRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"databaseId": map[string]any{"type": "string", "description": "Notion database id."},
+					"cursor":     map[string]any{"type": "string", "description": "next_cursor from the previous page."},
+					"limit":      map[string]any{"type": "integer", "description": "Page size, default 20, max 100."},
+				},
+				"required": []string{"databaseId"},
+			},
+		},
+		{
+			ID:          "create_page",
+			Kind:        KindNotion,
+			Title:       "新建页面",
+			Description: "Create one child page under an existing Notion page. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskWrite,
+			Capability:  CapabilityNotionWrite,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"parentId": map[string]any{"type": "string", "description": "Parent page id."},
+					"title":    map[string]any{"type": "string", "description": "Title of the new page."},
+				},
+				"required": []string{"parentId", "title"},
+			},
+		},
+		{
+			ID:          "update_page",
+			Kind:        KindNotion,
+			Title:       "更新页面",
+			Description: "Update the title property of one Notion page. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskWrite,
+			Capability:  CapabilityNotionWrite,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pageId": map[string]any{"type": "string", "description": "Notion page id."},
+					"title":  map[string]any{"type": "string", "description": "New title."},
+				},
+				"required": []string{"pageId", "title"},
+			},
+		},
+	}
+}
+
 // catalog 是 kind → 动作表的唯一注册点。
 var catalog = map[Kind][]ActionDescriptor{
 	KindMail:     mailActions(),
 	KindDingtalk: dingtalkActions(),
 	KindFeishu:   feishuActions(),
 	KindSlack:    slackActions(),
+	KindNotion:   notionActions(),
 }
 
 // Catalog 返回某个 kind 的动作副本。
