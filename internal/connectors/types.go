@@ -8,8 +8,10 @@
 //   - 请求派发之后的超时/断线是 OutcomeUnknown：既不是普通错误，也不是重试理由。
 //     非幂等动作不得自动重放。
 //
-// 本包只定义框架与 mail 驱动所需的公共类型；具体平台适配器（dingtalk/feishu/
-// slack/notion/github）不在 C08a 范围内，也不在这里放"看起来实现了"的空壳。
+// 本包定义框架与全部六个适配器共用的公共类型。框架（catalog/服务/审计/限流/
+// 资源范围）是唯一的执行通道；六个适配器分别位于 connectors/mail、connectors/
+// dingtalk、connectors/feishu、connectors/slack、connectors/notion、connectors/github，
+// 它们不自己实现授权、限流或审计。
 package connectors
 
 import (
