@@ -155,6 +155,8 @@ func TestProbeReachableText(t *testing.T) {
 			t.Fatalf("文本探测不应声明工具，实际声明了 %d 个", len(list))
 		}
 	}
+	// MOD02 的外部观察：fixture provider 实收请求 + 探针结论落盘，事实再从盘上读回。
+	recordProbeObservation(t, sim, srv.URL, res, "reachable-text")
 }
 
 // TestProbeDetectsToolCalling 覆盖"模型会发工具调用"：能力标 supported，
@@ -181,12 +183,13 @@ func TestProbeDetectsToolCalling(t *testing.T) {
 	if !strings.Contains(reqs[len(reqs)-1], `"read"`) {
 		t.Fatalf("工具探测没有声明 read 工具: %s", clip(reqs[len(reqs)-1], 200))
 	}
+	recordProbeObservation(t, sim, srv.URL, res, "tool-calling")
 }
 
 // TestProbeWithoutToolCalling 覆盖"模型可用但不会调工具"：标 unsupported，
 // 与 unknown 区分开。
 func TestProbeWithoutToolCalling(t *testing.T) {
-	p, _, srv := testProber(t, "ok")
+	p, sim, srv := testProber(t, "ok")
 
 	res := p.Probe(context.Background(), probeModel(srv.URL), "")
 	if res.Error != nil {
@@ -195,6 +198,7 @@ func TestProbeWithoutToolCalling(t *testing.T) {
 	if res.ToolCalling != CapabilityUnsupported {
 		t.Fatalf("模型没有发工具调用应标 unsupported，实际 %s", res.ToolCalling)
 	}
+	recordProbeObservation(t, sim, srv.URL, res, "no-tool-calling")
 }
 
 // TestProbeClassifiesFailures 覆盖 401 / 429 / 超时三类必须分开的失败。
@@ -212,7 +216,7 @@ func TestProbeClassifiesFailures(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.mode, func(t *testing.T) {
-			p, _, srv := testProber(t, c.mode)
+			p, sim, srv := testProber(t, c.mode)
 			if c.timeout > 0 {
 				p.SetTimeout(c.timeout)
 			}
@@ -236,6 +240,8 @@ func TestProbeClassifiesFailures(t *testing.T) {
 			if res.ToolCalling != CapabilityUnknown || res.Vision != CapabilityUnknown {
 				t.Fatalf("失败时能力应为 unknown，实际 tool=%s vision=%s", res.ToolCalling, res.Vision)
 			}
+			// 三类失败的分类结论与 fixture 实收请求都要留原始证据。
+			recordProbeObservation(t, sim, srv.URL, res, "failure-"+c.mode)
 		})
 	}
 }

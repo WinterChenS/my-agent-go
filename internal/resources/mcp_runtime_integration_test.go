@@ -370,6 +370,12 @@ func TestRealPiStdioMCPDiscoveryAndCall(t *testing.T) {
 	if exits < 1 {
 		t.Fatalf("Pi 关闭后 fixture 进程未记录退出（owned 进程未清理）: %v", readLines(t, counter))
 	}
+	// MCP01/MCP05 的外部观察：fixture 进程自己写下的调用/请求/进程记录。
+	recordMCPFixtureObservation(t, "stdio-discovery-call", calls, trace, counter, map[string]any{
+		"toolDeclarations":  mcpDeclarations(run.Bodies[0]),
+		"modelRequestCount": len(run.Bodies),
+		"piArgv":            run.Argv,
+	})
 }
 
 // startHTTPFixture 启动 fixture 的 Streamable HTTP 模式，返回地址与进程句柄。
@@ -459,6 +465,12 @@ func TestRealPiHTTPMCPDiscoveryAndCall(t *testing.T) {
 	} else {
 		t.Logf("fixture calls: %v", got)
 	}
+	// HTTP 装置的观察值：fixture HTTP 服务端自己写下的调用行（没有 stdio 的进程记录）。
+	recordMCPFixtureObservation(t, "http-discovery-call", calls, "", "", map[string]any{
+		"toolDeclarations":  mcpDeclarations(run.Bodies[0]),
+		"modelRequestCount": len(run.Bodies),
+		"piArgv":            run.Argv,
+	})
 }
 
 // TestDisabledMCPToolCannotExecute 是 MCP03 / RES04 的核心：
@@ -549,6 +561,13 @@ func TestDisabledMCPToolCannotExecute(t *testing.T) {
 	if len(after) != len(before) {
 		t.Fatalf("禁用后仍启动了 MCP 进程:\n前: %v\n后: %v", before, after)
 	}
+	// MCP03 的外部观察：禁用前后的 fixture 调用行与进程启动次数（应保持不变）。
+	recordMCPFixtureObservation(t, "stdio-after-disable", calls, "", counter, map[string]any{
+		"enabledRunDeclarations":  mcpDeclarations(first.Bodies[0]),
+		"disabledRunDeclarations": mcpDeclarations(second.Bodies[0]),
+		"disabledCallErrored":     failed,
+		"disabledServerNames":     mcpServerNamesOf(readMCPFile(t, agentDir)),
+	})
 }
 
 // TestRealPiDiagnoseStdioAndToolListChange 覆盖诊断与工具列表变化。
@@ -578,6 +597,7 @@ func TestRealPiDiagnoseStdioAndToolListChange(t *testing.T) {
 		t.Fatalf("未开启的工具不应出现: %+v", st.Tools)
 	}
 	t.Logf("diagnose(before tool change): state=%s tools=%v", st.State, toolNames(st.Tools))
+	recordMCPDiagnoseObservation(t, "before-tool-change", st)
 
 	// 切换工具集合：同一个 ID，只改 args（模拟服务端工具列表变化）。
 	set, err := svc.ListMCP(ctx)
@@ -596,6 +616,7 @@ func TestRealPiDiagnoseStdioAndToolListChange(t *testing.T) {
 		t.Fatalf("工具列表变化没有反映到诊断: %+v", st.Tools)
 	}
 	t.Logf("diagnose(after tool change): state=%s tools=%v", st.State, toolNames(st.Tools))
+	recordMCPDiagnoseObservation(t, "after-tool-change", st)
 
 	tools, err := svc.ListTools(ctx, "sess-mcp")
 	if err != nil {
@@ -641,6 +662,7 @@ func TestRealPiDiagnoseHTTPAuthFailureAndReconnect(t *testing.T) {
 		t.Fatal("V1 不支持 MCP OAuth，不能声称支持")
 	}
 	t.Logf("diagnose(wrong token): state=%s error=%s", st.State, st.Error)
+	recordMCPDiagnoseObservation(t, "wrong-token", st)
 	if got := readLines(t, calls); len(got) != 0 {
 		t.Fatalf("鉴权失败的调用产生了副作用: %v", got)
 	} else {
@@ -667,6 +689,7 @@ func TestRealPiDiagnoseHTTPAuthFailureAndReconnect(t *testing.T) {
 		t.Fatalf("正确凭证应 connected，实际 %s（%s）", st.State, st.Detail)
 	}
 	t.Logf("diagnose(correct token): state=%s tools=%v", st.State, toolNames(st.Tools))
+	recordMCPDiagnoseObservation(t, "correct-token", st)
 
 	// 3) 服务断开：状态必须是 failed（不能保留 connected）。
 	stop()
@@ -685,6 +708,7 @@ func TestRealPiDiagnoseHTTPAuthFailureAndReconnect(t *testing.T) {
 		t.Fatal("服务已断开却仍显示 connected")
 	}
 	t.Logf("diagnose(after stop): state=%s detail=%s", st.State, st.Detail)
+	recordMCPDiagnoseObservation(t, "after-stop", st)
 
 	// 4) 原地址重启：状态恢复 connected（Pi 重新连接，不需要改配置）。
 	cmd := exec.Command(bin, "-http", addr, "-auth", token)
@@ -712,6 +736,9 @@ func TestRealPiDiagnoseHTTPAuthFailureAndReconnect(t *testing.T) {
 		t.Fatalf("服务恢复后应重新 connected，实际 %s（%s）", st.State, st.Detail)
 	}
 	t.Logf("diagnose(after restart): state=%s tools=%v", st.State, toolNames(st.Tools))
+	recordMCPDiagnoseObservation(t, "after-restart", st)
+	// 鉴权失败期间不应有副作用：HTTP fixture 自己的调用行是空的。
+	recordMCPFixtureObservation(t, "http-diagnose", calls, "", "", nil)
 }
 
 // TestRealPiDiagnoseUnreachable 覆盖"服务不可达时诊断状态准确、不显示 connected"。
@@ -740,6 +767,7 @@ func TestRealPiDiagnoseUnreachable(t *testing.T) {
 		t.Fatalf("应报 PROVIDER_UNREACHABLE: %+v", st.Error)
 	}
 	t.Logf("diagnose(unreachable command): state=%s code=%s detail=%s", st.State, st.Error.Code, st.Detail)
+	recordMCPDiagnoseObservation(t, "unreachable-command", st)
 }
 
 func mcpDeclarations(body string) []string {
