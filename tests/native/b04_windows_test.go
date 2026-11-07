@@ -709,6 +709,8 @@ func TestClosedShadowAndCrossOriginAreUnsupported(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("点外层按钮: %v", err)
 	}
+	// 与 BR10 的 closed-shadow 分支同理：计数是服务端异步记账，立刻读会偶发读到 0。
+	waitCounter(t, primary, browserfixture.CounterFrameAction, 1, 5*time.Second)
 	if got := fixtureCounter(t, primary.URL, browserfixture.CounterFrameAction); got != 1 {
 		t.Fatalf("外层按钮的服务端计数 %d，期望 1", got)
 	}
@@ -752,6 +754,9 @@ func TestClosedShadowAndCrossOriginAreUnsupported(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("点光 DOM 按钮: %v", err)
 	}
+	// 计数由 fixture 服务端异步记账（点击 → JS → fetch）；立刻读会偶发读到 0。
+	// 用有界等待而不是 sleep：真没触发时仍然失败（2026-11-07 实测到一次）。
+	waitCounter(t, primary, browserfixture.CounterShadowLight, 1, 5*time.Second)
 	if got := fixtureCounter(t, primary.URL, browserfixture.CounterShadowLight); got != 1 {
 		t.Fatalf("光 DOM 按钮计数 %d，期望 1", got)
 	}

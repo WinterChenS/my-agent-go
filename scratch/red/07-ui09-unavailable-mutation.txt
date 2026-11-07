@@ -1,0 +1,1097 @@
+
+> my-agent-go-frontend@0.1.0 test
+> vitest run MemoryPage
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/project/anvil-wt/u0405/frontend[39m
+
+ [31m❯[39m src/features/memory/MemoryPage.test.tsx [2m([22m[2m12 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 2832[2mms[22m[39m
+[31m   [31m×[31m MemoryPage[2m > [22mseparates unavailable from empty[33m 1043[2mms[22m[31m[39m
+[31m     → Unable to find an element with the text: 记忆库当前不可用（INTERNAL_ERROR）：这是功能故障，不是“没有记忆”。修复后点重试。. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"mx-auto max-w-3xl space-y-4 px-4 py-5"[31m
+    [36m>[31m
+      [36m<header[31m
+        [33mclass[31m=[32m"space-y-1"[31m
+      [36m>[31m
+        [36m<h1[31m
+          [33mclass[31m=[32m"text-sm font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m记忆[0m
+        [36m</h1>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m记忆是独立分区：user 跨项目、workspace 只属于当前项目。关闭某个 scope 的注入不会删除条目；删除只影响之后运行的注入，已经发出的历史消息无法撤回。[0m
+        [36m</p>[31m
+      [36m</header>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[31m
+      [36m>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m注入开关[0m
+        [36m</p>[31m
+        [36m<ul[31m
+          [33mclass[31m=[32m"space-y-1"[31m
+        [36m>[31m
+          [36m<li[31m
+            [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [0m用户级[0m
+            [36m</span>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-success)]"[31m
+              [33mdata-testid[31m=[32m"scope-state-user"[31m
+            [36m>[31m
+              [0m注入中[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [0m关闭注入[0m
+            [36m</button>[31m
+          [36m</li>[31m
+          [36m<li[31m
+            [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [0m项目级[0m
+            [36m</span>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-success)]"[31m
+              [33mdata-testid[31m=[32m"scope-state-workspace"[31m
+            [36m>[31m
+              [0m注入中[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [0m关闭注入[0m
+            [36m</button>[31m
+          [36m</li>[31m
+        [36m</ul>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[10px] leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m关闭只影响之后的检索与注入，不会删除任何条目。[0m
+        [36m</p>[31m
+      [36m</section>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-2"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-end gap-2"[31m
+        [36m>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"block flex-1 text-[10px] text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m检索记忆[0m
+            [36m<input[31m
+              [33maria-label[31m=[32m"检索记忆"[31m
+              [33mclass[31m=[32m"mt-1 w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)]"[31m
+              [33mplaceholder[31m=[32m"至少 3 个字符"[31m
+              [33mtype[31m=[32m"search"[31m
+              [33mvalue[31m=[32m""[31m
+            [36m/>[31m
+          [36m</label>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m检索[0m
+          [36m</button>[31m
+        [36m</div>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[31m
+        [36m>[31m
+          [36m<span[31m
+            [33mclass[31m=[32m"text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m范围[0m
+          [36m</span>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"true"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 bg-[color:var(--anvil-surface)] text-[color:var(--anvil-foreground)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m全部[0m
+          [36m</button>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"false"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m用户级[0m
+          [36m</button>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"false"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m项目级[0m
+          [36m</button>[31m
+          [36m<span[31m
+            [33mclass[31m=[32m"text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m已生效 0 条[0m
+          [36m</span>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m导出 JSON[0m
+          [36m</button>[31m
+        [36m</div>[31m
+      [36m</section>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[31m
+      [36m>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m记录一条记忆[0m
+        [36m</p>[31m
+        [36m<textarea[31m
+          [33maria-label[31m=[32m"记忆内容"[31m
+          [33mclass[31m=[32m"w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent p-2 text-[11px] text-[color:var(--anvil-foreground)]"[31m
+          [33mplaceholder[31m=[32m"例如：这个项目用英文提交信息，动词开头"[31m
+          [33mrows[31m=[32m"2"[31m
+        [36m/>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[31m
+        [36m>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m类型[0m
+            [36m<select[31m
+              [33maria-label[31m=[32m"类型"[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"convention"[31m
+              [36m>[31m
+                [0m约定[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"preference"[31m
+              [36m>[31m
+                [0m偏好[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"fact"[31m
+              [36m>[31m
+                [0m事实[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"note"[31m
+              [36m>[31m
+                [0m备注[0m
+              [36m</option>[31m
+            [36m</select>[31m
+          [36m</label>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m范围[0m
+            [36m<select[31m
+              [33maria-label[31m=[32m"范围"[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"user"[31m
+              [36m>[31m
+                [0m用户级[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"workspace"[31m
+              [36m>[31m
+                [0m项目级[0m
+              [36m</option>[31m
+            [36m</select>[31m
+          [36m</label>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mdisabled[31m=[32m""[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m保存[0m
+          [36m</button>[31m
+        [36m</div>[31m
+      [36m</section>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex flex-col items-center justify-center gap-2 px-6 py-10 text-center"[31m
+        [33mdata-phase[31m=[32m"empty"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [36m<svg[31m
+            [33maria-hidden[31m=[32m"true"[31m
+            [33mclass[31m=[32m"lucide lucide-inbox h-4 w-4"[31m
+            [33mfill[31m=[32m"none"[31m
+            [33mheight[31m=[32m"24"[31m
+            [33mstroke[31m=[32m"currentColor"[31m
+            [33mstroke-linecap[31m=[32m"round"[31m
+            [33mstroke-linejoin[31m=[32m"round"[31m
+            [33mstroke-width[31m=[32m"2"[31m
+            [33mviewBox[31m=[32m"0 0 24 24"[31m
+            [33mwidth[31m=[32m"24"[31m
+            [33mxmlns[31m=[32m"http://www.w3.org/2000/svg"[31m
+          [36m>[31m
+            [36m<polyline[31m
+              [33mpoints[31m=[32m"22 12 16 12 14 15 10 15 8 12 2 12"[31m
+            [36m/>[31m
+            [36m<path[31m
+              [33md[31m=[32m"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"[31m
+            [36m/>[31m
+          [36m</svg>[31m
+        [36m</div>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-sm text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m还没有记忆[0m
+        [36m</p>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"max-w-md text-xs leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m记忆会在你保存后出现在这里；现在确实一条都没有。[0m
+        [36m</p>[31m
+      [36m</div>[31m
+    [36m</div>[31m
+  [36m</div>[31m
+[36m</body>[31m
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"mx-auto max-w-3xl space-y-4 px-4 py-5"[31m
+    [36m>[31m
+      [36m<header[31m
+        [33mclass[31m=[32m"space-y-1"[31m
+      [36m>[31m
+        [36m<h1[31m
+          [33mclass[31m=[32m"text-sm font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m记忆[0m
+        [36m</h1>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m记忆是独立分区：user 跨项目、workspace 只属于当前项目。关闭某个 scope 的注入不会删除条目；删除只影响之后运行的注入，已经发出的历史消息无法撤回。[0m
+        [36m</p>[31m
+      [36m</header>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[31m
+      [36m>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m注入开关[0m
+        [36m</p>[31m
+        [36m<ul[31m
+          [33mclass[31m=[32m"space-y-1"[31m
+        [36m>[31m
+          [36m<li[31m
+            [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [0m用户级[0m
+            [36m</span>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-success)]"[31m
+              [33mdata-testid[31m=[32m"scope-state-user"[31m
+            [36m>[31m
+              [0m注入中[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [0m关闭注入[0m
+            [36m</button>[31m
+          [36m</li>[31m
+          [36m<li[31m
+            [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[31m
+          [36m>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [0m项目级[0m
+            [36m</span>[31m
+            [36m<span[31m
+              [33mclass[31m=[32m"text-[color:var(--anvil-success)]"[31m
+              [33mdata-testid[31m=[32m"scope-state-workspace"[31m
+            [36m>[31m
+              [0m注入中[0m
+            [36m</span>[31m
+            [36m<button[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+              [33mtype[31m=[32m"button"[31m
+            [36m>[31m
+              [0m关闭注入[0m
+            [36m</button>[31m
+          [36m</li>[31m
+        [36m</ul>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[10px] leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m关闭只影响之后的检索与注入，不会删除任何条目。[0m
+        [36m</p>[31m
+      [36m</section>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-2"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-end gap-2"[31m
+        [36m>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"block flex-1 text-[10px] text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m检索记忆[0m
+            [36m<input[31m
+              [33maria-label[31m=[32m"检索记忆"[31m
+              [33mclass[31m=[32m"mt-1 w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)]"[31m
+              [33mplaceholder[31m=[32m"至少 3 个字符"[31m
+              [33mtype[31m=[32m"search"[31m
+              [33mvalue[31m=[32m""[31m
+            [36m/>[31m
+          [36m</label>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m检索[0m
+          [36m</button>[31m
+        [36m</div>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[31m
+        [36m>[31m
+          [36m<span[31m
+            [33mclass[31m=[32m"text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m范围[0m
+          [36m</span>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"true"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 bg-[color:var(--anvil-surface)] text-[color:var(--anvil-foreground)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m全部[0m
+          [36m</button>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"false"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m用户级[0m
+          [36m</button>[31m
+          [36m<button[31m
+            [33maria-pressed[31m=[32m"false"[31m
+            [33mclass[31m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m项目级[0m
+          [36m</button>[31m
+          [36m<span[31m
+            [33mclass[31m=[32m"text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m已生效 0 条[0m
+          [36m</span>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m导出 JSON[0m
+          [36m</button>[31m
+        [36m</div>[31m
+      [36m</section>[31m
+      [36m<section[31m
+        [33mclass[31m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[31m
+      [36m>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m记录一条记忆[0m
+        [36m</p>[31m
+        [36m<textarea[31m
+          [33maria-label[31m=[32m"记忆内容"[31m
+          [33mclass[31m=[32m"w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent p-2 text-[11px] text-[color:var(--anvil-foreground)]"[31m
+          [33mplaceholder[31m=[32m"例如：这个项目用英文提交信息，动词开头"[31m
+          [33mrows[31m=[32m"2"[31m
+        [36m/>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[31m
+        [36m>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m类型[0m
+            [36m<select[31m
+              [33maria-label[31m=[32m"类型"[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"convention"[31m
+              [36m>[31m
+                [0m约定[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"preference"[31m
+              [36m>[31m
+                [0m偏好[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"fact"[31m
+              [36m>[31m
+                [0m事实[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"note"[31m
+              [36m>[31m
+                [0m备注[0m
+              [36m</option>[31m
+            [36m</select>[31m
+          [36m</label>[31m
+          [36m<label[31m
+            [33mclass[31m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[31m
+          [36m>[31m
+            [0m范围[0m
+            [36m<select[31m
+              [33maria-label[31m=[32m"范围"[31m
+              [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[31m
+            [36m>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"user"[31m
+              [36m>[31m
+                [0m用户级[0m
+              [36m</option>[31m
+              [36m<option[31m
+                [33mvalue[31m=[32m"workspace"[31m
+              [36m>[31m
+                [0m项目级[0m
+              [36m</option>[31m
+            [36m</select>[31m
+          [36m</label>[31m
+          [36m<button[31m
+            [33mclass[31m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[31m
+            [33mdisabled[31m=[32m""[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [0m保存[0m
+          [36m</button>[31m
+        [36m</div>[31m
+      [36m</section>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex flex-col items-center justify-center gap-2 px-6 py-10 text-center"[31m
+        [33mdata-phase[31m=[32m"empty"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [36m<svg[31m
+            [33maria-hidden[31m=[32m"true"[31m
+            [33mclass[31m=[32m"lucide lucide-inbox h-4 w-4"[31m
+            [33mfill[31m=[32m"none"[31m
+            [33mheight[31m=[32m"24"[31m
+            [33mstroke[31m=[32m"currentColor"[31m
+            [33mstroke-linecap[31m=[32m"round"[31m
+            [33mstroke-linejoin[31m=[32m"round"[31m
+            [33mstroke-width[31m=[32m"2"[31m
+            [33mviewBox[31m=[32m"0 0 24 24"[31m
+            [33mwidth[31m=[32m"24"[31m
+            [33mxmlns[31m=[32m"http://www.w3.org/2000/svg"[31m
+          [36m>[31m
+            [36m<polyline[31m
+              [33mpoints[31m=[32m"22 12 16 12 14 15 10 15 8 12 2 12"[31m
+            [36m/>[31m
+            [36m<path[31m
+              [33md[31m=[32m"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"[31m
+            [36m/>[31m
+          [36m</svg>[31m
+        [36m</div>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"text-sm text-[color:var(--anvil-foreground)]"[31m
+        [36m>[31m
+          [0m还没有记忆[0m
+        [36m</p>[31m
+        [36m<p[31m
+          [33mclass[31m=[32m"max-w-md text-xs leading-relaxed text-[color:var(--anvil-muted)]"[31m
+        [36m>[31m
+          [0m记忆会在你保存后出现在这里；现在确实一条都没有。[0m
+        [36m</p>[31m
+      [36m</div>[31m
+    [36m</div>[31m
+  [36m</div>[31m
+[36m</body>[31m[39m
+   [33m[2m✓[22m[39m MemoryPage[2m > [22mtreats a short query as too short and does not call the backend [33m307[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/memory/MemoryPage.test.tsx[2m > [22mMemoryPage[2m > [22mseparates unavailable from empty
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an element with the text: 记忆库当前不可用（INTERNAL_ERROR）：这是功能故障，不是“没有记忆”。修复后点重试。. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-3xl space-y-4 px-4 py-5"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"space-y-1"[39m
+      [36m>[39m
+        [36m<h1[39m
+          [33mclass[39m=[32m"text-sm font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m记忆[0m
+        [36m</h1>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m记忆是独立分区：user 跨项目、workspace 只属于当前项目。关闭某个 scope 的注入不会删除条目；删除只影响之后运行的注入，已经发出的历史消息无法撤回。[0m
+        [36m</p>[39m
+      [36m</header>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m注入开关[0m
+        [36m</p>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"space-y-1"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [0m用户级[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-success)]"[39m
+              [33mdata-testid[39m=[32m"scope-state-user"[39m
+            [36m>[39m
+              [0m注入中[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0m关闭注入[0m
+            [36m</button>[39m
+          [36m</li>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [0m项目级[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-success)]"[39m
+              [33mdata-testid[39m=[32m"scope-state-workspace"[39m
+            [36m>[39m
+              [0m注入中[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0m关闭注入[0m
+            [36m</button>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[10px] leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m关闭只影响之后的检索与注入，不会删除任何条目。[0m
+        [36m</p>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-end gap-2"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"block flex-1 text-[10px] text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m检索记忆[0m
+            [36m<input[39m
+              [33maria-label[39m=[32m"检索记忆"[39m
+              [33mclass[39m=[32m"mt-1 w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)]"[39m
+              [33mplaceholder[39m=[32m"至少 3 个字符"[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</label>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m检索[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m范围[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"true"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 bg-[color:var(--anvil-surface)] text-[color:var(--anvil-foreground)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m全部[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"false"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m用户级[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"false"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m项目级[0m
+          [36m</button>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m已生效 0 条[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m导出 JSON[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m记录一条记忆[0m
+        [36m</p>[39m
+        [36m<textarea[39m
+          [33maria-label[39m=[32m"记忆内容"[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent p-2 text-[11px] text-[color:var(--anvil-foreground)]"[39m
+          [33mplaceholder[39m=[32m"例如：这个项目用英文提交信息，动词开头"[39m
+          [33mrows[39m=[32m"2"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m类型[0m
+            [36m<select[39m
+              [33maria-label[39m=[32m"类型"[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"convention"[39m
+              [36m>[39m
+                [0m约定[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"preference"[39m
+              [36m>[39m
+                [0m偏好[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"fact"[39m
+              [36m>[39m
+                [0m事实[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"note"[39m
+              [36m>[39m
+                [0m备注[0m
+              [36m</option>[39m
+            [36m</select>[39m
+          [36m</label>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m范围[0m
+            [36m<select[39m
+              [33maria-label[39m=[32m"范围"[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"user"[39m
+              [36m>[39m
+                [0m用户级[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"workspace"[39m
+              [36m>[39m
+                [0m项目级[0m
+              [36m</option>[39m
+            [36m</select>[39m
+          [36m</label>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m保存[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 px-6 py-10 text-center"[39m
+        [33mdata-phase[39m=[32m"empty"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-inbox h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<polyline[39m
+              [33mpoints[39m=[32m"22 12 16 12 14 15 10 15 8 12 2 12"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</div>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m还没有记忆[0m
+        [36m</p>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"max-w-md text-xs leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m记忆会在你保存后出现在这里；现在确实一条都没有。[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-3xl space-y-4 px-4 py-5"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"space-y-1"[39m
+      [36m>[39m
+        [36m<h1[39m
+          [33mclass[39m=[32m"text-sm font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m记忆[0m
+        [36m</h1>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m记忆是独立分区：user 跨项目、workspace 只属于当前项目。关闭某个 scope 的注入不会删除条目；删除只影响之后运行的注入，已经发出的历史消息无法撤回。[0m
+        [36m</p>[39m
+      [36m</header>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m注入开关[0m
+        [36m</p>[39m
+        [36m<ul[39m
+          [33mclass[39m=[32m"space-y-1"[39m
+        [36m>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [0m用户级[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-success)]"[39m
+              [33mdata-testid[39m=[32m"scope-state-user"[39m
+            [36m>[39m
+              [0m注入中[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0m关闭注入[0m
+            [36m</button>[39m
+          [36m</li>[39m
+          [36m<li[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[11px]"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [0m项目级[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-[color:var(--anvil-success)]"[39m
+              [33mdata-testid[39m=[32m"scope-state-workspace"[39m
+            [36m>[39m
+              [0m注入中[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0m关闭注入[0m
+            [36m</button>[39m
+          [36m</li>[39m
+        [36m</ul>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[10px] leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m关闭只影响之后的检索与注入，不会删除任何条目。[0m
+        [36m</p>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-end gap-2"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"block flex-1 text-[10px] text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m检索记忆[0m
+            [36m<input[39m
+              [33maria-label[39m=[32m"检索记忆"[39m
+              [33mclass[39m=[32m"mt-1 w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)]"[39m
+              [33mplaceholder[39m=[32m"至少 3 个字符"[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</label>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m检索[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m范围[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"true"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 bg-[color:var(--anvil-surface)] text-[color:var(--anvil-foreground)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m全部[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"false"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m用户级[0m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-pressed[39m=[32m"false"[39m
+            [33mclass[39m=[32m"rounded-md px-2 py-0.5 text-[color:var(--anvil-muted)]"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m项目级[0m
+          [36m</button>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m已生效 0 条[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m导出 JSON[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"space-y-1.5 rounded-lg border border-[color:var(--anvil-border)] p-2.5"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-[11px] font-medium text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m记录一条记忆[0m
+        [36m</p>[39m
+        [36m<textarea[39m
+          [33maria-label[39m=[32m"记忆内容"[39m
+          [33mclass[39m=[32m"w-full rounded-md border border-[color:var(--anvil-border)] bg-transparent p-2 text-[11px] text-[color:var(--anvil-foreground)]"[39m
+          [33mplaceholder[39m=[32m"例如：这个项目用英文提交信息，动词开头"[39m
+          [33mrows[39m=[32m"2"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 text-[10px]"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m类型[0m
+            [36m<select[39m
+              [33maria-label[39m=[32m"类型"[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"convention"[39m
+              [36m>[39m
+                [0m约定[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"preference"[39m
+              [36m>[39m
+                [0m偏好[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"fact"[39m
+              [36m>[39m
+                [0m事实[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"note"[39m
+              [36m>[39m
+                [0m备注[0m
+              [36m</option>[39m
+            [36m</select>[39m
+          [36m</label>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"flex items-center gap-1 text-[color:var(--anvil-muted)]"[39m
+          [36m>[39m
+            [0m范围[0m
+            [36m<select[39m
+              [33maria-label[39m=[32m"范围"[39m
+              [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] bg-transparent px-1 py-0.5 text-[10px] text-[color:var(--anvil-foreground)]"[39m
+            [36m>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"user"[39m
+              [36m>[39m
+                [0m用户级[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"workspace"[39m
+              [36m>[39m
+                [0m项目级[0m
+              [36m</option>[39m
+            [36m</select>[39m
+          [36m</label>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"ml-auto rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-foreground)] disabled:opacity-50"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0m保存[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center gap-2 px-6 py-10 text-center"[39m
+        [33mdata-phase[39m=[32m"empty"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-inbox h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<polyline[39m
+              [33mpoints[39m=[32m"22 12 16 12 14 15 10 15 8 12 2 12"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</div>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-[color:var(--anvil-foreground)]"[39m
+        [36m>[39m
+          [0m还没有记忆[0m
+        [36m</p>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"max-w-md text-xs leading-relaxed text-[color:var(--anvil-muted)]"[39m
+        [36m>[39m
+          [0m记忆会在你保存后出现在这里；现在确实一条都没有。[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+[90m [2m❯[22m waitForWrapper node_modules/@testing-library/dom/dist/wait-for.js:[2m163:27[22m[39m
+[90m [2m❯[22m node_modules/@testing-library/dom/dist/query-helpers.js:[2m86:33[22m[39m
+[36m [2m❯[22m src/features/memory/MemoryPage.test.tsx:[2m91:25[22m[39m
+    [90m 89| [39m    }))[33m;[39m
+    [90m 90| [39m    [34mrender[39m([33m<[39m[33mMemoryPage[39m [33m/[39m[33m>[39m)[33m;[39m
+    [90m 91| [39m    [34mexpect[39m([35mawait[39m screen[33m.[39m[34mfindByText[39m([34mt[39m([32m"memory.unavailableHint"[39m[33m,[39m { code[33m:[39m…
+    [90m   | [39m                        [31m^[39m
+    [90m 92| [39m    [34mexpect[39m(screen[33m.[39m[34mqueryByText[39m([34mt[39m([32m"memory.emptyTitle"[39m)))[33m.[39m[34mtoBeNull[39m()[33m;[39m
+    [90m 93| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m11 passed[39m[22m[90m (12)[39m
+[2m   Start at [22m 22:33:30
+[2m   Duration [22m 6.37s[2m (transform 485ms, setup 792ms, collect 576ms, tests 2.83s, environment 1.47s, prepare 230ms)[22m
+
