@@ -64,9 +64,16 @@ export function useBrowserState(options: UseBrowserStateOptions = {}): BrowserSt
       onGeometry(slot);
       return;
     }
-    void api.updateSlot(slot).then((err) => {
-      if (err) setHint(err);
-    });
+    // 两种失败都要变成 hint：**拒绝**（没有 Wails runtime / 绑定不存在）与
+    // 结构化 CallError（几何被后端拒绝，例如落进工具条保留区）。
+    // 只给 then(onFulfilled) 会把拒绝变成未处理的 rejection：面板看上去“没反应”，
+    // 而控制台里才看得到原因。
+    void api.updateSlot(slot).then(
+      (err) => {
+        if (err) setHint(err);
+      },
+      (err: unknown) => setHint(toCallError(err))
+    );
   };
 
   const refresh = useCallback(() => {

@@ -14,6 +14,11 @@
 // 所以"停止按钮被网页盖住"不可能只靠样式碰巧不发生。
 //
 // slot 节点只创建一次：切 tab / 换面板 / 遮挡都不重建它（挂载计数断言在用例里）。
+//
+// 高度也是契约（W01）：原生视图的矩形完全由 slot 测量得出，而右栏是滚动容器。
+// 如果面板在正常流里只剩内容高度，slot（绝对定位、无内容）会量出 0×0，
+// 原生网页就“看不见”——不是没挂上，而是被摆成了零尺寸。所以面板自己给出
+// 一块可测量的高度，不依赖宿主机恰好包了一层多高的 div。
 
 import { formatError, t } from "../../i18n";
 import type { BrowserBackendApi, BrowserSlotGeometry } from "./api";
@@ -65,7 +70,7 @@ export function BrowserPanel({
   };
 
   return (
-    <section data-browser-panel="" className="flex h-full min-h-0 flex-col">
+    <section data-browser-panel="" className="flex h-[360px] flex-col">
       <div
         data-browser-chrome=""
         style={{ height: `${chromeHeight}px` }}

@@ -5,17 +5,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"my-agent-go/frontend"
 	"my-agent-go/internal/app"
+	"my-agent-go/internal/browser"
+	"my-agent-go/internal/browser/native"
 	"my-agent-go/internal/contracts"
 )
 
@@ -58,7 +62,7 @@ func main() {
 		a.Event.Emit(app.EventName, ev)
 	})
 
-	a.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := a.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
 		Title:            app.BrandName,
 		Width:            1180,
@@ -69,6 +73,9 @@ func main() {
 		DevToolsEnabled:  true,
 		BackgroundColour: application.NewRGB(15, 18, 24),
 	})
+
+	// 右侧浏览面板：只有真的挂上原生宿主才注册桥接层（见 registerBrowserPanel）。
+	registerBrowserPanel(desktop, a, win, root)
 
 	a.OnShutdown(desktop.Shutdown)
 
@@ -136,4 +143,147 @@ func logBrandMigration(res app.BrandMigrationResult) {
 	case app.BrandMigrationFailed:
 		log.Printf("品牌数据迁移失败，将以空数据目录启动: %s", res.Error)
 	}
+}
+
+const (
+	// browserProfileDir 是浏览器视图的 WebView2 user data folder。
+	//
+	// 它**不能**与主 WebView 共用（native.NewWindowsHost 会拒绝空值）：两个 WebView2
+	// 环境共用一个目录会让缓存/登录态/进程模型互相干扰。
+	browserProfileDir = "browser-profile"
+	// browserAttachTimeout 是“等窗口句柄 + 挂载原生视图”的总预算。
+	//
+	// 超过它就不再等：面板会以“没有原生宿主”的诚实状态显示，而不是无限期地
+	// 在后台盯着窗口。
+	browserAttachTimeout = 30 * time.Second
+	// browserAttachPoll 是等主窗口句柄的轮询间隔。
+	browserAttachPoll = 100 * time.Millisecond
+	// browserActionTimeout 是单次浏览器动作（导航/接管）的上限。
+	//
+	// 与 internal/app 的绑定层同一量级：面板按钮不该无限期转圈。
+	browserActionTimeout = 20 * time.Second
+)
+
+// registerBrowserPanel 把右侧浏览面板的桥接层接上真实宿主与服务。
+//
+// 顺序是硬性的：
+//  1. 等主窗口句柄。Wails 在 a.Run() 之后才创建原生窗口，之前 NativeWindow() 是 nil；
+//  2. 在 UI 线程上 Attach 原生子窗口（跨线程创建子窗口在 WebView2 下是隐性坑，
+//     native 宿主会直接拒绝，见 host_windows.go Attach）；
+//  3. 立刻 SetVisible(false)。Attach 建出来的子窗口默认可见且覆盖整个客户区，
+//     不等面板上报几何就显示会盖住整个应用（句柄在、页面空白、用户点击全被吃掉）；
+//  4. 最后才 SetBrowserBridge：桥接层一装上，面板就会读 BrowserState()。
+//
+// 任何一步失败都**不**注册一个“看起来可用”的空桥接：写日志，保持 Desktop 的
+// 默认桥（available=false + 具体原因），面板会如实说明右侧没有原生视图。
+// 非 Windows 平台在（1）之后的 NewWindowsHost 就会失败：B02/B03 尚未落地，
+// 这里的失败原因就是面板显示的原因，不是被吞掉的错误。
+func registerBrowserPanel(desktop *app.Desktop, a *application.App, win *application.WebviewWindow, root string) {
+	if win == nil {
+		log.Printf("浏览器面板不可用：没有主窗口，右侧不显示原生网页")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), browserAttachTimeout)
+		defer cancel()
+
+		handle := waitForNativeHandle(ctx, win)
+		if handle == nil {
+			log.Printf("浏览器面板不可用：等不到主窗口句柄（NativeWindow() 一直是 nil），右侧不显示原生网页")
+			return
+		}
+		parent := browser.NewNativeParent(handle, "wails-main-window")
+		host, err := native.NewWindowsHost(parent, native.HostOptions{
+			ProfilePath: filepath.Join(root, browserProfileDir),
+		})
+		if err != nil {
+			// 这里就是“本平台没有原生宿主”的处所（B02/B03）。不构造假对象。
+			log.Printf("浏览器面板不可用：%v", err)
+			return
+		}
+
+		// Attach 必须在拥有主窗口 HWND 的 UI 线程上跑：Wails 的 UI 线程就是它。
+		if err := application.InvokeSyncWithError(func() error { return host.Attach(ctx, parent) }); err != nil {
+			log.Printf("浏览器面板不可用：挂载原生宿主失败: %v", err)
+			return
+		}
+		// 先隐藏：面板还没有上报几何，此时子窗口不该盖住任何东西。
+		if err := application.InvokeSyncWithError(func() error { return host.SetVisible(ctx, false) }); err != nil {
+			log.Printf("浏览器面板：初始隐藏原生视图失败（面板上报几何时会再试）: %v", err)
+		}
+
+		svc, err := browser.NewService(browser.ServiceOptions{
+			Backend: host,
+			// 写动作默认拒绝：审批接线属于 BR07.tool，本版没有装配。
+			// 面板的 tab/接管/导航不走 Authorizer，不受影响。
+			Authorizer:    unwiredBrowserAuthorizer{},
+			ActionTimeout: browserActionTimeout,
+		})
+		if err != nil {
+			log.Printf("浏览器面板不可用：浏览器服务构造失败: %v", err)
+			_ = host.Detach(ctx)
+			return
+		}
+
+		desktop.SetBrowserBridge(app.NewBrowserBridge(app.BrowserBridgeOptions{
+			Surface: host,
+			Service: svc,
+			// 面板跟随当前 run 的会话（tab 的归属是会话，不是进程）。
+			ExecProvider: desktop.BrowserExecutionContext,
+		}))
+
+		a.OnShutdown(func() {
+			svc.Close()
+			detachCtx, detachCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer detachCancel()
+			if err := host.Detach(detachCtx); err != nil {
+				log.Printf("浏览器面板：拆卸原生宿主失败: %v", err)
+			}
+		})
+
+		log.Printf("浏览器面板已装配：右侧原生视图挂载在主窗口下（profile=%s）",
+			filepath.Join(root, browserProfileDir))
+	}()
+}
+
+// waitForNativeHandle 等主窗口句柄就绪（NativeWindow 在窗口创建前返回 nil）。
+func waitForNativeHandle(ctx context.Context, win *application.WebviewWindow) any {
+	ticker := time.NewTicker(browserAttachPoll)
+	defer ticker.Stop()
+	for {
+		if h := win.NativeWindow(); h != nil {
+			return h
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// unwiredBrowserAuthorizer 是浏览器写动作的默认拒绝器。
+//
+// 产品当前的浏览器工具（BR07.tool）与审批接线还没落地。这时**默认拒绝**是唯一
+// 安全的选择：没有装配授权器时任何写动作都不能发出（基线 §7 的“默认不授”），
+// 更不能拿一个“总是同意”的替身在产品里充数。
+//
+// 拒绝的理由写清楚“没有发出去”，而不是笼统的失败：调用方最危险的反应是把
+// 失败当成“重试就好”，而浏览器写入在人工接管期间重试会造成双重输入。
+type unwiredBrowserAuthorizer struct{}
+
+func (unwiredBrowserAuthorizer) Authorize(
+	context.Context, contracts.ExecutionContext, browser.AuthorizationRequest,
+) (browser.AuthorizationToken, error) {
+	return browser.AuthorizationToken{}, contracts.NewAppError(contracts.CodeUnsupported,
+		"浏览器写动作的审批接线尚未装配（BR07.tool）：本次动作没有发出", false)
+}
+
+func (unwiredBrowserAuthorizer) Recheck(
+	context.Context, contracts.ExecutionContext, browser.AuthorizationRequest, browser.AuthorizationToken,
+) error {
+	// 从未签发过 token，也就没有“复查通过”这回事。
+	return contracts.NewAppError(contracts.CodeUnsupported,
+		"浏览器写动作的审批接线尚未装配（BR07.tool）：没有可复查的许可", false)
 }

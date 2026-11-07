@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { t } from "../../i18n";
+import { useBrowserOcclusionLayer } from "../../app/BrowserOcclusionCoordinator";
 import type { ClarificationItem } from "../../runState";
 import type { ChatClarificationResponse } from "./api";
 
@@ -26,6 +27,10 @@ export function ClarificationCard({ item, onSubmit, disabled = false }: Clarific
   const submitted = item.submitted;
   const locked = submitted || disabled;
   const kind = item.kind;
+
+  // 与审批卡同一个理由：澄清卡也是盖在原生网页之上的应用浮层，必须让位。
+  // 来源名固定，多张卡同时存在由协调器按来源计数。
+  useBrowserOcclusionLayer("clarification-card", true);
 
   const submitValue = () => {
     const value = text.trim();

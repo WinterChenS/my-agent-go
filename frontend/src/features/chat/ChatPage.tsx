@@ -10,8 +10,12 @@
 //   - 重命名/置顶/归档/删除一律带 expectedRevision，冲突显示 CONFIG_CONFLICT 并给重新读取，
 //     不做“看起来保存成功”的乐观更新；
 //   - 导出只显示后端写到哪里（path/bytes/sha256/脱敏数），不在前端生成内容；
-//   - 上下文面板在这里装配，浏览器分区用固定占位节点（真实原生视图由 B07 挂进去），
-//     宽窄切换只改布局，不重建节点。
+//   - 上下文面板在这里装配，浏览器分区挂的是 B07 的 BrowserPanel：面板状态
+//     只来自 `BrowserState()`（tab/控制态/可见性），几何上报走 `UpdateBrowserSlot`；
+//     宽窄切换只改布局，不重建这些节点——原生视图是宿主 DOM 的子窗口，重建
+//     就等于丢掉用户的页面、滚动位置和登录态。
+//   - 面板自己**不**读 Wails runtime 的私有状态：绑定缺失时（没有原生宿主）它
+//     如实显示 unavailable 与原因，而不是画一个假的标签页。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AsyncState } from "../../components/states/AsyncState";
@@ -24,12 +28,8 @@ import { useShell } from "../../app/shell";
 import type { PageProps } from "../../app/navigation";
 import { historyApi, type HistorySession } from "../history/api";
 import { Composer, type PermissionSummary } from "./Composer";
-import {
-  BrowserUnavailable,
-  ContextPanel,
-  ContextPanelToggle,
-  useNarrowLayout,
-} from "./ContextPanel";
+import { BrowserPanel } from "../browser/BrowserPanel";
+import { ContextPanel, ContextPanelToggle, useNarrowLayout } from "./ContextPanel";
 import { MessageList } from "./MessageList";
 import { chatApi, type ChatClarificationResponse, type ChatExportFormat, type ChatExportResult } from "./api";
 import type { UiState } from "../../runState";
@@ -585,10 +585,19 @@ export function ChatPage({ onNavigate, route }: PageProps) {
         />
       </div>
 
-      {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建） */}
+      {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建）。
+          浏览器分区挂真实面板：宽窄切换只改 aside 的 class，面板与原生槽位节点
+          位置不变，因此不会被卸载/重建（挂载计数断言在 ContextPanel.test 里）。 */}
       <ContextPanel
         runId={shell.ui.runId ?? ""}
-        browserSlot={<BrowserUnavailable />}
+        browserSlot={
+          <BrowserPanel
+            // 停止按钮只在“这一页确实有一轮在跑”时出现：别的会话的 run 不能
+            // 从这个页面被停掉（那也是“点了就停”的假动作）。
+            canStop={runBelongsToPage && shell.busy}
+            onStop={shell.onStop}
+          />
+        }
         onLocateTurn={locateTurn}
         open={panelOpen}
         onToggle={() => setPanelOpen((v) => !v)}

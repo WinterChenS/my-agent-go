@@ -144,7 +144,18 @@ type BrowserBridgeOptions struct {
 	// Service 是控制权/tab/队列（B05）。
 	Service *browser.Service
 	// Exec 是服务端绑定的执行身份（面板不允许自报）。
+	//
+	// ExecProvider 不为 nil 时它只作为退避值；面板身份按 ExecProvider 实时取。
 	Exec contracts.ExecutionContext
+	// ExecProvider 让面板跟随**当前 run** 的执行身份。
+	//
+	// 为什么不能只用构造时的固定 Exec：tab 的归属是**会话**
+	//（browser.Service.Tabs 按 exec.SessionID 过滤），而产品只有一个 Desktop。
+	// 身份固定在启动那一刻，agent 后续在它自己的会话里开的 tab 就永远不会出现在
+	// 面板上（面板看起来“没 tab”，实际有人开着）。所以身份要在**每次调用**时取。
+	//
+	// 它必须是快的、无阻塞的，且不能反过来调本桥接层的方法（会自锁）。
+	ExecProvider func() contracts.ExecutionContext
 	// ChromeReservedTop 覆盖工具条保留区高度（<=0 用 BrowserChromeReservedTop）。
 	ChromeReservedTop float64
 	// Now 便于测试注入时钟（遮挡日志的时间戳）。
@@ -162,7 +173,10 @@ type BrowserBridge struct {
 	surface browser.BrowserSurface
 	svc     *browser.Service
 	exec    contracts.ExecutionContext
-	now     func() time.Time
+	// execProvider 让面板跟随当前 run（见 BrowserBridgeOptions.ExecProvider）。
+	// 构造后不再变，读它不需要锁。
+	execProvider func() contracts.ExecutionContext
+	now          func() time.Time
 
 	chromeReservedTop float64
 
@@ -188,6 +202,7 @@ func NewBrowserBridge(opts BrowserBridgeOptions) *BrowserBridge {
 		surface:           opts.Surface,
 		svc:               opts.Service,
 		exec:              opts.Exec,
+		execProvider:      opts.ExecProvider,
 		now:               opts.Now,
 		chromeReservedTop: opts.ChromeReservedTop,
 		overlays:          map[string]bool{},
@@ -368,6 +383,9 @@ func (b *BrowserBridge) SelectTab(tabID string) error {
 	if id == "" {
 		return contracts.NewAppError(contracts.CodeUnsupported, "选择 tab 需要 tabId", false)
 	}
+	// 身份在持锁**之前**取：ExecProvider 会拿宿主侧的锁（Desktop），
+	// 而持有本锁再取它会把锁序复杂化。
+	exec := b.execContext()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -375,7 +393,7 @@ func (b *BrowserBridge) SelectTab(tabID string) error {
 		return contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法选择/创建 tab", false)
 	}
-	info, err := b.svc.TabInfo(b.exec, id)
+	info, err := b.svc.TabInfo(exec, id)
 	if err != nil {
 		b.lastErr = toCallError(err)
 		return err
@@ -406,7 +424,7 @@ func (b *BrowserBridge) CloseTab(ctx context.Context, tabID string) error {
 		return contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法关闭 tab", false)
 	}
-	if err := svc.CloseTab(ctx, b.exec, id); err != nil {
+	if err := svc.CloseTab(ctx, b.execContext(), id); err != nil {
 		b.mu.Lock()
 		b.lastErr = toCallError(err)
 		b.mu.Unlock()
@@ -450,7 +468,7 @@ func (b *BrowserBridge) navigate(ctx context.Context, tab browser.TabID, url str
 		return contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法导航", false)
 	}
-	if err := svc.Navigate(ctx, b.exec, tab, url); err != nil {
+	if err := svc.Navigate(ctx, b.execContext(), tab, url); err != nil {
 		b.mu.Lock()
 		b.lastErr = toCallError(err)
 		b.mu.Unlock()
@@ -515,7 +533,7 @@ func (b *BrowserBridge) Reload(ctx context.Context, tabID string) error {
 		return contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法刷新", false)
 	}
-	info, err := svc.TabInfo(b.exec, id)
+	info, err := svc.TabInfo(b.execContext(), id)
 	if err != nil {
 		return err
 	}
@@ -537,7 +555,7 @@ func (b *BrowserBridge) TakeOver(ctx context.Context, tabID string) (browser.Con
 		return browser.ControlState{}, contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法接管", false)
 	}
-	return svc.TakeOver(ctx, b.exec, browser.TabID(strings.TrimSpace(tabID)))
+	return svc.TakeOver(ctx, b.execContext(), browser.TabID(strings.TrimSpace(tabID)))
 }
 
 // Resume 把控制权交还 agent（封装 browser.Service.Resume）。
@@ -551,7 +569,18 @@ func (b *BrowserBridge) Resume(ctx context.Context, tabID string) (browser.Contr
 		return browser.ControlState{}, contracts.NewAppError(contracts.CodeUnsupported,
 			"没有浏览器服务：当前无法恢复", false)
 	}
-	return svc.Resume(ctx, b.exec, browser.TabID(strings.TrimSpace(tabID)))
+	return svc.Resume(ctx, b.execContext(), browser.TabID(strings.TrimSpace(tabID)))
+}
+
+// execContext 返回这次调用应当使用的执行身份。
+//
+// 面板必须跟随**当前 run**：tab 的归属是会话（browser.Service 按 SessionID 过滤），
+// 而产品只有一个 Desktop。没有 ExecProvider 时用构造时的固定 Exec（替身/单会话）。
+func (b *BrowserBridge) execContext() contracts.ExecutionContext {
+	if b.execProvider == nil {
+		return b.exec
+	}
+	return b.execProvider()
 }
 
 // ---------- 状态 ----------
@@ -560,6 +589,9 @@ func (b *BrowserBridge) Resume(ctx context.Context, tabID string) (browser.Contr
 //
 // 只读：它会做默认 activeTab 的选择（第一个 tab），但不改桥接层状态。
 func (b *BrowserBridge) State() BrowserStateResult {
+	// 同 SelectTab：身份在持锁之前取。
+	exec := b.execContext()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -593,13 +625,13 @@ func (b *BrowserBridge) State() BrowserStateResult {
 
 	out.Capabilities = b.svc.Capabilities()
 	out.Unsupported = append(out.Unsupported, out.Capabilities.Unsupported...)
-	ids := b.svc.Tabs(b.exec)
+	ids := b.svc.Tabs(exec)
 	active := b.activeTab
 	if active == "" && len(ids) > 0 {
 		active = ids[0]
 	}
 	for _, id := range ids {
-		info, err := b.svc.TabInfo(b.exec, id)
+		info, err := b.svc.TabInfo(exec, id)
 		if err != nil {
 			continue
 		}
@@ -667,6 +699,27 @@ func (d *Desktop) browserBridge() *BrowserBridge {
 	b := NewBrowserBridge(BrowserBridgeOptions{})
 	actual, _ := browserBridges.LoadOrStore(d, b)
 	return actual.(*BrowserBridge)
+}
+
+// BrowserExecutionContext 返回右侧浏览器面板此刻应当使用的执行身份。
+//
+// 为什么是"此刻"：tab 的归属是**会话**（browser.Service.Tabs 按 exec.SessionID 过滤），
+// 而产品只有一个 Desktop、一个浏览器服务。启动时把身份焊死，agent 后续在它自己的
+// 会话里开的 tab 就永远不会出现在面板上——面板看起来"没 tab"，实际有人开着。
+//
+// 会话取 `runtimeSessionID`（最近一次构建的 run 会话，与 RunService.Start 拿到的
+// 是同一个值）。还没跑过任何一轮时它是空的，面板就如实显示"没有 tab"：那是真的，
+// 不是读不到。
+//
+// 不传 ConfigRevision/ControlGeneration：本版没有任何东西按它们授权面板动作；
+// 写动作的授权点在 browser.Authorizer（BR07.tool 接线时在那里取真值）。
+func (d *Desktop) BrowserExecutionContext() contracts.ExecutionContext {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return contracts.ExecutionContext{
+		WorkspaceID: defaultWorkspaceID,
+		SessionID:   contracts.SessionID(d.runtimeSessionID),
+	}
 }
 
 // BrowserState 是面板的读入口。永远返回结构化结果，不抛异常。
