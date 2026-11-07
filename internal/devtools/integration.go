@@ -479,11 +479,11 @@ func integrationCases() []integrationCase {
 		{ID: "MOD02", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestProbeReachableText|TestProbeDetectsToolCalling|TestProbeWithoutToolCalling|TestProbeClassifiesFailures", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MOD02")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 		{ID: "MOD03", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestNoImplicitAuthImport|TestProbeReachableText|TestProbeWithoutToolCalling", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MOD03")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 
 		// ── MCP（C04，G2）──
 		// MCP01/MCP02/MCP03/MCP05 全部以真实 Pi 为观察装置（fixture 只替代 MCP 服务端）：
@@ -492,15 +492,15 @@ func integrationCases() []integrationCase {
 		{ID: "MCP01", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiHTTPMCPDiscoveryAndCall", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MCP01")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 		{ID: "MCP02", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestRealPiDiagnoseHTTPAuthFailureAndReconnect|TestRealPiDiagnoseUnreachable", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MCP02")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 		{ID: "MCP03", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestRealPiDiagnoseStdioAndToolListChange|TestDisabledMCPToolCannotExecute", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MCP03")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 		// MCP04 是配置面：command/args 分开、秘密只经 env/header 引用、拒绝 shell 整串与
 		// 无效配置、保存不执行未知脚本。观察值是磁盘事实（配置存储根、mcp.json、
 		// 脚本写 marker 的那次尝试根本没发生），见 internal/resources/observation_test.go。
@@ -511,7 +511,7 @@ func integrationCases() []integrationCase {
 		{ID: "MCP05", Steps: []integrationStep{
 			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiDiagnoseStdioAndToolListChange", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
-			Blocked: realPiBlockedReasonFor("G2", "MCP05")},
+			Blocked: "缺少实现边界之外的观察装置：需要把 fixture provider 实际收到的请求与探针结论落盘后再接 external oracle（MOD/MCP 观察装置，下一波补）"},
 
 		// SEC07.store：OS 保护存储的真实读写 + 凭证库不可用时不落明文。
 		// 后端可用性由 nativeCredStoreBlockedReasonFor 只读探测（不可用 → BLOCKED，
