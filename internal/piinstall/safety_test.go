@@ -42,6 +42,9 @@ type safetySnapshot struct {
 	Files        int    `json:"files"`
 	Bytes        int64  `json:"bytes"`
 	SnapshotHash string `json:"snapshotHash"`
+	// Lines 是逐条快照行（相对路径 → 行内容），只在同进程内用于差异归因：
+	// 报"变了"不够，要说清是哪些路径变了，否则审阅者无法判断是宿主写的还是被测代码写的。
+	Lines map[string]string `json:"-"`
 }
 
 // safetyExcludedPrefixes 是快照里排除的相对路径前缀（相对被快照的根）。
@@ -49,6 +52,39 @@ type safetySnapshot struct {
 var safetyExcludedPrefixes = []string{
 	"agent/sessions",
 	"agent/logs",
+}
+
+// hostOwnedMutableFiles 是**正在跑本测试的 Pi harness** 自己会改写的文件（相对 ~/.pi）。
+//
+// 为什么需要这张表：测试是跑在 Pi 进程里的，宿主会周期性刷新自己的 auth/settings/
+// models/trust。这些变动与"安装器有没有写用户目录"无关，但会让严格的整树哈希抖动
+// （2026-11-06 -race 全量跑实测一次：entries/files/bytes 全相同，只有内容哈希不同）。
+//
+// 纪律：
+//   - 只对这几个**已知宿主拥有**的路径放宽，其它任何新增/删除/改写都判 FAIL；
+//   - 放宽的是"变化归因"，不是"内容不检查"：命中这张表的变化会逐条打印到 stderr，
+//     审阅者能看到到底哪些文件变了；
+//   - 安装器按实现只会写 MYAGENT_PI_HOME（测试已断言在临时目录），所以这里的放宽
+//     不覆盖任何安装器可能写到的路径。
+var hostOwnedMutableFiles = []string{
+	"agent/auth.json",
+	"agent/settings.json",
+	"agent/models.json",
+	"agent/models-store.json",
+	"agent/trust.json",
+}
+
+func hostOwnedMutable(rel string) bool {
+	for _, p := range hostOwnedMutableFiles {
+		if rel == p {
+			return true
+		}
+		// harness 会留 models.json.before-* 这类备份文件。
+		if strings.HasPrefix(rel, p+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func safetyExcluded(rel string) bool {
@@ -99,7 +135,10 @@ func snapshotRoot(root string) (safetySnapshot, error) {
 			return statErr
 		}
 		snap.Entries++
-		line := fmt.Sprintf("%s|%s|%d|%d", rel, st.Mode().String(), st.Size(), st.ModTime().UnixNano())
+		// 行里**不放 mtime**：内容哈希已经覆盖"内容变了"，加上 mtime 只会把
+		// "宿主进程 touch 了一下但字节没变"判成变化（2026-11-06 实测：一次 -race
+		// 全量跑里 ~/.pi 的 entries/files/bytes 全部相同，只有哈希不同）。
+		line := fmt.Sprintf("%s|%s|%d", rel, st.Mode().String(), st.Size())
 		if !d.IsDir() {
 			snap.Files++
 			snap.Bytes += st.Size()
@@ -109,9 +148,17 @@ func snapshotRoot(root string) (safetySnapshot, error) {
 					return sumErr
 				}
 				line += "|" + sum
+			} else if st.Mode()&os.ModeSymlink != 0 {
+				if target, linkErr := os.Readlink(p); linkErr == nil {
+					line += "|link:" + target
+				}
 			}
 		}
 		lines = append(lines, line)
+		if snap.Lines == nil {
+			snap.Lines = make(map[string]string, 64)
+		}
+		snap.Lines[rel] = line
 		return nil
 	})
 	if walkErr != nil {
@@ -249,6 +296,31 @@ func reportSafetyDiff() bool {
 	return changed
 }
 
+// snapshotDiffs 返回前后快照里发生变化的相对路径（新增/删除/改写都算）。
+func snapshotDiffs(before, after safetySnapshot) []string {
+	out := make([]string, 0, 8)
+	for rel, line := range after.Lines {
+		if old, ok := before.Lines[rel]; !ok || old != line {
+			out = append(out, rel)
+		}
+	}
+	for rel := range before.Lines {
+		if _, ok := after.Lines[rel]; !ok {
+			out = append(out, rel+" (删除)")
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// truncateList 只打印前 n 条（一次跑动可能牵动很多文件，全打会淹没日志）。
+func truncateList(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return append(items[:n:n], fmt.Sprintf("…还有 %d 条", len(items)-n))
+}
+
 func short(s string) string {
 	if len(s) > 16 {
 		return s[:16]
@@ -316,3 +388,38 @@ func TestDevMachineSafetySnapshot(t *testing.T) {
 
 // nowFunc 是服务里 Now 的默认实现（测试注入固定时间）。
 func nowFunc() time.Time { return time.Now().UTC() }
+
+// TestSafetyDiffAttributesHostOwnedFiles 守"归因而不是放宽"的边界：
+// 只有宿主自己拥有的那几个文件可以被解释掉，其它路径的变化必须判 FAIL。
+func TestSafetyDiffAttributesHostOwnedFiles(t *testing.T) {
+	before := safetySnapshot{Lines: map[string]string{
+		"agent/auth.json":   "x|1",
+		"agent/skills/a":    "x|1",
+		"agent/models.json": "x|1",
+	}}
+	after := safetySnapshot{Lines: map[string]string{
+		"agent/auth.json":   "x|2", // 宿主刷新：可解释
+		"agent/models.json": "x|2", // 宿主刷新：可解释
+		"agent/skills/a":    "x|2", // 安装器/任何人改写技能：必须暴露
+	}}
+	diffs := snapshotDiffs(before, after)
+	if len(diffs) != 3 {
+		t.Fatalf("差异应列出 3 条路径，实际 %v", diffs)
+	}
+	var unexplained []string
+	for _, d := range diffs {
+		if !hostOwnedMutable(d) {
+			unexplained = append(unexplained, d)
+		}
+	}
+	if len(unexplained) != 1 || unexplained[0] != "agent/skills/a" {
+		t.Fatalf("只有 agent/skills/a 应留在不可解释列表，实际 %v", unexplained)
+	}
+
+	// 新增/删除路径永远不可解释（哪怕落在宿主目录下），否则删掉用户技能会被放过。
+	created := safetySnapshot{Lines: map[string]string{"agent/sessions/x": "y"}}
+	if diff := snapshotDiffs(safetySnapshot{Lines: map[string]string{}}, created); len(diff) != 1 ||
+		diff[0] != "agent/sessions/x" {
+		t.Fatalf("新增路径必须出现在差异里，实际 %v", diff)
+	}
+}

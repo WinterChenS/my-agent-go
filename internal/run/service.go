@@ -150,6 +150,15 @@ type Options struct {
 type Service struct {
 	opts Options
 
+	// histMu 串行化 HistorySink 写入；histWG 统计"已经开始、还没写完"的写入。
+	//
+	// 为什么要它们：状态迁移会先更新快照再写索引，调用方（或测试）可能在两次之间
+	// 观察到终态并立刻关闭数据库；此时仍在飞行的那笔写会失败，索引就停在旧状态
+	// （2026-11-06 实测过一次 RUN07 偶发失败）。Close 等 histWG 归零，再拿一次
+	// histMu，确保返回时没有写还在路上。
+	histMu sync.Mutex
+	histWG sync.WaitGroup
+
 	mu     sync.Mutex
 	runs   map[contracts.RunID]*runState
 	queue  []contracts.RunID
@@ -1416,6 +1425,12 @@ func (s *Service) recordHistory(rs *runState) {
 	if s.opts.History == nil {
 		return
 	}
+	// 写入串行化：同一个 sink（可能是同一个 SQLite 句柄）不允许两笔写并发进来。
+	// WG 在拿锁之前 Add：Close 等的是"已经决定要写"的那些，而不是"恰好正在写"的。
+	s.histWG.Add(1)
+	defer s.histWG.Done()
+	s.histMu.Lock()
+	defer s.histMu.Unlock()
 	snap := rs.snapshot()
 	if err := s.opts.History.RecordRun(context.Background(), snap); err != nil {
 		s.emit(rs, EventDiagnostic, map[string]any{
@@ -1599,7 +1614,44 @@ func (s *Service) Close(ctx context.Context) error {
 			firstErr = err
 		}
 	}
+
+	// 等每个 run 真正收尾，再排空索引写入。
+	//
+	// 为什么必须等：终态迁移里"更新快照 → 写索引"是两步，调用方可能看到终态就
+	// 关掉数据库（测试与关闭流程都会这样）。不等的话，那笔仍在路上的写会失败，
+	// 索引停在旧状态，重启后看到的是一条没跑完的记录——RUN07 的"重启后状态正确"
+	// 就会偶发失败（2026-11-06 实测过一次）。
+	//
+	// 只等"已经开始、还没写完"的索引写入，不等 run 的生命周期：
+	//   - 排队中被取消的 run 不会走 release()，等它的 finished 是死锁（实测过）；
+	//   - 在 admission 就被拒的 run 甚至没有收尾协程，等它的 done 同样是死锁。
+	// 这两类 run 都没有在飞行的写，histWG 自然为 0，不会误等。
+	if err := s.waitHistoryWrites(ctx); err != nil {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
 	return firstErr
+}
+
+// waitHistoryWrites 等索引写入排空（受 ctx 约束）。
+//
+// 返回 ctx 的错误只表示"没能在时限内排空"：写入本身不会被取消（它已经交给 sink），
+// 调用方据此决定是记一条诊断还是继续关闭。
+func (s *Service) waitHistoryWrites(ctx context.Context) error {
+	drained := make(chan struct{})
+	go func() {
+		s.histWG.Wait()
+		s.histMu.Lock()
+		s.histMu.Unlock()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // after 把 duration 换成时钟通道；d<=0 时立刻触发（"总时限已到"这种边界）。

@@ -60,6 +60,14 @@ type clarifyingWorker struct {
 
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// sendMu 让"推事件"与"关闭事件流"互斥。
+	//
+	// 只靠 recover 挡 panic 是不够的：向已关闭的 channel 发送是**数据竞争**
+	// （-race 会报，2026-11-06 实测），而且一次并发发送会让测试替身直接崩。
+	// 关闭方与发送方拿同一把锁之后，这两件事不可能交错。
+	sendMu sync.Mutex
+	closed bool
 }
 
 func newClarifyingWorker(kind, question string, options ...string) *clarifyingWorker {
@@ -136,18 +144,18 @@ func (w *clarifyingWorker) emitToolEnd(text string) {
 }
 
 func (w *clarifyingWorker) push(ev pi.RawEvent) {
-	// 事件流在 Close 时关闭；收尾与推送可能并发（清理顺序由测试清理期决定），
-	// 这里只保护测试替身不会被自己的清理动作打成 panic。
-	defer func() { _ = recover() }()
-	select {
-	case <-w.done:
+	// 收尾与推送可能并发（清理顺序由测试清理期决定）。锁住"是否已关闭"的判断与
+	// 发送本身，关闭动作也走同一把锁，二者不会交错。
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
+	if w.closed {
 		return
-	default:
 	}
 	select {
 	case w.events <- ev:
-	case <-w.done:
-	case <-time.After(5 * time.Second):
+	default:
+		// 缓冲区满说明脚本化 worker 发的事件超出预期；宁可让断言看到"少了一条事件"，
+		// 也不要阻塞住调用它的协程（那会把失败变成超时）。
 	}
 }
 
@@ -155,8 +163,11 @@ func (w *clarifyingWorker) Events() <-chan pi.RawEvent { return w.events }
 
 func (w *clarifyingWorker) Close(ctx context.Context) error {
 	w.closeOnce.Do(func() {
-		close(w.done)
+		w.sendMu.Lock()
+		w.closed = true
 		close(w.events)
+		w.sendMu.Unlock()
+		close(w.done)
 	})
 	return nil
 }
