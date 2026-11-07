@@ -221,10 +221,28 @@ func feishuBlocks(content string) []map[string]any {
 // Slack
 // ---------------------------------------------------------------------------
 
+// requireSlackAuth 按 Slack 的真实形状拒绝坏令牌：HTTP 200 + ok:false。
+func (a *API) requireSlackAuth(w http.ResponseWriter, r *http.Request) bool {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	got := ""
+	if strings.HasPrefix(header, "Bearer ") {
+		got = strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+	}
+	a.mu.Lock()
+	ok := got != "" && a.tokens[got]
+	a.mu.Unlock()
+	if ok {
+		return true
+	}
+	a.counter.Update(func(sn *Snapshot) { sn.HTTPUnauthorized++ })
+	writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "invalid_auth"})
+	return false
+}
+
 func (a *API) serveSlack(w http.ResponseWriter, r *http.Request) bool {
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/api/auth.test":
-		if !a.requireBearer(w, r) {
+		if !a.requireSlackAuth(w, r) {
 			return false
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -233,7 +251,7 @@ func (a *API) serveSlack(w http.ResponseWriter, r *http.Request) bool {
 		return false
 
 	case r.Method == http.MethodGet && r.URL.Path == "/api/conversations.history":
-		if !a.requireBearer(w, r) {
+		if !a.requireSlackAuth(w, r) {
 			return false
 		}
 		channel := r.URL.Query().Get("channel")
@@ -250,7 +268,7 @@ func (a *API) serveSlack(w http.ResponseWriter, r *http.Request) bool {
 		return false
 
 	case r.Method == http.MethodPost && r.URL.Path == "/api/chat.postMessage":
-		if !a.requireBearer(w, r) {
+		if !a.requireSlackAuth(w, r) {
 			return false
 		}
 		var in struct {

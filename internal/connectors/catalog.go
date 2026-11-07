@@ -194,11 +194,54 @@ func feishuActions() []ActionDescriptor {
 	}
 }
 
+// slackActions 是 Slack 的 V1 动作。
+func slackActions() []ActionDescriptor {
+	return []ActionDescriptor{
+		{
+			ID:          "read_channel",
+			Kind:        KindSlack,
+			Title:       "读取频道消息",
+			Description: "Read the message history of one Slack channel (cursor paged).",
+			Risk:        RiskRead,
+			Capability:  CapabilitySlackRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"channel": map[string]any{"type": "string", "description": "Slack channel id (C0123...)."},
+					"cursor":  map[string]any{"type": "string", "description": "response_metadata.next_cursor from the previous page."},
+					"limit":   map[string]any{"type": "integer", "description": "Page size, default 20, max 100."},
+				},
+				"required": []string{"channel"},
+			},
+		},
+		{
+			ID:          "reply_thread",
+			Kind:        KindSlack,
+			Title:       "回复线程",
+			Description: "Post one text reply into an existing Slack thread. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskExternalSend,
+			Capability:  CapabilitySlackSend,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"channel":  map[string]any{"type": "string", "description": "Slack channel id."},
+					"threadTs": map[string]any{"type": "string", "description": "thread_ts of the parent message."},
+					"text":     map[string]any{"type": "string", "description": "Plain text reply body."},
+				},
+				"required": []string{"channel", "threadTs", "text"},
+			},
+		},
+	}
+}
+
 // catalog 是 kind → 动作表的唯一注册点。
 var catalog = map[Kind][]ActionDescriptor{
 	KindMail:     mailActions(),
 	KindDingtalk: dingtalkActions(),
 	KindFeishu:   feishuActions(),
+	KindSlack:    slackActions(),
 }
 
 // Catalog 返回某个 kind 的动作副本。
