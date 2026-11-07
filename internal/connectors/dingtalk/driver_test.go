@@ -168,6 +168,29 @@ func TestDingtalkWriteIsGatedAndCounted(t *testing.T) {
 		}
 	})
 
+	t.Run("out_of_scope_conversation", func(t *testing.T) {
+		e := newDingtalkEnv(t, fixtures.APIOptions{}, nil)
+		res, err := e.env.Invoke(t, "send_group", map[string]any{
+			"conversationId": "cidOtherTeam", "text": "越界",
+		})
+		if err != nil {
+			t.Fatalf("越界应以结果返回: %v", err)
+		}
+		if res.Outcome != connectors.OutcomeFailed || res.Dispatched {
+			t.Fatalf("越界必须未派发: %+v", res)
+		}
+		if !strings.Contains(res.Detail, "允许的资源范围") {
+			t.Fatalf("越界原因应可辨认: %+v", res)
+		}
+		if got := e.counter.Snapshot().DingtalkGroupMessages; got != 0 {
+			t.Fatalf("越界时写计数必须为 0，实际 %d", got)
+		}
+		// 连令牌交换都不该发生：越界在 HTTP 之前就被拒。
+		if got := len(e.api.Requests()); got != 0 {
+			t.Fatalf("越界时不应发出任何 HTTP 请求，实际 %d", got)
+		}
+	})
+
 	t.Run("allowed", func(t *testing.T) {
 		e := newDingtalkEnv(t, fixtures.APIOptions{}, nil)
 		res, err := e.env.Invoke(t, "send_group", args)

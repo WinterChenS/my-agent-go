@@ -191,8 +191,15 @@ func TestNotionWriteIsGatedAndCounted(t *testing.T) {
 		if res.Outcome != connectors.OutcomeFailed || res.Dispatched {
 			t.Fatalf("越界必须未派发: %+v", res)
 		}
+		if !strings.Contains(res.Detail, "允许的资源范围") {
+			t.Fatalf("越界原因应可辨认: %+v", res)
+		}
 		if got := e.counter.Snapshot().NotionPagesUpdated; got != 0 {
 			t.Fatalf("越界时写计数必须为 0，实际 %d", got)
+		}
+		// 越界必须在 HTTP 之前被拒：否则"平台返回 404"会伪装成同样的 0 副作用。
+		if got := len(e.api.Requests()); got != 0 {
+			t.Fatalf("越界时不应发出任何 HTTP 请求，实际 %d", got)
 		}
 	})
 }
