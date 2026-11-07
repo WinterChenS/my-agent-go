@@ -148,6 +148,78 @@ func nativeCases() []nativeCase {
 			}},
 		},
 		{
+			// BR07.native：标准表单的观察/填写/点击（B04 的工具语义）。
+			// 复合 case BR07 由 BR07.native（G1）与 BR07.tool（G3，经 MCP 工具，B05）组成，
+			// 这里只能覆盖前者。
+			// 稳定引用那条测试同时用于 BR09 的限额证据：两条 case 各自在自己的
+			// 证据目录里跑一遍，谁也不借谁的产物。
+			ID:      "BR07.native",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestObserveReturnsStableRefsAndHonoursLimits|TestFillAndClickReachTheFixtureServer",
+			}},
+			Limitation: "只覆盖 win-x64/desktop 的真实 WebView2；macOS/Linux 宿主（B02/B03）未实现，" +
+				"BR07.tool（G3，经 MCP 工具）属于 B05。",
+			// 快照原始 JSON、每次动作一行、服务端自己记录的表单载荷、两个 origin 的 counter 快照。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"snapshots/br07-form.json", "snapshots/br07-form-stable-refs.json",
+				"actions.jsonl", "form-last.json", "counters.json",
+			}},
+		},
+		{
+			// BR08：同 URL 导航 / SPA 断开节点后旧 ref 必须 STALE_SNAPSHOT，且 counter 保持 0。
+			//
+			// 注意：BR08 在索引里是 G2 阶段（v1-gates.md），而 RunNative 目前只选 G1
+			// 必需位。条目先落地，等 G2 的 native 选择接上就直接生效；这不是"跑过了"。
+			ID:      "BR08",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestStaleRefAfterNavigationIsRejected",
+			}},
+			Limitation: "G2 阶段的 native 选择器尚未接入（RunNative 只取 G1）；本条目只定义执行方式。" +
+				"覆盖 win-x64/desktop；跨平台矩阵待 B02/B03。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"stale-rejections.jsonl", "snapshots/br08-spa-after-replace.json", "counters.json",
+			}},
+		},
+		{
+			// BR09：密码不泄漏 + 三条限额 + 截图完整且 ≤4MiB（含受控缩小的真实证据）。
+			ID:      "BR09",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestObserveReturnsStableRefsAndHonoursLimits|TestPasswordNeverLeaks|TestScreenshotIsCompleteAndBounded",
+			}},
+			Limitation: "截图的 4MiB 分支用 1600×2400 随机像素页面在真实 WebView2 上触发（受控缩小到 scale=0.5）；" +
+				"更大的视口/多显示器场景未测。G2 阶段选择器同上未接入。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"limits.json", "snapshots/br09-login.json", "password-scan.json",
+				"screenshots/br09-screen.png", "screenshot-sha256.json", "screenshot-outcome.json",
+			}},
+		},
+		{
+			// BR10：cross-origin / closed shadow 明确 Unsupported；trusted-only 后置条件失败。
+			ID:      "BR10",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestClosedShadowAndCrossOriginAreUnsupported|TestTrustedOnlyPostConditionFailure",
+			}},
+			Limitation: "closed shadow root 的探测走 CDP DOM.getDocument(pierce)，不覆盖 UA shadow root；" +
+				"trusted-only 只证明「后置条件不成立时不返回 Verified」，不声称能预判任意站点的事件策略。" +
+				"G2 阶段选择器同上未接入。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"snapshots/br10-cross-origin.json", "snapshots/br10-closed-shadow.json",
+				"unsupported-surfaces.json", "trusted-only.json", "counters.json",
+			}},
+		},
+		{
 			// BR00：两个 origin 独立、server counter 可核对、trusted-only 负例。
 			// 它不需要 GUI，但 G1 把它算作浏览器基线的一部分，所以从 native 套件出证据。
 			ID: "BR00",

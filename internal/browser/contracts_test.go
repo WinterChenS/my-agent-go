@@ -111,6 +111,12 @@ var nonDTOTypes = map[string]string{
 	"UnimplementedSurface": "B00 占位实现，不是 DTO",
 	"SessionTabs":          "内存记账表，不跨边界",
 	"TabID":                "contracts.TabID 的别名，字符串别名由 contracts 定义",
+	// B04 新增：引用注册表是 backend 的内存状态（快照 id → ref → 元素本体），
+	// 线上只出现 ref 字符串本身，不出现在任何 JSON 里。
+	"RefRegistry": "内存中的引用注册表，不跨边界（快照 JSON 只带 ref 字符串）",
+	"RefTable":    "一份快照的引用表，backend 内存状态，不跨边界",
+	// ControlKind 是 fill 的处理方式分类（行为分支），不是跨边界的数据形状。
+	"ControlKind": "fill 的控件分类，行为分支，不跨边界",
 }
 
 func loadSchema(t *testing.T) schemaDoc {
