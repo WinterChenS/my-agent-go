@@ -141,3 +141,24 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 
 `B06`（cookie/profile 隔离、弹窗继承、下载确认与 hash → BR15–BR17）+ `B07`（右栏原生 slot/遮挡 → UI04.native）
 + `U03/U04/U05`（Agent/资源库/记忆页面）；随后 `U06/U07`、`F09`、`X03/X04`。
+
+## 7. 2026-11-07 第四波：B06/B07 合并，G0 与 G1 同时通过
+
+- **B06 合并**（`2679910`）：按 workspace 的 profile（cookie 隔离/重启保留/清除生效/不碰个人浏览器目录）、
+  `window.open` 受控 tab（同 session、不破限额、不创建不受控窗口）、目标先行下载（未选目标不写任何目录、
+  确认后 hash 匹配、取消无残留、文件名穿越清理、保存后登记 artifact）。
+  迁移用 **008_browser.sql**（计划写 002，但 002 已被 memory 占用；版本号是主键，硬凑会静默跳过——脚本头已记录）。
+- **B07 合并**（`4d16fed`）：`internal/app/browser_api.go`（slot 几何/tab 选择/接管恢复/状态查询）、
+  右栏 `BrowserPanel`/`BrowserToolbar`/`BrowserTabs`/`BrowserSlot`/`useBrowserState`、`BrowserOcclusionCoordinator`
+  （设置/命令面板/审批框依次弹出时隐藏与恢复原生网页）、接管后人工修改可被 agent 观察到。
+  顺带修：`host.SetVisible` 在 controller 尚未创建时把 nil 当成错误，导致首次 geometry 上报必失败。
+- **gate 结果（HEAD `4d16fed`，干净工作区）**：
+  - **G0 passed=true exit 0**（31/31）
+  - **G1 passed=true exit 0**（7/7，含 `UI04.native`）
+  - G2 exit 2：66/69 集成 PASS + 原生 PASS；**只剩 6 条 BLOCKED**（MOD02/03、MCP01/02/03/05 缺观察装置）
+- 已知缺口（写进报告，不是通过）：
+  - `BrowserPanel` 还没挂进产品 `ChatPage`，`cmd/myagent/main.go` 也没调用 `SetBrowserBridge` → 真实应用里仍显示
+    `available=false`（UI04.workbench/E2E03 的前置，属 U02/main）
+  - 原生宿主只呈现单 tab；back 是应用级历史（无 BFCache）；隐藏时无法 CDP 截图；OS 打字只覆盖小写 ASCII
+  - 真实 WebView2 的 `NewWindowRequested`/`DownloadStarting` 未接（B06 用受控 backend 证明语义，limitations 已写）
+- `E03` 已派发（模型 `deepseek-2/deepseek-v4.1-flash`）：给那 6 条补 observation 装置，是 G2 的最后一块。
