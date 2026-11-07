@@ -324,6 +324,15 @@ func TestAgentProfileRejectsWideningBeyondCeiling(t *testing.T) {
 		t.Fatalf("收紧权限应被允许: %+v", res.Error)
 	}
 
+	// 新建 profile 时也要能先拿到同一份上限（不是从已存在的文档反推）。
+	pre := d.AgentProfileCeiling("ws-1")
+	if pre.Error != nil {
+		t.Fatalf("读上限: %+v", pre.Error)
+	}
+	if pre.Ceiling.Filesystem != "read" || pre.Ceiling.Sources["permissions.filesystem"] != "workspace" {
+		t.Fatalf("上限应同样是 read / 来源 workspace，实际 %+v", pre.Ceiling)
+	}
+
 	// 没有任何层说话时上限来自系统（filesystem=workspace、shell=设置值）。
 	empty, _ := newTestDesktop(t)
 	unrestricted := draft(profile.Profile{Name: "不限"})
@@ -501,7 +510,6 @@ func TestAgentEditorStateReportsNotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------- utils
-
 
 // permissionsBody 构造只含权限字段的一层配置 body（供上限比较的一致性测试用）。
 func permissionsBody(filesystem string, network, shell bool) json.RawMessage {

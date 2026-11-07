@@ -255,6 +255,28 @@ func (d *Desktop) assertAgentCeiling(ctx context.Context, wsID contracts.Workspa
 	return nil
 }
 
+// AgentCeilingResult 是上限查询的结果。
+//
+// 新建 profile 时还读不到文档，但界面已经需要知道"能选到哪一档"，
+// 所以上限单独可查，而不是只能从某一份已存在的 profile 反推。
+type AgentCeilingResult struct {
+	Ceiling           AgentCeiling `json:"ceiling"`
+	UnavailableFields []string     `json:"unavailableFields"`
+	Error             *CallError   `json:"error,omitempty"`
+}
+
+// AgentProfileCeiling 单独返回上限（新建时也需要的同一份事实）。
+func (d *Desktop) AgentProfileCeiling(workspaceID string) AgentCeilingResult {
+	lower, err := d.lowerConfig(context.Background(), contracts.WorkspaceID(workspaceID))
+	if err != nil {
+		return AgentCeilingResult{UnavailableFields: agentUnavailableFields, Error: toCallError(err)}
+	}
+	return AgentCeilingResult{
+		Ceiling:           d.agentCeiling(lower),
+		UnavailableFields: agentUnavailableFields,
+	}
+}
+
 // AgentEditorState 读取一份可编辑的现场：文档 + 上限 + 来源 + 缺口。
 func (d *Desktop) AgentEditorState(id, workspaceID string) AgentEditorState {
 	_, ps, err := d.coreServices()
@@ -458,4 +480,3 @@ func (d *Desktop) DeleteAgentProfile(id string, expectedRevision uint64) Profile
 	}
 	return ProfileResult{Item: current}
 }
-
