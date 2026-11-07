@@ -363,6 +363,40 @@ func integrationCases() []integrationCase {
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
 
+		// ── 连接器（C08，G2）──
+		// 观察装置是各平台的 HTTP/SMTP/IMAP fixture 自己（见
+		// internal/connectors/connectortest/observation.go）：
+		//   connector-counter.json      fixture 原子写下的副作用快照；
+		//   connector-http-requests.jsonl fixture 收到每个请求后追加的行；
+		//   connector-observation.json  由这些文件派生出的按测试记录。
+		// 诚实说明：请求/写入计数是**整条 case 累积**的文件总量（jsonl 追加写），
+		// 每条测试自己的观察值在 observation.json 的 byTest:<name> 里。
+		{ID: "CONN01", Steps: []integrationStep{
+			{Package: "internal/connectors/slack", Run: "TestSlackReadReturnsTypedRecords|TestSlackHealthNeverGuessesConnected"},
+			{Package: "internal/connectors/dingtalk", Run: "TestDingtalkReadReturnsTypedRecords|TestDingtalkHealthNeverGuessesConnected"},
+			{Package: "internal/connectors/feishu", Run: "TestFeishuReadReturnsTypedRecords|TestFeishuHealthNeverGuessesConnected"},
+			{Package: "internal/connectors/github", Run: "TestGitHubReadReturnsTypedRecords|TestGitHubHealthNeverGuessesConnected"},
+			{Package: "internal/connectors/notion", Run: "TestNotionReadReturnsTypedRecords|TestNotionHealthNeverGuessesConnected"},
+		},
+			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"connector-counter.json", "connector-http-requests.jsonl", "connector-observation.json"}}},
+		{ID: "CONN02", Steps: []integrationStep{
+			{Package: "internal/connectors/slack", Run: "TestSlackWriteIsGatedAndCounted|TestSlackRateLimitIsEnforcedAndVisible"},
+			{Package: "internal/connectors/dingtalk", Run: "TestDingtalkWriteIsGatedAndCounted|TestDingtalkRateLimitIsEnforcedAndVisible"},
+			{Package: "internal/connectors/feishu", Run: "TestFeishuWriteIsGatedAndCounted|TestFeishuRateLimitIsEnforcedAndVisible"},
+			{Package: "internal/connectors/github", Run: "TestGitHubWriteIsGatedAndCounted|TestGitHubRateLimitIsEnforcedAndVisible"},
+			{Package: "internal/connectors/notion", Run: "TestNotionWriteIsGatedAndCounted|TestNotionRateLimitIsEnforcedAndVisible"},
+			{Package: "internal/connectors", Run: "TestAllAdaptersShareTheSameGate"},
+		},
+			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"connector-counter.json", "connector-http-requests.jsonl", "connector-observation.json"}}},
+		{ID: "CONN06", Steps: []integrationStep{
+			{Package: "internal/connectors/slack", Run: "TestSlackWriteTimeoutIsOutcomeUnknown|TestSlackIdempotencyDecisionIsExplicit"},
+			{Package: "internal/connectors/dingtalk", Run: "TestDingtalkWriteTimeoutIsOutcomeUnknown|TestDingtalkIdempotencyDecisionIsExplicit"},
+			{Package: "internal/connectors/feishu", Run: "TestFeishuWriteTimeoutIsOutcomeUnknown|TestFeishuIdempotencyDecisionIsExplicit"},
+			{Package: "internal/connectors/github", Run: "TestGitHubWriteTimeoutIsOutcomeUnknown|TestGitHubIdempotencyDecisionIsExplicit"},
+			{Package: "internal/connectors/notion", Run: "TestNotionWriteTimeoutIsOutcomeUnknown|TestNotionIdempotencyDecisionIsExplicit"},
+		},
+			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"connector-counter.json", "connector-http-requests.jsonl", "connector-observation.json"}}},
+
 		// ── 定时任务（C09，G2）──
 		// 观察值来自调度库文件本身（见 internal/scheduler/observation_test.go）：
 		// scheduler-dump.json 由第二个 storage.DB 句柄读出 schedules /

@@ -43,6 +43,11 @@ func newFeishuEnv(t *testing.T, opts fixtures.APIOptions, tune func(*connectorte
 		opts.AppSecret = fxAppSecret
 	}
 	opts.Platform = fixtures.PlatformFeishu
+	if opts.ObservationDir == "" {
+		// 集成 runner 通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 的副作用
+		// 计数与请求日志都落在那儿，观察值才能从文件读回。
+		opts.ObservationDir = connectortest.ObservationDir()
+	}
 	counter := fixtures.NewCounter(opts.ObservationDir)
 	opts.Counter = counter
 	api, err := fixtures.NewAPI(opts)
@@ -129,6 +134,9 @@ func TestFeishuReadReturnsTypedRecords(t *testing.T) {
 	if snap := e.counter.Snapshot(); snap.ExternalWrites() != 0 {
 		t.Fatalf("读动作不得产生写副作用: %+v", snap)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "feishu/read", e.counter, map[string]any{"readCompleted": true})
 }
 
 // TestFeishuWriteIsGatedAndCounted 覆盖 CONN02（写与发消息两条外发路径）。
@@ -211,6 +219,8 @@ func TestFeishuWriteIsGatedAndCounted(t *testing.T) {
 		if got := e.counter.Snapshot().FeishuMessages; got != 1 {
 			t.Fatalf("允许一次必须恰好 1 次副作用，实际 %d", got)
 		}
+		// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+		connectortest.Observe(t, "feishu/write", e.counter, map[string]any{"policyGatedWrite": true})
 	})
 }
 
@@ -245,6 +255,9 @@ func TestFeishuWriteTimeoutIsOutcomeUnknown(t *testing.T) {
 	if len(rows) != 1 || rows[0].Outcome != string(connectors.OutcomeUnknown) {
 		t.Fatalf("未知结果必须留审计: %+v", rows)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "feishu/timeout", e.counter, map[string]any{"outcomeUnknown": true})
 }
 
 // TestFeishuRateLimitIsEnforcedAndVisible 覆盖限流：超限调用不发请求、不弹审批。
@@ -312,6 +325,9 @@ func TestFeishuIdempotencyDecisionIsExplicit(t *testing.T) {
 	if got := e.counter.Snapshot().FeishuMessages; got != 2 {
 		t.Fatalf("相同幂等键不能让平台去重，实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "feishu/idempotency", e.counter, map[string]any{"idempotencyExplicit": true})
 }
 
 // TestFeishuHealthNeverGuessesConnected 覆盖 CONN01 的驱动侧。
@@ -357,4 +373,7 @@ func TestFeishuHealthNeverGuessesConnected(t *testing.T) {
 	if got := e.counter.Snapshot().FeishuMessages; got != 0 {
 		t.Fatalf("坏格式凭证不得产生副作用，实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "feishu/health", e.counter, map[string]any{"authenticatedHealth": true})
 }

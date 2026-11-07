@@ -35,6 +35,11 @@ func newNotionEnv(t *testing.T, opts fixtures.APIOptions, tune func(*connectorte
 		opts.Token = fxToken
 	}
 	opts.Platform = fixtures.PlatformNotion
+	if opts.ObservationDir == "" {
+		// 集成 runner 通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 的副作用
+		// 计数与请求日志都落在那儿，观察值才能从文件读回。
+		opts.ObservationDir = connectortest.ObservationDir()
+	}
 	counter := fixtures.NewCounter(opts.ObservationDir)
 	opts.Counter = counter
 	api, err := fixtures.NewAPI(opts)
@@ -114,6 +119,9 @@ func TestNotionReadReturnsTypedRecords(t *testing.T) {
 	if snap := e.counter.Snapshot(); snap.ExternalWrites() != 0 {
 		t.Fatalf("读动作不得产生写副作用: %+v", snap)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "notion/read", e.counter, map[string]any{"readCompleted": true})
 }
 
 // TestNotionWriteIsGatedAndCounted 覆盖 CONN02（新建与更新两条写路径）。
@@ -201,6 +209,8 @@ func TestNotionWriteIsGatedAndCounted(t *testing.T) {
 		if got := len(e.api.Requests()); got != 0 {
 			t.Fatalf("越界时不应发出任何 HTTP 请求，实际 %d", got)
 		}
+		// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+		connectortest.Observe(t, "notion/write", e.counter, map[string]any{"policyGatedWrite": true})
 	})
 }
 
@@ -235,6 +245,9 @@ func TestNotionWriteTimeoutIsOutcomeUnknown(t *testing.T) {
 	if len(rows) != 1 || rows[0].Outcome != string(connectors.OutcomeUnknown) {
 		t.Fatalf("未知结果必须留审计: %+v", rows)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "notion/timeout", e.counter, map[string]any{"outcomeUnknown": true})
 }
 
 // TestNotionRateLimitIsEnforcedAndVisible 覆盖本地限流。
@@ -298,6 +311,9 @@ func TestNotionIdempotencyDecisionIsExplicit(t *testing.T) {
 	if got := e.counter.Snapshot().NotionPagesCreated; got != 2 {
 		t.Fatalf("相同幂等键不能让 Notion 去重，实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "notion/idempotency", e.counter, map[string]any{"idempotencyExplicit": true})
 }
 
 // TestNotionHealthNeverGuessesConnected 覆盖 CONN01 的驱动侧。
@@ -326,4 +342,7 @@ func TestNotionHealthNeverGuessesConnected(t *testing.T) {
 	if health.Remediation != connectors.RemediationAddCredentials {
 		t.Fatalf("认证失败应提示补凭证: %+v", health)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "notion/health", e.counter, map[string]any{"authenticatedHealth": true})
 }

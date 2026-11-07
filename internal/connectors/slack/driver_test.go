@@ -38,6 +38,11 @@ func newSlackEnv(t *testing.T, opts fixtures.APIOptions, tune func(*connectortes
 		opts.Token = fxToken
 	}
 	opts.Platform = fixtures.PlatformSlack
+	if opts.ObservationDir == "" {
+		// 集成 runner 通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 的副作用
+		// 计数与请求日志都落在那儿，观察值才能从文件读回。
+		opts.ObservationDir = connectortest.ObservationDir()
+	}
 	counter := fixtures.NewCounter(opts.ObservationDir)
 	opts.Counter = counter
 	api, err := fixtures.NewAPI(opts)
@@ -117,6 +122,9 @@ func TestSlackReadReturnsTypedRecords(t *testing.T) {
 	if snap := e.counter.Snapshot(); snap.ExternalWrites() != 0 {
 		t.Fatalf("读动作不得产生写副作用: %+v", snap)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "slack/read", e.counter, map[string]any{"readCompleted": true})
 }
 
 // TestSlackWriteIsGatedAndCounted 覆盖 CONN02：拒绝 → 0，允许一次 → 1。
@@ -190,6 +198,8 @@ func TestSlackWriteIsGatedAndCounted(t *testing.T) {
 		if got := e.counter.Snapshot().SlackReplies; got != 0 {
 			t.Fatalf("越界时写计数必须为 0，实际 %d", got)
 		}
+		// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+		connectortest.Observe(t, "slack/write", e.counter, map[string]any{"policyGatedWrite": true})
 	})
 }
 
@@ -224,6 +234,9 @@ func TestSlackWriteTimeoutIsOutcomeUnknown(t *testing.T) {
 	if len(rows) != 1 || rows[0].Outcome != string(connectors.OutcomeUnknown) {
 		t.Fatalf("未知结果必须留审计: %+v", rows)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "slack/timeout", e.counter, map[string]any{"outcomeUnknown": true})
 }
 
 // TestSlackRateLimitIsEnforcedAndVisible 覆盖本地限流。
@@ -285,6 +298,9 @@ func TestSlackIdempotencyDecisionIsExplicit(t *testing.T) {
 	if got := e.counter.Snapshot().SlackReplies; got != 2 {
 		t.Fatalf("两次授权对应两次真实回复，实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "slack/idempotency", e.counter, map[string]any{"idempotencyExplicit": true})
 }
 
 // TestSlackHealthNeverGuessesConnected 覆盖 CONN01 的驱动侧：
@@ -317,4 +333,7 @@ func TestSlackHealthNeverGuessesConnected(t *testing.T) {
 	if got := e.counter.Snapshot().HTTPUnauthorized; got == 0 {
 		t.Fatalf("fixture 应记录一次未授权访问: %+v", e.counter.Snapshot())
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "slack/health", e.counter, map[string]any{"authenticatedHealth": true})
 }

@@ -34,6 +34,11 @@ func newGitHubEnv(t *testing.T, opts fixtures.APIOptions, tune func(*connectorte
 		opts.Token = fxToken
 	}
 	opts.Platform = fixtures.PlatformGitHub
+	if opts.ObservationDir == "" {
+		// 集成 runner 通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 的副作用
+		// 计数与请求日志都落在那儿，观察值才能从文件读回。
+		opts.ObservationDir = connectortest.ObservationDir()
+	}
 	counter := fixtures.NewCounter(opts.ObservationDir)
 	opts.Counter = counter
 	api, err := fixtures.NewAPI(opts)
@@ -140,6 +145,9 @@ func TestGitHubReadReturnsTypedRecords(t *testing.T) {
 	if snap := e.counter.Snapshot(); snap.ExternalWrites() != 0 {
 		t.Fatalf("读动作不得产生写副作用: %+v", snap)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "github/read", e.counter, map[string]any{"readCompleted": true})
 }
 
 // TestGitHubWriteIsGatedAndCounted 覆盖 CONN02（创建议题与评论）。
@@ -224,6 +232,8 @@ func TestGitHubWriteIsGatedAndCounted(t *testing.T) {
 		if got := e.counter.Snapshot().GitHubIssuesCreated; got != 0 {
 			t.Fatalf("越界时写计数必须为 0，实际 %d", got)
 		}
+		// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+		connectortest.Observe(t, "github/write", e.counter, map[string]any{"policyGatedWrite": true})
 	})
 }
 
@@ -258,6 +268,9 @@ func TestGitHubWriteTimeoutIsOutcomeUnknown(t *testing.T) {
 	if len(rows) != 1 || rows[0].Outcome != string(connectors.OutcomeUnknown) {
 		t.Fatalf("未知结果必须留审计: %+v", rows)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "github/timeout", e.counter, map[string]any{"outcomeUnknown": true})
 }
 
 // TestGitHubRateLimitIsEnforcedAndVisible 覆盖本地限流。
@@ -321,6 +334,9 @@ func TestGitHubIdempotencyDecisionIsExplicit(t *testing.T) {
 	if got := e.counter.Snapshot().GitHubComments; got != 2 {
 		t.Fatalf("相同幂等键不能让 GitHub 去重，实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "github/idempotency", e.counter, map[string]any{"idempotencyExplicit": true})
 }
 
 // TestGitHubHealthNeverGuessesConnected 覆盖 CONN01 的驱动侧。
@@ -349,4 +365,7 @@ func TestGitHubHealthNeverGuessesConnected(t *testing.T) {
 	if health.Remediation != connectors.RemediationAddCredentials {
 		t.Fatalf("认证失败应提示补凭证: %+v", health)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "github/health", e.counter, map[string]any{"authenticatedHealth": true})
 }

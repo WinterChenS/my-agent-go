@@ -41,6 +41,11 @@ func newDingtalkEnv(t *testing.T, opts fixtures.APIOptions, tune func(*connector
 		opts.AppSecret = fxAppSecret
 	}
 	opts.Platform = fixtures.PlatformDingtalk
+	if opts.ObservationDir == "" {
+		// 集成 runner 通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 的副作用
+		// 计数与请求日志都落在那儿，观察值才能从文件读回。
+		opts.ObservationDir = connectortest.ObservationDir()
+	}
 	counter := fixtures.NewCounter(opts.ObservationDir)
 	opts.Counter = counter
 	api, err := fixtures.NewAPI(opts)
@@ -130,6 +135,9 @@ func TestDingtalkReadReturnsTypedRecords(t *testing.T) {
 	if snap := e.counter.Snapshot(); snap.ExternalWrites() != 0 {
 		t.Fatalf("读动作不得产生写副作用: %+v", snap)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "dingtalk/read", e.counter, map[string]any{"readCompleted": true})
 }
 
 // TestDingtalkWriteIsGatedAndCounted 覆盖 CONN02：拒绝 → 计数 0；允许一次 → 计数 1；
@@ -224,6 +232,8 @@ func TestDingtalkWriteIsGatedAndCounted(t *testing.T) {
 		if strings.Contains(string(raw), fxAppSecret) {
 			t.Fatalf("审计含 AppSecret: %s", raw)
 		}
+		// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+		connectortest.Observe(t, "dingtalk/write", e.counter, map[string]any{"policyGatedWrite": true})
 	})
 }
 
@@ -259,6 +269,9 @@ func TestDingtalkWriteTimeoutIsOutcomeUnknown(t *testing.T) {
 	if len(rows) != 1 || rows[0].Outcome != string(connectors.OutcomeUnknown) {
 		t.Fatalf("未知结果必须留审计: %+v", rows)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "dingtalk/timeout", e.counter, map[string]any{"outcomeUnknown": true})
 }
 
 // TestDingtalkRateLimitIsEnforcedAndVisible 覆盖限流：超限的调用不弹审批、不发请求。
@@ -332,6 +345,9 @@ func TestDingtalkIdempotencyDecisionIsExplicit(t *testing.T) {
 	if got := e.counter.Snapshot().DingtalkGroupMessages; got != 2 {
 		t.Fatalf("相同的幂等键不能让平台只生效一次（平台没有这个能力），实际 %d", got)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "dingtalk/idempotency", e.counter, map[string]any{"idempotencyExplicit": true})
 }
 
 // TestDingtalkHealthNeverGuessesConnected 覆盖 CONN01 的驱动侧：
@@ -379,4 +395,7 @@ func TestDingtalkHealthNeverGuessesConnected(t *testing.T) {
 	if res.Outcome != connectors.OutcomeFailed || res.Dispatched || !strings.Contains(res.Detail, "未派发") {
 		t.Fatalf("缺凭证必须未派发: %+v", res)
 	}
+
+	// C08 的外部观察：fixture 计数/请求日志/审计都从磁盘读回。
+	connectortest.Observe(t, "dingtalk/health", e.counter, map[string]any{"authenticatedHealth": true})
 }
