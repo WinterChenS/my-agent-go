@@ -1,0 +1,57 @@
+
+> my-agent-go-frontend@0.1.0 test
+> vitest run agents
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/project/anvil-wt/u03/frontend[39m
+
+ [31m❯[39m src/features/agents/AgentEditor.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+ [31m❯[39m src/features/agents/AgentsPage.test.tsx [2m([22m[2m0 test[22m[2m)[22m
+
+[31m⎯⎯⎯⎯⎯⎯[1m[7m Failed Suites 2 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/agents/AgentEditor.test.tsx[2m [ src/features/agents/AgentEditor.test.tsx ][22m
+[31m[1mError[22m: Failed to resolve import "./AgentEditor" from "src/features/agents/AgentEditor.test.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/project/anvil-wt/u03/frontend/src/features/agents/AgentEditor.test.tsx[39m:27:38
+[33m  25 |  const __vi_import_2__ = await import('@testing-library/user-event')
+  26 |  const __vi_import_3__ = await import('../../i18n')
+  27 |  const __vi_import_4__ = await import('./AgentEditor')
+     |                                       ^
+  28 |  
+  29 |  import { beforeEach, describe, expect, it, vi } from "vitest";[39m
+[90m [2m❯[22m TransformPluginContext._formatError node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49258:41[22m[39m
+[90m [2m❯[22m TransformPluginContext.error node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49253:16[22m[39m
+[90m [2m❯[22m normalizeUrl node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64307:23[22m[39m
+[90m [2m❯[22m node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64439:39[22m[39m
+[90m [2m❯[22m TransformPluginContext.transform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64366:7[22m[39m
+[90m [2m❯[22m PluginContainer.transform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49099:18[22m[39m
+[90m [2m❯[22m loadAndTransform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m51978:27[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/agents/AgentsPage.test.tsx[2m [ src/features/agents/AgentsPage.test.tsx ][22m
+[31m[1mError[22m: Failed to resolve import "./AgentsPage" from "src/features/agents/AgentsPage.test.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/project/anvil-wt/u03/frontend/src/features/agents/AgentsPage.test.tsx[39m:28:38
+[33m  26 |  const __vi_import_3__ = await import('../../i18n')
+  27 |  const __vi_import_4__ = await import('../../app/shell')
+  28 |  const __vi_import_5__ = await import('./AgentsPage')
+     |                                       ^
+  29 |  
+  30 |  import { beforeEach, describe, expect, it, vi } from "vitest";[39m
+[90m [2m❯[22m TransformPluginContext._formatError node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49258:41[22m[39m
+[90m [2m❯[22m TransformPluginContext.error node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49253:16[22m[39m
+[90m [2m❯[22m normalizeUrl node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64307:23[22m[39m
+[90m [2m❯[22m node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64439:39[22m[39m
+[90m [2m❯[22m TransformPluginContext.transform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m64366:7[22m[39m
+[90m [2m❯[22m PluginContainer.transform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m49099:18[22m[39m
+[90m [2m❯[22m loadAndTransform node_modules/vitest/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:[2m51978:27[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m2 failed[39m[22m[90m (2)[39m
+[2m      Tests [22m [2mno tests[22m
+[2m   Start at [22m 22:15:09
+[2m   Duration [22m 2.54s[2m (transform 35ms, setup 533ms, collect 0ms, tests 0ms, environment 1.34s, prepare 220ms)[22m
+

@@ -8,7 +8,6 @@
 // 连接器与定时任务的页面**只有** shared not_implemented 状态：
 // C08/C09 合入前不得出现原型卡片、connected 徽标或任何成功动作。
 
-import { useEffect, useState } from "react";
 import { AsyncState } from "../../components/states/AsyncState";
 import { StatusBadge } from "../../components/status/StatusBadge";
 import { formatError, t } from "../../i18n";
@@ -21,10 +20,8 @@ import { ResourcesView } from "../../features/resources/ResourcesView";
 import { MemoryView } from "../../features/memory/MemoryView";
 import { RunsView } from "../../features/runs/RunsView";
 import { SettingsView } from "../../features/settings/SettingsView";
-import { ProfileEditor } from "../../features/profiles/ProfileEditor";
 import { WorkbenchView } from "../../features/workbench/WorkbenchView";
 import { useShell } from "../shell";
-import type { PageProps } from "../navigation";
 
 // ---------------------------------------------------------------- 对话
 //
@@ -33,73 +30,12 @@ import type { PageProps } from "../navigation";
 
 export { ChatPage } from "../../features/chat/ChatPage";
 // ---------------------------------------------------------------- Agent
+//
+// Agent 页在 U03 换成了 features/agents/AgentsPage（列表 + 单 Agent 编辑器：
+// CAS 保存、冲突差异、权限上限、复制/删除、来源与 unavailable 缺口）。
+// 这里只做转出：路由文件不再保存一份页面状态。
 
-/** Agent 页：单个 Profile 的产品化编辑（U03 会接管更完整的字段）。 */
-export function AgentsPage({ route }: PageProps) {
-  const shell = useShell();
-  const selectedId = route?.query.get("agent") ?? "";
-  const [selected, setSelected] = useState<string>(selectedId);
-  const selectedProfile = shell.profiles.find((p) => p.id === selected) ?? null;
-
-  useEffect(() => {
-    setSelected(selectedId);
-  }, [selectedId]);
-
-  if (shell.backend.loading && shell.profiles.length === 0) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-6">
-        <AsyncState phase="loading" />
-      </div>
-    );
-  }
-
-  if (shell.backend.error) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-6">
-        <AsyncState phase="error" error={shell.backend.error} onRetry={shell.refreshProfiles} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto max-w-2xl space-y-4 px-4 py-5">
-      <h1 className="text-sm font-medium text-[color:var(--anvil-foreground)]">{t("nav.agents")}</h1>
-      {shell.profiles.length === 0 ? (
-        <AsyncState phase="empty" emptyTitle={t("state.emptyTitle")} emptyHint={t("state.emptyHint")} />
-      ) : (
-        <ul className="space-y-1">
-          {shell.profiles.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => setSelected(p.id)}
-                aria-current={p.id === selected ? "true" : undefined}
-                className="flex w-full items-center justify-between rounded-md border border-[color:var(--anvil-border)] px-2.5 py-2 text-left hover:bg-[color:var(--anvil-surface)]"
-              >
-                <span className="truncate text-[12px] text-[color:var(--anvil-foreground)]">
-                  {p.name || p.id}
-                </span>
-                <span className="shrink-0 font-mono text-[10px] text-[color:var(--anvil-muted)]">
-                  {p.modelRef || t("common.notAvailable")}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {selectedProfile ? (
-        <div className="rounded-lg border border-[color:var(--anvil-border)] p-3">
-          <ProfileEditor
-            profile={selectedProfile}
-            workspaceId={shell.currentWorkspace?.id ?? ""}
-            onSaved={() => shell.refreshProfiles()}
-            onReloaded={() => shell.refreshProfiles()}
-          />
-        </div>
-      ) : null}
-    </div>
-  );
-}
+export { AgentsPage } from "../../features/agents/AgentsPage";
 
 // ---------------------------------------------------------------- Skill / MCP / 资源库
 
