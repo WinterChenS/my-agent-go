@@ -485,8 +485,9 @@ func TestDeleteIsSoftAndKeepsArtifactsAndTranscript(t *testing.T) {
 
 // TestMigration005AppliesOnAnOldDatabase：005 只依赖 001 的 sessions 表。
 //
-// 003（C08）/004（C09）还没合入，runner 按"已应用版本集合"补跑，
-// 所以 005 必须在只应用了 001+002 的库上单独跑通，并把历史行补齐。
+// runner 按"已应用版本集合"补跑，所以 005 必须在只应用了旧版本（<5）的库上
+// 单独跑通，并把历史行补齐。003（C08）已合入，004（C09）尚未合入——后者不得
+// 凭空出现在已应用集合里。
 func TestMigration005AppliesOnAnOldDatabase(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, filepath.Join(t.TempDir(), "index.db"))
@@ -554,9 +555,11 @@ func TestMigration005AppliesOnAnOldDatabase(t *testing.T) {
 	if !reflect.DeepEqual(applied, wantVersions) {
 		t.Fatalf("补跑后已应用集合应为 %v，实际 %v", wantVersions, applied)
 	}
+	// 004 归 C09，尚未合入：它不该凭空出现在已应用集合里。003（C08）已合入，
+	// 会由上面的通用断言覆盖（期望值来自迁移目录）。
 	for _, v := range applied {
-		if v == 3 || v == 4 {
-			t.Fatalf("003/004 尚未合入，不该出现在已应用集合里")
+		if v == 4 {
+			t.Fatalf("004 尚未合入，不该出现在已应用集合里")
 		}
 	}
 
