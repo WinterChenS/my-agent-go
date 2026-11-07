@@ -138,6 +138,9 @@ func TestScheduleAPICreateEditPauseResumeDelete(t *testing.T) {
 		t.Fatal("删除已删除的任务必须报错")
 	}
 	_ = work
+
+	// SCH02 的外部观察：绑定层操作之后调度库里的真实行（软删除后 enabled/revision）。
+	observeScheduleDB(t, filepath.Join(d.root, "scheduler.db"), map[string]any{"bindingLifecycle": true})
 }
 
 // TestScheduleAPIRejectsUntrustedWorkspaceAndBadCron 覆盖绑定层的两道闸门：
@@ -262,4 +265,8 @@ func TestScheduleAPIRunsInScheduledSessionAndDeleteKeepsIt(t *testing.T) {
 	if occurrences != 1 {
 		t.Fatalf("删除任务不得删除 occurrence，实际 %d 条", occurrences)
 	}
+
+	// SCH02/SCH07 的外部观察：调度库与会话库里的真实行。
+	observeScheduleDB(t, filepath.Join(d.root, "scheduler.db"), map[string]any{"deleteKeepsOccurrence": true})
+	observeAppSessions(t, filepath.Join(d.root, "sessions.db"), map[string]any{"scheduledSessionKept": run.Item.SessionID})
 }

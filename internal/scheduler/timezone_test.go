@@ -87,6 +87,9 @@ func TestRejectsInvalidCronAndTimezone(t *testing.T) {
 	if err := ok.validate(); err != nil {
 		t.Fatalf("合法的 cron/时区不应被拒绝: %v", err)
 	}
+
+	// SCH01 的外部观察：被拒的输入没有在库里留下任何 schedules 行。
+	observeScheduler(t, h.db.Path(), map[string]any{"rejectedCronForms": len(cases)})
 }
 
 // TestCronNextAcrossWallClock 钉住 cron 的下一跳语义（分钟粒度、名称、范围/步长）。
@@ -175,6 +178,9 @@ func TestDSTSpringForwardAndFallBackFireOnce(t *testing.T) {
 				occs[1].ScheduledAt.UTC().Format(time.RFC3339), wantNext.Format(time.RFC3339))
 		}
 		h.assertUniqueKeyRejectsDuplicate(t, created.ID, want)
+
+		// SCH01 的外部观察：春跳日库里只有一条 occurrence（unique 键的最终效果）。
+		observeScheduler(t, h.db.Path(), map[string]any{"dstSpringForward": true})
 	})
 
 	t.Run("秋回 01:00 出现两次", func(t *testing.T) {
@@ -219,5 +225,8 @@ func TestDSTSpringForwardAndFallBackFireOnce(t *testing.T) {
 				occs[1].ScheduledAt.UTC().Format(time.RFC3339), wantNext.Format(time.RFC3339))
 		}
 		_ = ny
+
+		// SCH01 的外部观察：秋回日只落 1 条，次日再新增 1 条（都在库里）。
+		observeScheduler(t, h.db.Path(), map[string]any{"dstFallBack": true})
 	})
 }

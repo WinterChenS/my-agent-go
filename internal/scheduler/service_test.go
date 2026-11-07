@@ -466,6 +466,9 @@ func TestScheduleCASRejectsConcurrentEdit(t *testing.T) {
 	if after.Revision != final.Revision {
 		t.Fatalf("调度记账不得推进 revision：%d → %d", final.Revision, after.Revision)
 	}
+
+	// SCH02 的外部观察：CAS 冲突后库里的 revision 与 schedules 行。
+	observeScheduler(t, h.db.Path(), map[string]any{"casEdits": 2})
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +626,9 @@ func TestSchedulerUsesGlobalRunLimitTwo(t *testing.T) {
 	if got := runSvc.ActiveCount(); got != 2 {
 		t.Fatalf("全局活跃数必须仍然是 2，实际 %d", got)
 	}
+
+	// SCH03 的外部观察：调度 run 落进同一个 run 服务（库里 runs 行 + occurrence 行）。
+	observeScheduler(t, h.db.Path(), map[string]any{"globalRunLimit": 2})
 }
 
 // queuedPositionFromEvents 从 run 事件里读排队位次。
@@ -687,6 +693,9 @@ func TestSameScheduleDoesNotOverlap(t *testing.T) {
 	if got := h.fake.startCount(); got != 1 {
 		t.Fatalf("不重入：不得为第二条再起一个 run，实际派发 %d 次", got)
 	}
+
+	// SCH04 的外部观察：同一任务只允许一条 running occurrence。
+	observeScheduler(t, h.db.Path(), map[string]any{"overlapForbidden": true})
 }
 
 // TestRestartAppliesConfiguredMisfirePolicy 覆盖 SCH04 的漏跑策略：
@@ -773,6 +782,9 @@ func TestRestartAppliesConfiguredMisfirePolicy(t *testing.T) {
 				got.NextScheduledAt.UTC().Format(time.RFC3339), want.Format(time.RFC3339))
 		}
 	}
+
+	// SCH02/SCH04 的外部观察：漏跑补跑条数与唯一键都写在库里。
+	observeScheduler(t, h.db.Path(), map[string]any{"misfirePolicyApplied": true})
 }
 
 // TestBackwardClockJumpDoesNotDuplicateOccurrence 覆盖 SCH02 的时钟回跳：
@@ -812,6 +824,9 @@ func TestBackwardClockJumpDoesNotDuplicateOccurrence(t *testing.T) {
 		t.Fatalf("回跳后下一跳不得倒退，实际 %s", got.NextScheduledAt.UTC().Format(time.RFC3339))
 	}
 	h.assertUniqueKeyRejectsDuplicate(t, created.ID, time.Date(2025, 6, 1, 9, 0, 0, 0, time.UTC))
+
+	// SCH01 的外部观察：时钟回跳后同一 occurrence 键只有一行。
+	observeScheduler(t, h.db.Path(), map[string]any{"backwardClockJump": true})
 }
 
 // TestTwoConsecutiveFailuresAutoPause 覆盖 SCH04 的后半段：
@@ -862,6 +877,9 @@ func TestTwoConsecutiveFailuresAutoPause(t *testing.T) {
 	if got := len(h.occurrences(created.ID)); got != 2 {
 		t.Fatalf("停用后不得新增 occurrence，实际 %d 条", got)
 	}
+
+	// SCH04 的外部观察：连续失败后 schedules.enabled=0 在库上。
+	observeScheduler(t, h.db.Path(), map[string]any{"autoPaused": true})
 }
 
 // TestOccurrenceSkippedWhenPermissionRefInvalidOrTooBroad 覆盖 SCH07 的权限引用面：
@@ -917,6 +935,9 @@ func TestOccurrenceSkippedWhenPermissionRefInvalidOrTooBroad(t *testing.T) {
 			t.Fatalf("%s 不应绑定 run，实际 %s", tc.scheduleID, occs[0].RunID)
 		}
 	}
+
+	// SCH07 的外部观察：越界权限引用只留下 skipped occurrence，没有 run 行。
+	observeScheduler(t, h.db.Path(), map[string]any{"permissionRefRejected": true})
 }
 
 type stubResolver map[string]run.PolicySnapshot
@@ -1116,6 +1137,9 @@ func TestUnattendedWriteWaitsForApproval(t *testing.T) {
 	if got := h.schedule(created.ID); got.ConsecutiveFailures != 1 {
 		t.Fatalf("一次失败后 failures 应为 1，实际 %d", got.ConsecutiveFailures)
 	}
+
+	// SCH05 的外部观察：无人值守仍是 waiting_approval，且没有任何写入落地。
+	observeScheduler(t, h.db.Path(), map[string]any{"unattendedWaitingApproval": true})
 }
 
 // TestApprovalExpiryFailsOccurrenceWithoutReplay 覆盖 SCH05 的后半段：
@@ -1159,6 +1183,9 @@ func TestApprovalExpiryFailsOccurrenceWithoutReplay(t *testing.T) {
 	if got := countDispatched(h.occurrences(created.ID)); got != 1 {
 		t.Fatalf("不得再次派发，实际派发 %d 条", got)
 	}
+
+	// SCH05 的外部观察：审批过期 → failed，且不重放（库里没有第二条 attempt）。
+	observeScheduler(t, h.db.Path(), map[string]any{"approvalExpired": true})
 }
 
 // addMisfireFreeAdvance 推进 2 秒：越过"立即重试"可能用到的同一秒，
@@ -1214,6 +1241,9 @@ func TestOccurrenceStatesComeFromRealEvents(t *testing.T) {
 	if got := h.schedule(created.ID); got.ConsecutiveFailures != 0 {
 		t.Fatalf("成功的一轮必须把失败计数清零，实际 %d", got.ConsecutiveFailures)
 	}
+
+	// SCH05 的外部观察：occurrence 状态来自真实 run 事件，append-only 记录在库里。
+	observeScheduler(t, h.db.Path(), map[string]any{"statesFromRealEvents": true})
 }
 
 // awaitApprovalRequest 从 run 事件里找第一条审批请求 ID。
@@ -1292,6 +1322,9 @@ func TestBackgroundLoopFiresAfterCreate(t *testing.T) {
 	if got := len(h.occurrences(created.ID)); got != 1 {
 		t.Fatalf("应只落 1 条 occurrence，实际 %d 条", got)
 	}
+
+	// SCH03 的外部观察：新建任务后后台循环触发的真实 occurrence 行。
+	observeScheduler(t, h.db.Path(), map[string]any{"backgroundLoopFired": true})
 }
 
 // TestRestartKeepsUnknownOutcomeAndNeverReplays 覆盖 SCH05 的重启口径：
@@ -1338,4 +1371,7 @@ func TestRestartKeepsUnknownOutcomeAndNeverReplays(t *testing.T) {
 	if got := gone.startCount(); got != 0 {
 		t.Fatalf("未知结果不得重新派发 run，实际派发 %d 次", got)
 	}
+
+	// SCH05 的外部观察：未知结果在库里保持 outcome_unknown，重启后不重放。
+	observeScheduler(t, h.db.Path(), map[string]any{"unknownOutcomeKept": true})
 }

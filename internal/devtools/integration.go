@@ -105,6 +105,7 @@ func integrationCases() []integrationCase {
 	configTests := "internal/config"
 	sessionTests := "internal/session"
 	appTests := "internal/app"
+	schedulerTests := "internal/scheduler"
 	artifactTests := "internal/artifact"
 	diagnosticsTests := "internal/diagnostics"
 
@@ -361,6 +362,32 @@ func integrationCases() []integrationCase {
 			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
+
+		// ── 定时任务（C09，G2）──
+		// 观察值来自调度库文件本身（见 internal/scheduler/observation_test.go）：
+		// scheduler-dump.json 由第二个 storage.DB 句柄读出 schedules /
+		// schedule_occurrences / schedule_occurrence_events / runs 的真实行。
+		// 说明：调度的 run 由 harness 的替身 RunService 驱动，库里没有 runs 行；
+		// 本 case 的落库事实是 occurrence 与 append-only 的 occurrence 事件。
+		{ID: "SCH01", Package: schedulerTests, Run: "TestRejectsInvalidCronAndTimezone|TestCronNextAcrossWallClock|TestDSTSpringForwardAndFallBackFireOnce|TestBackwardClockJumpDoesNotDuplicateOccurrence",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json"}}},
+		{ID: "SCH02", Steps: []integrationStep{
+			{Package: schedulerTests, Run: "TestScheduleCASRejectsConcurrentEdit|TestRestartAppliesConfiguredMisfirePolicy"},
+			{Package: appTests, Run: "TestScheduleAPICreateEditPauseResumeDelete"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json", "scheduler-api-dump.json"}}},
+		{ID: "SCH03", Package: schedulerTests, Run: "TestSchedulerUsesGlobalRunLimitTwo|TestBackgroundLoopFiresAfterCreate",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json"}}},
+		{ID: "SCH04", Package: schedulerTests, Run: "TestSameScheduleDoesNotOverlap|TestTwoConsecutiveFailuresAutoPause|TestRestartAppliesConfiguredMisfirePolicy",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json"}}},
+		{ID: "SCH05", Package: schedulerTests, Run: "TestUnattendedWriteWaitsForApproval|TestApprovalExpiryFailsOccurrenceWithoutReplay|TestOccurrenceStatesComeFromRealEvents|TestRestartKeepsUnknownOutcomeAndNeverReplays",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json"}}},
+		// SCH07：越界权限引用只留 skipped occurrence；删任务不删已产生的会话/occurrence。
+		{ID: "SCH07", Steps: []integrationStep{
+			{Package: schedulerTests, Run: "TestOccurrenceSkippedWhenPermissionRefInvalidOrTooBroad"},
+			{Package: appTests, Run: "TestScheduleAPIRunsInScheduledSessionAndDeleteKeepsIt"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json", "scheduler-api-dump.json", "sessions-api-dump.json"}}},
 
 		// ── 产物与诊断（C07，G3）──
 		// 观察值来自产品自己的库与磁盘（见 internal/artifact|diagnostics 的 observation 文件）：
