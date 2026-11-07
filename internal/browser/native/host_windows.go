@@ -241,6 +241,12 @@ func (h *host) Present(ctx context.Context, tab browser.TabID, slot browser.Slot
 // controller 可见性走 setControllerVisible（vtable 直调 + 读回），不用依赖库的
 // Show()/Hide()：它把线程 last-error 当 HRESULT 比较，会把**成功**的调用报成失败
 // （BR04 分栏第 9 轮实测 "Invalid window handle"）。详见 controller_visibility_windows.go。
+//
+// 顺序：**controller 尚未就绪时只切子窗口**（B07 实测的必要修正）。
+// 右侧面板的几何/可见性在 tab 创建之前就会到达（面板先挂上、agent 稍后才开 tab），
+// 那时 Attach 已经成功但 controller 还是 nil；旧实现直接把它当错误，面板的第一次
+// 几何上报因此永远失败。此时只隐藏子窗口是正确的：controller 就绪后内容仍旧不可见，
+// 下一次 SetVisible 会同时把 controller 的状态补上。
 func (h *host) SetVisible(ctx context.Context, visible bool) error {
 	return h.runOnUI(ctx, func() error {
 		if !h.attached || h.childHWND.Load() == 0 {
@@ -249,12 +255,16 @@ func (h *host) SetVisible(ctx context.Context, visible bool) error {
 		child := h.childHWND.Load()
 		if visible {
 			showWindow(child, swShow)
-			if err := setControllerVisible(h.ctrl, true); err != nil {
-				return err
+			if h.ctrl != nil {
+				if err := setControllerVisible(h.ctrl, true); err != nil {
+					return err
+				}
 			}
 		} else {
-			if err := setControllerVisible(h.ctrl, false); err != nil {
-				return err
+			if h.ctrl != nil {
+				if err := setControllerVisible(h.ctrl, false); err != nil {
+					return err
+				}
 			}
 			showWindow(child, swHide)
 		}

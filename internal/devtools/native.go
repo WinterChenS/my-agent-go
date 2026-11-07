@@ -169,6 +169,35 @@ func nativeCases() []nativeCase {
 			}},
 		},
 		{
+			// UI04.native：右侧真实原生视图的 slot 几何、遮挡协调（设置 dialog → 命令面板
+			// → 审批框）、停止按钮位置，以及 agent 填字 → 用户手改 → 恢复后 agent 观察到
+			// 人工修改的接管交接（B07）。
+			//
+			// 两条用例都走**应用层**（internal/app 的 Desktop 绑定 → BrowserBridge），
+			// 不是直接调 native 包：证据里这条路径就是 React 调用的那条。
+			// 验收矩阵把 UI04.native 记为 G1 的最小 dialog 验证；UI04.workbench/E2E03
+			// （成品 UI + 真 Pi）属 G3，不能用这里的通过顶替。
+			ID:      "UI04.native",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps: []nativeStep{{
+				Package: "tests/native",
+				Run:     "TestUI04NativeSlotOcclusionAndStopButton|TestUI04NativeHandOver",
+			}},
+			Limitation: "只覆盖 win-x64/desktop 的真实 WebView2；macOS/Linux 宿主（B02/B03）未实现。" +
+				"人工手改由 OS 物理点击 + OS 键盘（keybd_event）注入小写 ASCII，中文仍需真机人工步骤；" +
+				"停止按钮本身由 React 工具条渲染（BrowserPanel 用例覆盖），这里用 WindowFromPoint 证明" +
+				"工具条保留区里没有任何原生视图。隐藏态没有页内截图：controller 隐藏后 CDP 截图会超时，" +
+				"隐藏/恢复改用 IsWindowVisible + SetVisible 计数证明。React 面板通过浏览器路径浏览的成品级验收属 " +
+				"UI04.workbench/E2E03（G3）。",
+			// 窗口事实（GetParent/GetWindowRect/IsWindowVisible/WindowFromPoint）、每次 slot 几何与
+			// 拒绝记录、每次遮挡转换、停止按钮命中测试、接管交接每一步、两张 CDP 页面截图。
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"window-facts.json", "slot-geometry.jsonl", "occlusion-steps.jsonl",
+				"stop-button.json", "handover.jsonl", "screenshots/ui04-restored.png",
+			}},
+		},
+		{
 			// BR08：同 URL 导航 / SPA 断开节点后旧 ref 必须 STALE_SNAPSHOT，且 counter 保持 0。
 			//
 			// 注意：BR08 在索引里是 G2 阶段（v1-gates.md），而 RunNative 目前只选 G1
