@@ -452,11 +452,11 @@ func integrationCases() []integrationCase {
 		//     它们同样需要 .tools/pi 里的真实 bundle。
 		// 缺件时按 BLOCKED 记录（skip 会被读成通过），不拿 fixture 冒充真实 Pi。
 		{ID: "MOD02", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestProbeReachableText|TestProbeDetectsToolCalling|TestProbeWithoutToolCalling|TestProbeClassifiesFailures", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestProbeReachableText|TestProbeDetectsToolCalling|TestProbeWithoutToolCalling|TestProbeClassifiesFailures", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MOD02")},
 		{ID: "MOD03", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestNoImplicitAuthImport|TestProbeReachableText|TestProbeWithoutToolCalling", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestNoImplicitAuthImport|TestProbeReachableText|TestProbeWithoutToolCalling", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MOD03")},
 
@@ -465,15 +465,15 @@ func integrationCases() []integrationCase {
 		// 工具发现、断连/超时/鉴权失败、工具表变化、Pi 自己 owned 的进程清理，
 		// 都需要 .tools/pi 里的 bundle 才能观察到。缺件时 BLOCKED。
 		{ID: "MCP01", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiHTTPMCPDiscoveryAndCall", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiHTTPMCPDiscoveryAndCall", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MCP01")},
 		{ID: "MCP02", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestRealPiDiagnoseHTTPAuthFailureAndReconnect|TestRealPiDiagnoseUnreachable", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestRealPiDiagnoseHTTPAuthFailureAndReconnect|TestRealPiDiagnoseUnreachable", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MCP02")},
 		{ID: "MCP03", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestRealPiDiagnoseStdioAndToolListChange|TestDisabledMCPToolCannotExecute", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestRealPiDiagnoseStdioAndToolListChange|TestDisabledMCPToolCannotExecute", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MCP03")},
 		// MCP04 是配置面：command/args 分开、秘密只经 env/header 引用、拒绝 shell 整串与
@@ -484,7 +484,7 @@ func integrationCases() []integrationCase {
 		},
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"mcp-config-tree.json", "mcp-save-sandbox.json", "mcp-runtime-tree.json", "mcp-secret-scan.json"}}},
 		{ID: "MCP05", Steps: []integrationStep{
-			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiDiagnoseStdioAndToolListChange", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiDiagnoseStdioAndToolListChange", Env: append([]string{"MYAGENT_PI_WORKER_INTEGRATION=1"}, baselinePathEnv()...)},
 		},
 			Blocked: realPiBlockedReasonFor("G2", "MCP05")},
 
