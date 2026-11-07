@@ -333,8 +333,11 @@ func integrationCases() []integrationCase {
 		// SEC03/SEC04 的浏览器通道：拒绝 → counter 0；允许 → 恰好一次（同一份 fixture 计数）。
 		{ID: "SEC03.browser", Package: harnessmcpTests, Run: "TestBrowserToolsFlowThroughMCPAndPolicy|TestBrowserToolDeniedLeavesCounterZero",
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl"}}},
-		{ID: "SEC04.browser", Package: harnessmcpTests, Run: "TestBrowserToolsSkipUnsupportedCapabilities|TestBrowserToolDeniedOriginChangeAtPolicyLayer",
-			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "mcp-session.json"}}},
+		// SEC04 的浏览器通道：错 origin/换站点/过期/拒绝都必须到不了工具（fixture 计数 0），
+		// 且审批绑定把 origin 与 navigationId 算进参数指纹。观察值来自 harnessmcp 侧
+		// 落盘的计数与策略账本（读回文件后才写 observation.json）。
+		{ID: "SEC04.browser", Package: harnessmcpTests, Run: "TestBrowserToolDeniedLeavesCounterZero|TestBrowserToolDeniedOriginChangeAtPolicyLayer",
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl", "mcp-session.json"}}},
 
 		// ── 记忆（C05，G2） ──
 		// MEM01/02/04 是 HOST（纯逻辑 + 真实 SQLite），MEM03/05 是 ALL，跨资源层与绑定层。
