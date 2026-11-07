@@ -392,5 +392,41 @@
     },
     "replay": "重新同步事件",
     "otherSessionRun": "另一个会话正在运行：这里的消息与审批属于那个会话，不会显示在本页。"
+  },
+  "browser": {
+    "address": {
+      "label": "网页地址",
+      "placeholder": "输入网址后回车",
+      "back": "后退",
+      "reload": "刷新"
+    },
+    "stop": "停止运行",
+    "stopHint": "停止按钮固定在原生网页区域之外，网页不会盖住它",
+    "control": {
+      "agent": "agent 控制中",
+      "human": "人工接管中",
+      "pausing": "正在接管",
+      "resuming": "正在恢复",
+      "controlUncertain": "控制状态不确定",
+      "unknown": "控制状态未知",
+      "takeOver": "接管",
+      "takeOverHint": "把控制权交给人工：排队中的动作全部撤销，已派发的不撤回",
+      "resume": "交还 agent",
+      "resumeHint": "交还前必须先观察一次新快照（接管前的引用一律失效）"
+    },
+    "tabs": {
+      "label": "浏览器标签",
+      "empty": "还没有标签",
+      "select": "切换到",
+      "close": "关闭"
+    },
+    "slot": {
+      "native": "原生网页显示在这块区域（不是 iframe、不是截图）",
+      "occluded": "原生网页已让位给浮层，关闭浮层后恢复（agent 没有暂停）",
+      "noHost": "原生宿主不可用：右侧不显示网页"
+    },
+    "occlusion": {
+      "hidden": "浮层打开中：原生网页暂时隐藏（隐藏面板不等于暂停 agent）"
+    }
   }
 }
