@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -217,6 +216,56 @@ func TestWorkspaceCookiesIsolatedAndPersisted(t *testing.T) {
 		t.Fatalf("写引擎数据: %v", err)
 	}
 
+	// 证据分阶段留档：profile 目录树与库里的登录态行在"刚保存/重启后/清除后"三个
+	// 时刻各取一次。只留最终状态的话，"重启后还在"只会是内存里的断言。
+	stages := []map[string]any{}
+	cookieStages := []map[string]any{}
+	snapshot := func(stage string, profiles []browser.BrowserProfile) {
+		entries := []map[string]any{}
+		for _, p := range profiles {
+			entry := map[string]any{
+				"id": string(p.ID), "workspaceId": string(p.WorkspaceID),
+				"path": p.Path, "ephemeral": p.Ephemeral,
+			}
+			if _, statErr := os.Stat(p.Path); statErr != nil {
+				entry["exists"] = false
+			} else {
+				entry["exists"] = true
+			}
+			entry["files"] = walkTree(t, p.Path)
+			entries = append(entries, entry)
+		}
+		stages = append(stages, map[string]any{
+			"stage": stage, "profiles": entries,
+			"rootTree": walkTree(t, env.root), "personalTree": walkTree(t, env.personal),
+		})
+	}
+	cookiesOf := func(stage string) {
+		second := openSecondHandle(t, env.dbPath)
+		rows, err := second.SQL().Query(
+			`SELECT profile_id, workspace_id, origin, name, path, value, expires_at
+			   FROM browser_session_cookies ORDER BY workspace_id, origin, name`)
+		if err != nil {
+			t.Fatalf("第二句柄读登录态行: %v", err)
+		}
+		defer rows.Close()
+		out := []map[string]string{}
+		for rows.Next() {
+			var profileID, ws, origin, name, path, value, expires string
+			if err := rows.Scan(&profileID, &ws, &origin, &name, &path, &value, &expires); err != nil {
+				t.Fatalf("扫描登录态行: %v", err)
+			}
+			out = append(out, map[string]string{
+				"profileId": profileID, "workspaceId": ws, "origin": origin, "name": name,
+				"path": path, "valueSha256": sha256Hex([]byte(value)), "expiresAt": expires,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("遍历登录态行: %v", err)
+		}
+		cookieStages = append(cookieStages, map[string]any{"stage": stage, "rows": out})
+	}
+
 	if err := env.store.SaveCookies(ctx, env.wsA, []browser.StoredCookie{cookieA}); err != nil {
 		t.Fatalf("SaveCookies(A): %v", err)
 	}
@@ -241,6 +290,9 @@ func TestWorkspaceCookiesIsolatedAndPersisted(t *testing.T) {
 	if cookiesB[0].Value == cookiesA[0].Value {
 		t.Fatalf("A 与 B 拿到了同一条 cookie 值：隔离不成立")
 	}
+
+	snapshot("after-save", []browser.BrowserProfile{profA, profB})
+	cookiesOf("after-save")
 
 	// 第二句柄直接读库：A 的行只属于 A 的 profile。
 	second := openSecondHandle(t, env.dbPath)
@@ -286,6 +338,8 @@ func TestWorkspaceCookiesIsolatedAndPersisted(t *testing.T) {
 		t.Fatalf("下载/HTTP 用的 cookie 头里没有 A 的会话: %q", headerA)
 	}
 	treeAfterRestart := walkTree(t, profA.Path)
+	snapshot("after-restart", []browser.BrowserProfile{profARestart, profB})
+	cookiesOf("after-restart")
 
 	// ---- 清除 A：目录与 cookie 行都必须真的没了，B 不受影响 ----
 	if err := restartedStore.ClearProfile(ctx, env.wsA); err != nil {
@@ -338,7 +392,10 @@ func TestWorkspaceCookiesIsolatedAndPersisted(t *testing.T) {
 		t.Fatalf("个人浏览器 profile 被改动了: before=%+v after=%+v", sentinelBefore, sentinelAfter)
 	}
 
-	observeBR15(t, env, map[string]any{
+	snapshot("after-clear", []browser.BrowserProfile{profA, profB})
+	cookiesOf("after-clear")
+
+	observeBR15(t, env, stages, cookieStages, map[string]any{
 		"profileA":            profA,
 		"profileB":            profB,
 		"restartProfileA":     profARestart,
@@ -439,72 +496,29 @@ func readCookieRows(t *testing.T, db *storage.DB, profileID string) []map[string
 
 // ---------- BR15 证据 ----------
 
-// observeBR15 落盘 BR15 的 artifact：profile 目录真实遍历 + 第二句柄读出的 cookie 行。
-func observeBR15(t *testing.T, env *profileEnv, facts map[string]any) {
+// observeBR15 落盘 BR15 的 artifact。
+//
+// 三份文件分别回答三个问题，缺一份都证不完：
+//   - profiles.json：profile 根与每个 profile 目录的真实遍历（分阶段）；
+//   - cookies.json：第二句柄从库文件读出的登录态行（值只写 sha256）；
+//   - preservation.json：伪造的"个人浏览器 profile"树（证明没被碰）+ 关键事实。
+func observeBR15(t *testing.T, env *profileEnv, stages, cookieStages []map[string]any, facts map[string]any) {
 	t.Helper()
 	if browserObsDir() == "" {
 		return
 	}
-	profiles := []map[string]any{}
-	for _, ws := range []contracts.WorkspaceID{env.wsA, env.wsB} {
-		p, err := env.store.ProfileForWorkspace(context.Background(), ws)
-		if err != nil {
-			// A 已被清除并且这里只是留档：如实记录事实，不掩盖。
-			continue
-		}
-		profiles = append(profiles, map[string]any{
-			"id": string(p.ID), "workspaceId": string(p.WorkspaceID),
-			"path": p.Path, "ephemeral": p.Ephemeral,
-			"files": walkTree(t, p.Path),
-		})
-	}
-	raw, err := json.MarshalIndent(map[string]any{
+	browserObsWrite(t, "profiles.json", mustJSON(t, map[string]any{
 		"profileRoot": env.root,
-		"profiles":    profiles,
-		"rootTree":    walkTree(t, env.root),
-	}, "", "  ")
-	if err != nil {
-		t.Fatalf("序列化 profiles.json: %v", err)
-	}
-	browserObsWrite(t, "profiles.json", append(raw, '\n'))
-
-	second := openSecondHandle(t, env.dbPath)
-	cookieRows, err := second.SQL().Query(
-		`SELECT profile_id, workspace_id, origin, name, path, value, expires_at
-		   FROM browser_session_cookies ORDER BY workspace_id, origin, name`)
-	if err != nil {
-		t.Fatalf("读 cookie 行: %v", err)
-	}
-	defer cookieRows.Close()
-	rows := []map[string]string{}
-	for cookieRows.Next() {
-		var profile, ws, origin, name, path, value, expires string
-		if err := cookieRows.Scan(&profile, &ws, &origin, &name, &path, &value, &expires); err != nil {
-			t.Fatalf("扫描 cookie 行: %v", err)
-		}
-		rows = append(rows, map[string]string{
-			"profileId": profile, "workspaceId": ws, "origin": origin, "name": name,
-			"path": path, "valueSha256": sha256Hex([]byte(value)), "expiresAt": expires,
-		})
-	}
-	rawCookies, err := json.MarshalIndent(map[string]any{
+		"stages":      stages,
+	}))
+	browserObsWrite(t, "cookies.json", mustJSON(t, map[string]any{
 		"dbPath": env.dbPath,
-		"rows":   rows,
-	}, "", "  ")
-	if err != nil {
-		t.Fatalf("序列化 cookies.json: %v", err)
-	}
-	browserObsWrite(t, "cookies.json", append(rawCookies, '\n'))
-
-	rawPreserve, err := json.MarshalIndent(map[string]any{
+		"stages": cookieStages,
+	}))
+	browserObsWrite(t, "preservation.json", mustJSON(t, map[string]any{
 		"personalProfileRoot": env.personal,
 		"personalTree":        walkTree(t, env.personal),
-		"profileRootTree":     walkTree(t, env.root),
 		"facts":               facts,
-	}, "", "  ")
-	if err != nil {
-		t.Fatalf("序列化 preservation.json: %v", err)
-	}
-	browserObsWrite(t, "preservation.json", append(rawPreserve, '\n'))
+	}))
 	browserObsMerge(t, prefixFacts("BR15", facts))
 }

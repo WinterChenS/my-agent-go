@@ -221,6 +221,8 @@ func TestDownloadRequiresDestination(t *testing.T) {
 		t.Fatalf("staging 文件不在受管下载根里: %+v", stagingTree)
 	}
 
+	stagingAfterStart := walkTree(t, filepath.Join(env.root, "staging"))
+
 	// 目标落在家目录之外的工作区：确认后文件 hash 必须与服务端内容一致。
 	dest := filepath.Join(env.wsRoot, "downloads", job.SuggestedName)
 	saved, err := env.mgr.SaveDownload(ctx, env.execA, job.ID, dest)
@@ -384,16 +386,36 @@ func TestDownloadRequiresDestination(t *testing.T) {
 	}
 	recordJobs("cookie-scoped")
 
+	// 收尾：仍处于 awaiting_destination 的作业（越界目标被拒的那一次、登录态下载
+	// 那一次）必须能被取消并留下空 staging——"取消不留最终文件"不只是对第一次下载成立。
+	pending, err := env.mgr.Jobs(ctx, env.execA)
+	if err != nil {
+		t.Fatalf("Jobs: %v", err)
+	}
+	for _, p := range pending {
+		if p.State != browser.DownloadAwaitingDestination {
+			continue
+		}
+		if _, err := env.mgr.CancelDownload(ctx, env.execA, p.ID); err != nil {
+			t.Fatalf("取消遗留作业 %s: %v", p.ID, err)
+		}
+	}
+	if tree := walkTree(t, filepath.Join(env.root, "staging")); len(tree) != 0 {
+		t.Fatalf("全部取消之后 staging 仍未清空: %+v", tree)
+	}
+	recordJobs("settled")
+
 	observeBR17(t, env, jobRows, map[string]any{
-		"downloadURL":      downloadURL,
-		"expectedSHA256":   wantSHA,
-		"expectedSize":     len(downloadBody),
-		"savedArtifactID":  saved.ArtifactID,
-		"savedPath":        dest,
-		"serverCounter":    env.fixture.Primary.Counter(browserfixture.CounterDownload),
-		"workspaceTreeRaw": wsAfterStart,
-		"homeTreeRaw":      homeAfterStart,
-		"stagingAvailable": true,
+		"downloadURL":       downloadURL,
+		"expectedSHA256":    wantSHA,
+		"expectedSize":      len(downloadBody),
+		"savedArtifactID":   saved.ArtifactID,
+		"savedPath":         dest,
+		"serverCounter":     env.fixture.Primary.Counter(browserfixture.CounterDownload),
+		"workspaceTreeRaw":  wsAfterStart,
+		"homeTreeRaw":       homeAfterStart,
+		"stagingAfterStart": stagingAfterStart,
+		"stagingAvailable":  true,
 	})
 }
 
@@ -492,10 +514,13 @@ func observeBR17(t *testing.T, env *downloadEnv, jobRows []map[string]any, facts
 		"expected":      final,
 	}))
 	browserObsWrite(t, "no-writes-before-destination.json", mustJSON(t, map[string]any{
-		"workspaceBefore": facts["workspaceTreeRaw"],
-		"homeBefore":      facts["homeTreeRaw"],
-		"stagingAfter":    walkTree(t, filepath.Join(env.root, "staging")),
-		"note":            "未选目标时工作区与家目录的遍历结果必须与开始时完全相同（由 downloads.jsonl 的 started 行与两份树对照）",
+		"workspaceBefore":   facts["workspaceTreeRaw"],
+		"homeBefore":        facts["homeTreeRaw"],
+		"stagingAfterStart": facts["stagingAfterStart"],
+		"stagingAtEnd":      walkTree(t, filepath.Join(env.root, "staging")),
+		"workspaceAtEnd":    walkTree(t, env.wsRoot),
+		"homeAtEnd":         walkTree(t, env.home),
+		"note":              "未选目标时工作区与家目录的遍历结果必须与开始时完全相同；字节只出现在受管 staging 里（stagingAfterStart 是刚下载完那一刻的快照，不是收尾状态）",
 	}))
 	browserObsMerge(t, prefixFacts("BR17", facts))
 }
