@@ -1,0 +1,31 @@
+
+> my-agent-go-frontend@0.1.0 test
+> vitest run Composer
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/project/anvil-wt/u02/frontend[39m
+
+ [31m❯[39m src/features/chat/Composer.test.tsx [2m([22m[2m6 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 1269[2mms[22m[39m
+[31m   [31m×[31m Composer 附件[2m > [22m选择文件后调用 ResolveAttachments，并逐条显示被拒原因[33m 520[2mms[22m[31m[39m
+[31m     → expected null not to be null[39m
+   [33m[2m✓[22m[39m Composer 附件[2m > [22m发送只带后端复核过的附件 ID，不带路径字符串 [33m365[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/chat/Composer.test.tsx[2m > [22mComposer 附件[2m > [22m选择文件后调用 ResolveAttachments，并逐条显示被拒原因
+[31m[1mAssertionError[22m: expected null not to be null[39m
+[36m [2m❯[22m src/features/chat/Composer.test.tsx:[2m104:26[22m[39m
+    [90m102| [39m    [35mawait[39m [34mwaitFor[39m(() [33m=>[39m [34mexpect[39m(document[33m.[39m[34mquerySelector[39m([32m"[data-attachmen[39m…
+    [90m103| [39m    [35mconst[39m rejected [33m=[39m document[33m.[39m[34mquerySelector[39m([32m"[data-attachment-rejected[39m…
+    [90m104| [39m    [34mexpect[39m(rejected)[33m.[39mnot[33m.[39m[34mtoBeNull[39m()[33m;[39m
+    [90m   | [39m                         [31m^[39m
+    [90m105| [39m    [34mexpect[39m([34mwithin[39m(rejected [35mas[39m [33mHTMLElement[39m)[33m.[39m[34mgetByText[39m([36m/不允许作为附件/[39m)…
+    [90m106| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m5 passed[39m[22m[90m (6)[39m
+[2m   Start at [22m 17:52:41
+[2m   Duration [22m 3.00s[2m (transform 148ms, setup 295ms, collect 280ms, tests 1.27s, environment 811ms, prepare 126ms)[22m
+
