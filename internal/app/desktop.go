@@ -203,6 +203,11 @@ type Desktop struct {
 	// 有 run 在跑时则记 pending（旧 run 不静默变化）。
 	runtimeMCP       []string
 	runtimeMCPDigest string
+
+	// unsavedMu / unsavedScopes 是 U00 的未保存改动登记表（F09 的阻止项来源）。
+	// 与 d.mu 分开：编辑器每次按键都会上报，拿 d.mu 会和 Status/Start 互相拖慢。
+	unsavedMu     sync.Mutex
+	unsavedScopes map[string]struct{}
 }
 
 // New 构造 Desktop。root 是应用数据根目录。
@@ -274,23 +279,23 @@ func defaultSettings(root string) Settings {
 }
 
 // applyEnvOverrides 允许用环境变量驱动一次运行（自动化验证用，不改变 UI 行为）。
+//
+// 全部走 envLookup：ANVIL_* 优先，MYAGENT_* 仍可用但会记一次弃用警告
+// （U00 的品牌迁移，见 env.go）。
 func applyEnvOverrides(s *Settings) {
-	set := func(dst *string, keys ...string) {
-		for _, k := range keys {
-			if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-				*dst = v
-				return
-			}
+	set := func(dst *string, name string) {
+		if v, _ := envLookup(name); v != "" {
+			*dst = v
 		}
 	}
-	set(&s.PiPath, "MYAGENT_PI_PATH")
-	set(&s.NodePath, "MYAGENT_NODE_PATH")
-	set(&s.Provider, "MYAGENT_PROVIDER")
-	set(&s.BaseURL, "MYAGENT_BASE_URL")
-	set(&s.Model, "MYAGENT_MODEL")
-	set(&s.APIKey, "MYAGENT_API_KEY")
-	set(&s.Workspace, "MYAGENT_WORKSPACE")
-	if v := strings.TrimSpace(os.Getenv("MYAGENT_SHELL")); v != "" {
+	set(&s.PiPath, "PI_PATH")
+	set(&s.NodePath, "NODE_PATH")
+	set(&s.Provider, "PROVIDER")
+	set(&s.BaseURL, "BASE_URL")
+	set(&s.Model, "MODEL")
+	set(&s.APIKey, "API_KEY")
+	set(&s.Workspace, "WORKSPACE")
+	if v, _ := envLookup("SHELL"); v != "" {
 		s.ShellAllowed = v == "1" || strings.EqualFold(v, "true")
 	}
 }
@@ -1211,7 +1216,7 @@ func (d *Desktop) version() string {
 //
 // 打包后扩展随可执行文件分发；开发态从当前工作目录向上找。
 func findPolicyExtension() (string, error) {
-	p, ok := findProductExtension("harness-policy.ts", "MYAGENT_POLICY_EXT")
+	p, ok := findProductExtension("harness-policy.ts", "POLICY_EXT")
 	if !ok {
 		return "", contracts.NewAppError(contracts.CodeConfigMissing,
 			"找不到策略扩展 pi-extensions/harness-policy.ts；没有它工具调用没有执行前授权", false)
@@ -1221,11 +1226,12 @@ func findPolicyExtension() (string, error) {
 
 // findProductExtension 在"可执行文件旁 → 上级 → 当前目录 → 上级"里找一个扩展文件。
 //
+// envName 是**不带前缀**的变量名（经 envLookup 解析，ANVIL_* 优先）。
 // 只做文件定位，不读内容、不执行：扩展是有权限的代码，加载决定权在隔离参数里。
-func findProductExtension(name, envKey string) (string, bool) {
+func findProductExtension(name, envName string) (string, bool) {
 	candidates := []string{}
-	if envKey != "" {
-		if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
+	if envName != "" {
+		if v, _ := envLookup(envName); v != "" {
 			candidates = append(candidates, v)
 		}
 	}
@@ -1262,13 +1268,15 @@ func productExtensionPaths() []string {
 	return out
 }
 
-// productExtensionEnvKey 是产品扩展路径的测试/发布覆盖入口（与 MYAGENT_POLICY_EXT 同口径）。
+// productExtensionEnvKey 是产品扩展路径的测试/发布覆盖入口（与 POLICY_EXT 同口径）。
+//
+// 返回不带前缀的变量名，统一由 envLookup 解析。
 func productExtensionEnvKey(name string) string {
 	switch name {
 	case "anvil-clarification.ts":
-		return "ANVIL_CLARIFICATION_EXT"
+		return "CLARIFICATION_EXT"
 	case "anvil-attachment.ts":
-		return "ANVIL_ATTACHMENT_EXT"
+		return "ATTACHMENT_EXT"
 	}
 	return ""
 }

@@ -23,10 +23,16 @@ import (
 //
 // 用独立类型而不是直接返回 contracts.AppError：它是跨进程协议的一部分，
 // 字段一旦要加（比如 hint），不应该跟着 contracts 一起动。
+//
+// Params/Operation/Cause 与 contracts.AppError 同构：跨边界时原样带出，
+// 前端只按 Code + Params 取消息表，绝不解析 Message 文案。
 type CallError struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	Code      string            `json:"code"`
+	Message   string            `json:"message"`
+	Retryable bool              `json:"retryable"`
+	Params    map[string]string `json:"params,omitempty"`
+	Operation string            `json:"operation,omitempty"`
+	Cause     string            `json:"cause,omitempty"`
 }
 
 func toCallError(err error) *CallError {
@@ -35,7 +41,14 @@ func toCallError(err error) *CallError {
 	}
 	var appErr *contracts.AppError
 	if errors.As(err, &appErr) {
-		return &CallError{Code: appErr.Code, Message: appErr.Message, Retryable: appErr.Retryable}
+		return &CallError{
+			Code:      appErr.Code,
+			Message:   appErr.Message,
+			Retryable: appErr.Retryable,
+			Params:    appErr.Params,
+			Operation: appErr.Operation,
+			Cause:     appErr.Cause,
+		}
 	}
 	// 非契约错误也要原样带出：吞成"操作失败"会让排查无从下手。
 	return &CallError{Code: contracts.CodeInternal, Message: err.Error(), Retryable: false}
