@@ -1479,6 +1479,10 @@ func taskForCase(id string) string {
 		return "C09"
 	case strings.HasPrefix(id, "UPD"):
 		return "F09/X04"
+	case strings.HasPrefix(id, "BR"):
+		// 浏览器基线 BR00–BR17 横跨 B00–B07（native.go 的 taskForNativeCase 用同一口径）。
+		// 之前落到 "unknown"，证据里的任务归属就没法按计划回查。
+		return "B00-B07"
 	}
 	return "unknown"
 }
