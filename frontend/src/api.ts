@@ -27,6 +27,8 @@ import type {
   ModelListResult,
   ModelProbeResponse,
   ModelResult,
+  Preferences,
+  PreferencesResult,
   ProductEvent,
   Profile,
   ProfileConflictResult,
@@ -245,6 +247,30 @@ export const api = {
     enabled: boolean
   ): Promise<MemoryScopeResult> =>
     Call.ByName(`${FQN}.SetMemoryScopeEnabled`, scope, enabled),
+
+  // ---- U00：展示偏好与未保存改动 ----
+  //
+  // 偏好走 CAS：expectedRevision 必须是最近一次 getPreferences 拿到的 revision。
+  // 冲突时结果里带 CONFIG_CONFLICT，而不是 reject——前端要按 code 分支。
+
+  getPreferences: (): Promise<PreferencesResult> =>
+    Call.ByName(`${FQN}.GetPreferences`),
+
+  savePreferences: (
+    expectedRevision: number,
+    preferences: Preferences
+  ): Promise<PreferencesResult> =>
+    Call.ByName(`${FQN}.SavePreferences`, expectedRevision, preferences),
+
+  /**
+   * 上报未保存改动（F09 的退出/更新阻止项来源）。
+   *
+   * 这是"声明"而不是"保存"：失败不该打断编辑，调用方可以只记日志。
+   */
+  reportUnsavedChanges: (scope: string, dirty: boolean): Promise<void> =>
+    Call.ByName(`${FQN}.ReportUnsavedChanges`, scope, dirty),
+
+  unsavedScopes: (): Promise<string[]> => Call.ByName(`${FQN}.UnsavedScopes`),
 };
 
 /** 订阅 run 事件。返回取消订阅函数。 */

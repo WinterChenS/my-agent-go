@@ -1,0 +1,26 @@
+{
+  "note": "U00 起的基线：这些历史页面里的用户可见文案还没迁进 i18n catalog，U01–U07 逐页重写时同步下调/删除条目。检查脚本禁止条数增加、也禁止条目过期（只许减）。",
+  "generatedBy": "node scripts/check-ui-contract.mjs",
+  "total": 571,
+  "files": {
+    "app/App.tsx": 12,
+    "app/DetailPanel.tsx": 17,
+    "app/Layout.tsx": 10,
+    "app/Router.tsx": 11,
+    "components/StateViews.tsx": 5,
+    "features/mcp/MCPSection.tsx": 92,
+    "features/memory/MemoryView.tsx": 71,
+    "features/models/ModelEditor.tsx": 59,
+    "features/models/ModelsSection.tsx": 22,
+    "features/profiles/ProfileEditor.tsx": 41,
+    "features/resources/ResourcesView.tsx": 12,
+    "features/runs/RunsView.tsx": 36,
+    "features/settings/SettingsView.tsx": 58,
+    "features/skills/ExtensionsSection.tsx": 11,
+    "features/skills/SkillsSection.tsx": 40,
+    "features/tools/ToolsSection.tsx": 24,
+    "features/workbench/WorkbenchView.tsx": 23,
+    "features/workspaces/Sidebar.tsx": 22,
+    "runState.ts": 5
+  }
+}

@@ -153,6 +153,31 @@ export interface CallError {
   code: string;
   message: string;
   retryable: boolean;
+  /**
+   * 本地化参数（U00）：前端把它填进 catalog 消息，例如
+   * `{"field":"locale","value":"fr-FR"}`。
+   * 没有参数时字段缺失（不是空对象）。
+   */
+  params?: Record<string, string>;
+  /** 失败的操作标识（如 `preferences.save`），用于排查与埋点。 */
+  operation?: string;
+  /** 脱敏后的原因摘要（单行）；不含堆栈，不含秘密。 */
+  cause?: string;
+}
+
+// ---- U00：展示偏好（语言 / 主题）----
+
+/** 与 Go 的 app.Preferences 对应：只有这两项，不进 Settings。 */
+export interface Preferences {
+  locale: string;
+  theme: string;
+}
+
+/** preferences 的 CAS 结果：revision 是下次保存必须带回来的凭据。 */
+export interface PreferencesResult {
+  preferences: Preferences;
+  revision: number;
+  error?: CallError;
 }
 
 export interface Workspace {

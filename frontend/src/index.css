@@ -1,9 +1,117 @@
 @import "tailwindcss";
 
+/*
+ * 语义颜色与尺度 token（U00）。
+ *
+ * 规则：组件只用语义名（background / surface / foreground / muted / border /
+ * accent / success / warning / danger / focus / overlay），不直接写颜色值。
+ * 直接写 `text-slate-400` 的后果是深色主题下对比度失控，而且没人知道
+ * 那个值当初是为了配哪一套背景。
+ *
+ * `data-theme` 永远是 light 或 dark（"跟随系统"由 theme.ts 在挂载前解析）。
+ */
+@theme inline {
+  --color-background: var(--anvil-background);
+  --color-surface: var(--anvil-surface);
+  --color-surface-raised: var(--anvil-surface-raised);
+  --color-foreground: var(--anvil-foreground);
+  --color-muted: var(--anvil-muted);
+  --color-border: var(--anvil-border);
+  --color-accent: var(--anvil-accent);
+  --color-accent-surface: var(--anvil-accent-surface);
+  --color-success: var(--anvil-success);
+  --color-warning: var(--anvil-warning);
+  --color-danger: var(--anvil-danger);
+  --color-focus: var(--anvil-focus);
+  --color-overlay: var(--anvil-overlay);
+
+  --radius-anvil: var(--anvil-radius);
+  --radius-anvil-lg: var(--anvil-radius-lg);
+
+  --shadow-anvil: var(--anvil-shadow);
+}
+
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* 尺度：两套主题共用（换主题不该改变布局密度）。 */
+  --anvil-radius: 8px;
+  --anvil-radius-lg: 14px;
+  --anvil-space-unit: 4px;
+  --anvil-font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --anvil-motion-fast: 120ms;
+  --anvil-motion-base: 180ms;
+  --anvil-shadow: 0 1px 2px rgb(15 18 24 / 0.08), 0 8px 24px rgb(15 18 24 / 0.06);
+
+  /* 配色：浅色主题。 */
+  --anvil-background: #f6f7f9;
+  --anvil-surface: #eef0f4;
+  --anvil-surface-raised: #ffffff;
+  --anvil-foreground: #16181d;
+  --anvil-muted: #5b6270;
+  --anvil-border: #d5d9e0;
+  --anvil-accent: #1f5fd0;
+  --anvil-accent-border: #b9cdf0;
+  --anvil-accent-surface: #e7eefc;
+  --anvil-success: #1a7f4b;
+  --anvil-success-border: #b3e0c6;
+  --anvil-success-surface: #e6f6ec;
+  --anvil-warning: #8a5a00;
+  --anvil-warning-border: #eccf94;
+  --anvil-warning-surface: #fdf3e0;
+  --anvil-danger: #b32020;
+  --anvil-danger-border: #efb9b9;
+  --anvil-danger-surface: #fdeaea;
+  --anvil-focus: #1f5fd0;
+  --anvil-overlay: rgb(15 18 24 / 0.08);
+}
+
+[data-theme="dark"] {
+  --anvil-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+
+  --anvil-background: #0f1218;
+  --anvil-surface: #171b22;
+  --anvil-surface-raised: #1e232c;
+  --anvil-foreground: #e6e9ee;
+  --anvil-muted: #98a1b0;
+  --anvil-border: #2a303a;
+  --anvil-accent: #8ab4ff;
+  --anvil-accent-border: #33507e;
+  --anvil-accent-surface: #1a2536;
+  --anvil-success: #6fdc9b;
+  --anvil-success-border: #2c5a41;
+  --anvil-success-surface: #14261c;
+  --anvil-warning: #f0c274;
+  --anvil-warning-border: #5c4622;
+  --anvil-warning-surface: #2a2113;
+  --anvil-danger: #ff9a9a;
+  --anvil-danger-border: #6b2b2b;
+  --anvil-danger-surface: #2a1616;
+  --anvil-focus: #8ab4ff;
+  --anvil-overlay: rgb(0 0 0 / 0.35);
+}
+
+:root {
+  font-family: var(--anvil-font-sans);
+  background-color: var(--anvil-background);
+  color: var(--anvil-foreground);
 }
 
 body {
   margin: 0;
+  background-color: var(--anvil-background);
+  color: var(--anvil-foreground);
+}
+
+/* 焦点始终可见：键盘用户与读屏用户靠它判断当前位置。 */
+:focus-visible {
+  outline: 2px solid var(--anvil-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

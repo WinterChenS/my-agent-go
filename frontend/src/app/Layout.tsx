@@ -9,6 +9,7 @@ import { useRef, type ReactNode } from "react";
 import { PanelRightClose, PanelRightOpen, ShieldCheck } from "lucide-react";
 import { VIEWS, nextView, type ViewId } from "./Router";
 import type { Status } from "../types";
+import { t } from "../i18n";
 
 export interface LayoutProps {
   status: Status | null;
@@ -46,7 +47,7 @@ export function Layout({
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-500/15">
             <ShieldCheck className="h-4 w-4 text-sky-400" aria-hidden />
           </div>
-          <span className="text-sm font-semibold tracking-wide">MyAgent</span>
+          <span className="text-sm font-semibold tracking-wide">{t("app.name")}</span>
           <span className="hidden shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400 sm:inline">
             {status?.platform ?? "—"}
           </span>

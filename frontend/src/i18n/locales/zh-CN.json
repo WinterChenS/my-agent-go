@@ -1,0 +1,120 @@
+{
+  "app": {
+    "name": "Anvil",
+    "windowTitle": "Anvil"
+  },
+  "common": {
+    "loading": "加载中…",
+    "retry": "重试",
+    "cancel": "取消",
+    "close": "关闭",
+    "details": "详情",
+    "expand": "展开",
+    "collapse": "收起",
+    "showMore": "查看更多",
+    "unknown": "未知",
+    "notAvailable": "不可用"
+  },
+  "state": {
+    "loading": "正在加载…",
+    "emptyTitle": "还没有内容",
+    "emptyHint": "这里会显示真实数据；现在确实一条都没有。",
+    "errorTitle": "操作失败",
+    "blockedTitle": "当前被阻塞",
+    "blockedHint": "{reason}",
+    "permissionDeniedTitle": "需要先完成一步",
+    "permissionDeniedHint": "{reason}",
+    "successTitle": "完成",
+    "retrying": "正在重试…"
+  },
+  "status": {
+    "idle": "空闲",
+    "queued": "排队中",
+    "starting": "启动中",
+    "running": "运行中",
+    "waiting_approval": "等待授权",
+    "stopping": "停止中",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消",
+    "interrupted": "已中断",
+    "connected": "已连接",
+    "disconnected": "未连接",
+    "degraded": "降级",
+    "unknown": "未知",
+    "unavailable": "不可用",
+    "not_implemented": "尚未实现"
+  },
+  "theme": {
+    "label": "主题",
+    "system": "跟随系统",
+    "light": "浅色",
+    "dark": "深色"
+  },
+  "locale": {
+    "label": "语言",
+    "zh-CN": "简体中文",
+    "en-US": "English"
+  },
+  "unsaved": {
+    "title": "有未保存的更改",
+    "scopes": "以下位置还有未保存的更改：{scopes}",
+    "confirmDiscard": "放弃未保存的更改？"
+  },
+  "format": {
+    "bytes": "{value} {unit}",
+    "cost": "{value}",
+    "date": "{value}",
+    "number": "{value}"
+  },
+  "units": {
+    "byte": "B",
+    "kilobyte": "KB",
+    "megabyte": "MB",
+    "gigabyte": "GB",
+    "terabyte": "TB"
+  },
+  "errors": {
+    "_unknown": "操作失败（{code}）。这一步没有成功，也没有改动任何数据。",
+    "INTERNAL_ERROR": "应用内部出错，当前操作没有完成。",
+    "CONFIG_CONFLICT": "配置已被其它位置修改，你的这次改动没有写入。请重新读取后再保存。",
+    "NOT_FOUND": "找不到目标。它可能已被删除或移动。",
+    "PROTOCOL_RECORD_TOO_LARGE": "单条记录超过允许的大小，已拒绝处理。",
+    "QUERY_TOO_SHORT": "搜索词太短，请至少输入 3 个字符。",
+    "UNSUPPORTED": "当前版本不支持这个操作。",
+    "UNAUTHORIZED": "没有权限执行这个操作。",
+    "VERIFICATION_FAILED": "校验未通过，结果未被视为有效。",
+    "NEEDS_HUMAN": "这一步需要你确认后才能继续。",
+    "CREDENTIAL_STORE_UNAVAILABLE": "系统的凭证保护存储不可用，无法安全保存密钥。",
+    "STALE_SNAPSHOT": "这份数据已经过期，请刷新后重试。",
+    "OUTCOME_UNKNOWN": "结果未知：操作可能已经生效，也可能没有。请核对后再决定是否重试。",
+    "CONTROL_UNCERTAIN": "停止/中断的结果不确定，运行状态需要重新读取。",
+    "CLEANUP_FAILED": "清理失败，可能留下了临时文件。",
+    "CONFIG_MISSING": "缺少必要的配置。",
+    "UNKNOWN_TARGET": "未知的目标平台标识。",
+    "UNKNOWN_GATE": "未知的门禁标识。",
+    "UNKNOWN_SUITE": "未知的验证套件。",
+    "MISSING_REQUIRED_CASE": "缺少必须的验收用例。",
+    "STALE_REVISION": "版本不一致：你手上的这一份已经落后了。",
+    "REPORT_HASH_MISMATCH": "报告摘要不匹配，证据不可信。",
+    "REVIEWER_MISSING": "缺少复核人与复核记录。",
+    "EMPTY_SUITE": "该套件里没有任何用例，不能算通过。",
+    "ALL_SKIPPED": "所有用例都被跳过，不能算通过。",
+    "RUNNER_MISSING": "找不到执行器，这项验证没有真正运行。",
+    "DEPENDENCY_MISSING": "缺少依赖，请先补齐所需的模型、技能或凭证。",
+    "RATE_LIMITED": "请求过于频繁，已被限流。稍后再试。",
+    "PROVIDER_UNREACHABLE": "连不上模型服务，请检查网络与端点地址。",
+    "PROVIDER_ERROR": "模型服务返回了错误。",
+    "RPC_TIMEOUT": "与 Pi 的通信超时，且不会自动重放（可能已部分生效）。",
+    "RPC_CANCELLED": "与 Pi 的调用已被取消。",
+    "RPC_WRITE_FAILED": "向 Pi 写入请求失败。",
+    "RPC_WORKER_EXITED": "Pi 进程已退出。",
+    "RPC_INVALID_CALL": "与 Pi 的调用格式不合法。",
+    "RPC_COMMAND_FAILED": "Pi 报告命令执行失败。",
+    "WORKER_CLOSED": "Pi 会话已关闭。",
+    "WORKER_START_FAILED": "Pi 启动失败。",
+    "BUDGET_EXCEEDED": "本轮预算（工具调用次数或时长）已用尽。",
+    "COMPATIBILITY": "当前 Pi 版本与本应用的协议不匹配。",
+    "INVALID_INPUT": "输入不合法：{field} 的值 {value} 不被支持。可选值：{supported}。"
+  }
+}

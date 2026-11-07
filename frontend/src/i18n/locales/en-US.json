@@ -1,0 +1,120 @@
+{
+  "app": {
+    "name": "Anvil",
+    "windowTitle": "Anvil"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "close": "Close",
+    "details": "Details",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "showMore": "Show more",
+    "unknown": "Unknown",
+    "notAvailable": "Unavailable"
+  },
+  "state": {
+    "loading": "Loading…",
+    "emptyTitle": "Nothing here yet",
+    "emptyHint": "This area shows real data only; right now there is none.",
+    "errorTitle": "That did not work",
+    "blockedTitle": "Blocked",
+    "blockedHint": "{reason}",
+    "permissionDeniedTitle": "One step is required first",
+    "permissionDeniedHint": "{reason}",
+    "successTitle": "Done",
+    "retrying": "Retrying…"
+  },
+  "status": {
+    "idle": "Idle",
+    "queued": "Queued",
+    "starting": "Starting",
+    "running": "Running",
+    "waiting_approval": "Waiting for approval",
+    "stopping": "Stopping",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "interrupted": "Interrupted",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "degraded": "Degraded",
+    "unknown": "Unknown",
+    "unavailable": "Unavailable",
+    "not_implemented": "Not implemented yet"
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "Match system",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "locale": {
+    "label": "Language",
+    "zh-CN": "简体中文",
+    "en-US": "English"
+  },
+  "unsaved": {
+    "title": "Unsaved changes",
+    "scopes": "Unsaved changes remain in: {scopes}",
+    "confirmDiscard": "Discard unsaved changes?"
+  },
+  "format": {
+    "bytes": "{value} {unit}",
+    "cost": "{value}",
+    "date": "{value}",
+    "number": "{value}"
+  },
+  "units": {
+    "byte": "B",
+    "kilobyte": "KB",
+    "megabyte": "MB",
+    "gigabyte": "GB",
+    "terabyte": "TB"
+  },
+  "errors": {
+    "_unknown": "That did not work ({code}). Nothing was changed.",
+    "INTERNAL_ERROR": "Something failed inside Anvil; the operation did not complete.",
+    "CONFIG_CONFLICT": "This configuration changed elsewhere, so your change was not written. Reload, then save again.",
+    "NOT_FOUND": "That item was not found. It may have been deleted or moved.",
+    "PROTOCOL_RECORD_TOO_LARGE": "A single record exceeded the size limit and was rejected.",
+    "QUERY_TOO_SHORT": "Search needs at least 3 characters.",
+    "UNSUPPORTED": "This build does not support that operation.",
+    "UNAUTHORIZED": "You are not allowed to do that.",
+    "VERIFICATION_FAILED": "Verification failed, so the result was not accepted.",
+    "NEEDS_HUMAN": "This step needs your confirmation before it can continue.",
+    "CREDENTIAL_STORE_UNAVAILABLE": "The system credential store is unavailable, so the secret cannot be saved safely.",
+    "STALE_SNAPSHOT": "This data is out of date. Refresh and try again.",
+    "OUTCOME_UNKNOWN": "Outcome unknown: the operation may or may not have taken effect. Check before retrying.",
+    "CONTROL_UNCERTAIN": "The stop/interrupt result is uncertain; the run state must be read again.",
+    "CLEANUP_FAILED": "Cleanup failed; temporary files may remain.",
+    "CONFIG_MISSING": "A required setting is missing.",
+    "UNKNOWN_TARGET": "Unknown target identifier.",
+    "UNKNOWN_GATE": "Unknown gate identifier.",
+    "UNKNOWN_SUITE": "Unknown verification suite.",
+    "MISSING_REQUIRED_CASE": "A required acceptance case is missing.",
+    "STALE_REVISION": "Revision mismatch: your copy is behind.",
+    "REPORT_HASH_MISMATCH": "Report digest mismatch; the evidence is not trustworthy.",
+    "REVIEWER_MISSING": "The reviewer and review record are missing.",
+    "EMPTY_SUITE": "The suite contained no cases, so it cannot pass.",
+    "ALL_SKIPPED": "Every case was skipped, so this cannot pass.",
+    "RUNNER_MISSING": "No runner was found, so nothing actually ran.",
+    "DEPENDENCY_MISSING": "A dependency is missing. Add the model, skill or credential it needs first.",
+    "RATE_LIMITED": "Too many requests; you are being rate limited. Try again later.",
+    "PROVIDER_UNREACHABLE": "Cannot reach the model endpoint. Check the network and the endpoint URL.",
+    "PROVIDER_ERROR": "The model endpoint returned an error.",
+    "RPC_TIMEOUT": "Talking to Pi timed out and will not be replayed (it may have partly taken effect).",
+    "RPC_CANCELLED": "The call to Pi was cancelled.",
+    "RPC_WRITE_FAILED": "Writing the request to Pi failed.",
+    "RPC_WORKER_EXITED": "The Pi process exited.",
+    "RPC_INVALID_CALL": "The call to Pi was malformed.",
+    "RPC_COMMAND_FAILED": "Pi reported that the command failed.",
+    "WORKER_CLOSED": "The Pi session is closed.",
+    "WORKER_START_FAILED": "Pi failed to start.",
+    "BUDGET_EXCEEDED": "This run used up its budget (tool calls or elapsed time).",
+    "COMPATIBILITY": "The installed Pi version does not speak this app's protocol.",
+    "INVALID_INPUT": "Invalid input: {field} value {value} is not supported. Allowed: {supported}."
+  }
+}
