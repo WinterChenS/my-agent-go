@@ -36,6 +36,10 @@ const (
 	TimelineTakeOver           = "takeover"
 	TimelineResume             = "resume"
 	TimelineServiceClosed      = "service_closed"
+	// B06（BR16）：window.open 被接管成同 session 的 tab / 被拒绝。
+	// 两个都进 JSONL 证据：只记成功会让「被拒的弹窗有没有创建实例」无法核对。
+	TimelinePopupOpened = "popup_opened"
+	TimelinePopupDenied = "popup_denied"
 )
 
 // TimelineEntry 是时间线的一行。

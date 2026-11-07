@@ -132,6 +132,23 @@ var nonDTOTypes = map[string]string{
 	"Service":              "浏览器工具执行面（行为对象），不是 DTO",
 	"ServiceOptions":       "Service 的构造参数，不是跨边界 DTO",
 	"TimelineEntry":        "动作时间线的证据行（写 JSONL 证据），线上契约随 schema 受控变更一起落",
+	// B06：profile / 弹窗 / 下载的类型。同样受"B06 禁止改 schemas/"约束：线上契约
+	// （浏览器面板的 profile 与下载区）随 schemas/browser.schema.json 的受控变更一起
+	// 落地，本轮只走进程内 / 数据库 / 证据通道，逐个登记理由而不是放开检查。
+	"BrowserProfile":    "workspace 级 profile 的定位与归属，schema 待受控变更（B06 禁改 schemas/）",
+	"StoredCookie":      "应用侧登录态记录，含会话值，刻意不发到线上（Value 不进 JSON）",
+	"ProfileOptions":    "ProfileStore 的构造参数，不是跨边界 DTO",
+	"ProfileStore":      "profile/登录态的行为对象，不是数据形状",
+	"NewWindowRequest":  "原生宿主回调 window.open 的入参（服务端内部形状），schema 待受控变更",
+	"DownloadState":     "下载状态枚举，线上契约随 schema 受控变更一起落",
+	"DownloadJob":       "下载作业（面板/DTO 用），schema 待受控变更",
+	"DownloadRequest":   "原生宿主回调下载开始的入参（不可信建议名），服务端内部形状",
+	"ArtifactRequest":   "下载域向产物域登记文件的最小请求（适配器在装配层）",
+	"ArtifactRef":       "产物登记结果的摘要（id/sha256/size）",
+	"ArtifactRegistrar": "产物登记的行为接口，不是数据形状",
+	"CookieProvider":    "登录态查询的行为接口，不是数据形状",
+	"DownloadOptions":   "DownloadManager 的构造参数，不是跨边界 DTO",
+	"DownloadManager":   "下载域的行为对象，不是数据形状",
 }
 
 func loadSchema(t *testing.T) schemaDoc {

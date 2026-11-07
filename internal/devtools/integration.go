@@ -330,6 +330,30 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"policy-decisions.jsonl", "fixture-counters.jsonl", "mcp-calls.jsonl"}}},
 		{ID: "BR14", Package: browserTests, Run: "TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed|TestNavigationRevokesQueuedWrites",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "backend-actions.jsonl"}}},
+		// ── 浏览器 profile / 弹窗 / 下载（B06，G2） ──
+		// BR15：workspace 级登录态。观察值全部来自**磁盘**：
+		//   - profiles.json：profile 根的真实遍历（每个 profile 的路径 + 每个文件 size/sha256）；
+		//   - cookies.json：用**第二个 storage.DB 句柄**从库文件读出的登录态行（值只写 sha256）；
+		//   - preservation.json：重启前后与清除后的目录树 + 伪造的"个人浏览器 profile"
+		//     哨兵树（证明那棵树一个字节都没被碰）。
+		// "重启"是真的换一个 store/句柄读同一个根与同一个库文件，不是内存里断言。
+		{ID: "BR15", Package: browserTests, Run: "TestWorkspaceCookiesIsolatedAndPersisted|TestProfileStoreRefusesPersonalBrowserRoots",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"profiles.json", "cookies.json", "preservation.json"}}},
+		// BR16：window.open 落成同 session 的受控 tab，且不突破 4/session。
+		// 观察值来自服务自己的时间线（popup_opened/popup_denied/tab_limit_exceeded）、
+		// 登记一致的 tab 列表（backend 存活实例数 == 服务登记数）与 backend 创建计数——
+		// "被拒绝的弹窗没有创建实例"由 CreateCalls 前后相等证明。
+		{ID: "BR16", Package: browserTests, Run: "TestPopupInheritsSessionAndTabLimit",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"popups.jsonl", "tabs.json", "counters-popups.json"}}},
+		// BR17：下载必须选目标。观察值来自磁盘与库：
+		//   - downloads.jsonl：第二句柄读出的作业行（状态机 + hash + 产物 id）；
+		//   - download-files.json：目标/取消/篡改/越界四条路径的磁盘事实（存在性与 sha256）
+		//     与工作区/家目录/staging 三棵树；
+		//   - artifact-row.json：第二句柄读出的 artifacts 行（落盘即登记）；
+		//   - no-writes-before-destination.json：未选目标前后的工作区/家目录树对照。
+		{ID: "BR17", Package: browserTests, Run: "TestDownloadRequiresDestination|TestSuggestedNamesSanitized",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{
+				"downloads.jsonl", "download-files.json", "artifact-row.json", "no-writes-before-destination.json"}}},
 		// SEC03/SEC04 的浏览器通道：拒绝 → counter 0；允许 → 恰好一次（同一份 fixture 计数）。
 		{ID: "SEC03.browser", Package: harnessmcpTests, Run: "TestBrowserToolsFlowThroughMCPAndPolicy|TestBrowserToolDeniedLeavesCounterZero",
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl"}}},
