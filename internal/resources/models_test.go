@@ -2,7 +2,9 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -173,6 +175,27 @@ func TestModelSaveNoSecretsInJSON(t *testing.T) {
 	if hits := scanForSecret(t, root, secret); len(hits) > 0 {
 		t.Fatalf("落盘 models.json 后出现明文密钥: %v", hits)
 	}
+
+	// MOD01 的外部观察：配置存储根与真正落盘的 Pi models.json 都在磁盘上。
+	// "配置里没有秘密"由重新扫描这些文件得出，不读测试进程里的判断；
+	// models.json 的内容也是从盘上读回的字节，不是内存里的 pm.JSON。
+	diskModels, err := os.ReadFile(filepath.Join(agentDir, "models.json"))
+	if err != nil {
+		t.Fatalf("读回 models.json: %v", err)
+	}
+	sum := sha256.Sum256(diskModels)
+	envRef := "$" + CredentialEnvName("cred-demo")
+	writeResourcesArtifact(t, "models-json.json", map[string]any{
+		"test":              t.Name(),
+		"agentDir":          filepath.ToSlash(agentDir),
+		"bytes":             len(diskModels),
+		"sha256":            "sha256:" + hex.EncodeToString(sum[:]),
+		"envRefName":        CredentialEnvName("cred-demo"),
+		"containsEnvRef":    strings.Contains(string(diskModels), envRef),
+		"containsPlaintext": strings.Contains(string(diskModels), secret),
+	})
+	recordResourcesTree(t, root, "config-tree.json", "after-models-save", map[string]any{"modelID": def.ID})
+	recordSecretScan(t, "secret-scan.json", "after-models-save", []string{root}, secret, map[string]any{"modelID": def.ID, "agentDir": filepath.ToSlash(agentDir)})
 }
 
 // TestModelSaveRequiresExistingCredential 防止"保存成功但引用了不存在的凭证"：

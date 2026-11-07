@@ -167,6 +167,12 @@ func TestConnectorsAppAPIRoundTrip(t *testing.T) {
 	if dbBytes := readConnectorDB(t, root); strings.Contains(dbBytes, appFxPass) {
 		t.Fatal("撤销后 connectors.db 里出现了凭证材料")
 	}
+
+	// CONN03 的外部观察：appData 根的真实遍历 + 重新扫描磁盘得到的明文命中数（应为 0）。
+	observeConnectorApp(t, root, appFxPass, map[string]any{
+		"credentialRevoked":  true,
+		"definitionSurvives": true,
+	})
 }
 
 // TestConnectRejectsUnknownConnector 覆盖错误路径：未知 ID 是结构化 NOT_FOUND。

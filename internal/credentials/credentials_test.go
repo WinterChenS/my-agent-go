@@ -64,10 +64,17 @@ func TestNativeStoreRoundTripAndNoPlaintext(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 	// oracle 1：落盘立即扫描。必须在 Get 之前——先证明磁盘上没有明文，
-	// 再讨论能不能读回；否则"解密失败"会把"明文落盘"这个问题盖住。
+	// 再讨论能不能读回；否则“解密失败”会把“明文落盘”这个问题盖住。
 	if leaked := scanForSecret(t, root, sentinelSecret); len(leaked) > 0 {
 		t.Fatalf("落盘文件出现明文凭证: %v", leaked)
 	}
+	// SEC07.store 的外部观察：凭证根下此刻到底有哪些文件、重新扫描它们得到的
+	// sentinel 命中数，全部由磁盘字节算出（哨兵只记 sha256）。
+	observeCredentialStore(t, "after-put", root, [][]byte{sentinelSecret}, map[string]any{
+		"backend":              runtime.GOOS + "-native",
+		"roundTripVerified":    true,
+		"nativeStoreAvailable": true,
+	})
 	if runtime.GOOS != "windows" {
 		// Keychain / Secret Service 不落文件。root 下出现任何文件，
 		// 说明有人在"后端不可用"时偷偷写了明文缓存。
@@ -107,6 +114,7 @@ func TestNativeStoreRoundTripAndNoPlaintext(t *testing.T) {
 	if leaked := scanForSecret(t, root, sentinelSecret); len(leaked) > 0 {
 		t.Fatalf("旧凭证轮换后仍留明文残片: %v", leaked)
 	}
+	observeCredentialStore(t, "after-rotate", root, [][]byte{sentinelSecret, rotated}, nil)
 
 	// 删除幂等。
 	if err := store.Delete(ctx, ref); err != nil {
