@@ -935,6 +935,14 @@ func RunGate(gateID, evidenceRoot string) int {
 	fmt.Printf("== gate --id=%s ==\n", gateID)
 	fmt.Printf("基线 revision=%s worktreeDirty=%v 证据根=%s\n", orNone(rep.SourceRevision), rep.WorktreeDirty, evidenceRoot)
 	fmt.Printf("passed=%v exitCode=%d 必需证据位=%d\n", rep.Passed, rep.ExitCode, len(rep.PerRequirement))
+	if len(rep.Deferred) > 0 {
+		// ADR 0005：停用目标的必需位既不评估也不隐藏——逐条列出来，
+		// 评审能看见这一轮没被证明的面。不是"通过"，也不是"缺失"。
+		fmt.Printf("本轮停用目标（ADR 0005）导致的未评估必需位 %d 条：\n", len(rep.Deferred))
+		for _, d := range rep.Deferred {
+			fmt.Printf("  [deferred] %s\n", d)
+		}
+	}
 	failed := 0
 	for _, r := range rep.PerRequirement {
 		if r.Status == "pass" {
