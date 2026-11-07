@@ -91,9 +91,52 @@ func mailActions() []ActionDescriptor {
 	}
 }
 
+// dingtalkActions 是钉钉的 V1 动作。
+//
+// 幂等：两个动作都是 none —— 钉钉的群消息接口不接受幂等键，声明 key 会让
+// "可重放"变成一个平台不支持的说法。
+func dingtalkActions() []ActionDescriptor {
+	return []ActionDescriptor{
+		{
+			ID:          "read_scope",
+			Kind:        KindDingtalk,
+			Title:       "读取权限范围",
+			Description: "List the organization scopes this DingTalk app is allowed to touch (cursor paged).",
+			Risk:        RiskRead,
+			Capability:  CapabilityDingtalkRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"cursor": map[string]any{"type": "string", "description": "nextToken from the previous page."},
+					"limit":  map[string]any{"type": "integer", "description": "Page size, default 20, max 100."},
+				},
+			},
+		},
+		{
+			ID:          "send_group",
+			Kind:        KindDingtalk,
+			Title:       "发送群消息",
+			Description: "Send a text message to one DingTalk group conversation. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskExternalSend,
+			Capability:  CapabilityDingtalkSend,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversationId": map[string]any{"type": "string", "description": "openConversationId of the target group."},
+					"text":           map[string]any{"type": "string", "description": "Plain text message body."},
+				},
+				"required": []string{"conversationId", "text"},
+			},
+		},
+	}
+}
+
 // catalog 是 kind → 动作表的唯一注册点。
 var catalog = map[Kind][]ActionDescriptor{
-	KindMail: mailActions(),
+	KindMail:     mailActions(),
+	KindDingtalk: dingtalkActions(),
 }
 
 // Catalog 返回某个 kind 的动作副本。

@@ -40,7 +40,9 @@ const (
 //
 // 这张表是"实现了什么"的唯一答案：没在这里出现的 kind 一律结构化拒绝，
 // 而不是悄悄注册一个空驱动。
-func KnownKinds() []Kind { return []Kind{KindMail} }
+func KnownKinds() []Kind {
+	return []Kind{KindMail, KindDingtalk}
+}
 
 // Known 判定 kind 是否已实现。
 func (k Kind) Known() bool {

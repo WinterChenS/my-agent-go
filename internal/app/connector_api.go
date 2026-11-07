@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"my-agent-go/internal/connectors"
+	"my-agent-go/internal/connectors/dingtalk"
 	"my-agent-go/internal/connectors/mail"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/credentials"
@@ -127,6 +128,8 @@ func connectorDriver(def connectors.Definition) (connectors.Driver, error) {
 	switch def.Kind {
 	case connectors.KindMail:
 		return mail.New(mail.Settings{Endpoints: def.Endpoints})
+	case connectors.KindDingtalk:
+		return dingtalk.New(dingtalk.Settings{Endpoints: def.Endpoints})
 	}
 	return nil, contracts.NewAppError(
 		contracts.CodeUnsupported, "没有该类型的连接器驱动: "+string(def.Kind), false)
