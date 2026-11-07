@@ -673,3 +673,97 @@ func asAppError(err error, target **contracts.AppError) bool {
 	}
 	return false
 }
+
+// ---------- 面板跟随当前 run（W01） ----------
+
+// TestBrowserBridgeExecProviderFollowsCurrentRun 守住“面板跟随当前 run”。
+//
+// 产品只有一个 Desktop、一个浏览器服务，而 tab 的归属是**会话**：面板如果一直用
+// 启动那一刻的执行身份去查，agent 在它自己的会话里开的 tab 就永远不出现——
+// 面板会说“没有 tab”，而右侧其实有页面。这里用两条会话把这件事钉住：
+// 固定身份看不到别人会话的 tab，身份切换后才看得到，且 tab 动作走的是同一个身份。
+func TestBrowserBridgeExecProviderFollowsCurrentRun(t *testing.T) {
+	fixture, err := browserfixture.New()
+	if err != nil {
+		t.Fatalf("启动 fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = fixture.Close() })
+
+	backend := browserfixture.NewScriptedBackend(fixture)
+	svc, err := browser.NewService(browser.ServiceOptions{
+		Backend:       backend,
+		Authorizer:    &allowAllBrowserAuthorizer{guard: browser.TokenGuard{TTL: time.Minute}},
+		ActionTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	t.Cleanup(svc.Close)
+
+	panelExec := contracts.ExecutionContext{WorkspaceID: "ws-b07", SessionID: "sess-panel", ControlGeneration: 1}
+	runExec := contracts.ExecutionContext{WorkspaceID: "ws-b07", SessionID: "sess-run", ControlGeneration: 1}
+	current := panelExec
+
+	bridge := NewBrowserBridge(BrowserBridgeOptions{
+		Surface:      &fakeSurface{},
+		Service:      svc,
+		Exec:         panelExec,
+		ExecProvider: func() contracts.ExecutionContext { return current },
+	})
+
+	ctx := context.Background()
+	// agent 在它自己的会话里开 tab（和 MCP 工具调用走同一条服务路径）。
+	tab, err := svc.OpenTab(ctx, runExec, browser.TabOptions{URL: fixture.Primary.URL + "/form"})
+	if err != nil {
+		t.Fatalf("OpenTab: %v", err)
+	}
+
+	if got := bridge.State().Tabs; len(got) != 0 {
+		t.Fatalf("身份还是面板自己的会话时不该看到 agent 的 tab，实际 %d 条", len(got))
+	}
+
+	// 下一轮 run：身份切到那个会话，面板就该看到同一个 tab。
+	current = runExec
+	state := bridge.State()
+	if len(state.Tabs) != 1 || state.Tabs[0].TabID != string(tab) {
+		t.Fatalf("切换身份后应看到 agent 的 tab %q，实际 %+v", tab, state.Tabs)
+	}
+	if state.ActiveTab != string(tab) {
+		t.Fatalf("唯一的 tab 应当成为 activeTab，实际 %q", state.ActiveTab)
+	}
+
+	// tab 动作也走当前身份：身份没跟上时这里会是 NOT_FOUND/UNSUPPORTED。
+	if err := bridge.SelectTab(string(tab)); err != nil {
+		t.Fatalf("SelectTab: %v", err)
+	}
+	if err := bridge.CloseTab(ctx, string(tab)); err != nil {
+		t.Fatalf("CloseTab: %v", err)
+	}
+	if got := bridge.State().Tabs; len(got) != 0 {
+		t.Fatalf("关闭后不该再有 tab，实际 %+v", got)
+	}
+}
+
+// TestBrowserExecutionContextFollowsRuntimeSession 守住绑定层给出的身份来源。
+//
+// 面板身份取的是“最近一次构建的 run 会话”（与 RunService.Start 拿到的同一个值），
+// 而不是进程启动那一刻的快照：否则第一次 run 之后面板就一直是错的。
+func TestBrowserExecutionContextFollowsRuntimeSession(t *testing.T) {
+	d, _ := newTestDesktop(t)
+
+	// 还没有跑过任何一轮：会话为空。这是“真的没有 tab”，不是读不到。
+	if got := d.BrowserExecutionContext(); got.SessionID != "" {
+		t.Fatalf("未运行时不应凭空给出会话，实际 %q", got.SessionID)
+	}
+	if got := d.BrowserExecutionContext(); got.WorkspaceID != defaultWorkspaceID {
+		t.Fatalf("工作区身份应为 %q，实际 %q", defaultWorkspaceID, got.WorkspaceID)
+	}
+
+	d.mu.Lock()
+	d.runtimeSessionID = "sess-run-7"
+	d.mu.Unlock()
+
+	if got := d.BrowserExecutionContext(); got.SessionID != "sess-run-7" {
+		t.Fatalf("应跟随当前 run 的会话，实际 %q", got.SessionID)
+	}
+}
