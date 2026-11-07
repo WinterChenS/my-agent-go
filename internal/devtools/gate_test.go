@@ -1103,3 +1103,44 @@ func TestIntegrationRejectsUnknownGate(t *testing.T) {
 		t.Fatalf("未知 gate 应返回 2，实际 %d", code)
 	}
 }
+
+// writeFixtureArtifact 写一份最小 artifact 并登记 external oracle。
+func writeFixtureArtifact(t *testing.T, dir string) {
+	t.Helper()
+	body := []byte("{\"fixture\":true}\n")
+	if err := os.WriteFile(filepath.Join(dir, "fixture-artifact.json"), body, 0o644); err != nil {
+		t.Fatalf("写 artifact: %v", err)
+	}
+	writeExternalOracle(t, dir, "filesystem", map[string]any{"fixture": true}, []string{"fixture-artifact.json"})
+}
+
+// TestGateScopesToItsOwnGateSubtree 钉住一条实测踩到的判死：
+// 一个 revision 目录里同时有 G0 与 G2 的证据时，同一 case（例如 SEC01）会出现
+// 两份不同 gateId 的 result.json。若整树扫描，它们会被当成"重复证据"互相判死，
+// 结果是"跑得越全，gate 越红"。
+func TestGateScopesToItsOwnGateSubtree(t *testing.T) {
+	idx := testIndexOne(t, CaseEntry{ID: "SEC01", Owner: "F04", Required: true, Scope: "HOST", Gates: []string{"G0"}})
+	root := t.TempDir()
+	base := testBaseline()
+	rev := base.SourceRevision
+
+	// G0 的证据（合法）。
+	g0dir := filepath.Join(root, rev, "G0", "win-x64", "SEC01")
+	writeEvidenceAt(t, g0dir, rev, "G0", "win-x64", "SEC01", base.VersionsLockHash, nil)
+	writeFixtureArtifact(t, g0dir)
+	rehashEvidence(t, g0dir)
+
+	// G2 的同名证据（另一份 gateId，与 G0 无关）。
+	g2dir := filepath.Join(root, rev, "G2", "win-x64", "SEC01")
+	writeEvidenceAt(t, g2dir, rev, "G2", "win-x64", "SEC01", base.VersionsLockHash, nil)
+	writeFixtureArtifact(t, g2dir)
+	rehashEvidence(t, g2dir)
+
+	rep, err := EvaluateGate(idx, "G0", root, base)
+	if err != nil {
+		t.Fatalf("EvaluateGate: %v", err)
+	}
+	if !rep.Passed {
+		t.Fatalf("只应评估 G0 子树，实际判死：%v", rep.Reasons)
+	}
+}

@@ -408,9 +408,14 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 		}
 	}
 
+	// 证据根可以是一个 revision 目录（里面按 gate 分子目录），也可以直接是某个 gate 的
+	// 目录。若 <root>/<gate> 存在就只扫那一个 gate 的子树：否则同一个 case 同时属于
+	// G0 与 G2 时，两份不同 gateId 的证据会被当成"重复证据"而互相判死
+	// （2026-11-07 实测：G0 在同时跑过 G2 的 revision 上全红）。
+	scanRoot := evidenceRoot
 	// 收集证据树中的所有 result.json；caseId 取目录名，target/display 取内容。
 	byCase := map[string][]evidenceFile{}
-	walkErr := filepath.Walk(evidenceRoot, func(p string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(scanRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -426,6 +431,12 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 			return nil
 		}
 		dir := filepath.Dir(p)
+		// 只认本 gate 的证据：证据根里可能同时有 G0/G2（同一个 case 属于两个 gate 时
+		// 会有两份不同 gateId 的 result.json）。混在一起会被当成"重复证据"互相判死，
+		// 结果是"跑得越全、gate 越红"。目录里出现已知 gate 段时按它过滤。
+		if owner := gateSegment(dir, evidenceRoot); owner != "" && owner != gateID {
+			return nil
+		}
 		caseID := filepath.Base(dir)
 		byCase[caseID] = append(byCase[caseID], evidenceFile{GateEvidence: ev, dir: dir})
 		return nil
@@ -886,6 +897,23 @@ func evidenceTreeSymlink(dir string) string {
 		return nil
 	})
 	return found
+}
+
+// gateSegment 返回证据目录里第一个"已知 gate"段（相对证据根），没有则返回空。
+//
+// 证据布局是 <root>/<rev>/<gate>/<target>[/<display>]/<case>，但调用方也可能直接
+// 指向某个 gate 目录；按段匹配比按固定层数匹配更稳。
+func gateSegment(dir, root string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		rel = dir
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if contains(KnownGates, seg) {
+			return seg
+		}
+	}
+	return ""
 }
 
 // evidenceAllSkippedOrEmpty 判断报告是否为空或全部 SKIP。
