@@ -406,7 +406,11 @@ func TestIndexStoresLocatorsNotContent(t *testing.T) {
 	// 本包要守的事实是"history 不建表"：任何不来自迁移脚本的表都会失败。
 	allowed := migrationTables(t)
 	for _, name := range tables {
-		if !allowed[name] && !strings.HasPrefix(name, "memory_fts_") {
+		// FTS5 虚拟表会额外建影子表（<虚拟表>_data/_idx/_content/_docsize/_config）：
+		// 它们由 SQLite 自己建、不来自 DDL，属于迁移里声明的那张虚拟表。
+		// 006 的 search_fts 与 001 的 memory_fts 同一性质，所以按前缀放行，
+		// 而"虚拟表本身必须在迁移目录里"这条约束不变。
+		if !allowed[name] && !strings.HasPrefix(name, "memory_fts_") && !strings.HasPrefix(name, "search_fts_") {
 			t.Fatalf("history 包不得新增表 %q（无新迁移号）：现有 %v", name, tables)
 		}
 	}

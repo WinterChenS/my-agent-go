@@ -1,46 +1,51 @@
-// 顶层装配：加载后端数据、订阅事件、把视图接进三栏外壳。
+// 顶层装配：加载后端数据、订阅事件、把路由渲染进壳层。
 //
 // 这里只做"接线"，不做业务判断：谁能运行由后端判定（工作区信任、profile 引用），
 // 前端不复制一份规则——两份规则迟早会不一致，而不一致的那一份会悄悄放行。
+//
+// U01 起外壳换成规格 §5.1 的形态：左侧栏是导航 + 历史会话 + Pi 状态/工作区，
+// 顶栏中间是全局搜索。页面由 navigation.ts 的静态目录决定，App 只负责把
+// "当前后端快照 + 动作"放进 ShellProvider。
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { api, onRunEvent } from "../api";
 import { initialState, reduce } from "../runState";
 import type { ApprovalChoice, ApprovalItem, CallError, Settings } from "../types";
+import { t } from "../i18n";
+import { StatusBadge } from "../components/status/StatusBadge";
+import { historyApi } from "../features/history/api";
+import { HistorySidebar } from "../features/history/HistorySidebar";
+import { GlobalSearch } from "../features/search/GlobalSearch";
 import { Layout } from "./Layout";
-import { RouterProvider, useRouter, type ViewId } from "./Router";
+import { RouterProvider, useRouter } from "./Router";
+import { ShellProvider, type ShellValue } from "./shell";
 import { toCallError, useBackend } from "./useBackend";
-import { Sidebar } from "../features/workspaces/Sidebar";
-import { WorkbenchView } from "../features/workbench/WorkbenchView";
-import { ResourcesView } from "../features/resources/ResourcesView";
-import { MemoryView } from "../features/memory/MemoryView";
-import { RunsView } from "../features/runs/RunsView";
-import { SettingsView } from "../features/settings/SettingsView";
 import { DetailPanel } from "./DetailPanel";
 
-const PHASE_META: Record<string, { label: string; tone: string }> = {
-  idle: { label: "空闲", tone: "bg-slate-500" },
-  queued: { label: "排队中", tone: "bg-amber-400" },
-  starting: { label: "启动中", tone: "bg-sky-400" },
-  running: { label: "运行中", tone: "bg-emerald-400" },
-  waiting_approval: { label: "等待授权", tone: "bg-amber-400" },
-  stopping: { label: "停止中", tone: "bg-orange-400" },
-  completed: { label: "已完成", tone: "bg-emerald-400" },
-  failed: { label: "失败", tone: "bg-rose-400" },
-  cancelled: { label: "已取消", tone: "bg-slate-400" },
-  interrupted: { label: "已中断", tone: "bg-rose-400" },
+/** run 阶段的状态点颜色；文案来自 catalog 的 status.*。 */
+const PHASE_TONE: Record<string, string> = {
+  idle: "bg-[color:var(--anvil-muted)]",
+  queued: "bg-[color:var(--anvil-warning)]",
+  starting: "bg-[color:var(--anvil-accent)]",
+  running: "bg-[color:var(--anvil-success)]",
+  waiting_approval: "bg-[color:var(--anvil-warning)]",
+  stopping: "bg-[color:var(--anvil-warning)]",
+  completed: "bg-[color:var(--anvil-success)]",
+  failed: "bg-[color:var(--anvil-danger)]",
+  cancelled: "bg-[color:var(--anvil-muted)]",
+  interrupted: "bg-[color:var(--anvil-danger)]",
 };
 
-export default function App() {
+export default function App({ initialPath }: { initialPath?: string } = {}) {
   return (
-    <RouterProvider>
+    <RouterProvider initialPath={initialPath}>
       <Shell />
     </RouterProvider>
   );
 }
 
 function Shell() {
-  const { state: router, dispatch: navigate } = useRouter();
+  const { match, navigate } = useRouter();
   const backend = useBackend();
 
   const [ui, runDispatch] = useReducer(reduce, initialState);
@@ -48,6 +53,7 @@ function Shell() {
   const [rightOpen, setRightOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [actionError, setActionError] = useState<CallError | null>(null);
+  const [workspaceFilter, setWorkspaceFilter] = useState("");
 
   // 事件订阅。所有会话状态都由事件推进，调用返回值只用于拿到 runId。
   useEffect(() => onRunEvent((ev) => runDispatch({ kind: "event", ev })), []);
@@ -89,7 +95,7 @@ function Shell() {
       // 因为"工作区未信任"和"Pi 不存在"需要的下一步动作完全不同。
       runDispatch({ kind: "run_start_failed", message: `${ce.code}: ${ce.message}` });
     }
-  }, [input, busy, backend.refreshStatus]);
+  }, [input, busy, backend]);
 
   const stop = useCallback(async () => {
     if (!ui.runId) return;
@@ -160,119 +166,135 @@ function Shell() {
     [backend]
   );
 
-  const go = useCallback((view: ViewId) => navigate({ kind: "go", view }), [navigate]);
-
-  const phaseMeta = useMemo(() => PHASE_META[ui.phase] ?? PHASE_META.idle, [ui.phase]);
-
-  const main = useMemo(() => {
-    switch (router.view) {
-      case "resources":
-        return (
-          <ResourcesView
-            profiles={backend.profiles}
-            workspaceId={backend.currentWorkspace?.id ?? ""}
-            models={backend.models}
-            modelOptions={backend.modelOptions}
-            modelRevision={backend.modelRevision}
-            currentModel={backend.currentModel}
-            skills={backend.skills}
-            skillRevision={backend.skillRevision}
-            skillsPending={backend.skillsPending}
-            skillsActiveRun={backend.skillsActiveRun}
-            runtimeSkills={backend.status?.runtimeSkills ?? []}
-            extensions={backend.extensions}
-            extensionRevision={backend.extensionRevision}
-            onChanged={() => void backend.refreshProfiles()}
-            onModelsChanged={() => void backend.refreshModels()}
-            onSkillsChanged={() => void backend.refreshSkills()}
-          />
-        );
-      case "memory":
-        return <MemoryView />;
-      case "runs":
-        return <RunsView ui={ui} workspace={backend.currentWorkspace} />;
-      case "settings":
-        return backend.settings ? (
-          <SettingsView
-            settings={backend.settings}
-            status={backend.status}
-            workspaces={backend.workspaces}
-            saving={savingSettings}
-            error={actionError}
-            onSave={saveSettings}
-            onTrust={trustWorkspace}
-          />
-        ) : (
-          <div className="mx-auto max-w-3xl px-4 py-5 text-xs text-slate-500" role="status">
-            {backend.loading ? "正在读取设置…" : (backend.error?.message ?? "设置不可用")}
-          </div>
-        );
-      case "workbench":
-      default:
-        return (
-          <WorkbenchView
-            ui={ui}
-            input={input}
-            onInput={setInput}
-            onSend={() => void send()}
-            onStop={() => void stop()}
-            onDecide={(item, choice) => void decide(item, choice)}
-            busy={busy}
-            workspace={backend.currentWorkspace}
-            onGoSettings={() => go("settings")}
-          />
-        );
+  /** 新建一个普通会话并跳到它。失败时把结构化错误留在界面上。 */
+  const newSession = useCallback(async () => {
+    const res = await historyApi.create(backend.currentWorkspace?.id ?? "");
+    if (res.error || !res.item) {
+      setActionError(
+        res.error ?? { code: "INTERNAL_ERROR", message: t("errors.INTERNAL_ERROR"), retryable: true }
+      );
+      return;
     }
-  }, [
-    router.view,
-    backend,
-    ui,
-    input,
-    busy,
-    actionError,
-    savingSettings,
-    send,
-    stop,
-    decide,
-    go,
-    saveSettings,
-    trustWorkspace,
-  ]);
+    setActionError(null);
+    navigate(`/chat/${res.item.id}`);
+  }, [backend.currentWorkspace, navigate]);
+
+  const shellValue = useMemo<ShellValue>(
+    () => ({
+      backend,
+      status: backend.status,
+      settings: backend.settings,
+      workspaces: backend.workspaces,
+      currentWorkspace: backend.currentWorkspace,
+      profiles: backend.profiles,
+      models: backend.models,
+      modelOptions: backend.modelOptions,
+      modelRevision: backend.modelRevision,
+      currentModel: backend.currentModel,
+      skills: backend.skills,
+      skillRevision: backend.skillRevision,
+      skillsPending: backend.skillsPending,
+      skillsActiveRun: backend.skillsActiveRun,
+      extensions: backend.extensions,
+      extensionRevision: backend.extensionRevision,
+      ui,
+      input,
+      onInput: setInput,
+      onSend: () => void send(),
+      onStop: () => void stop(),
+      onDecide: (item, choice) => void decide(item, choice),
+      busy,
+      savingSettings,
+      actionError,
+      saveSettings,
+      trustWorkspace,
+      addWorkspace,
+      refreshProfiles: () => void backend.refreshProfiles(),
+      refreshModels: () => void backend.refreshModels(),
+      refreshSkills: () => void backend.refreshSkills(),
+      onNewSession: newSession,
+    }),
+    [
+      backend,
+      ui,
+      input,
+      busy,
+      savingSettings,
+      actionError,
+      saveSettings,
+      trustWorkspace,
+      addWorkspace,
+      send,
+      stop,
+      decide,
+      newSession,
+    ]
+  );
+
+  const phaseLabel = useMemo(() => {
+    if (ui.phase === "idle" && !busy) return null;
+    return {
+      label: t(`status.${ui.phase}`),
+      tone: PHASE_TONE[ui.phase] ?? PHASE_TONE["idle"],
+    };
+  }, [ui.phase, busy]);
+
+  const Page = match.spec.component;
+  const piVersion = backend.status?.piVersion ?? "";
+  const workspace = backend.currentWorkspace;
 
   return (
-    <Layout
-      status={backend.status}
-      view={router.view}
-      onNavigate={go}
-      rightOpen={rightOpen}
-      onToggleRight={() => setRightOpen((v) => !v)}
-      phaseLabel={ui.phase === "idle" && !busy ? null : phaseMeta}
-      left={
-        <Sidebar
-          workspaces={backend.workspaces}
-          currentId={backend.currentWorkspace?.id ?? null}
-          onSelect={(id) => {
-            const ws = backend.workspaces.find((w) => w.id === id);
-            if (!ws || !backend.settings) return;
-            void saveSettings({ ...backend.settings, workspace: ws.canonicalPath });
-          }}
-          onAdd={addWorkspace}
-          onTrust={trustWorkspace}
-          loading={backend.loading}
-          error={backend.error}
-        />
-      }
-      right={
-        <DetailPanel
-          ui={ui}
-          status={backend.status}
-          workspace={backend.currentWorkspace}
-          phaseMeta={phaseMeta}
-          onGoRuns={() => go("runs")}
-        />
-      }
-    >
-      {main}
-    </Layout>
+    <ShellProvider value={shellValue}>
+      <Layout
+        status={backend.status}
+        current={match.spec.id}
+        onNavigate={navigate}
+        search={<GlobalSearch onNavigate={navigate} />}
+        history={
+          <HistorySidebar
+            workspaces={backend.workspaces}
+            workspaceFilter={workspaceFilter}
+            onFilterChange={setWorkspaceFilter}
+            activeSessionId={match.params.id ?? null}
+            onOpenSession={(id) => navigate(`/chat/${id}`)}
+            onNewSession={() => void newSession()}
+          />
+        }
+        footer={
+          <div className="space-y-0.5 text-[11px] text-[color:var(--anvil-muted)]">
+            <div className="flex items-center gap-1.5">
+              <span>{t("shell.piStatus")}</span>
+              {piVersion ? (
+                <span className="font-mono text-[10px] text-[color:var(--anvil-foreground)]">{piVersion}</span>
+              ) : (
+                <>
+                  <StatusBadge status="unavailable" />
+                  <span className="truncate">{t("shell.piMissing")}</span>
+                </>
+              )}
+            </div>
+            <div className="truncate" title={workspace?.canonicalPath ?? ""}>
+              {t("shell.workspaceLabel")}
+              {" · "}
+              {workspace?.name ?? t("shell.noWorkspace")}
+            </div>
+          </div>
+        }
+        rightOpen={rightOpen}
+        onToggleRight={() => setRightOpen((v) => !v)}
+        phaseLabel={phaseLabel}
+        right={
+          <DetailPanel
+            ui={ui}
+            status={backend.status}
+            workspace={backend.currentWorkspace}
+            phaseMeta={phaseLabel ?? { label: t("status.idle"), tone: PHASE_TONE["idle"] }}
+            onGoRuns={() => navigate("/runs")}
+          />
+        }
+      >
+        <Page onNavigate={navigate} route={match} />
+      </Layout>
+    </ShellProvider>
   );
 }
