@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -119,6 +120,9 @@ func TestCASRejectsExternalEdit(t *testing.T) {
 	if string(after) != string(tampered) {
 		t.Fatalf("冲突路径不得覆盖源文件；期望保持篡改内容不变")
 	}
+
+	// CFG02 的外部观察：冲突之后源文件在磁盘上到底是什么（哈希/revision）。
+	observeConfigTree(t, s.Root(), map[string]any{"conflictLeftSourceUntouched": true})
 }
 
 // TestCASRejectsInvalidBody 覆盖 schemaVersion 纪律：非法 body 不落盘。
@@ -182,6 +186,9 @@ func TestLoadRecoversFromInterruptedWrite(t *testing.T) {
 	if _, err := s.CompareAndSwap(ctx, KeyUser, 1, body(t, `{"schemaVersion":1,"permissions":{"filesystem":"workspace"}}`)); err != nil {
 		t.Fatalf("残留 .tmp 后 CAS 应可继续: %v", err)
 	}
+
+	// CFG04 的外部观察：断电残片与恢复后的有效配置都在磁盘上。
+	observeConfigTree(t, s.Root(), map[string]any{"recoveredFromTornWrite": true})
 }
 
 // TestMergePrecedenceAndDisableByID 覆盖 CFG01：五层优先级、数组按 ID 整项覆盖、
@@ -356,6 +363,12 @@ func TestCompileIsolatesAgentDir(t *testing.T) {
 	if filepath.Dir(eff.AgentDir) != filepath.Join(s.Root(), "agents") {
 		t.Fatalf("agentDir 目录层级错误: %q", eff.AgentDir)
 	}
+
+	// CFG04 的外部观察：伪造 HOME 与配置根的磁盘事实。
+	observeHomeTree(t, fakeHome, map[string]any{
+		"agentDirUnderConfigRoot": strings.HasPrefix(filepath.ToSlash(eff.AgentDir), filepath.ToSlash(s.Root())),
+	})
+	observeConfigTree(t, s.Root(), map[string]any{"compiledWorkspace": "ws/1"})
 }
 
 // TestCompileSessionOverridesWins 覆盖会话覆盖层：优先级最高，且不落盘。

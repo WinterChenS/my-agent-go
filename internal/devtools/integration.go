@@ -102,6 +102,7 @@ func integrationCases() []integrationCase {
 	runTests := "internal/run"
 	historyTests := "internal/history"
 	storageTests := "internal/storage"
+	configTests := "internal/config"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -356,6 +357,18 @@ func integrationCases() []integrationCase {
 			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
+
+		// ── 配置（F07，G2）──
+		// CFG02：CAS 冲突不得覆盖源文件。观察值是配置存储根目录的真实遍历
+		// （文件名/字节数/sha256/磁盘上的 revision），不是被测函数的返回值。
+		// CFG01 未接：五层合并是纯函数，边界外没有任何落盘产物；要为它造外部
+		// 观察只能改产品行为（把有效配置写盘）或复制合并逻辑（自证）。
+		{ID: "CFG02", Package: configTests, Run: "TestCASRejectsExternalEdit|TestCASRejectsInvalidBody",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"config-tree.json"}}},
+		// CFG04：断电残片的恢复与独立 agentDir。两份 artifact：配置根的磁盘事实
+		// 与伪造用户 HOME 的遍历结果（编译不得在 HOME 下创建 .pi）。
+		{ID: "CFG04", Package: configTests, Run: "TestLoadRecoversFromInterruptedWrite|TestCompileIsolatesAgentDir",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"config-tree.json", "home-tree.json"}}},
 
 		// ── 存储（F07，G2）──
 		// 观察值来自**库文件本身**（source: database）：db-schema.json 由第二个
