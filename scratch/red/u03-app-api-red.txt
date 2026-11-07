@@ -1,0 +1,14 @@
+# my-agent-go/internal/app [my-agent-go/internal/app.test]
+internal\app\profile_api_test.go:130:25: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:137:14: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:142:13: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:189:11: d.DuplicateAgentProfile undefined (type *Desktop has no field or method DuplicateAgentProfile)
+internal\app\profile_api_test.go:227:13: d.DuplicateAgentProfile undefined (type *Desktop has no field or method DuplicateAgentProfile)
+internal\app\profile_api_test.go:239:25: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:242:16: d.DeleteAgentProfile undefined (type *Desktop has no field or method DeleteAgentProfile)
+internal\app\profile_api_test.go:247:14: d.DeleteAgentProfile undefined (type *Desktop has no field or method DeleteAgentProfile)
+internal\app\profile_api_test.go:275:14: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:292:11: d.SaveAgentProfile undefined (type *Desktop has no field or method SaveAgentProfile)
+internal\app\profile_api_test.go:292:11: too many errors
+FAIL	my-agent-go/internal/app [build failed]
+FAIL
