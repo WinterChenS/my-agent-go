@@ -1,0 +1,1186 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/project/anvil-wt/w01/frontend[39m
+
+[90mstderr[2m | src/features/chat/ChatPage.test.tsx
+[22m[39m
+⚠️ Browser Environment Detected 
+
+Only UI previews are available in the browser. For full functionality, please run the application in desktop mode.
+More information at: https://v3.wails.io/learn/build/#using-a-browser-for-development
+
+
+ [31m❯[39m src/features/chat/ChatPage.test.tsx [2m([22m[2m14 tests[22m[2m | [22m[31m4 failed[39m[2m | [22m[33m10 skipped[39m[2m)[22m[33m 4234[2mms[22m[39m
+[31m   [31m×[31m ChatPage 右栏浏览器面板[2m > [22m浏览器分区挂的是真实面板，tabs 与控制态来自 BrowserState 绑定[33m 1097[2mms[22m[31m[39m
+[31m     → expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body>[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex h-full min-h-0"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[31m
+        [36m>[31m
+          [36m<header[31m
+            [33mclass[31m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-2"[31m
+            [36m>[31m
+              [36m<h1[31m
+                [33mclass[31m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[31m
+                [33mdata-session-title[31m=[32m""[31m
+              [36m>[31m
+                [0m验收会话[0m
+              [36m</h1>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0mPi 状态[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[31m
+                [33mdata-status[31m=[32m"running"[31m
+                [33mdata-tone[31m=[32m"info"[31m
+                [33mrole[31m=[32m"status"[31m
+              [36m>[31m
+                [0m运行中[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[31m
+            [36m</div>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-1.5"[31m
+            [36m>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重命名[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m置顶[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m归档[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m删除[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重新同步事件[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33maria-pressed[31m=[32m"true"[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m收起上下文[0m
+              [36m</button>[31m
+            [36m</div>[31m
+          [36m</header>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"space-y-3"[31m
+              [33mdata-message-list[31m=[32m""[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"space-y-2"[31m
+                [33mdata-message-role[31m=[32m"user"[31m
+                [33mdata-run-id[31m=[32m"run-1"[31m
+              [36m>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+                [36m>[31m
+                  [0m你[0m
+                [36m</p>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[31m
+                  [33mdata-message-text[31m=[32m""[31m
+                [36m>[31m
+                  [0m看看这个仓库[0m
+                [36m</p>[31m
+              [36m</div>[31m
+             ...[39m
+[31m   [31m×[31m ChatPage 右栏浏览器面板[2m > [22m没有原生宿主时如实显示 unavailable 与原因，不画假标签页[33m 1036[2mms[22m[31m[39m
+[31m     → expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body>[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex h-full min-h-0"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[31m
+        [36m>[31m
+          [36m<header[31m
+            [33mclass[31m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-2"[31m
+            [36m>[31m
+              [36m<h1[31m
+                [33mclass[31m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[31m
+                [33mdata-session-title[31m=[32m""[31m
+              [36m>[31m
+                [0m验收会话[0m
+              [36m</h1>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0mPi 状态[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[31m
+                [33mdata-status[31m=[32m"running"[31m
+                [33mdata-tone[31m=[32m"info"[31m
+                [33mrole[31m=[32m"status"[31m
+              [36m>[31m
+                [0m运行中[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[31m
+            [36m</div>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-1.5"[31m
+            [36m>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重命名[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m置顶[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m归档[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m删除[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重新同步事件[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33maria-pressed[31m=[32m"true"[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m收起上下文[0m
+              [36m</button>[31m
+            [36m</div>[31m
+          [36m</header>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"space-y-3"[31m
+              [33mdata-message-list[31m=[32m""[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"space-y-2"[31m
+                [33mdata-message-role[31m=[32m"user"[31m
+                [33mdata-run-id[31m=[32m"run-1"[31m
+              [36m>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+                [36m>[31m
+                  [0m你[0m
+                [36m</p>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[31m
+                  [33mdata-message-text[31m=[32m""[31m
+                [36m>[31m
+                  [0m看看这个仓库[0m
+                [36m</p>[31m
+              [36m</div>[31m
+             ...[39m
+[31m   [31m×[31m ChatPage 右栏浏览器面板[2m > [22m窄窗抽屉开关只改布局：面板与原生槽位节点不重建[33m 1037[2mms[22m[31m[39m
+[31m     → expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body>[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex h-full min-h-0"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[31m
+        [36m>[31m
+          [36m<header[31m
+            [33mclass[31m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-2"[31m
+            [36m>[31m
+              [36m<h1[31m
+                [33mclass[31m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[31m
+                [33mdata-session-title[31m=[32m""[31m
+              [36m>[31m
+                [0m验收会话[0m
+              [36m</h1>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0mPi 状态[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[31m
+                [33mdata-status[31m=[32m"running"[31m
+                [33mdata-tone[31m=[32m"info"[31m
+                [33mrole[31m=[32m"status"[31m
+              [36m>[31m
+                [0m运行中[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[31m
+            [36m</div>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-1.5"[31m
+            [36m>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重命名[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m置顶[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m归档[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m删除[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重新同步事件[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33maria-pressed[31m=[32m"false"[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m展开上下文[0m
+              [36m</button>[31m
+            [36m</div>[31m
+          [36m</header>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"space-y-3"[31m
+              [33mdata-message-list[31m=[32m""[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"space-y-2"[31m
+                [33mdata-message-role[31m=[32m"user"[31m
+                [33mdata-run-id[31m=[32m"run-1"[31m
+              [36m>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+                [36m>[31m
+                  [0m你[0m
+                [36m</p>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[31m
+                  [33mdata-message-text[31m=[32m""[31m
+                [36m>[31m
+                  [0m看看这个仓库[0m
+                [36m</p>[31m
+              [36m</div>[31m
+            ...[39m
+[31m   [31m×[31m ChatPage 右栏浏览器面板[2m > [22m审批卡与澄清卡挂载时登记遮挡层，消失后释放[33m 1063[2mms[22m[31m[39m
+[31m     → expected [] to deep equally contain { source: 'approval-card', open: true }
+
+Ignored nodes: comments, script, style
+[36m<html>[31m
+  [36m<head />[31m
+  [36m<body>[31m
+    [36m<div>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"flex h-full min-h-0"[31m
+      [36m>[31m
+        [36m<div[31m
+          [33mclass[31m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[31m
+        [36m>[31m
+          [36m<header[31m
+            [33mclass[31m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-2"[31m
+            [36m>[31m
+              [36m<h1[31m
+                [33mclass[31m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[31m
+                [33mdata-session-title[31m=[32m""[31m
+              [36m>[31m
+                [0m验收会话[0m
+              [36m</h1>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0mPi 状态[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[31m
+                [33mdata-status[31m=[32m"running"[31m
+                [33mdata-tone[31m=[32m"info"[31m
+                [33mrole[31m=[32m"status"[31m
+              [36m>[31m
+                [0m运行中[0m
+              [36m</span>[31m
+              [36m<span[31m
+                [33mclass[31m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[31m
+              [36m>[31m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[31m
+            [36m</div>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"flex flex-wrap items-center gap-1.5"[31m
+            [36m>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重命名[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m置顶[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m归档[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m删除[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m重新同步事件[0m
+              [36m</button>[31m
+              [36m<button[31m
+                [33maria-pressed[31m=[32m"true"[31m
+                [33mclass[31m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[31m
+                [33mtype[31m=[32m"button"[31m
+              [36m>[31m
+                [0m收起上下文[0m
+              [36m</button>[31m
+            [36m</div>[31m
+          [36m</header>[31m
+          [36m<div[31m
+            [33mclass[31m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[31m
+          [36m>[31m
+            [36m<div[31m
+              [33mclass[31m=[32m"space-y-3"[31m
+              [33mdata-message-list[31m=[32m""[31m
+            [36m>[31m
+              [36m<div[31m
+                [33mclass[31m=[32m"space-y-2"[31m
+                [33mdata-message-role[31m=[32m"user"[31m
+                [33mdata-run-id[31m=[32m"run-1"[31m
+              [36m>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[31m
+                [36m>[31m
+                  [0m你[0m
+                [36m</p>[31m
+                [36m<p[31m
+                  [33mclass[31m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[31m
+                  [33mdata-message-text[31m=[32m""[31m
+                [36m>[31m
+                  [0m看看这个仓库[0m
+                [36m</p>[31m
+              [36m</div>[31m
+             ...[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 4 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/chat/ChatPage.test.tsx[2m > [22mChatPage 右栏浏览器面板[2m > [22m浏览器分区挂的是真实面板，tabs 与控制态来自 BrowserState 绑定
+[31m[1mAssertionError[22m[39m: expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex h-full min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+            [36m>[39m
+              [36m<h1[39m
+                [33mclass[39m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[39m
+                [33mdata-session-title[39m=[32m""[39m
+              [36m>[39m
+                [0m验收会话[0m
+              [36m</h1>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0mPi 状态[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[39m
+                [33mdata-status[39m=[32m"running"[39m
+                [33mdata-tone[39m=[32m"info"[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0m运行中[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-1.5"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重命名[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m置顶[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m归档[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m删除[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重新同步事件[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m收起上下文[0m
+              [36m</button>[39m
+            [36m</div>[39m
+          [36m</header>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-3"[39m
+              [33mdata-message-list[39m=[32m""[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+                [33mdata-message-role[39m=[32m"user"[39m
+                [33mdata-run-id[39m=[32m"run-1"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+                [36m>[39m
+                  [0m你[0m
+                [36m</p>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[39m
+                  [33mdata-message-text[39m=[32m""[39m
+                [36m>[39m
+                  [0m看看这个仓库[0m
+                [36m</p>[39m
+              [36m</div>[39m
+             ...
+[36m [2m❯[22m src/features/chat/ChatPage.test.tsx:[2m533:99[22m[39m
+    [90m531| [39m    [90m// 挂载路径：聊天页 → 上下文面板的浏览器分区 → BrowserPanel。[39m
+    [90m532| [39m    [35mawait[39m [34mwaitFor[39m(() [33m=>[39m
+    [90m533| [39m      [34mexpect[39m(document[33m.[39m[34mquerySelector[39m([32m"[data-context-section='browser'] [39m…
+    [90m   | [39m                                                                                                  [31m^[39m
+    [90m534| [39m    )[33m;[39m
+    [90m535| [39m    [90m// 旧的“没有浏览器状态接口”占位不再出现在聊天页上。[39m
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/chat/ChatPage.test.tsx[2m > [22mChatPage 右栏浏览器面板[2m > [22m没有原生宿主时如实显示 unavailable 与原因，不画假标签页
+[31m[1mAssertionError[22m[39m: expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex h-full min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+            [36m>[39m
+              [36m<h1[39m
+                [33mclass[39m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[39m
+                [33mdata-session-title[39m=[32m""[39m
+              [36m>[39m
+                [0m验收会话[0m
+              [36m</h1>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0mPi 状态[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[39m
+                [33mdata-status[39m=[32m"running"[39m
+                [33mdata-tone[39m=[32m"info"[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0m运行中[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-1.5"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重命名[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m置顶[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m归档[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m删除[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重新同步事件[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m收起上下文[0m
+              [36m</button>[39m
+            [36m</div>[39m
+          [36m</header>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-3"[39m
+              [33mdata-message-list[39m=[32m""[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+                [33mdata-message-role[39m=[32m"user"[39m
+                [33mdata-run-id[39m=[32m"run-1"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+                [36m>[39m
+                  [0m你[0m
+                [36m</p>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[39m
+                  [33mdata-message-text[39m=[32m""[39m
+                [36m>[39m
+                  [0m看看这个仓库[0m
+                [36m</p>[39m
+              [36m</div>[39m
+             ...
+[36m [2m❯[22m src/features/chat/ChatPage.test.tsx:[2m577:24[22m[39m
+    [90m575| [39m    [35mconst[39m slot [33m=[39m [35mawait[39m [34mwaitFor[39m(() [33m=>[39m {
+    [90m576| [39m      [35mconst[39m node [33m=[39m document[33m.[39m[34mquerySelector[39m([32m"[data-browser-slot]"[39m) [35mas[39m [33mHT[39m…
+    [90m577| [39m      [34mexpect[39m(node)[33m.[39mnot[33m.[39m[34mtoBeNull[39m()[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m578| [39m      [35mreturn[39m node[33m;[39m
+    [90m579| [39m    })[33m;[39m
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/chat/ChatPage.test.tsx[2m > [22mChatPage 右栏浏览器面板[2m > [22m窄窗抽屉开关只改布局：面板与原生槽位节点不重建
+[31m[1mAssertionError[22m[39m: expected null not to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex h-full min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+            [36m>[39m
+              [36m<h1[39m
+                [33mclass[39m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[39m
+                [33mdata-session-title[39m=[32m""[39m
+              [36m>[39m
+                [0m验收会话[0m
+              [36m</h1>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0mPi 状态[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[39m
+                [33mdata-status[39m=[32m"running"[39m
+                [33mdata-tone[39m=[32m"info"[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0m运行中[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-1.5"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重命名[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m置顶[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m归档[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m删除[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重新同步事件[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m展开上下文[0m
+              [36m</button>[39m
+            [36m</div>[39m
+          [36m</header>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-3"[39m
+              [33mdata-message-list[39m=[32m""[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+                [33mdata-message-role[39m=[32m"user"[39m
+                [33mdata-run-id[39m=[32m"run-1"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+                [36m>[39m
+                  [0m你[0m
+                [36m</p>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[39m
+                  [33mdata-message-text[39m=[32m""[39m
+                [36m>[39m
+                  [0m看看这个仓库[0m
+                [36m</p>[39m
+              [36m</div>[39m
+            ...
+[36m [2m❯[22m src/features/chat/ChatPage.test.tsx:[2m595:83[22m[39m
+    [90m593| [39m    [34mrenderPage[39m([34mstateFrom[39m([]))[33m;[39m
+    [90m594| [39m
+    [90m595| [39m    [35mawait[39m [34mwaitFor[39m(() [33m=>[39m [34mexpect[39m(document[33m.[39m[34mquerySelector[39m([32m"[data-browser-s[39m…
+    [90m   | [39m                                                                                  [31m^[39m
+    [90m596| [39m    [90m// 进入窄窗时面板默认收起：收起是隐藏，不是卸载。[39m
+    [90m597| [39m    [35mconst[39m panel [33m=[39m document[33m.[39m[34mquerySelector[39m([32m"[data-context-panel]"[39m) [35mas[39m [33mHT[39m…
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/features/chat/ChatPage.test.tsx[2m > [22mChatPage 右栏浏览器面板[2m > [22m审批卡与澄清卡挂载时登记遮挡层，消失后释放
+[31m[1mAssertionError[22m[39m: expected [] to deep equally contain { source: 'approval-card', open: true }
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex h-full min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-h-0 min-w-0 flex-1 flex-col"[39m
+        [36m>[39m
+          [36m<header[39m
+            [33mclass[39m=[32m"shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+            [36m>[39m
+              [36m<h1[39m
+                [33mclass[39m=[32m"min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]"[39m
+                [33mdata-session-title[39m=[32m""[39m
+              [36m>[39m
+                [0m验收会话[0m
+              [36m</h1>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0mPi 状态[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] text-[color:var(--anvil-accent)]"[39m
+                [33mdata-status[39m=[32m"running"[39m
+                [33mdata-tone[39m=[32m"info"[39m
+                [33mrole[39m=[32m"status"[39m
+              [36m>[39m
+                [0m运行中[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]"[39m
+              [36m>[39m
+                [0m会话 ID[0m
+                [0m · [0m
+                [0msess-1[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-1.5"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重命名[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m置顶[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m归档[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m删除[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mHTML[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mMarkdown[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m导出[0m
+                [0m · [0m
+                [0mJSON[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m重新同步事件[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m收起上下文[0m
+              [36m</button>[39m
+            [36m</div>[39m
+          [36m</header>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"min-h-0 flex-1 overflow-y-auto px-3 py-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-3"[39m
+              [33mdata-message-list[39m=[32m""[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+                [33mdata-message-role[39m=[32m"user"[39m
+                [33mdata-run-id[39m=[32m"run-1"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"[39m
+                [36m>[39m
+                  [0m你[0m
+                [36m</p>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[color:var(--anvil-foreground)]"[39m
+                  [33mdata-message-text[39m=[32m""[39m
+                [36m>[39m
+                  [0m看看这个仓库[0m
+                [36m</p>[39m
+              [36m</div>[39m
+             ...
+
+[32m- Expected:[39m 
+Object {
+  "open": true,
+  "source": "approval-card",
+}
+
+[31m+ Received:[39m 
+Array []
+
+[36m [2m❯[22m src/features/chat/ChatPage.test.tsx:[2m656:22[22m[39m
+    [90m654| [39m    [90m// 两张卡都是盖在原生网页之上的应用浮层：各自按名字登记。[39m
+    [90m655| [39m    [35mawait[39m [34mwaitFor[39m(() [33m=>[39m {
+    [90m656| [39m      [34mexpect[39m(layers)[33m.[39m[34mtoContainEqual[39m({ source[33m:[39m [32m"approval-card"[39m[33m,[39m open[33m:[39m [35mt[39m…
+    [90m   | [39m                     [31m^[39m
+    [90m657| [39m      [34mexpect[39m(layers)[33m.[39m[34mtoContainEqual[39m({ source[33m:[39m [32m"clarification-card"[39m[33m,[39m op…
+    [90m658| [39m    })[33m;[39m
+[90m [2m❯[22m runWithExpensiveErrorDiagnosticsDisabled node_modules/@testing-library/dom/dist/config.js:[2m47:12[22m[39m
+[90m [2m❯[22m checkCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m124:77[22m[39m
+[90m [2m❯[22m Timeout.checkRealTimersCallback node_modules/@testing-library/dom/dist/wait-for.js:[2m118:16[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[33m10 skipped[39m[90m (14)[39m
+[2m   Start at [22m 00:47:27
+[2m   Duration [22m 6.04s[2m (transform 299ms, setup 268ms, collect 577ms, tests 4.23s, environment 639ms, prepare 115ms)[22m
+
