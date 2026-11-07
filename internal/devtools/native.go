@@ -329,7 +329,8 @@ func RunNativeForGate(target, display, gate string) int {
 		selected = append(selected, r)
 	}
 	if len(selected) == 0 {
-		fmt.Fprintf(os.Stderr, "target=%s display=%s 没有任何 G1 必需 case（索引缺失）\n", target, display)
+		fmt.Fprintf(os.Stderr, "target=%s display=%s 没有任何 %s 必需 case（索引缺失）", target, display, gate)
+		fmt.Fprintln(os.Stderr)
 		return 2
 	}
 
@@ -344,8 +345,8 @@ func RunNativeForGate(target, display, gate string) int {
 		missing = append(missing, r.CaseID)
 	}
 	if len(runnable) == 0 {
-		fmt.Fprintf(os.Stderr, "以下 G1 必需 case 在 target=%s display=%s 上没有 native runner：%s\n",
-			target, display, strings.Join(dedupe(missing), ", "))
+		fmt.Fprintf(os.Stderr, "以下 %s 必需 case 在 target=%s display=%s 上没有 native runner：%s", gate, target, display, strings.Join(dedupe(missing), ", "))
+		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "缺失 runner 属于配置缺失（退出 2），不是通过。")
 		return 2
 	}
@@ -372,11 +373,13 @@ func RunNativeForGate(target, display, gate string) int {
 		}
 	}
 
-	fmt.Printf("汇总: 可跑 %d / 必需 %d 条 G1 必需 case，失败 %d，阻塞 %d\n", len(runnable), len(selected), fails, blocks)
+	fmt.Printf("汇总: 可跑 %d / 必需 %d 条 %s 必需 case，失败 %d，阻塞 %d", len(runnable), len(selected), gate, fails, blocks)
+	fmt.Println()
 	if len(missing) > 0 {
-		fmt.Fprintf(os.Stderr, "以下 G1 必需 case 在 target=%s display=%s 上没有 native runner：%s\n",
-			target, display, strings.Join(dedupe(missing), ", "))
-		fmt.Fprintln(os.Stderr, "已跑的部分不等于 G1 通过；缺 runner 属于配置缺失。")
+		fmt.Fprintf(os.Stderr, "以下 %s 必需 case 在 target=%s display=%s 上没有 native runner：%s", gate, target, display, strings.Join(dedupe(missing), ", "))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintf(os.Stderr, "已跑的部分不等于 %s 通过；缺 runner 属于配置缺失。", gate)
+		fmt.Fprintln(os.Stderr)
 	}
 
 	if !dirty {
