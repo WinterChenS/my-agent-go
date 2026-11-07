@@ -193,3 +193,30 @@ ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条�
 5. **X01 E2E01–07**、**X03 打包**（`devtools package` 目前是占位）、**X04 迁移/更新/性能**、**F09 更新服务**、
    **X05 REL01–04**。
 6. **仍 BLOCKED**：签名预认证清单（无发行私钥）、托管包五目标 `sizeBytes`、真实 OAuth/连接器账号。
+
+## 9. 2026-11-07 第六波：U03 / U04+U05 合并；三项 gate 在新区间仍全绿
+
+- **U03 合并**（`be26494`）：单个 Agent/Profile 产品编辑器（列表、CAS 保存、冲突呈现、来源查询、复制只带引用、
+  删除按 revision 确认、上限越界结构化拒绝且不静默夹回）。**UI07 判 BLOCKED**（诚实）：`profile.Profile` 没有
+  Description/SystemPrompt/ReasoningLevel/ToolIDs，本轮禁改 `internal/profile`，所以这些字段在 UI 上标 `unavailable`；
+  且 UI07 是 NATIVE case，无真机证据。另一处已记录：旧 `Desktop.SaveProfile` 仍可写入越界值（随后被 Merge 静默收紧）。
+- **U04+U05 合并**（`27c2c76`）：资源库页面（Skill/Agent/MCP，导入/新建/启停/删除，逐项显示拒绝原因）+
+  **RES05 真实实现**（HTTPS only、大小/解压/文件数/重定向上限、public-destination-only 对每个 DNS answer/重定向/实际
+  peer 生效、拒 IANA special-purpose 段、不执行脚本、试运行用临时 agentDir + 最小只读策略并清理）+ 记忆页
+  （scope 过滤/开关不删除/导出/empty 与 unavailable 分开）。UI08/UI09 的 NATIVE 外部证据未产出（属 G3）。
+  合并时 locale 冲突用深合并解决（两边各加了一个顶层命名空间）。
+- **证据重跑**（HEAD `4f6af94`）：`G0`/`G1`/`G2` 三项 **passed=true exit 0**（31/31、7/7、69/69）。
+- 期间修掉 B04/BR10 的两处计时竞态（fixture 计数异步记账 → 有界轮询；可满足后置条件 10s→12s，仍在 15s 动作超时内）。
+- **环境敏感**（重要）：`tests/native` 是真实 WebView2 GUI 测试，**在整仓并行 `go test ./...` 时**会偶发
+  "counter 一直为 0 / 键盘输入未到达"（同一提交下单独跑 native 套件 7/7、3/3 全过）。取证必须**单独**跑
+  `verify --suite=native`，并确认没有残留 `msedgewebview2` 进程；不要把整仓并发跑的红当作产品回归。
+
+### 剩余（G3 及之后）
+
+1. **U06/U07**：观测页、主题/i18n 逐页迁移、品牌页（UI10–UI13、I18N/THEME/BRAND）。
+2. **产品接线**：`BrowserPanel` 挂进 `ChatPage`、`cmd/myagent/main.go` 调 `SetBrowserBridge`；UI07 需要的
+   `internal/profile` 字段扩展（Description/SystemPrompt/ReasoningLevel/ToolIDs）与 run 启动路径把 system prompt/思考级别
+   送进 Pi 请求。
+3. **CONN07/SCH06**（连接器页/调度页）、**RUN01/04/06.ui**（真实 Wails + Pi 端到端）。
+4. **X01 E2E01–07** → **X03 打包** → **X04 迁移/更新/性能** → **F09 更新服务** → **X05 REL01–04**。
+5. **BLOCKED**：签名预认证清单、托管包五目标 `sizeBytes`、真实 OAuth/连接器账号。
