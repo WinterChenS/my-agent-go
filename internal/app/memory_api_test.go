@@ -315,3 +315,76 @@ func TestHarnessToolsOmitMemoryWithoutWorkspace(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- U05：不可用与"关闭≠删除"
+
+// TestListMemoriesReportsUnavailableNotEmpty：库打不开时必须是 unavailable。
+//
+// 把 memory.db 变成一个目录即可让 Open 失败（真实故障形态之一：
+// 上次异常退出留下了坏文件/占位目录）。
+func TestListMemoriesReportsUnavailableNotEmpty(t *testing.T) {
+	d, root := memoryTestDesktop(t)
+	if err := os.MkdirAll(filepath.Join(root, "memory.db"), 0o755); err != nil {
+		t.Fatalf("制造坏库: %v", err)
+	}
+	res := d.ListMemories()
+	if res.Availability.Available {
+		t.Fatalf("库打不开时必须报不可用，实际 %+v", res.Availability)
+	}
+	if res.Availability.ReasonCode == "" {
+		t.Fatal("不可用必须带稳定原因码（界面据此取文案）")
+	}
+	if len(res.Items) != 0 {
+		t.Fatalf("不可用时不应编造条目: %+v", res.Items)
+	}
+}
+
+// TestMemoryScopeDisableKeepsItems 是"停用注入 ≠ 删除记忆"的绑定层断言。
+func TestMemoryScopeDisableKeepsItems(t *testing.T) {
+	d, _ := memoryTestDesktop(t)
+	saved := d.SaveMemory("提交信息用英文动词开头", memory.KindConvention, "workspace")
+	if saved.Error != nil {
+		t.Fatalf("保存失败: %+v", saved.Error)
+	}
+	disabled := d.SetMemoryScopeEnabled("workspace", false)
+	if disabled.Error != nil {
+		t.Fatalf("停用 scope 失败: %+v", disabled.Error)
+	}
+	if disabled.State.Enabled {
+		t.Fatal("停用后状态仍为启用")
+	}
+	list := d.ListMemories()
+	if !list.Availability.Available {
+		t.Fatalf("记忆应可用: %+v", list.Availability)
+	}
+	found := false
+	for _, it := range list.Items {
+		if it.ID == saved.Item.ID && it.Status == memory.StatusActive {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("停用 scope 不应删掉条目，实际 %+v", list.Items)
+	}
+	var workspaceEnabled *bool
+	for _, s := range list.Scopes {
+		if s.Scope == "workspace" {
+			v := s.Enabled
+			workspaceEnabled = &v
+		}
+	}
+	if workspaceEnabled == nil || *workspaceEnabled {
+		t.Fatalf("列表里的 scope 开关必须是停用状态: %+v", list.Scopes)
+	}
+
+	// 删除才是真的删除：之后列表里没有它。
+	if del := d.DeleteMemory(saved.Item.ID); del.Error != nil {
+		t.Fatalf("删除失败: %+v", del.Error)
+	}
+	after := d.ListMemories()
+	for _, it := range after.Items {
+		if it.ID == saved.Item.ID {
+			t.Fatalf("删除后条目仍在列表里: %+v", it)
+		}
+	}
+}

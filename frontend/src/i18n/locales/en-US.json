@@ -601,5 +601,76 @@
       "dryrun_approval_not_available": "This call needs human approval; a dry run has no approver, so it was denied",
       "unknown": "Unrecognized rejection ({detail})"
     }
+  },
+  "memory": {
+    "title": "Memory",
+    "subtitle": "Memory is a separate section: user scope spans projects, workspace scope belongs to the current project. Disabling a scope stops injection but keeps the entries; deleting only affects future runs, and already-sent messages cannot be recalled.",
+    "unavailableHint": "The memory store is unavailable ({code}). This is a failure, not an empty list. Retry after fixing it.",
+    "unavailableHintUnknown": "The memory store is unavailable. This is a failure, not an empty list.",
+    "scopeToggle": {
+      "title": "Injection switches",
+      "enabled": "Injecting",
+      "disabled": "Not injecting (entries kept)",
+      "enable": "Enable injection",
+      "disable": "Disable injection",
+      "hint": "Disabling only affects later retrieval and injection; no entry is deleted."
+    },
+    "scope": {
+      "user": "User",
+      "workspace": "Project"
+    },
+    "kind": {
+      "fact": "Fact",
+      "preference": "Preference",
+      "convention": "Convention",
+      "note": "Note"
+    },
+    "status": {
+      "active": "Active",
+      "candidate": "Candidate",
+      "deleted": "Deleted"
+    },
+    "searchLabel": "Search memory",
+    "searchPlaceholder": "At least 3 characters",
+    "search": "Search",
+    "searching": "Searching…",
+    "clearSearch": "Clear search",
+    "tooShort": "Enter at least {count} characters (fewer than {count} cannot be searched; this is not an empty result).",
+    "filterLabel": "Scope",
+    "filterAll": "All",
+    "activeCount": "{count} active",
+    "noResults": "No matching memories.",
+    "emptyTitle": "No memories yet",
+    "emptyHint": "Memories appear here after you save them; right now there are none.",
+    "notInjecting": "Not injecting (scope disabled)",
+    "candidateHint": "Candidate: joins injection only after confirmation",
+    "confirm": "Confirm",
+    "expired": "Expired",
+    "expires": "Expires",
+    "created": "Created",
+    "source": "Source session",
+    "sourceUnknown": "Not recorded",
+    "delete": "Delete",
+    "deleteConfirm": "Confirm delete",
+    "deleteHint": "Deleting only affects future injection; already-sent messages cannot be recalled.",
+    "export": "Export JSON",
+    "exporting": "Exporting…",
+    "exportTitle": "Local export ({count} entries, not uploaded)",
+    "new": {
+      "title": "Record a memory",
+      "contentLabel": "Memory content",
+      "contentPlaceholder": "For example: this project uses English commit messages starting with a verb",
+      "kindLabel": "Kind",
+      "scopeLabel": "Scope",
+      "save": "Save",
+      "saving": "Saving…"
+    },
+    "notice": {
+      "saved": "Saved.",
+      "deleted": "Deleted: future injection no longer includes it.",
+      "confirmed": "Confirmed",
+      "scopeEnabled": "Injection enabled for {scope}",
+      "scopeDisabled": "Injection disabled for {scope} (entries kept)"
+    }
   }
 }

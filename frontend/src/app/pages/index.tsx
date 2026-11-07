@@ -17,7 +17,6 @@ import { SkillsSection } from "../../features/skills/SkillsSection";
 import { ExtensionsSection } from "../../features/skills/ExtensionsSection";
 import { MCPSection } from "../../features/mcp/MCPSection";
 import { ToolsSection } from "../../features/tools/ToolsSection";
-import { MemoryView } from "../../features/memory/MemoryView";
 import { RunsView } from "../../features/runs/RunsView";
 import { SettingsView } from "../../features/settings/SettingsView";
 import { ProfileEditor } from "../../features/profiles/ProfileEditor";
@@ -32,6 +31,7 @@ import type { PageProps } from "../navigation";
 
 export { ChatPage } from "../../features/chat/ChatPage";
 export { LibraryPage } from "../../features/library/LibraryPage";
+export { MemoryPage } from "../../features/memory/MemoryPage";
 // ---------------------------------------------------------------- Agent
 
 /** Agent 页：单个 Profile 的产品化编辑（U03 会接管更完整的字段）。 */
@@ -134,11 +134,6 @@ export function MCPPage() {
       <ToolsSection />
     </div>
   );
-}
-
-/** 记忆：跨会话保留的上下文（C05）。 */
-export function MemoryPage() {
-  return <MemoryView />;
 }
 
 /** 运行记录：本次运行的事件序列（右栏"详情"的展开）。 */

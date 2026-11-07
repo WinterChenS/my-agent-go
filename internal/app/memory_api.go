@@ -27,11 +27,24 @@ type MemoryScopeState struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// MemoryListResult 是记忆列表 + scope 开关。
+// MemoryAvailability 说明记忆子系统本身是否可用。
+//
+// 它与 Error 是两件事：
+//   - Available=false 表示记忆读不出来（库打不开、迁移失败），界面必须显示
+//     "不可用 + 原因"，而不是"你没有记忆"；
+//   - Error 表示这一次操作失败了（比如没选工作区），界面给修复动作。
+type MemoryAvailability struct {
+	Available  bool   `json:"available"`
+	ReasonCode string `json:"reasonCode,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+// MemoryListResult 是记忆列表 + scope 开关 + 子系统可用性。
 type MemoryListResult struct {
-	Items  []memory.Memory    `json:"items"`
-	Scopes []MemoryScopeState `json:"scopes"`
-	Error  *CallError         `json:"error,omitempty"`
+	Items        []memory.Memory    `json:"items"`
+	Scopes       []MemoryScopeState `json:"scopes"`
+	Availability MemoryAvailability `json:"availability"`
+	Error        *CallError         `json:"error,omitempty"`
 }
 
 // MemoryResult 是单条记忆操作的结果。
@@ -114,23 +127,37 @@ func (d *Desktop) memoryScopeStates(ctx context.Context, svc *memory.Service, wo
 // ListMemories 返回当前项目可见的记忆（含候选，不含已删除）。
 func (d *Desktop) ListMemories() MemoryListResult {
 	ctx := context.Background()
+	out := MemoryListResult{
+		Items:        []memory.Memory{},
+		Scopes:       []MemoryScopeState{},
+		Availability: MemoryAvailability{Available: true},
+	}
 	svc, err := d.memoryService()
 	if err != nil {
-		return MemoryListResult{Items: []memory.Memory{}, Error: toCallError(err)}
+		// 库打不开是"记忆不可用"，不是"没有记忆"：两者在界面上必须分开。
+		callErr := toCallError(err)
+		out.Availability = MemoryAvailability{Available: false, ReasonCode: callErr.Code, Detail: callErr.Message}
+		return out
 	}
 	workspaceID, err := d.memoryWorkspaceID(ctx)
 	if err != nil {
-		return MemoryListResult{Items: []memory.Memory{}, Error: toCallError(err)}
+		out.Error = toCallError(err)
+		return out
 	}
 	items, err := svc.List(ctx, workspaceID)
 	if err != nil {
-		return MemoryListResult{Items: []memory.Memory{}, Error: toCallError(err)}
+		callErr := toCallError(err)
+		out.Availability = MemoryAvailability{Available: false, ReasonCode: callErr.Code, Detail: callErr.Message}
+		return out
 	}
+	out.Items = items
 	scopes, err := d.memoryScopeStates(ctx, svc, workspaceID)
 	if err != nil {
-		return MemoryListResult{Items: items, Error: toCallError(err)}
+		out.Error = toCallError(err)
+		return out
 	}
-	return MemoryListResult{Items: items, Scopes: scopes}
+	out.Scopes = scopes
+	return out
 }
 
 // SaveMemory 显式保存一条记忆（直接 active）。

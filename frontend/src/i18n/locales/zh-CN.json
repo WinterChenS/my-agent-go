@@ -601,5 +601,76 @@
       "dryrun_approval_not_available": "这一调用需要人工批准，试运行里没有审批人，已拒绝",
       "unknown": "拒绝原因未识别（{detail}）"
     }
+  },
+  "memory": {
+    "title": "记忆",
+    "subtitle": "记忆是独立分区：user 跨项目、workspace 只属于当前项目。关闭某个 scope 的注入不会删除条目；删除只影响之后运行的注入，已经发出的历史消息无法撤回。",
+    "unavailableHint": "记忆库当前不可用（{code}）：这是功能故障，不是“没有记忆”。修复后点重试。",
+    "unavailableHintUnknown": "记忆库当前不可用：这是功能故障，不是“没有记忆”。",
+    "scopeToggle": {
+      "title": "注入开关",
+      "enabled": "注入中",
+      "disabled": "未注入（条目仍在）",
+      "enable": "打开注入",
+      "disable": "关闭注入",
+      "hint": "关闭只影响之后的检索与注入，不会删除任何条目。"
+    },
+    "scope": {
+      "user": "用户级",
+      "workspace": "项目级"
+    },
+    "kind": {
+      "fact": "事实",
+      "preference": "偏好",
+      "convention": "约定",
+      "note": "备注"
+    },
+    "status": {
+      "active": "已生效",
+      "candidate": "候选",
+      "deleted": "已删除"
+    },
+    "searchLabel": "检索记忆",
+    "searchPlaceholder": "至少 3 个字符",
+    "search": "检索",
+    "searching": "检索中…",
+    "clearSearch": "清除检索",
+    "tooShort": "请输入至少 {count} 个字符（少于 {count} 个字符无法检索，这不是没有结果）。",
+    "filterLabel": "范围",
+    "filterAll": "全部",
+    "activeCount": "已生效 {count} 条",
+    "noResults": "没有匹配的记忆。",
+    "emptyTitle": "还没有记忆",
+    "emptyHint": "记忆会在你保存后出现在这里；现在确实一条都没有。",
+    "notInjecting": "未注入（该范围已关闭）",
+    "candidateHint": "候选：确认后才参与注入",
+    "confirm": "确认生效",
+    "expired": "已过期",
+    "expires": "过期时间",
+    "created": "创建时间",
+    "source": "来源会话",
+    "sourceUnknown": "未记录",
+    "delete": "删除",
+    "deleteConfirm": "确认删除",
+    "deleteHint": "删除只影响之后的注入；已发出的历史消息无法撤回。",
+    "export": "导出 JSON",
+    "exporting": "导出中…",
+    "exportTitle": "本地导出（{count} 条，不上传）",
+    "new": {
+      "title": "记录一条记忆",
+      "contentLabel": "记忆内容",
+      "contentPlaceholder": "例如：这个项目用英文提交信息，动词开头",
+      "kindLabel": "类型",
+      "scopeLabel": "范围",
+      "save": "保存",
+      "saving": "保存中…"
+    },
+    "notice": {
+      "saved": "已保存。",
+      "deleted": "已删除：之后的注入不再包含它。",
+      "confirmed": "已确认生效",
+      "scopeEnabled": "已打开 {scope} 的注入",
+      "scopeDisabled": "已关闭 {scope} 的注入（条目仍然保留）"
+    }
   }
 }
