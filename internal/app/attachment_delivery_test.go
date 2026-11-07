@@ -343,6 +343,9 @@ func TestAttachmentBytesReachRunThroughBroker(t *testing.T) {
 	if !strings.Contains(fetches2[0].ContentType, "application/json") {
 		t.Fatalf("失败响应应是结构化错误，实际 %q", fetches2[0].ContentType)
 	}
+	// SES02 的外部观察：附件 run 在会话库里的真实行 + 隔离 agentDir 的磁盘树。
+	observeRunIndex(t, d.root, map[string]any{"attachmentRefsImmutable": true})
+	observeTree(t, d.agentDir(), "agent-tree.json", map[string]any{"attachmentRunDelivered": item.SHA256})
 }
 
 // TestStartSessionRunRejectsUnknownAttachmentID 守"ID 必须仍然有效"。
@@ -369,4 +372,6 @@ func TestStartSessionRunRejectsUnknownAttachmentID(t *testing.T) {
 	if !strings.Contains(err.Error(), "附件") {
 		t.Fatalf("错误应指明是附件问题，实际 %v", err)
 	}
+	// SES02：无效引用不得在会话库里留下 run 行。
+	observeRunIndex(t, d.root, map[string]any{"unknownAttachmentRejected": true})
 }

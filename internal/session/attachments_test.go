@@ -178,6 +178,12 @@ func TestAttachmentEscapesRejected(t *testing.T) {
 				cases[i].name, want, res.Rejected[i].Code, res.Rejected[i].Message)
 		}
 	}
+
+	// SES02 的外部观察：被拒路径不能留下 blob —— 由 blob store 的磁盘遍历回答。
+	observeTree(t, blobRoot, "attachment-blobs.json", map[string]any{
+		"rejectedEscapes": len(res.Rejected),
+		"acceptedItems":   len(res.Items),
+	})
 }
 
 // TestAttachmentBlobIsContentAddressedAndVerified 覆盖内容寻址与复用前校验。
@@ -246,6 +252,12 @@ func TestAttachmentBlobIsContentAddressedAndVerified(t *testing.T) {
 	if rc != nil {
 		t.Fatalf("校验失败时不能返回可读句柄")
 	}
+
+	// SES02 的外部观察：内容寻址布局与"同内容只有一个 blob"由磁盘遍历证明。
+	observeTree(t, blobRoot, "attachment-blobs.json", map[string]any{
+		"contentAddressed": true,
+		"expectedSha256":   sha,
+	})
 }
 
 // TestAttachmentBrokerRefusesExpiredCapability 覆盖能力过期。
@@ -313,6 +325,13 @@ func TestAttachmentSourceIsNotWrittenBack(t *testing.T) {
 			before.ModTime(), before.Size(), beforeMode,
 			after.ModTime(), after.Size(), after.Mode())
 	}
+
+	// SES02 的外部观察：源文件接收后的磁盘事实（大小/sha256/mtime 由文件读回）。
+	observeTree(t, filepath.Dir(src), "attachment-sources.json", map[string]any{
+		"sourceBytes":  len(afterBody),
+		"sourceSha256": sha256Hex(afterBody),
+		"sourceMtime":  after.ModTime().UTC().Format("2006-01-02T15:04:05.000000000Z"),
+	})
 }
 
 // TestAttachmentBlobIsOutsideTheWorkspace 覆盖 policy 边界：
@@ -386,6 +405,10 @@ func TestAttachmentBlobIsOutsideTheWorkspace(t *testing.T) {
 	if allowed.Decision == policy.DecisionDeny {
 		t.Fatalf("workspace 内的写不应被边界拒绝：%s", allowed.Reason)
 	}
+
+	// SES02 的外部观察：blob 目录与 workspace 目录各自的磁盘树。
+	observeTree(t, blobRoot, "attachment-blobs.json", map[string]any{"blobOutsideWorkspace": true})
+	observeTree(t, workspaceDir, "attachment-workspace.json", map[string]any{"workspaceUnusedByBlobs": true})
 }
 
 // TestConcurrentReplacementFailsClosed 覆盖"打开前后 blob 被替换/截断"。
@@ -428,4 +451,7 @@ func TestConcurrentReplacementFailsClosed(t *testing.T) {
 	if fi, err := os.Stat(blobPath); err == nil && fi.Size() == int64(len(body)) {
 		t.Fatalf("测试自身失效：blob 没有被截断")
 	}
+
+	// SES02 的外部观察：被替换/截断后的 blob 磁盘事实（大小与 sha256）。
+	observeTree(t, blobRoot, "attachment-blobs.json", map[string]any{"tamperedBlobSize": int64(len(body)) / 2})
 }

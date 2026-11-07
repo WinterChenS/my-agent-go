@@ -103,6 +103,7 @@ func integrationCases() []integrationCase {
 	historyTests := "internal/history"
 	storageTests := "internal/storage"
 	configTests := "internal/config"
+	sessionTests := "internal/session"
 	appTests := "internal/app"
 
 	cases := []integrationCase{
@@ -358,6 +359,24 @@ func integrationCases() []integrationCase {
 			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
+
+		// ── 会话目录 / 附件 / 导出（C06，G3）──
+		// 观察值全部来自磁盘（见 internal/session/observation_test.go）：
+		//   session-dump.json   第二个 storage.DB 句柄读出的 sessions/artifacts/runs 真实行；
+		//   attachment-*.json   blob store / 源文件 / workspace 的真实遍历（含 sha256）；
+		//   exports.json        导出文件的磁盘字节，sentinel 与可执行标签由读回文件数出来。
+		{ID: "SES01", Package: sessionTests, Run: "TestCatalogCASCasConcurrentWrite|TestPaginationStableUnderInserts|TestCatalogSurvivesRestart|TestDeleteIsSoftAndKeepsArtifactsAndTranscript",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"session-dump.json", "artifact-files.json"}}},
+		// SES02 跨资源层与绑定层：附件由 Go 重新解析路径（internal/session），
+		// run 上的引用不可变 + 无效引用被拒（internal/app）。两步各自产出 artifact。
+		{ID: "SES02", Steps: []integrationStep{
+			{Package: sessionTests, Run: "TestAttachmentEscapesRejected|TestAttachmentBlobIsContentAddressedAndVerified|TestAttachmentSourceIsNotWrittenBack|TestAttachmentBlobIsOutsideTheWorkspace|TestConcurrentReplacementFailsClosed"},
+			{Package: appTests, Run: "TestAttachmentBytesReachRunThroughBroker|TestStartSessionRunRejectsUnknownAttachmentID"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"attachment-blobs.json", "attachment-sources.json", "attachment-workspace.json", "run-index.json"}}},
+		// SES03：导出与 Pi transcript 一致、HTML 转义、sentinel 命中 0。
+		{ID: "SES03", Package: sessionTests, Run: "TestExportMatchesTranscript|TestExportHTMLEscapesActiveContent|TestExportRedactsSentinels|TestExportWriteIsAtomicAndRefusesEscapes|TestExportJSONCarriesExportTime",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"exports.json"}}},
 
 		// ── 配置（F07，G2）──
 		// CFG02：CAS 冲突不得覆盖源文件。观察值是配置存储根目录的真实遍历

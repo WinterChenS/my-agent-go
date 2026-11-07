@@ -139,6 +139,9 @@ func TestCatalogCASCasConcurrentWrite(t *testing.T) {
 	// 输家用旧 revision 重试必须继续被拒（不是"重试就过"）。
 	_, err = c.RenameSession(ctx, s.ID, s.Revision, "偷偷重试")
 	requireAppCode(t, err, contracts.CodeConfigConflict)
+
+	// SES01 的外部观察：冲突之后库里的真实行（第二个句柄读回）。
+	observeSessionDB(t, db.Path(), map[string]any{"casConflicts": len(losses)})
 }
 
 // paginationScenario 用确定时钟跑一遍"边翻页边插入"，返回每页的标签序列。
@@ -147,7 +150,7 @@ func TestCatalogCASCasConcurrentWrite(t *testing.T) {
 // 分页是否稳定的证据。
 func paginationScenario(t *testing.T, base time.Time) [][]string {
 	t.Helper()
-	c, _ := openTestCatalog(t)
+	c, db := openTestCatalog(t)
 	c.SetClock(stepClock(base))
 	ctx := context.Background()
 
@@ -229,6 +232,8 @@ func paginationScenario(t *testing.T, base time.Time) [][]string {
 			t.Fatalf("标签 %s 出现了 %d 次", label, n)
 		}
 	}
+	// SES01 的外部观察：分页期间库里真实存在哪些行（revision/pinned 从磁盘读）。
+	observeSessionDB(t, db.Path(), map[string]any{"pageCount": len(pages)})
 	return pages
 }
 
@@ -347,6 +352,9 @@ func TestCatalogSurvivesRestart(t *testing.T) {
 			}
 		}
 	}
+
+	// SES01 的外部观察：重启后库里的真实行（标题/置顶/归档/revision）。
+	observeSessionDB(t, db2.Path(), map[string]any{"restartedCatalogSize": len(after)})
 }
 
 func formatSessions(items []Session) string {
@@ -481,6 +489,10 @@ func TestDeleteIsSoftAndKeepsArtifactsAndTranscript(t *testing.T) {
 	// 5. 已删除的会话不能再被改：旧 revision 也不行。
 	_, err = c.RenameSession(ctx, s.ID, s.Revision+1, "还想改名")
 	requireAppCode(t, err, contracts.CodeNotFound)
+
+	// SES01 的外部观察：软删除标记与产物文件都还在磁盘上。
+	observeSessionDB(t, db.Path(), map[string]any{"softDeleted": string(s.ID)})
+	observeTree(t, filepath.Dir(artifactPath), "artifact-files.json", map[string]any{"keptAfterDelete": filepath.Base(artifactPath)})
 }
 
 // TestMigration005AppliesOnAnOldDatabase：005 只依赖 001 的 sessions 表。

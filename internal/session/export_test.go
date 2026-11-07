@@ -236,6 +236,13 @@ func TestExportMatchesTranscript(t *testing.T) {
 	if !strings.Contains(string(mustReadFile(t, filepath.Join(root, exportSessionID+".json"))), "call-1") {
 		t.Fatal("助手消息里的 tool_call part 被丢掉了")
 	}
+	// SES03 的外部观察：三份导出文件的磁盘字节（大小/sha256 从文件算）。
+	entries := scanTree(t, root)
+	observeTree(t, root, "exports.json", map[string]any{
+		"exportFormats":       []string{ExportFormatJSON, ExportFormatMarkdown, ExportFormatHTML},
+		"exportFileCount":     len(entries),
+		"transcriptRecordCnt": wantRecords,
+	})
 }
 
 func containsString(list []string, want string) bool {
@@ -388,6 +395,22 @@ func TestExportHTMLEscapesActiveContent(t *testing.T) {
 			t.Fatalf("导出 HTML 出现未转义的 %q:\n%s", bad, doc)
 		}
 	}
+
+	// SES03 的外部观察：磁盘上的 HTML 里到底还有没有可执行标签（重新扫描文件）。
+	entries := scanTree(t, root)
+	forbidden := []string{}
+	for _, e := range entries {
+		body := string(mustReadFile(t, filepath.Join(root, filepath.FromSlash(e.Path))))
+		for _, bad := range []string{"<script", "<img", "</textarea"} {
+			if strings.Contains(strings.ToLower(body), bad) {
+				forbidden = append(forbidden, e.Path+" "+bad)
+			}
+		}
+	}
+	observeTree(t, root, "exports.json", map[string]any{
+		"activeContentHits": forbidden,
+		"escapedPayloads":   len(payloads),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +456,14 @@ func TestExportRedactsSentinels(t *testing.T) {
 			}
 		}
 	}
+	// SES03 的外部观察：磁盘上每份导出文件对 sentinel 的命中数（重新读文件数）。
+	entries := scanTree(t, root)
+	hits := sentinelHits(t, entries, root, exportSentinel)
+	observeTree(t, root, "exports.json", map[string]any{
+		"sentinel":     "C06E sentinel",
+		"sentinelHits": hits,
+		"exportFiles":  len(entries),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +544,27 @@ func TestExportWriteIsAtomicAndRefusesEscapes(t *testing.T) {
 	if res2.SHA256 != res.SHA256 {
 		t.Fatalf("同一输入的导出 hash 应当一致: %s vs %s", res2.SHA256, res.SHA256)
 	}
+	// SES03 的外部观察：导出目录里没有临时残留、越界目标不存在（都在磁盘上核）。
+	entries = entries[:0]
+	rootEntries, rerr := os.ReadDir(root)
+	if rerr != nil {
+		t.Fatalf("读导出目录: %v", rerr)
+	}
+	names := []string{}
+	for _, e := range rootEntries {
+		names = append(names, e.Name())
+	}
+	outsideEntries, _ := os.ReadDir(outside)
+	outsideNames := []string{}
+	for _, e := range outsideEntries {
+		outsideNames = append(outsideNames, e.Name())
+	}
+	observeTree(t, root, "exports.json", map[string]any{
+		"exportRootEntries":  names,
+		"outsideEntries":     outsideNames,
+		"tempFilesLeft":      names,
+		"repeatedExportSame": res2.SHA256 == res.SHA256,
+	})
 }
 
 // ---------------------------------------------------------------------------
