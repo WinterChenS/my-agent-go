@@ -103,6 +103,7 @@ func integrationCases() []integrationCase {
 	historyTests := "internal/history"
 	storageTests := "internal/storage"
 	configTests := "internal/config"
+	appTests := "internal/app"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -369,6 +370,12 @@ func integrationCases() []integrationCase {
 		// 与伪造用户 HOME 的遍历结果（编译不得在 HOME 下创建 .pi）。
 		{ID: "CFG04", Package: configTests, Run: "TestLoadRecoversFromInterruptedWrite|TestCompileIsolatesAgentDir",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"config-tree.json", "home-tree.json"}}},
+		// CFG03.resources：运行快照真的限制了资源加载。观察值来自两侧的磁盘事实：
+		// run-index.json（第二个 storage.DB 句柄读 <appRoot>/sessions.db 的 runs/sessions 行，
+		// 包含 config_revision）与 agent-tree.json（隔离 agentDir 的真实遍历）。
+		// 被拒的未信任启动也要计进同一条 case：它不得在库里留下 run 行。
+		{ID: "CFG03.resources", Package: appTests, Run: "TestStartRejectsUntrustedWorkspace|TestRunSnapshotDoesNotClaimNothingLoadedWhenAutoDiscoveryEnabled|TestRunSnapshotRecordsManagedSkills",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"run-index.json", "agent-tree.json"}}},
 
 		// ── 存储（F07，G2）──
 		// 观察值来自**库文件本身**（source: database）：db-schema.json 由第二个

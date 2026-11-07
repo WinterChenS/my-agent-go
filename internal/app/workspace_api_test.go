@@ -76,6 +76,9 @@ func TestStartRejectsUntrustedWorkspace(t *testing.T) {
 	if !strings.Contains(appErr.Message, "信任") {
 		t.Fatalf("错误里应含修复路径，实际 %q", appErr.Message)
 	}
+
+	// CFG03.resources 的外部观察：被拒的启动不得在会话库里留下 run 行。
+	observeRunIndex(t, root, map[string]any{"untrustedWorkspaceRejected": true})
 }
 
 // TestWorkspaceLifecycleThroughBindings 覆盖 UI01 需要的绑定面：

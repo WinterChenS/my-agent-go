@@ -95,6 +95,10 @@ func TestRunSnapshotDoesNotClaimNothingLoadedWhenAutoDiscoveryEnabled(t *testing
 	if strings.Contains(st.Isolation, "-ns") || strings.Contains(st.Isolation, "--no-skills") {
 		t.Fatalf("状态里的隔离参数不应再抑制技能自动发现: %s", st.Isolation)
 	}
+
+	// CFG03.resources 的外部观察：落库的 run 行 + 隔离 agentDir 的磁盘树。
+	observeRunIndex(t, d.root, map[string]any{"autoDiscoveryEnabled": true})
+	observeTree(t, d.agentDir(), "agent-tree.json", map[string]any{"managedSkillCount": len(snap.ManagedSkills)})
 }
 
 // TestRunSnapshotRecordsManagedSkills 确认显式加载的托管技能照实进快照，
@@ -121,4 +125,8 @@ func TestRunSnapshotRecordsManagedSkills(t *testing.T) {
 	if len(st.RuntimeSkills) != 1 || st.RuntimeSkills[0] != "snap-skill" {
 		t.Fatalf("Status.RuntimeSkills 应是托管且启用的清单，实际 %v", st.RuntimeSkills)
 	}
+
+	// CFG03.resources：新一次 run 的落库事实与磁盘上的托管技能文件。
+	observeRunIndex(t, d.root, map[string]any{"managedSkillsRecorded": snap.ManagedSkills})
+	observeTree(t, d.agentDir(), "agent-tree.json", map[string]any{"managedSkillsRecorded": snap.ManagedSkills})
 }
