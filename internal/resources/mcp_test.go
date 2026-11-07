@@ -282,7 +282,7 @@ func TestSaveMCPRejectsWorkingDirEscape(t *testing.T) {
 //
 // marker 是唯一可信判据：配置保存后进程没被启动、文件没被创建。
 func TestSaveMCPDoesNotExecuteAnything(t *testing.T) {
-	svc, _, work := newMCPService(t)
+	svc, root, work := newMCPService(t)
 	ctx := context.Background()
 	marker := filepath.Join(work, "save-executed.marker")
 	script := filepath.Join(work, "hook.cmd")
@@ -303,6 +303,16 @@ func TestSaveMCPDoesNotExecuteAnything(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("保存 MCP 配置时执行了脚本：marker 存在 (%s)", marker)
 	}
+
+	// MCP04 的外部观察：work 目录里只有脚本、没有 marker；config 存储根本身也在盘上。
+	// markerExists 由 os.Stat 读磁盘得出，不是测试里传来的“我没执行”。
+	_, markerErr := os.Stat(marker)
+	markerExists := markerErr == nil
+	recordResourcesTree(t, work, "mcp-save-sandbox.json", "after-save", map[string]any{
+		"markerPath":   filepath.ToSlash(marker),
+		"markerExists": markerExists,
+	})
+	recordResourcesTree(t, root, "mcp-config-tree.json", "after-save", map[string]any{"markerExists": markerExists})
 }
 
 func TestMCPCASLifecycle(t *testing.T) {
@@ -346,7 +356,7 @@ func TestMCPCASLifecycle(t *testing.T) {
 
 // TestCompileMCPKeepsSecretsOutOfJSON 是"秘密只经 env 引用"的编译层断言。
 func TestCompileMCPKeepsSecretsOutOfJSON(t *testing.T) {
-	svc, _, _ := newMCPService(t)
+	svc, root, _ := newMCPService(t)
 	ctx := context.Background()
 	const secret = "Bearer super-secret-token-42"
 	if err := svc.SaveMCPCredential(ctx, "mcp-http-token", secret); err != nil {
@@ -396,6 +406,11 @@ func TestCompileMCPKeepsSecretsOutOfJSON(t *testing.T) {
 	if len(plan.IDs) != 2 || plan.IDs[0] != "local" || plan.IDs[1] != "remote" {
 		t.Fatalf("ID 应排序稳定: %v", plan.IDs)
 	}
+
+	// MCP04 的外部观察：配置存储根与编译结果里都不得出现明文秘密，
+	// 命中数由重新扫描磁盘文件得出（secret 本身不进证据，只记 sha256）。
+	recordResourcesTree(t, root, "mcp-config-tree.json", "after-compile", map[string]any{"servers": plan.IDs})
+	recordSecretScan(t, "mcp-secret-scan.json", "after-compile", []string{root}, "super-secret-token-42", map[string]any{"servers": plan.IDs})
 }
 
 func TestCompileMCPSkipsDisabledAndMissingCredential(t *testing.T) {
@@ -494,6 +509,9 @@ func TestApplyMCPPlanRemovesDisabledServer(t *testing.T) {
 	if _, ok := servers["harness"]; !ok {
 		t.Fatalf("自有 MCP 条目被误删: %v", servers)
 	}
+
+	// MCP04 的外部观察：磁盘上的 mcp.json 真的不再含已禁用的服务。
+	recordResourcesTree(t, dir, "mcp-runtime-tree.json", "after-disable", map[string]any{"kept": []string{"harness", "keep"}})
 }
 
 func TestApplyMCPPlanRefusesCorruptFile(t *testing.T) {
@@ -551,6 +569,15 @@ func TestMCPCredentialStoreUnavailableIsExplicit(t *testing.T) {
 		HeaderRefs: map[string]string{"Authorization": "mcp-token"}, Enabled: true, Exposure: MCPExposureDirect}
 	_, err = svc.SaveMCP(ctx, 0, def)
 	requireCode(t, err, contracts.CodeCredentialStoreUnavailable)
+
+	// SEC07.store 的外部观察：凭证库不可用时，配置存储根里到底落了什么。
+	// 命中数由重新扫描磁盘文件得出（应为一个文件也没有、0 命中）。
+	recordResourcesTree(t, root, "store-unavailable-tree.json", "after-unavailable-save", map[string]any{
+		"credentialStoreAvailable": false,
+	})
+	recordSecretScan(t, "store-unavailable-scan.json", "after-unavailable-save", []string{root}, "secret", map[string]any{
+		"credentialStoreAvailable": false,
+	})
 }
 
 // TestMCPDefinitionsSurviveOtherResourceSaves 是"新增资源不能抹掉别的顶层字段"。

@@ -113,6 +113,13 @@ func TestModelLifecycleThroughBindings(t *testing.T) {
 		t.Fatal("settings.json 里出现明文密钥")
 	}
 
+	// MOD04 的外部观察：设为当前模型之后，磁盘上的 settings.json 必须写的是
+	// 引用（modelRef）而不是密钥，且 agentDir 里没有任何内联 apiKey 值。
+	observeModelSwitch(t, root, d.agentDir(), map[string]any{
+		"currentModelSource": cur.Source,
+		"currentModelRef":    cur.Ref,
+	})
+
 	del := d.DeleteModel(list.Revision, "m-demo")
 	if del.Error != nil {
 		t.Fatalf("删除失败: %s", del.Error.Message)
@@ -222,7 +229,7 @@ func (s *stubWorker) Limitations() []string      { return nil }
 // TestModelSwitchDoesNotInterruptRunningRun 是 MOD04 的核心断言：
 // 换模型只改"下一次运行"，正在跑的那一轮不能被关掉。
 func TestModelSwitchDoesNotInterruptRunningRun(t *testing.T) {
-	d, _ := newTestDesktop(t)
+	d, root := newTestDesktop(t)
 	if saved := d.SaveModel(0, demoModel(), ""); saved.Error != nil {
 		t.Fatalf("保存模型: %s", saved.Error.Message)
 	}
@@ -275,6 +282,13 @@ func TestModelSwitchDoesNotInterruptRunningRun(t *testing.T) {
 	if svc.ActiveCount() != 1 {
 		t.Fatalf("活跃 run 数不应变化，实际 %d", svc.ActiveCount())
 	}
+
+	// MOD04 的外部观察：换模型只落到磁盘上的 settings.json（下一次运行用它），
+	// 而正在跑的这一轮用的 agentDir 配置没有被动过。
+	observeModelSwitch(t, root, d.agentDir(), map[string]any{
+		"switchDeferredBecauseRunning": act.Deferred,
+		"activeRunsAtSwitch":           svc.ActiveCount(),
+	})
 }
 
 // TestActivatingModelDropsLegacyPlaintextKey：切到资源库模型后，

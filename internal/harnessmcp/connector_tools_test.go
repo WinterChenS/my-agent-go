@@ -9,6 +9,7 @@ package harnessmcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/connectors"
+	"my-agent-go/internal/connectors/connectortest"
 	"my-agent-go/internal/connectors/fixtures"
 	"my-agent-go/internal/connectors/mail"
 	"my-agent-go/internal/contracts"
@@ -56,8 +58,8 @@ func (connectorDenyGate) ResolveApproval(ctx context.Context, id string, choice 
 // connectorFixture 起 SMTP/IMAP fixture 并返回副作用计数器。
 func connectorFixture(t *testing.T) (*fixtures.SMTP, *fixtures.IMAP, *fixtures.Counter) {
 	t.Helper()
-	opts := fixtures.Options{Username: connUser, Password: connPass}
-	counter := fixtures.NewCounter("")
+	opts := fixtures.Options{Username: connUser, Password: connPass, ObservationDir: connectortest.ObservationDir()}
+	counter := fixtures.NewCounter(connectortest.ObservationDir())
 	opts.Counter = counter
 	smtp, err := fixtures.NewSMTP(opts)
 	if err != nil {
@@ -108,13 +110,14 @@ func newConnectorService(t *testing.T, smtp *fixtures.SMTP, imap *fixtures.IMAP,
 		})
 	}
 	svc, err := connectors.NewService(connectors.Options{
-		Definitions:  store,
-		Audit:        store,
-		Credentials:  creds,
-		Policy:       gate,
-		Drivers:      []connectors.Driver{driver},
-		ApprovalWait: 3 * time.Second,
-		PollInterval: 2 * time.Millisecond,
+		Definitions:    store,
+		Audit:          store,
+		Credentials:    creds,
+		Policy:         gate,
+		Drivers:        []connectors.Driver{driver},
+		ApprovalWait:   3 * time.Second,
+		PollInterval:   2 * time.Millisecond,
+		ObservationDir: connectortest.ObservationDir(),
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -244,6 +247,37 @@ func TestConnectorMCPToolsArePolicyGated(t *testing.T) {
 			t.Fatalf("禁用后连接器工具必须消失: %s", tl.Name)
 		}
 	}
+
+	// CONN05/CONN08 的外部观察：把"下一次运行真正会看到的工具表"从 TCP 上取回原样落盘，
+	// 再真调一次已消失的工具——它必须既不成功，也不产生任何 fixture 副作用。
+	nextRun := newHarnessWithTools(t, t.TempDir(), afterDisable)
+	observed := observeToolList(t, nextRun, "after-disable", map[string]any{
+		"connectorID":        connDefID,
+		"definitionDisabled": true,
+	})
+	for _, name := range observed {
+		if strings.HasPrefix(name, "connector_mail_") {
+			t.Fatalf("禁用后新 run 的工具表里仍有连接器工具: %s", name)
+		}
+	}
+	code, unknown := nextRun.rpc(7, "tools/call", map[string]any{
+		"name":      "connector_mail_send",
+		"arguments": map[string]any{"to": []string{"ops@fixture.test"}, "subject": "禁用后调用", "body": "正文"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("tools/call 状态码 %d，期望 200", code)
+	}
+	if unknown.Error == nil {
+		t.Fatalf("禁用后调用必须返回错误（工具已不在新 run 的工具表里），实际 %+v", unknown)
+	}
+	if got := counter.Snapshot().MailAccepted; got != 1 {
+		t.Fatalf("禁用后不得产生副作用（仍应为 1），实际 %d", got)
+	}
+	// fixture 侧自己写下的副作用快照与请求日志是这条 case 的原始证据。
+	connectortest.Observe(t, "harness/connector-tools", counter, map[string]any{
+		"definitionDisabled":     true,
+		"strayCallsAfterDisable": 0,
+	})
 }
 
 // TestConnectorMCPConfigCarriesNoToken 断言写进 agentDir 的 mcp.json 只有令牌引用。
@@ -288,5 +322,13 @@ func TestConnectorMCPConfigCarriesNoToken(t *testing.T) {
 	}
 	if entry["url"] != h.url {
 		t.Fatalf("url 不对: %v", entry["url"])
+	}
+
+	// CONN04 的外部观察：模型看到的就是这段 tools/list JSON——动作名、输入 schema、
+	// 以及描述里声明的风险与幂等性。从 TCP 上原样取回落盘。
+	names := observeToolList(t, h, "connector-catalog", map[string]any{"connectorID": connDefID})
+	toolNamed(t, tools, "connector_mail_send")
+	if len(names) == 0 {
+		t.Fatal("tools/list 响应里没有任何工具")
 	}
 }

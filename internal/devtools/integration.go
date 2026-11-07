@@ -108,6 +108,11 @@ func integrationCases() []integrationCase {
 	schedulerTests := "internal/scheduler"
 	artifactTests := "internal/artifact"
 	diagnosticsTests := "internal/diagnostics"
+	resourcesTests := "internal/resources"
+	credentialsTests := "internal/credentials"
+	connectorTests := "internal/connectors"
+	mailTests := "internal/connectors/mail"
+	harnessmcpTests := "internal/harnessmcp"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -423,6 +428,110 @@ func integrationCases() []integrationCase {
 		},
 			Observation: &observationSpec{Source: "database", Artifacts: []string{"scheduler-dump.json", "scheduler-api-dump.json", "sessions-api-dump.json"}}},
 
+		// ── 模型（C02，G2）──
+		// MOD01 的观察值来自磁盘：配置存储根（config-* 层文件）与产品真正落盘的
+		// pi models.json；明文命中数由重新扫描这些文件算出（含 base64 变体）。
+		// 注意：校验规则的**具体**判定仍是进程内断言（纯函数，未造外部产物），
+		// 外部观察覆盖的是“落盘后只有 credentialRef、没有明文”这一边界。
+		{ID: "MOD01", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestModelSchemaValidation|TestModelNormalization|TestModelSaveNoSecretsInJSON|TestModelSaveRequiresExistingCredential|TestModelUpsertPreservesOtherFields|TestModelSaveUsesCAS|TestDeleteModel"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"config-tree.json", "models-json.json", "secret-scan.json"}}},
+
+		// MOD04：换模型只改下一次运行，正在跑的那一轮不受影响；磁盘上的
+		// settings.json 写的是 modelRef，agentDir 里的 models.json 不出现内联 apiKey。
+		// 观察值来自 appData 根与隔离 agentDir 的真实遍历（见 internal/app/model_observation_test.go）。
+		{ID: "MOD04", Steps: []integrationStep{
+			{Package: appTests, Run: "TestModelSwitchDoesNotInterruptRunningRun|TestModelLifecycleThroughBindings"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"model-switch-tree.json", "model-state.json"}}},
+
+		// MOD02/MOD03 的判据里有一段**只能在真实 Pi 上观察**：
+		//   - MOD02：临时 Pi 连接测试要真的启动 Pi 去打 fixture provider；
+		//   - MOD03："未知模型能力标 unknown"由 internal/resources 的 probe 用例断言，
+		//     它们同样需要 .tools/pi 里的真实 bundle。
+		// 缺件时按 BLOCKED 记录（skip 会被读成通过），不拿 fixture 冒充真实 Pi。
+		{ID: "MOD02", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestProbeReachableText|TestProbeDetectsToolCalling|TestProbeWithoutToolCalling|TestProbeClassifiesFailures", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MOD02")},
+		{ID: "MOD03", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestNoImplicitAuthImport|TestProbeReachableText|TestProbeWithoutToolCalling", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MOD03")},
+
+		// ── MCP（C04，G2）──
+		// MCP01/MCP02/MCP03/MCP05 全部以真实 Pi 为观察装置（fixture 只替代 MCP 服务端）：
+		// 工具发现、断连/超时/鉴权失败、工具表变化、Pi 自己 owned 的进程清理，
+		// 都需要 .tools/pi 里的 bundle 才能观察到。缺件时 BLOCKED。
+		{ID: "MCP01", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiHTTPMCPDiscoveryAndCall", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MCP01")},
+		{ID: "MCP02", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestRealPiDiagnoseHTTPAuthFailureAndReconnect|TestRealPiDiagnoseUnreachable", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MCP02")},
+		{ID: "MCP03", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestRealPiDiagnoseStdioAndToolListChange|TestDisabledMCPToolCannotExecute", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MCP03")},
+		// MCP04 是配置面：command/args 分开、秘密只经 env/header 引用、拒绝 shell 整串与
+		// 无效配置、保存不执行未知脚本。观察值是磁盘事实（配置存储根、mcp.json、
+		// 脚本写 marker 的那次尝试根本没发生），见 internal/resources/observation_test.go。
+		{ID: "MCP04", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestSaveMCPRejectsShellCommandString|TestSaveMCPAcceptsPathWithSpaces|TestSaveMCPRejectsInvalidSchema|TestSaveMCPRejectsPlaintextSecrets|TestSaveMCPRequiresCredentialToExist|TestSaveMCPRejectsWorkingDirEscape|TestSaveMCPDoesNotExecuteAnything|TestCompileMCPKeepsSecretsOutOfJSON|TestApplyMCPPlanRemovesDisabledServer|TestApplyMCPPlanRefusesCorruptFile"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"mcp-config-tree.json", "mcp-save-sandbox.json", "mcp-runtime-tree.json", "mcp-secret-scan.json"}}},
+		{ID: "MCP05", Steps: []integrationStep{
+			{Package: resourcesTests, Run: "TestRealPiStdioMCPDiscoveryAndCall|TestRealPiDiagnoseStdioAndToolListChange", Env: []string{"MYAGENT_PI_WORKER_INTEGRATION=1"}},
+		},
+			Blocked: realPiBlockedReasonFor("G2", "MCP05")},
+
+		// SEC07.store：OS 保护存储的真实读写 + 凭证库不可用时不落明文。
+		// 后端可用性由 nativeCredStoreBlockedReasonFor 只读探测（不可用 → BLOCKED，
+		// 不让测试 skip 冒充通过）；观察值是凭证根/配置根的磁盘字节与重新扫描的命中数。
+		{ID: "SEC07.store", Steps: []integrationStep{
+			{Package: credentialsTests, Run: "TestNativeStoreRoundTripAndNoPlaintext|TestNativeStoreRejectsBadRef|TestMemStoreIsSessionOnly", Env: []string{"MYAGENT_REQUIRE_NATIVE_CREDSTORE=1"}},
+			{Package: resourcesTests, Run: "TestMCPCredentialStoreUnavailableIsExplicit"},
+		},
+			Blocked:     nativeCredStoreBlockedReasonFor("G2", "SEC07.store"),
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"cred-store.json", "store-unavailable-tree.json", "store-unavailable-scan.json"}}},
+
+		// ── 连接器（C08a/C08b，G2）──
+		// CONN03：配置/日志/导出只出现 credentialRef。观察值是第二个 storage.DB 句柄
+		// 从连接器库文件读出的定义/审计真实行 + 重新扫描库文件的明文命中数（应为 0）。
+		{ID: "CONN03", Steps: []integrationStep{
+			{Package: connectorTests, Run: "TestNoSecretLeaksIntoLogsConfigOrDTO"},
+			{Package: appTests, Run: "TestConnectorsAppAPIRoundTrip"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"connector-db.json", "connector-sentinel-scan.json", "connector-app-tree.json"}}},
+		// CONN04：action catalog 的风险/范围/capability/schema/幂等性要能被模型看到的那一面证明。
+		// 观察值来自真实 MCP 服务的 tools/list 响应字节（描述里就写着风险与幂等声明）
+		// 与连接器库里的审计行（驱动降低风险时必须留 deny）。
+		{ID: "CONN04", Steps: []integrationStep{
+			{Package: connectorTests, Run: "TestConnectorRegistryDeclaresCapabilitiesAndScopes|TestConnectorDriverCannotDowngradeRisk"},
+			{Package: harnessmcpTests, Run: "TestConnectorMCPConfigCarriesNoToken"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"connector-db.json", "connector-sentinel-scan.json", "connector-tools-list.json"}}},
+		// CONN05：禁用/撤权后 app-owned MCP 工具从新 run 消失且实际不能调用。
+		// 观察值：新 run 的工具表（tools/list 响应字节）+ agentDir 里的 mcp.json 磁盘快照
+		// + fixture 副作用快照（禁用后调用不得再有写入）。
+		{ID: "CONN05", Steps: []integrationStep{
+			{Package: harnessmcpTests, Run: "TestConnectorMCPToolsArePolicyGated"},
+			{Package: appTests, Run: "TestMCPDisabledOnlyAtSafePoint|TestMCPChangeDuringRunKeepsOldRuntime"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"connector-tools-list.json", "connector-counter.json", "connector-observation.json", "mcp-agent-tree.json"}}},
+		// CONN08：邮箱附件与允许资源范围不可越权，伪造身份字段到不了 adapter handler。
+		// 观察值：fixture 自己写下的副作用快照/请求日志（越权与伪造时写入必须为 0）
+		// 加上连接器库的审计行与新 run 的工具表。
+		{ID: "CONN08", Steps: []integrationStep{
+			{Package: connectorTests, Run: "TestConnectorRejectsOutOfScopeRecipients|TestConnectorRegistryDeclaresCapabilitiesAndScopes"},
+			{Package: mailTests, Run: "TestMailReadActionsUseFixtureWithoutWriteSideEffects|TestMailSendIsGatedByPolicy"},
+			{Package: harnessmcpTests, Run: "TestConnectorMCPToolsArePolicyGated"},
+		},
+			Observation: &observationSpec{Source: "fixture-counter", Artifacts: []string{"connector-counter.json", "connector-observation.json", "connector-db.json", "connector-sentinel-scan.json", "connector-tools-list.json"}}},
+
 		// ── 产物与诊断（C07，G3）──
 		// 观察值来自产品自己的库与磁盘（见 internal/artifact|diagnostics 的 observation 文件）：
 		//   artifacts-dump.json    第二个 storage.DB 句柄读出的产物索引行；
@@ -558,6 +667,44 @@ func baselinePathEnv() []string {
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+// nativeCredStoreBlockedReasonFor 探测 SEC07.store 的观察装置：宿主 OS 的凭证保护存储后端。
+//
+// 为什么需要它：internal/credentials 的用例在后端不可用时 t.Skipf。skip 在集成 runner 里
+// 是 exit 0，会被读成 PASS——那就把"本机没装 keyring"说成了"OS 库读写通过"。
+// 这里只做只读探测：不可用就判 BLOCKED 并留下修复步骤，不启动任何写入。
+func nativeCredStoreBlockedReasonFor(gate, caseID string) string {
+	retry := " scripts/devtools.ps1 verify --suite=integration --target=" + standaloneTargetID() +
+		" --gate=" + gate + " --case=" + caseID
+	switch runtime.GOOS {
+	case "windows":
+		// DPAPI（用户作用域）随 OS 提供，无需额外服务或包。
+		return ""
+	case "darwin":
+		const securityBin = "/usr/bin/security"
+		if _, err := os.Stat(securityBin); err != nil {
+			return "本机没有 " + securityBin + "（macOS Keychain CLI），无法验证 OS 凭证库读写；修复：在完整 macOS 上重跑" + retry
+		}
+		if out, err := exec.Command(securityBin, "list-keychains").CombinedOutput(); err != nil {
+			return "Keychain 不可访问（可能已锁定），无法验证 OS 凭证库读写：" + firstLine(string(out)) +
+				"；修复：在已登录且已解锁 keychain 的会话里重跑" + retry
+		}
+		return ""
+	default:
+		if _, err := exec.LookPath("secret-tool"); err != nil {
+			return "本机没有 secret-tool（libsecret-tools），无法访问 Secret Service；修复：安装 libsecret-tools 并在有 keyring daemon 的桌面会话里重跑" + retry
+		}
+		// 退出码 1 表示"查不到"——服务是活的；其它情况（连不上 D-Bus / 无 keyring daemon）不可用。
+		err := exec.Command("secret-tool", "lookup", "service", "cn.myagent.credentials", "account", "__anvil_probe__").Run()
+		if err == nil {
+			return ""
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return ""
+		}
+		return "Secret Service 不可用（D-Bus 上没有可用的 keyring daemon），无法验证 OS 凭证库读写；修复：启动 gnome-keyring/KWallet 后重跑" + retry
+	}
 }
 
 // realPiBlockedReason 判断 RES02 的观察装置（真实 Pi 包 + 能跑它的 Node）在不在。

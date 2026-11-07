@@ -100,6 +100,12 @@ func TestMCPDisabledOnlyAtSafePoint(t *testing.T) {
 	if len(st.RuntimeMCP) != 0 || st.MCPPending {
 		t.Fatalf("重建后应无外部 MCP 且不再 pending: runtimeMCP=%v pending=%v", st.RuntimeMCP, st.MCPPending)
 	}
+
+	// CONN05 的外部观察：安全点之后 agentDir 里的 mcp.json 真的少了一条（从磁盘读）。
+	observeTree(t, d.agentDir(), "mcp-agent-tree.json", map[string]any{
+		"runtimeMCPCount": len(st.RuntimeMCP),
+		"mcpPending":      st.MCPPending,
+	})
 }
 
 // TestMCPChangeDuringRunKeepsOldRuntime 是"旧 run 不静默变化"。
@@ -175,6 +181,11 @@ func TestMCPChangeDuringRunKeepsOldRuntime(t *testing.T) {
 	if d.Status().MCPPending {
 		t.Fatal("重建后不应再 pending")
 	}
+
+	// CONN05 的外部观察：旧 run 期间磁盘上的 mcp.json 未被改写，安全点之后才变。
+	observeTree(t, d.agentDir(), "mcp-agent-tree.json", map[string]any{
+		"changedDuringRun": string(before) != string(after),
+	})
 }
 
 // TestMCPDeleteAndCreateThroughBindings 覆盖管理与删除。

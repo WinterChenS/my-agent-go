@@ -282,6 +282,11 @@ func TestConnectorRegistryDeclaresCapabilitiesAndScopes(t *testing.T) {
 	if env.driver.CallCount() != 0 {
 		t.Fatalf("身份字段被伪造时不得触达驱动，实际 %d", env.driver.CallCount())
 	}
+
+	// CONN04/CONN08 的外部观察：第二个句柄读连接器库的定义与审计真实行；
+	// 拒绝路径必须留下 outcome=denied 的审计，而不是只靠返回值说明。
+	observeConnectorStore(t, "registry-and-identity", filepath.Join(env2.root, "connectors.db"),
+		[]string{env2.root, env.root}, nil, map[string]any{"catalogActions": ids})
 }
 
 // TestConnectorWriteIsPolicyGatedAndAudited 覆盖 CONN02 的框架侧：拒绝时驱动 0 次，
@@ -424,6 +429,8 @@ func TestConnectorRejectsOutOfScopeRecipients(t *testing.T) {
 	if ok, err := env.invoke(t, "send", map[string]any{"to": []string{"ok@fixture.test"}, "subject": "s", "body": "b"}); err != nil || ok.Outcome != OutcomeDone {
 		t.Fatalf("范围内收件人应成功: %+v %v", ok, err)
 	}
+	observeConnectorStore(t, "out-of-scope", filepath.Join(env.root, "connectors.db"),
+		[]string{env.root}, nil, map[string]any{"outOfScopeRejected": true})
 }
 
 // TestConnectorHealthNeverGuessesConnected 覆盖 CONN01 的框架侧：
@@ -549,6 +556,11 @@ func TestNoSecretLeaksIntoLogsConfigOrDTO(t *testing.T) {
 	if _, err := env.creds.Get(context.Background(), "connector:mail-1"); err != nil {
 		t.Fatalf("凭证库应保留凭证: %v", err)
 	}
+
+	// CONN03 的外部观察：第二个句柄读连接器库（定义/审计）真实行，并重新扫描
+	// 库文件字节找明文 sentinel——命中数由磁盘内容算出，不看测试进程里的变量。
+	observeConnectorStore(t, "secret-scan", filepath.Join(env.root, "connectors.db"),
+		[]string{env.root}, []string{sentinel}, map[string]any{"dtoAndAuditScanned": true})
 }
 
 // readDBFiles 读回连接器库及其 WAL/SHM 的字节（SQLite 的写入可能还在 WAL 里）。
@@ -599,6 +611,8 @@ func TestConnectorDriverCannotDowngradeRisk(t *testing.T) {
 	if liar.calls != 0 {
 		t.Fatalf("声明与 catalog 不一致时不得派发，实际 %d", liar.calls)
 	}
+	observeConnectorStore(t, "driver-downgrade", filepath.Join(env2.root, "connectors.db"),
+		[]string{env2.root}, nil, map[string]any{"driverDowngradeRejected": true})
 }
 
 // lyingDriver 声明 send 是只读且带幂等键。

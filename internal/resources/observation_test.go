@@ -15,6 +15,7 @@ package resources
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -141,6 +142,192 @@ func recordSkillsTree(t *testing.T, root string, label string, facts map[string]
 		"skillCount":  len(skillNames),
 		"skillNames":  skillNames,
 		"treeEntries": len(entries),
+	}
+	writeResourcesObservation(t, facts, nil)
+}
+
+// configTreeEntry 是配置存储根 / agentDir 里的一份真实磁盘事实。
+//
+// 为什么连目录也记：MOD01/MOD04/MCP04 要证明的不是"函数返回了什么"，
+// 而是产品到底在磁盘上留下了哪些文件（少了该有的、多了不该有的都看得见）。
+type configTreeEntry struct {
+	RelPath string `json:"relpath"`
+	Kind    string `json:"kind"`
+	Bytes   int64  `json:"bytes"`
+	SHA256  string `json:"sha256,omitempty"`
+}
+
+// walkResourcesTree 从磁盘遍历 root（不跟随符号链接）。
+func walkResourcesTree(t *testing.T, root string) []configTreeEntry {
+	t.Helper()
+	entries := make([]configTreeEntry, 0, 16)
+	walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil // 目录不存在也是一份真实状态（例如什么都没写）
+			}
+			return err
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return relErr
+		}
+		e := configTreeEntry{RelPath: filepath.ToSlash(rel), Kind: "file", Bytes: info.Size()}
+		if info.IsDir() {
+			e.Kind = "dir"
+			e.Bytes = 0
+		} else {
+			raw, readErr := os.ReadFile(p)
+			if readErr != nil {
+				return readErr
+			}
+			sum := sha256.Sum256(raw)
+			e.SHA256 = "sha256:" + hex.EncodeToString(sum[:])
+		}
+		entries = append(entries, e)
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("从磁盘遍历 %s 失败: %v", root, walkErr)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].RelPath < entries[j].RelPath })
+	return entries
+}
+
+// recordResourcesTree 把 root 的真实磁盘快照**追加**进 artifact，并合并本次事实。
+//
+// 追加而不是覆盖：同一条 case 的多条测试各自是独立的临时目录，
+// 覆盖写会让前面测试观察到的磁盘事实消失。
+func recordResourcesTree(t *testing.T, root, artifact, label string, extra map[string]any) {
+	t.Helper()
+	if resourcesObservationDir() == "" {
+		return
+	}
+	entries := walkResourcesTree(t, root)
+	snapshot := map[string]any{
+		"test":       t.Name(),
+		"label":      label,
+		"root":       filepath.ToSlash(root),
+		"capturedAt": time.Now().UTC().Format(time.RFC3339),
+		"entries":    entries,
+	}
+	merged := readResourcesArtifact(t, artifact)
+	snaps, _ := merged["snapshots"].([]any)
+	merged["snapshots"] = append(snaps, snapshot)
+	writeResourcesArtifact(t, artifact, merged)
+
+	fileCount := 0
+	for _, e := range entries {
+		if e.Kind == "file" {
+			fileCount++
+		}
+	}
+	facts := map[string]any{
+		"treeRoot":          filepath.ToSlash(root),
+		"treeLabel":         label,
+		"treeEntries":       len(entries),
+		"treeFiles":         fileCount,
+		"treeSnapshotCount": len(merged["snapshots"].([]any)),
+	}
+	for k, v := range extra {
+		facts[k] = v
+	}
+	facts["byTest:"+t.Name()+"/"+label] = map[string]any{
+		"treeRoot":    filepath.ToSlash(root),
+		"treeLabel":   label,
+		"treeEntries": len(entries),
+		"treeFiles":   fileCount,
+	}
+	writeResourcesObservation(t, facts, nil)
+}
+
+// secretScanRecord 是"从磁盘重新扫描 sentinel"的一次结果。
+//
+// 只记命中的文件路径与哨兵的 sha256，绝不把哨兵本身写进证据——
+// 否则证据文件自己就成了一份泄漏。
+type secretScanRecord struct {
+	Test           string   `json:"test"`
+	Label          string   `json:"label"`
+	Roots          []string `json:"roots"`
+	ScannedFiles   int      `json:"scannedFiles"`
+	SentinelSHA256 string   `json:"sentinelSha256"`
+	HitCount       int      `json:"hitCount"`
+	Hits           []string `json:"hits"`
+}
+
+// recordSecretScan 扫描 roots 下每个文件的原始字节与三种 base64 变体。
+//
+// 为什么要扫 base64：凭证在 JSON payload 里往往是编码过的，只查原始字节会
+// 让"忘记加密"这种最危险的缺陷假绿（F07 实测过）。
+func recordSecretScan(t *testing.T, artifact, label string, roots []string, secret string, extra map[string]any) {
+	t.Helper()
+	if resourcesObservationDir() == "" {
+		return
+	}
+	needles := [][]byte{
+		[]byte(secret),
+		[]byte(base64.StdEncoding.EncodeToString([]byte(secret))),
+		[]byte(base64.RawStdEncoding.EncodeToString([]byte(secret))),
+		[]byte(base64.URLEncoding.EncodeToString([]byte(secret))),
+	}
+	sum := sha256.Sum256([]byte(secret))
+	rec := secretScanRecord{
+		Test:           t.Name(),
+		Label:          label,
+		Roots:          make([]string, 0, len(roots)),
+		SentinelSHA256: "sha256:" + hex.EncodeToString(sum[:]),
+		Hits:           []string{},
+	}
+	for _, root := range roots {
+		rec.Roots = append(rec.Roots, filepath.ToSlash(root))
+		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			raw, readErr := os.ReadFile(p)
+			if readErr != nil {
+				return nil
+			}
+			rec.ScannedFiles++
+			for _, n := range needles {
+				if len(n) > 0 && strings.Contains(string(raw), string(n)) {
+					rel, relErr := filepath.Rel(root, p)
+					if relErr != nil {
+						rel = p
+					}
+					rec.Hits = append(rec.Hits, filepath.ToSlash(rel))
+					break
+				}
+			}
+			return nil
+		})
+		if walkErr != nil {
+			t.Fatalf("扫描 %s 查找 sentinel 失败: %v", root, walkErr)
+		}
+	}
+	sort.Strings(rec.Hits)
+	rec.HitCount = len(rec.Hits)
+
+	merged := readResourcesArtifact(t, artifact)
+	snaps, _ := merged["snapshots"].([]any)
+	merged["snapshots"] = append(snaps, rec)
+	writeResourcesArtifact(t, artifact, merged)
+
+	facts := map[string]any{
+		"scanLabel":         label,
+		"scannedFiles":      rec.ScannedFiles,
+		"sentinelHitCount":  rec.HitCount,
+		"sentinelHits":      rec.Hits,
+		"sentinelSha256":    rec.SentinelSHA256,
+		"scanSnapshotCount": len(merged["snapshots"].([]any)),
+	}
+	for k, v := range extra {
+		facts[k] = v
+	}
+	facts["byTest:"+t.Name()+"/"+label] = map[string]any{
+		"scannedFiles":     rec.ScannedFiles,
+		"sentinelHitCount": rec.HitCount,
+		"sentinelHits":     rec.Hits,
 	}
 	writeResourcesObservation(t, facts, nil)
 }

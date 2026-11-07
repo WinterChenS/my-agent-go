@@ -16,6 +16,7 @@ import (
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/connectors"
+	"my-agent-go/internal/connectors/connectortest"
 	"my-agent-go/internal/connectors/fixtures"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/credentials"
@@ -69,6 +70,11 @@ func newMailEnv(t *testing.T, fxOpts fixtures.Options, gate connectors.PolicyGat
 	if fxOpts.Password == "" {
 		fxOpts.Password = fxPassword
 	}
+	// 集成 runner 会通过 ANVIL_OBSERVATION_DIR 指定证据目录：fixture 自己把
+	// 副作用快照写进去，服务把审计镜像写进去。本地 focused 运行时为空，什么也不写。
+	if fxOpts.ObservationDir == "" {
+		fxOpts.ObservationDir = connectors.ObservationDir()
+	}
 	counter := fixtures.NewCounter(fxOpts.ObservationDir)
 	fxOpts.Counter = counter
 
@@ -117,13 +123,14 @@ func newMailEnv(t *testing.T, fxOpts fixtures.Options, gate connectors.PolicyGat
 		})
 	}
 	opts := connectors.Options{
-		Definitions:  store,
-		Audit:        store,
-		Credentials:  creds,
-		Policy:       gate,
-		Drivers:      []connectors.Driver{driver},
-		ApprovalWait: 3 * time.Second,
-		PollInterval: 2 * time.Millisecond,
+		Definitions:    store,
+		Audit:          store,
+		Credentials:    creds,
+		Policy:         gate,
+		Drivers:        []connectors.Driver{driver},
+		ApprovalWait:   3 * time.Second,
+		PollInterval:   2 * time.Millisecond,
+		ObservationDir: connectors.ObservationDir(),
 	}
 	if tune != nil {
 		tune(&opts)
@@ -243,6 +250,12 @@ func TestMailReadActionsUseFixtureWithoutWriteSideEffects(t *testing.T) {
 	if snap.MailRead == 0 || snap.MailSearched == 0 {
 		t.Fatalf("读动作应在 fixture 侧计数: %+v", snap)
 	}
+	// CONN08 的外部观察：附件是经真实 IMAP fixture 取回的，副作用的最终数字
+	// 由 fixture 自己写下的快照文件给出（不是测试里的 counter 变量）。
+	connectortest.Observe(t, "mail/read-attachment", env.counter, map[string]any{
+		"attachmentFetched": true,
+		"externalWrites":    0,
+	})
 }
 
 // TestMailSendIsGatedByPolicy 是 brief 指定的用例：
@@ -280,6 +293,9 @@ func TestMailSendIsGatedByPolicy(t *testing.T) {
 		if strings.Contains(string(raw), fxPassword) {
 			t.Fatalf("审计含密码: %s", raw)
 		}
+		connectortest.Observe(t, "mail/send-denied", env.counter, map[string]any{
+			"policyGate": "deny",
+		})
 	})
 
 	t.Run("allowed", func(t *testing.T) {
@@ -313,6 +329,9 @@ func TestMailSendIsGatedByPolicy(t *testing.T) {
 		if strings.Contains(string(raw), fxPassword) {
 			t.Fatalf("审计含密码: %s", raw)
 		}
+		connectortest.Observe(t, "mail/send-allowed", env.counter, map[string]any{
+			"policyGate": "allow",
+		})
 	})
 }
 
