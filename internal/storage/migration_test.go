@@ -72,6 +72,9 @@ func TestMigrateCreatesSchemaAndIsIdempotent(t *testing.T) {
 	if rows != len(mustMigrations(t)) {
 		t.Fatalf("迁移记录数应为 %d，实际 %d", len(mustMigrations(t)), rows)
 	}
+
+	// DB01 的外部观察：结构从库文件本身读出（第二个句柄）。
+	observeSchema(t, db.Path(), map[string]any{"idempotentRuns": 2})
 }
 
 func mustMigrations(t *testing.T) []Migration {
@@ -127,6 +130,9 @@ func TestMigrateFailureLeavesNoHalfState(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("失败迁移后应仍可正常迁移: %v", err)
 	}
+
+	// DB01 的外部观察：磁盘上到底有没有半成品表，由第二个句柄读回。
+	observeSchema(t, db.Path(), map[string]any{"afterFailureRemigrated": true})
 }
 
 // TestOpenRejectsMemoryDB 覆盖 DB02：不允许偷偷换内存库。
@@ -146,6 +152,9 @@ func TestOpenRejectsMemoryDB(t *testing.T) {
 	if _, err := os.Stat(db.Path()); err != nil {
 		t.Fatalf("数据库文件不存在: %v", err)
 	}
+
+	// DB02 的外部观察：库文件确实在盘上，且结构由第二个句柄读出。
+	observeSchema(t, db.Path(), map[string]any{"memoryPathRejected": true})
 }
 
 // TestFTS5TrigramRealSupport 覆盖 DB02：锁定驱动真实支持 FTS5 trigram，中文可命中。
@@ -180,6 +189,9 @@ func TestFTS5TrigramRealSupport(t *testing.T) {
 	} else {
 		requireCode(t, err, contracts.CodeQueryTooShort)
 	}
+
+	// DB02 的外部观察：trigram 命中与 sqlite 版本由第二个句柄真实执行后落盘。
+	observeFTS(t, db.Path(), "整理项目")
 }
 
 // TestRebuildIndexDoesNotTouchConfigOrTranscript 覆盖 DB03：
@@ -239,6 +251,9 @@ func TestRebuildIndexDoesNotTouchConfigOrTranscript(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("重建后应仍能命中，实际 %d", len(hits))
 	}
+
+	// DB03 的外部观察：配置 JSON 与 transcript 的磁盘哈希，加上库结构。
+	observeAuthority(t, []string{configPath, transcriptPath}, db.Path())
 }
 
 func hash(b []byte) string {

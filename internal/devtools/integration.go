@@ -101,6 +101,7 @@ func integrationCases() []integrationCase {
 	policyTests := "internal/policy"
 	runTests := "internal/run"
 	historyTests := "internal/history"
+	storageTests := "internal/storage"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -355,6 +356,18 @@ func integrationCases() []integrationCase {
 			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
+
+		// ── 存储（F07，G2）──
+		// 观察值来自**库文件本身**（source: database）：db-schema.json 由第二个
+		// storage.DB 句柄从同一个文件读出（表清单/DDL/schema_migrations 真实行/半成品表），
+		// fts-probe.json 是第二个句柄真执行一次 trigram MATCH 的结果，
+		// authority-hashes.json 是配置 JSON 与 transcript 的磁盘哈希。
+		{ID: "DB01", Package: storageTests, Run: "TestMigrateCreatesSchemaAndIsIdempotent|TestMigrateFailureLeavesNoHalfState|TestMemoryMigrationColumnsAndRerun",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"db-schema.json"}}},
+		{ID: "DB02", Package: storageTests, Run: "TestOpenRejectsMemoryDB|TestFTS5TrigramRealSupport",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"db-schema.json", "fts-probe.json"}}},
+		{ID: "DB03", Package: storageTests, Run: "TestRebuildIndexDoesNotTouchConfigOrTranscript",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"db-schema.json", "authority-hashes.json"}}},
 
 		// ── 运行语义（F05，G2）──
 		//
@@ -1117,6 +1130,16 @@ func taskForCase(id string) string {
 		return "F04"
 	case strings.HasPrefix(id, "CFG"):
 		return "F07"
+	case strings.HasPrefix(id, "DB"):
+		return "F07"
+	case strings.HasPrefix(id, "ART"):
+		return "C07"
+	case strings.HasPrefix(id, "SES"):
+		return "C06"
+	case strings.HasPrefix(id, "MOD"):
+		return "C02"
+	case strings.HasPrefix(id, "MCP"):
+		return "C04"
 	case strings.HasPrefix(id, "CONN"):
 		return "C08"
 	case strings.HasPrefix(id, "RUN"):
