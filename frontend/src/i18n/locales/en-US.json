@@ -392,5 +392,41 @@
     },
     "replay": "Resync events",
     "otherSessionRun": "Another session is running: its messages and approvals belong to that session and are not shown here."
+  },
+  "browser": {
+    "address": {
+      "label": "Page address",
+      "placeholder": "Type a URL and press Enter",
+      "back": "Back",
+      "reload": "Reload"
+    },
+    "stop": "Stop run",
+    "stopHint": "The stop button sits outside the native page area, so the page cannot cover it",
+    "control": {
+      "agent": "Agent in control",
+      "human": "Human in control",
+      "pausing": "Taking over",
+      "resuming": "Resuming",
+      "controlUncertain": "Control state uncertain",
+      "unknown": "Control state unknown",
+      "takeOver": "Take over",
+      "takeOverHint": "Hand control to the human: queued actions are revoked, dispatched input is not undone",
+      "resume": "Return to agent",
+      "resumeHint": "The agent must observe a new snapshot before it can act again"
+    },
+    "tabs": {
+      "label": "Browser tabs",
+      "empty": "No tabs yet",
+      "select": "Switch to",
+      "close": "Close"
+    },
+    "slot": {
+      "native": "The native page is placed in this area (not an iframe, not a screenshot)",
+      "occluded": "The native page made room for an overlay; it comes back when the overlay closes (the agent is not paused)",
+      "noHost": "Native host unavailable: no page on the right"
+    },
+    "occlusion": {
+      "hidden": "Overlay open: the native page is hidden for now (hiding the panel is not pausing the agent)"
+    }
   }
 }

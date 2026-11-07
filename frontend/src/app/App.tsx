@@ -17,6 +17,7 @@ import { historyApi } from "../features/history/api";
 import { chatApi, type ChatClarificationResponse } from "../features/chat/api";
 import { HistorySidebar } from "../features/history/HistorySidebar";
 import { GlobalSearch } from "../features/search/GlobalSearch";
+import { BrowserOcclusionProvider } from "./BrowserOcclusionCoordinator";
 import { Layout } from "./Layout";
 import { RouterProvider, useRouter } from "./Router";
 import { ShellProvider, type ShellValue } from "./shell";
@@ -326,6 +327,9 @@ function Shell() {
   const workspace = backend.currentWorkspace;
 
   return (
+    // 遮挡协调器装在壳层最外面：任何浮层（设置 dialog / 命令面板 / 审批框）
+    // 都通过它报告遮挡，原生网页才不会被浮层之上的子窗口盖住。
+    <BrowserOcclusionProvider>
     <ShellProvider value={shellValue}>
       <Layout
         status={backend.status}
@@ -378,5 +382,6 @@ function Shell() {
         <Page onNavigate={navigate} route={match} />
       </Layout>
     </ShellProvider>
+    </BrowserOcclusionProvider>
   );
 }
