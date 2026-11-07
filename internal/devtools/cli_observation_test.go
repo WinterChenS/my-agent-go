@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -535,4 +536,99 @@ func TestGOV04CLIGateReportsMissingCaseWithExitTwo(t *testing.T) {
 		"missingRequirements": len(missing),
 		"reason":              reason,
 	})
+}
+
+// ---- GOV05：证据必须带真实环境身份，缺失/与 target 不符/低于最低系统都判死 ----
+
+// TestGOV05CLIGateAcceptsAndRejectsEnvironmentIdentity 用**真实 devtools 二进制**观察
+// GOV05 的四个分支：恰好等于最低要求通过；缺环境身份、OS 与 target 不符、低于最低 build
+// 各自退出 2 并被点名。
+//
+// 为什么必须走子进程：GOV05 断言的是"证据里的环境身份与 build/platforms.json 的最低要求
+// 比对之后，gate 给出什么退出码"。进程内调 EvaluateGate 只能证明返回值，证明不了
+// 二进制真的把 2 交给了调用方（ADR-0001）。观察值从落盘 artifact 读回，不从内存变量取。
+func TestGOV05CLIGateAcceptsAndRejectsEnvironmentIdentity(t *testing.T) {
+	obsDir := observationDirForTest(t)
+
+	// 场景一：最低线证据 → 必须通过（证明 GOV05 不是"一律判死"）。
+	okRoot := t.TempDir()
+	rev, lockHash := writeCompleteG0EvidenceTree(t, okRoot)
+	runOK := runDevtoolsCLI(t, "minimum-environment", "", "gate", "--id=G0", "--evidence="+okRoot)
+	if runOK.ExitCode != 0 {
+		t.Fatalf("恰好等于最低要求的证据应通过（exit 0），实际 %d\nstdout=%s",
+			runOK.ExitCode, tail(runOK.Stdout, 1200))
+	}
+
+	// 场景二/三/四：只破坏 win-x64 上一个必需 case 的环境身份，其余保持最低线。
+	// 这样拒绝只能来自被破坏的那一项，而不是"整棵树本来就不完整"。
+	host := hostTargetID(t)
+	broken := []struct {
+		label  string
+		mutate func(*contracts.GateEvidence)
+		expect string // gate 输出里必须出现的点名
+	}{
+		{
+			label: "missing-environment",
+			mutate: func(e *contracts.GateEvidence) {
+				e.Environment = contracts.Environment{}
+			},
+			expect: "环境",
+		},
+		{
+			label: "os-target-mismatch",
+			mutate: func(e *contracts.GateEvidence) {
+				e.Environment.OS = "linux"
+			},
+			expect: "不一致",
+		},
+		{
+			label: "below-minimum-build",
+			mutate: func(e *contracts.GateEvidence) {
+				// 最低线减一：低于要求但形状合法，避免把"解析失败"当成"低于最低"。
+				build, err := strconv.ParseInt(e.Environment.OSBuild, 10, 64)
+				if err != nil || build <= 0 {
+					t.Fatalf("最低线 build 不是可解析的数字: %q", e.Environment.OSBuild)
+				}
+				e.Environment.OSBuild = strconv.FormatInt(build-1, 10)
+			},
+			expect: "最低",
+		},
+	}
+
+	runs := []cliRun{runOK}
+	facts := map[string]any{"acceptedExit": runOK.ExitCode}
+	for _, b := range broken {
+		root := t.TempDir()
+		// 用完整的 G0 证据树（与上面同一份），再对 win-x64 的一个必需 case 施加破坏。
+		writeCompleteG0EvidenceTree(t, root)
+		dir := filepath.Join(root, rev, "G0", host, "ENV03")
+		writeEvidenceAt(t, dir, rev, "G0", host, "ENV03", lockHash, b.mutate)
+		writeExternalOracle(t, dir, "filesystem", map[string]any{"fixture": true}, []string{"fixture-artifact.json"})
+		rehashEvidence(t, dir)
+
+		run := runDevtoolsCLI(t, b.label, "", "gate", "--id=G0", "--evidence="+root)
+		if run.ExitCode != 2 {
+			t.Fatalf("%s 应退出 2，实际 %d\nstdout=%s\nstderr=%s",
+				b.label, run.ExitCode, tail(run.Stdout, 1200), tail(run.Stderr, 400))
+		}
+		combined := run.Stdout + run.Stderr
+		if !strings.Contains(combined, b.expect) {
+			t.Fatalf("%s 的拒绝原因必须点名 %q，实际输出：\n%s", b.label, b.expect, tail(combined, 1200))
+		}
+		runs = append(runs, run)
+		facts[b.label+"Exit"] = run.ExitCode
+		facts[b.label+"Reason"] = firstLineContaining(combined, b.expect)
+	}
+
+	// 观察值从 artifact 读回。
+	persisted := writeCLIArtifact(t, obsDir, "gate-run.json", runs)
+	if persisted[0].ExitCode != 0 {
+		t.Fatalf("回读的第一条运行 exit=%d，期望 0（artifact 与断言不一致）", persisted[0].ExitCode)
+	}
+	for i, r := range persisted[1:] {
+		if r.ExitCode != 2 {
+			t.Fatalf("回读的第 %d 条破坏运行 exit=%d，期望 2", i+2, r.ExitCode)
+		}
+	}
+	writeObservationFacts(t, obsDir, facts)
 }

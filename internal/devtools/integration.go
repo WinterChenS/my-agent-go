@@ -140,6 +140,13 @@ func integrationCases() []integrationCase {
 		{ID: "GOV04", Package: gateTests, Run: "TestFrontendTestRunnerMissingReturnsConfigCode|TestFrontendPackageJSONReachableFromPackageDir|TestIndexCoversEveryMatrixCase|TestIndexEntriesAreActionable|TestOracleKindIsDeclaredOrGrandfathered|TestPlanIndexIsConsistent|TestNativeCaseIDsExistInIndex|TestEvidenceRootLayout|TestIntegrationSelectsCasesByGate|TestGofmtScopeExcludesScratchDirs|TestReviewGate|TestGOV04CLIGateReportsMissingCaseWithExitTwo",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"gate-run.json"}}},
 
+		// GOV05：证据必须带真实环境身份。观察值是**真实 devtools 二进制**在四棵证据树上
+		// 的退出码与拒绝文案（最低线通过 / 缺环境身份 / OS 与 target 不符 / 低于最低 build），
+		// 由测试写进 gate-run.json 后再读回。进程内的 EvaluateGate 返回值不算观察值：
+		// 这条 case 断言的是二进制有没有把 2 交出去（ADR-0001）。
+		{ID: "GOV05", Package: gateTests, Run: "TestGateRejectsEvidenceMissingEnvironment|TestGateRejectsEnvironmentOSTargetMismatch|TestGateRejectsBelowMinimumOSVersion|TestGateAcceptsMinimumEnvironment|TestHostEnvironmentReportsRealValues|TestGateEvidenceSchemaRequiresEnvironment|TestGOV05CLIGateAcceptsAndRejectsEnvironmentIdentity",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"gate-run.json"}}},
+
 		// ── Pi 定位与探测 ──
 		// PI01：定位结果必须与**真正被执行的文件**一致。观察值来自两个方向：
 		//   - 磁盘上的 fixture 树（located-tree.json：路径/大小/模式/sha256）；
