@@ -22,6 +22,7 @@ import {
   MCPPage,
   MemoryPage,
   NotImplementedPage,
+  ObservabilityPage,
   RunsPage,
   SettingsPage,
   SkillsPage,
@@ -39,7 +40,8 @@ export type RouteId =
   | "library"
   | "memory"
   | "runs"
-  | "settings";
+  | "settings"
+  | "observability";
 
 /** 页面组件统一签名：路由信息 + 导航动作。 */
 export interface PageProps {
@@ -78,6 +80,7 @@ export const ROUTES: readonly RouteSpec[] = [
   { id: "schedules", pattern: "/schedules", component: SchedulesRoute, labelKey: "nav.schedules", hintKey: "nav.hints.schedules" },
   { id: "runs", pattern: "/runs", component: RunsPage, labelKey: "nav.runs", hintKey: "nav.hints.runs" },
   { id: "settings", pattern: "/settings", component: SettingsPage, labelKey: "nav.settings", hintKey: "nav.hints.settings" },
+  { id: "observability", pattern: "/observability", component: ObservabilityPage, labelKey: "nav.observability", hintKey: "nav.hints.observability" },
 ] as const;
 
 export interface RouteMatch {
@@ -244,6 +247,7 @@ export function navGroups(): NavGroup[] {
         item("connectors", "/connectors"),
         item("schedules", "/schedules"),
         item("settings", "/settings"),
+        item("observability", "/observability"),
       ],
     },
   ];

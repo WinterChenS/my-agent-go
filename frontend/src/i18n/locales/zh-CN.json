@@ -143,8 +143,10 @@
       "connectors": "外部服务的连接器",
       "schedules": "本地持久定时任务",
       "settings": "运行环境、工作区、语言与主题",
-      "runs": "本次运行的事件序列"
-    }
+      "runs": "本次运行的事件序列",
+      "observability": "查看用量、run 链路与诊断导出。"
+    },
+    "observability": "观测"
   },
   "shell": {
     "piStatus": "Pi 状态",
@@ -768,6 +770,215 @@
       "confirmed": "已确认生效",
       "scopeEnabled": "已打开 {scope} 的注入",
       "scopeDisabled": "已关闭 {scope} 的注入（条目仍然保留）"
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "subtitle": "运行参数、Pi 运行时与应用更新都以此处为准。",
+    "general": {
+      "title": "通用",
+      "hint": "语言与主题只影响界面显示，不中断正在进行的运行。",
+      "save": "保存偏好",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "conflictHint": "配置已被其它窗口修改。先重新读取，再决定要不要覆盖。"
+    },
+    "model": {
+      "title": "模型",
+      "hint": "模型定义来自资源库，密钥只存在系统凭证库。",
+      "current": "当前模型",
+      "source": {
+        "resources": "资源库",
+        "settings": "设置里的旧字段",
+        "none": "尚未配置"
+      },
+      "listTitle": "资源库里的模型",
+      "emptyTitle": "还没有模型定义",
+      "emptyHint": "在资源库里定义模型并设为当前。",
+      "activate": "设为当前",
+      "activating": "切换中…",
+      "active": "当前",
+      "test": "测试连接",
+      "testing": "测试中…",
+      "reachable": "可达（{latency} ms）",
+      "unreachable": "不可达",
+      "deferred": "已切换：还有运行在进行，新模型会在下一次运行时生效。",
+      "credential": "凭证",
+      "credentialPresent": "已存于系统凭证库",
+      "credentialMissing": "未保存凭证"
+    },
+    "permissions": {
+      "title": "权限",
+      "hint": "上限由系统策略与工作区共同决定，界面只显示后端算出的结果。",
+      "filesystem": "文件系统",
+      "network": "网络",
+      "shell": "Shell",
+      "allowed": "允许",
+      "denied": "不允许",
+      "networkUnavailable": "网络权限在 V1 不可用：上限恒为关闭，界面不提供打开它的开关。",
+      "shellDefault": "默认允许 shell 工具",
+      "shellDefaultHint": "每次调用仍需审批。",
+      "saved": "已保存",
+      "sources": {
+        "system": "系统策略",
+        "user": "用户配置",
+        "workspace": "工作区配置",
+        "default": "默认值"
+      },
+      "workspacesTitle": "工作区",
+      "workspacesHint": "未信任的工作区不能执行任何命令。",
+      "trusted": "已信任",
+      "untrusted": "未信任",
+      "trust": "信任",
+      "untrust": "取消信任",
+      "workspacesEmptyTitle": "还没有登记工作区",
+      "workspacesEmptyHint": "在对话或工作台里添加一个目录。"
+    },
+    "pi": {
+      "title": "Pi 运行时",
+      "hint": "本机所有 Pi 候选、安装与回滚都由宿主管理；外部 Pi 不会被覆盖或改动。",
+      "discover": "重新探测",
+      "discovering": "正在探测…",
+      "emptyTitle": "没有发现任何 Pi",
+      "emptyHint": "可以安装受信清单里的版本，或把 Pi 放到 PATH 上后重新探测。",
+      "version": "版本",
+      "hash": "指纹",
+      "select": "选用",
+      "selected": "已选用",
+      "installTitle": "安装与升级",
+      "installHint": "只会下载随二进制下发的受信清单里的版本；地址与哈希不由界面提供。",
+      "installVersion": "版本",
+      "install": "安装",
+      "installing": "安装中…",
+      "cancelInstall": "取消安装",
+      "rollback": "回滚",
+      "rollingBack": "回滚中…",
+      "rollbackHint": "只有后端确认存在经验证的旧版时才可回滚。",
+      "previousVersion": "回滚自",
+      "managedRoot": "托管根",
+      "failedStage": "失败阶段",
+      "states": {
+        "discovering": "探测中",
+        "ready_verified": "已验证",
+        "ready_compatible": "兼容",
+        "upgrade_available": "需要升级",
+        "incompatible": "不兼容",
+        "missing": "缺失",
+        "installing": "安装中",
+        "rollback_available": "可回滚",
+        "failed": "失败"
+      },
+      "origin": {
+        "preferred": "用户指定",
+        "saved": "上次选定",
+        "managed": "托管安装",
+        "path": "PATH 来源",
+        "common": "常见位置"
+      },
+      "distribution": {
+        "standalone": "独立包",
+        "npm": "npm 启动器"
+      },
+      "stage": {
+        "download": "下载",
+        "verify": "校验",
+        "extract": "解压",
+        "probe": "探测",
+        "activate": "激活",
+        "validate": "校验请求"
+      }
+    },
+    "update": {
+      "title": "应用更新",
+      "hint": "更新在后台下载，只在下次正常启动时安装，不主动重启应用。",
+      "unavailableReason": "应用更新服务尚未实现（F09 缺失）：没有 UpdateStatus、CheckForUpdate、DownloadUpdate、UpdateBlockers、ExitAndUpdate 绑定。",
+      "noFakeActions": "在能给出真实状态之前，这里不会显示进度条，也不提供「退出并更新」。"
+    },
+    "security": {
+      "title": "安全",
+      "hint": "密钥只由系统凭证库保存；界面不回显、也不改写已保存的密钥。",
+      "storeStatus": "凭证库状态",
+      "storeUnavailable": "无法确认系统凭证库是否可用：缺少 CredentialStoreStatus 绑定。",
+      "credentialsTitle": "模型凭证",
+      "credentialsHint": "依据模型定义里的凭证引用判断，读取不到凭证本体。",
+      "credentialsEmptyTitle": "还没有模型定义",
+      "credentialsEmptyHint": "在资源库里定义模型后，这里会显示凭证覆盖情况。",
+      "credentialPresent": "已存于系统凭证库",
+      "credentialMissing": "未保存凭证",
+      "legacyFallback": "旧字段兜底",
+      "legacyActive": "当前模型来自设置里的旧字段，API Key 会以明文写进 settings.json。",
+      "legacyInactive": "当前模型来自资源库，密钥由系统凭证库保存。",
+      "noSecret": "这里不显示、也不重写任何已保存的密钥。"
+    },
+    "diagnostics": {
+      "title": "诊断",
+      "hint": "诊断包写到本机诊断目录，不上传任何地方。",
+      "openPage": "打开观测页"
+    }
+  },
+  "observability": {
+    "title": "观测",
+    "subtitle": "用量、run 链路与诊断都来自后端记录；缺数据时显示不可用，不显示 0。",
+    "usage": {
+      "title": "用量汇总",
+      "hint": "时间范围用 RFC3339；留空表示不限。缺 usage 或价格时显示不可用。",
+      "from": "起始时间",
+      "to": "结束时间",
+      "apply": "应用范围",
+      "runs": "运行数",
+      "reportedRuns": "有用量记录",
+      "unreportedRuns": "无用量记录",
+      "input": "输入 tokens",
+      "output": "输出 tokens",
+      "total": "合计 tokens",
+      "cost": "费用",
+      "priceSource": "价格来源",
+      "estimated": "估算值",
+      "unavailable": "不可用"
+    },
+    "run": {
+      "title": "Run 链路",
+      "hint": "按 run id 打开；anvil://observability?run=<id> 也可深链。",
+      "emptyTitle": "还没有选择 run",
+      "emptyHint": "从对话的运行详情或 anvil:// 深链打开一条 run。",
+      "listUnavailableReason": "无法列出最近的 run 或错误：C07 目前没有列出 run 的接口（只有 UsageSummary 与 RunDetails）。请按 run id 打开。",
+      "openSession": "打开来源会话"
+    },
+    "chain": {
+      "title": "事件链路",
+      "eventCount": "事件数",
+      "empty": "这个 run 没有可展示的事件。"
+    },
+    "tools": {
+      "title": "工具执行",
+      "unknown": "未知工具",
+      "failed": "失败"
+    },
+    "approvals": {
+      "title": "审批",
+      "unknown": "未知工具"
+    },
+    "unavailable": {
+      "title": "答不出来的段落",
+      "empty": "没有缺口。"
+    },
+    "artifacts": {
+      "title": "产物"
+    },
+    "export": {
+      "title": "诊断导出",
+      "hint": "只写本机诊断目录，不上传；内容在写入时已脱敏。",
+      "action": "导出诊断包",
+      "exporting": "导出中…",
+      "path": "路径",
+      "bytes": "大小",
+      "sha256": "SHA-256",
+      "redactions": "脱敏次数",
+      "runs": "Run 数",
+      "events": "事件数",
+      "artifacts": "产物数",
+      "schema": "Schema 版本",
+      "generatedAt": "生成时间"
     }
   }
 }
