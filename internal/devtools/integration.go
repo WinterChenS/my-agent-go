@@ -578,6 +578,15 @@ func integrationCases() []integrationCase {
 		// （文件名/字节数/sha256/磁盘上的 revision），不是被测函数的返回值。
 		// CFG01 未接：五层合并是纯函数，边界外没有任何落盘产物；要为它造外部
 		// 观察只能改产品行为（把有效配置写盘）或复制合并逻辑（自证）。
+		// CFG01：五层合并 + 来源可查询。观察值分两路：
+		//   - layer-docs.json：用**第二个 store 实例**从磁盘读回的层文档；
+		//   - effective-config.json：绑定层返回的 values/provenance。
+		// 事实从这两份 artifact 读回，不看进程内断言。
+		{ID: "CFG01", Steps: []integrationStep{
+			{Package: appTests, Run: "TestEffectiveConfigProvenanceIsQueryableAndObservedFromDisk"},
+			{Package: configTests, Run: "TestMergePrecedenceAndDisableByID"},
+		},
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"layer-docs.json", "effective-config.json"}}},
 		{ID: "CFG02", Package: configTests, Run: "TestCASRejectsExternalEdit|TestCASRejectsInvalidBody",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"config-tree.json"}}},
 		// CFG04：断电残片的恢复与独立 agentDir。两份 artifact：配置根的磁盘事实
