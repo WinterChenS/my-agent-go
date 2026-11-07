@@ -34,6 +34,29 @@ func RunExternal(name string, args ...string) (int, string, string, error) {
 	return 2, out.String(), errb.String(), runErr
 }
 
+// RunExternalWithPath 与 RunExternal 相同，但用**显式构造的 PATH** 跑（不改宿主环境）。
+//
+// 为什么前端工具需要它：npm.cmd / vitest 会从 PATH 解析 `node`，而本机 PATH 首位是
+// 微信开发者工具自带的旧 node（AGENTS.md §4 已记录）。用宿主 PATH 跑前端测试，
+// 失败信息看起来像"前端坏了"，实际是解析到了错的 node（2026-11-06 实测：vitest 在
+// node:events 上直接退出）。这里把基线 Node 目录放到 PATH 首位，断言不变，只是让
+// "被测环境"等于基线声明的环境。
+func RunExternalWithPath(pathEnv []string, name string, args ...string) (int, string, string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), pathEnv...)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	runErr := cmd.Run()
+	if runErr == nil {
+		return 0, out.String(), errb.String(), nil
+	}
+	if exitErr, ok := runErr.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), out.String(), errb.String(), nil
+	}
+	return 2, out.String(), errb.String(), runErr
+}
+
 // RunVerify 是 `verify` 子命令入口。suite 必须属于已知集合；
 // 未知 suite 返回 2；F01 未实现的 runner 也返回 2，绝不自动发现空目录判成功。
 func RunVerify(suite, target, display, artifact string) int {
@@ -209,7 +232,7 @@ func runFrontendTypecheck() (int, string, string, error) {
 	if code, msg, err := frontendScript(pkgPath, "typecheck"); code != 0 {
 		return code, "", msg, err
 	}
-	return RunExternal(npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "typecheck")
+	return RunExternalWithPath(baselinePathEnv(), npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "typecheck")
 }
 
 // runFrontendTest 真实执行前端测试；脚本缺失→明确报 runner 不存在并以 2 退出。
@@ -221,7 +244,7 @@ func runFrontendTest() (int, string, string, error) {
 	if code, msg, err := frontendScript(pkgPath, "test"); code != 0 {
 		return code, "", msg + "，不能静默跳过判成功", err
 	}
-	return RunExternal(npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "test", "--", "--run")
+	return RunExternalWithPath(baselinePathEnv(), npmCmd, "--prefix", filepath.Dir(pkgPath), "run", "test", "--", "--run")
 }
 
 // EnsureRepoRoot 保证当前目录是仓库根。
