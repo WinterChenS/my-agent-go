@@ -1,0 +1,20 @@
+B06 红证据 0 —— 测试先写、实现未落地（编译失败即红）
+=====================================================================
+跑法：go test ./internal/browser -run 'TestWorkspaceCookiesIsolatedAndPersisted|TestPopupInheritsSessionAndTabLimit|TestDownloadRequiresDestination|TestSuggestedNamesSanitized' -count=1
+时间：2026-11-07T12:17:58Z（UTC）
+
+# my-agent-go/internal/browser_test [my-agent-go/internal/browser.test]
+internal\browser\downloads_integration_test.go:44:71: undefined: browser.ArtifactRequest
+internal\browser\downloads_integration_test.go:44:97: undefined: browser.ArtifactRef
+internal\browser\downloads_integration_test.go:50:18: undefined: browser.ArtifactRef
+internal\browser\downloads_integration_test.go:52:17: undefined: browser.ArtifactRef
+internal\browser\downloads_integration_test.go:56:20: undefined: browser.DownloadManager
+internal\browser\downloads_integration_test.go:99:27: undefined: browser.NewProfileStore
+internal\browser\downloads_integration_test.go:99:51: undefined: browser.ProfileOptions
+internal\browser\downloads_integration_test.go:118:22: undefined: browser.NewDownloadManager
+internal\browser\downloads_integration_test.go:118:49: undefined: browser.DownloadOptions
+internal\browser\profiles_test.go:110:21: undefined: browser.ProfileStore
+internal\browser\downloads_integration_test.go:118:49: too many errors
+FAIL	my-agent-go/internal/browser [build failed]
+FAIL
+退出码: 1

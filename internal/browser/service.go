@@ -84,6 +84,12 @@ type tabState struct {
 	owner contracts.SessionID
 	url   string
 
+	// profileID 是这份 tab 所属的浏览器 profile（workspace 级持久登录，B06）。
+	// 弹窗必须继承它：登录态是「同一个人的同一份」，不是新身份。
+	profileID contracts.ProfileID
+	// popups 是本 tab 通过 window.open 打开的子 tab（B06/BR16）。
+	popups []TabID
+
 	navigationID string
 	generation   uint64 // 控制权代数：接管/恢复各递增一次
 	epoch        uint64 // 队列纪元：接管/恢复/导航时递增，让旧队列项失效
@@ -110,12 +116,15 @@ type Service struct {
 	now           func() time.Time
 	limits        *SessionTabs
 
-	mu       sync.Mutex
-	tabs     map[TabID]*tabState
-	seq      uint64
-	timeline []TimelineEntry
-	closed   bool
-	closeCh  chan struct{}
+	mu   sync.Mutex
+	tabs map[TabID]*tabState
+	// popupParent 记录「哪个 tab 是哪个 tab 的 window.open 子 tab」。
+	// 不只在父 tab 上存一份列表：关闭父 tab 或子 tab 时，两边都要能一致地清理。
+	popupParent map[TabID]TabID
+	seq         uint64
+	timeline    []TimelineEntry
+	closed      bool
+	closeCh     chan struct{}
 }
 
 // NewService 构造服务。
@@ -131,6 +140,7 @@ func NewService(opts ServiceOptions) (*Service, error) {
 		now:           opts.Now,
 		limits:        NewSessionTabs(),
 		tabs:          map[TabID]*tabState{},
+		popupParent:   map[TabID]TabID{},
 		closeCh:       make(chan struct{}),
 	}
 	if s.maxQueued <= 0 {
@@ -209,6 +219,7 @@ func (s *Service) OpenTab(ctx context.Context, exec contracts.ExecutionContext, 
 		id:         tab,
 		owner:      exec.SessionID,
 		url:        opts.URL,
+		profileID:  opts.ProfileID,
 		generation: 1,
 		epoch:      1,
 		mode:       ControlAgent,
@@ -244,6 +255,21 @@ func (s *Service) CloseTab(ctx context.Context, exec contracts.ExecutionContext,
 
 	s.mu.Lock()
 	delete(s.tabs, tab)
+	// 子 tab 与父 tab 的关系两边都要清：否则关闭一个 tab 之后 Popups/PopupParent
+	// 会返回一个已经不存在的 id（面板点过去就是空槽位）。
+	for _, child := range st.popups {
+		delete(s.popupParent, child)
+	}
+	delete(s.popupParent, tab)
+	for _, parent := range s.tabs {
+		kept := parent.popups[:0]
+		for _, child := range parent.popups {
+			if child != tab {
+				kept = append(kept, child)
+			}
+		}
+		parent.popups = kept
+	}
 	s.limits.Release(exec.SessionID)
 	s.appendTimelineLocked(TimelineEntry{
 		Kind: TimelineTabClosed, TabID: tab, SessionID: exec.SessionID, Queued: counts,

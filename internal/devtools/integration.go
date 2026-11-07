@@ -76,6 +76,9 @@ type integrationCase struct {
 	Steps []integrationStep
 	// Blocked 非空表示当前环境无法执行，值为可复核的原因。
 	Blocked string
+	// Limitation 非空会写进证据的 limitations 字段：说明这条 case 只覆盖了哪个子集，
+	// 防止「跑了子集 = 整条通过」的误读（与 nativeCase.Limitation 同一口径）。
+	Limitation string
 	// Observation 非空表示该 case 必须产出 external-observation oracle。
 	Observation *observationSpec
 }
@@ -330,6 +333,39 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"policy-decisions.jsonl", "fixture-counters.jsonl", "mcp-calls.jsonl"}}},
 		{ID: "BR14", Package: browserTests, Run: "TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed|TestNavigationRevokesQueuedWrites",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "backend-actions.jsonl"}}},
+		// ── 浏览器 profile / 弹窗 / 下载（B06，G2） ──
+		// BR15：workspace 级登录态。观察值全部来自**磁盘**：
+		//   - profiles.json：profile 根的真实遍历（每个 profile 的路径 + 每个文件 size/sha256）；
+		//   - cookies.json：用**第二个 storage.DB 句柄**从库文件读出的登录态行（值只写 sha256）；
+		//   - preservation.json：重启前后与清除后的目录树 + 伪造的"个人浏览器 profile"
+		//     哨兵树（证明那棵树一个字节都没被碰）。
+		// "重启"是真的换一个 store/句柄读同一个根与同一个库文件，不是内存里断言。
+		{ID: "BR15", Package: browserTests, Run: "TestWorkspaceCookiesIsolatedAndPersisted|TestProfileStoreRefusesPersonalBrowserRoots",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"profiles.json", "cookies.json", "preservation.json"}},
+			Limitation: "覆盖服务边界：profile 目录的真实创建/留存/删除、应用侧登录态行与第二句柄读回。" +
+				"引擎自己的 cookie 库由 WebView2 写在同一个 profile 目录里，本机没有真实 OAuth/SSO/fixture 站点登录流取证；" +
+				"所以「企业 SSO 登录态能跨重启保留」没有被这条 case 证明。"},
+		// BR16：window.open 落成同 session 的受控 tab，且不突破 4/session。
+		// 观察值来自服务自己的时间线（popup_opened/popup_denied/tab_limit_exceeded）、
+		// 登记一致的 tab 列表（backend 存活实例数 == 服务登记数）与 backend 创建计数——
+		// "被拒绝的弹窗没有创建实例"由 CreateCalls 前后相等证明。
+		{ID: "BR16", Package: browserTests, Run: "TestPopupInheritsSessionAndTabLimit",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"popups.jsonl", "tabs.json", "counters-popups.json"}},
+			Limitation: "window.open 的受控接管在服务边界上被证明（同 session、继承 profile、限额先于实例创建、" +
+				"登记一致）；WebView2 的 NewWindowRequested 回调尚未接入 B01 宿主（宿主当前只支持单 tab），" +
+				"所以「真实页面 window.open 不会弹出原生窗口」还没有原生截图证据，属于 B01/B07 的剩余工作。"},
+		// BR17：下载必须选目标。观察值来自磁盘与库：
+		//   - downloads.jsonl：第二句柄读出的作业行（状态机 + hash + 产物 id）；
+		//   - download-files.json：目标/取消/篡改/越界四条路径的磁盘事实（存在性与 sha256）
+		//     与工作区/家目录/staging 三棵树；
+		//   - artifact-row.json：第二句柄读出的 artifacts 行（落盘即登记）；
+		//   - no-writes-before-destination.json：未选目标前后的工作区/家目录树对照。
+		{ID: "BR17", Package: browserTests, Run: "TestDownloadRequiresDestination|TestSuggestedNamesSanitized",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{
+				"downloads.jsonl", "download-files.json", "artifact-row.json", "no-writes-before-destination.json"}},
+			Limitation: "覆盖服务边界：staging 位置、目标确认、写后复核、取消、建议名清理、产物登记（真实 SQLite 与真实 HTTP）。" +
+				"WebView2 的 DownloadStarting 委托尚未接入原生宿主，因此「浏览器里点下载链接会进入本状态机」" +
+				"没有原生证据；程序化上传本轮明确未实现，未测试。"},
 		// SEC03/SEC04 的浏览器通道：拒绝 → counter 0；允许 → 恰好一次（同一份 fixture 计数）。
 		{ID: "SEC03.browser", Package: harnessmcpTests, Run: "TestBrowserToolsFlowThroughMCPAndPolicy|TestBrowserToolDeniedLeavesCounterZero",
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl"}}},
@@ -1217,6 +1253,9 @@ func runIntegrationCase(c integrationCase, gate, target, root string, environmen
 
 	ev.Command = cmdline
 	ev.ExitCode = exit
+	if cr.Status == contracts.StatusPass && c.Limitation != "" {
+		ev.Limitations = c.Limitation
+	}
 	ev.CaseResults = []contracts.CaseResult{cr}
 	ev.EndedAt = cr.EndedAt
 
@@ -1455,6 +1494,10 @@ func taskForCase(id string) string {
 		return "C09"
 	case strings.HasPrefix(id, "UPD"):
 		return "F09/X04"
+	case strings.HasPrefix(id, "BR"):
+		// 浏览器基线 BR00–BR17 横跨 B00–B07（native.go 的 taskForNativeCase 用同一口径）。
+		// 之前落到 "unknown"，证据里的任务归属就没法按计划回查。
+		return "B00-B07"
 	}
 	return "unknown"
 }
