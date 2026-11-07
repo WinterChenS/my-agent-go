@@ -8,6 +8,7 @@
 // 审批条内容。不测实现细节（比如内部数组的引用是否变化）。
 import { describe, expect, it } from "vitest";
 import {
+  clarificationsOf,
   initialState,
   isTerminal,
   managedSkillsLabel,
@@ -199,10 +200,171 @@ describe("审批", () => {
     expect(s.approvals.map((a) => a.approvalId)).toEqual(["apr-2"]);
   });
 
-  it("本地点击后立即移除（不必等后端回事件）", () => {
+  // 这条替换了旧的“本地点击后立即移除（不必等后端回事件）”。
+  // 旧用例断言的是规格 §5.3 明确禁止的行为：前端在按钮点击后自行标记成功。
+  // 现在的纪律是：点击只表示“请求已提交”，卡片留在原处，直到 approval.resolved 到达。
+  it("does not mark approval accepted until backend event arrives", () => {
     let s = reduce(started(), { kind: "event", ev: request("apr-1") });
-    s = reduce(s, { kind: "approval_resolved", approvalId: "apr-1" });
+    s = reduce(s, { kind: "approval_submitted", approvalId: "apr-1" });
+
+    // 点过之后卡片仍然在，只是标成“已提交”。
+    expect(s.approvals).toHaveLength(1);
+    expect(s.approvals[0]).toMatchObject({ approvalId: "apr-1", submitted: true });
+    // 也不能顺手记成“已经批准”。
+    expect(s.lastApprovalResolution).toBeNull();
+
+    s = reduce(s, {
+      kind: "event",
+      ev: ev("approval.resolved", { approvalId: "apr-1", choice: "once" }),
+    });
     expect(s.approvals).toHaveLength(0);
+    expect(s.lastApprovalResolution).toEqual({ approvalId: "apr-1", choice: "once" });
+  });
+
+  it("后端答复拒绝时把那条连同原因一起移除", () => {
+    let s = reduce(started(), { kind: "event", ev: request("apr-1") });
+    s = reduce(s, {
+      kind: "event",
+      ev: ev("approval.resolved", {
+        approvalId: "apr-1",
+        choice: "deny",
+        reason: "这一轮已经结束，不会再有人回答",
+      }),
+    });
+    expect(s.approvals).toHaveLength(0);
+    expect(s.lastApprovalResolution).toEqual({
+      approvalId: "apr-1",
+      choice: "deny",
+      reason: "这一轮已经结束，不会再有人回答",
+    });
+  });
+});
+
+describe("澄清（不是审批）", () => {
+  const question = (id: string, kind = "confirm") =>
+    ev("clarification.requested", {
+      requestId: id,
+      kind,
+      question: "要用 staging 还是 prod？",
+      options: [],
+    });
+
+  it("澄清只来自 clarification.requested，assistant 文本里的问句不算", () => {
+    // 普通文本里出现问号，不能被猜成“模型在问用户”。
+    let s = reduce(started(), {
+      kind: "event",
+      ev: ev("message.delta", { text: "要用 staging 还是 prod？" }),
+    });
+    expect(clarificationsOf(s)).toHaveLength(0);
+
+    s = reduce(s, { kind: "event", ev: question("ui-1") });
+    expect(clarificationsOf(s)).toHaveLength(1);
+    expect(clarificationsOf(s)[0]).toMatchObject({
+      requestId: "ui-1",
+      kind: "confirm",
+      submitted: false,
+    });
+  });
+
+  it("回答澄清不产生任何审批或授权，收口只由 clarification.resolved 决定", () => {
+    let s = reduce(started(), { kind: "event", ev: question("ui-1", "select") });
+    s = reduce(s, { kind: "clarification_submitted", requestId: "ui-1", value: "staging" });
+
+    // 关键断言：回答一个内容问题，审批条数量必须还是 0。
+    expect(s.approvals).toHaveLength(0);
+    expect(s.lastApprovalResolution).toBeNull();
+    // 卡片也还在（等后端收口），只是标成已提交。
+    expect(clarificationsOf(s)).toHaveLength(1);
+    expect(clarificationsOf(s)[0]).toMatchObject({ submitted: true, answeredValue: "staging" });
+
+    s = reduce(s, {
+      kind: "event",
+      ev: ev("clarification.resolved", { requestId: "ui-1", outcome: "value", value: "staging" }),
+    });
+    expect(clarificationsOf(s)).toHaveLength(0);
+    expect(s.approvals).toHaveLength(0);
+    expect(s.lastClarificationResolution).toEqual({
+      requestId: "ui-1",
+      outcome: "value",
+      value: "staging",
+    });
+  });
+});
+
+describe("终局与停止", () => {
+  const running = (): UiState =>
+    applyAll(started(), [{ kind: "run_started", runId: "run-1", state: "running" }]);
+
+  it("settled 只由终局 run.state 事件决定（工具结果不足以收口）", () => {
+    let s = applyAll(running(), [
+      { kind: "event", ev: ev("tool.start", { toolCallId: "c1", toolName: "bash", args: {} }) },
+      {
+        kind: "event",
+        ev: ev("tool.end", { toolCallId: "c1", text: "ok", isError: false, exitCode: 0 }),
+      },
+    ]);
+    // 工具跑完了，这一轮还没结束：界面不能说“已完成”。
+    expect(s.settled).toBeNull();
+    expect(s.phase).toBe("running");
+
+    s = reduce(s, { kind: "event", ev: ev("run.state", { state: "completed" }) });
+    expect(s.settled).toBe("completed");
+  });
+
+  it("失败的一轮以 failed 收口，不冒充完成", () => {
+    const s = applyAll(running(), [
+      { kind: "event", ev: ev("run.error", { code: "PROVIDER_ERROR", message: "配额用尽" }) },
+      { kind: "event", ev: ev("run.state", { state: "failed" }) },
+    ]);
+    expect(s.settled).toBe("failed");
+    expect(s.settled).not.toBe("completed");
+    expect(s.error).toBe("PROVIDER_ERROR: 配额用尽");
+    expect(s.errorCode).toBe("PROVIDER_ERROR");
+    expect(s.messages.every((m) => !m.streaming)).toBe(true);
+  });
+
+  it("停止后不再派发新消息，未回填的工具结果标为未知而不是成功", () => {
+    let s = applyAll(running(), [
+      { kind: "event", ev: ev("tool.start", { toolCallId: "c1", toolName: "bash", args: {} }) },
+    ]);
+    s = reduce(s, { kind: "stop_requested" });
+
+    expect(s.phase).toBe("stopping");
+    expect(s.stopRequested).toBe(true);
+    // 停止时这个工具还没有结果：只能显示“结果未知”。
+    expect(s.messages[1].tools[0]).toMatchObject({ running: false, outcome: "unknown" });
+    expect(s.messages[1].tools[0].outcome).not.toBe("ok");
+    expect(s.messages[1].tools[0].result).toBeUndefined();
+
+    const blocked = reduce(s, { kind: "user_message", text: "再问一句" });
+    expect(blocked.messages).toHaveLength(s.messages.length);
+    expect(blocked.msgSeq).toBe(s.msgSeq);
+  });
+
+  it("停止后仍然回填的工具结果以真实结果为准（未知可以被事实推翻）", () => {
+    let s = applyAll(running(), [
+      { kind: "event", ev: ev("tool.start", { toolCallId: "c1", toolName: "bash", args: {} }) },
+    ]);
+    s = reduce(s, { kind: "stop_requested" });
+    s = reduce(s, {
+      kind: "event",
+      ev: ev("tool.end", { toolCallId: "c1", text: "已经写完", isError: false, exitCode: 0 }),
+    });
+    expect(s.messages[1].tools[0]).toMatchObject({
+      running: false,
+      outcome: "ok",
+      result: "已经写完",
+    });
+  });
+
+  it("重放同一 eventId 的事件不会重复一条消息（即使 seq 被改写）", () => {
+    const delta = ev("message.delta", { text: "只出现一次" }, { seq: 7 });
+    let s = reduce(started(), { kind: "event", ev: delta });
+    s = reduce(s, { kind: "event", ev: { ...delta } });
+    // 同一 eventId、更大 seq：仍然视为同一条事件。
+    s = reduce(s, { kind: "event", ev: { ...delta, seq: 9 } });
+    expect(s.messages).toHaveLength(2);
+    expect(s.messages[1].text).toBe("只出现一次");
   });
 });
 
