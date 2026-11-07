@@ -105,6 +105,7 @@ func integrationCases() []integrationCase {
 	configTests := "internal/config"
 	sessionTests := "internal/session"
 	appTests := "internal/app"
+	browserTests := "internal/browser"
 	schedulerTests := "internal/scheduler"
 	artifactTests := "internal/artifact"
 	diagnosticsTests := "internal/diagnostics"
@@ -313,6 +314,30 @@ func integrationCases() []integrationCase {
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "executions.jsonl"}}},
 		{ID: "SEC08", Package: piTests, Run: "TestRealPiPolicyBlocksToolAndProjectResources|TestIsolationArgsCoverEveryProjectChannel|TestValidateArgsDetectsEveryMissingFlag|TestUntrustedProject|TestPolicyChannelObservationSummary", Env: []string{"MYAGENT_PI_POLICY=1"},
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"wire.jsonl", "tree.json", "channels.json", "project-resources.json"}}},
+
+		// ── 浏览器控制权（B05，G2） ──
+		// 观察值来自 internal/browser 的**服务自身**：action-timeline.jsonl（每次动作
+		// 的排队/派发/结果）、control-states.jsonl（接管/恢复后的权威控制态）、
+		// counters-*.json（fixture 服务端计数 + backend 实例/派发计数）。
+		// 事实从这些文件读回；测试进程内的 map 不算观察值。
+		{ID: "BR11", Package: browserTests, Run: "TestQueuedActionRevokedOnTakeover|TestResumeRequiresFreshSnapshot",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "control-states.jsonl"}}},
+		{ID: "BR12", Package: browserTests, Run: "TestCrossSessionTabDenied|TestTabLimit",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"counters-cross-session.json", "counters-limits.json", "action-timeline.jsonl"}}},
+		// BR13：浏览器动作经 MCP + policy；拒绝/换 origin 时 fixture 计数必须为 0。
+		// harnessmcp 侧写 policy-decisions.jsonl / mcp-calls.jsonl / fixture-counters.jsonl。
+		{ID: "BR13", Package: harnessmcpTests, Run: "TestBrowserToolDeniedLeavesCounterZero|TestBrowserToolDeniedOriginChangeAtPolicyLayer|TestModelCannotSelfConfirm|TestSessionGrantCoversTabWritesAndTokenStaysSiteScoped",
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"policy-decisions.jsonl", "fixture-counters.jsonl", "mcp-calls.jsonl"}}},
+		{ID: "BR14", Package: browserTests, Run: "TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed|TestNavigationRevokesQueuedWrites",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "backend-actions.jsonl"}}},
+		// SEC03/SEC04 的浏览器通道：拒绝 → counter 0；允许 → 恰好一次（同一份 fixture 计数）。
+		{ID: "SEC03.browser", Package: harnessmcpTests, Run: "TestBrowserToolsFlowThroughMCPAndPolicy|TestBrowserToolDeniedLeavesCounterZero",
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl"}}},
+		// SEC04 的浏览器通道：错 origin/换站点/过期/拒绝都必须到不了工具（fixture 计数 0），
+		// 且审批绑定把 origin 与 navigationId 算进参数指纹。观察值来自 harnessmcp 侧
+		// 落盘的计数与策略账本（读回文件后才写 observation.json）。
+		{ID: "SEC04.browser", Package: harnessmcpTests, Run: "TestBrowserToolDeniedLeavesCounterZero|TestBrowserToolDeniedOriginChangeAtPolicyLayer",
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl", "mcp-session.json"}}},
 
 		// ── 记忆（C05，G2） ──
 		// MEM01/02/04 是 HOST（纯逻辑 + 真实 SQLite），MEM03/05 是 ALL，跨资源层与绑定层。

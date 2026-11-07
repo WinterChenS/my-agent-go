@@ -1,0 +1,66 @@
+B05 红证据 1 —— 控制权 / 串行队列 / 限额 / 授权复查 / OutcomeUnknown
+=====================================================================
+生成方式：把实现逐处改坏（探针），跑 B05 的 focused 用例，记录失败输出，然后原样回退。
+探针只改 internal/browser/service.go，**不改测试**；每次探针之后都用同一份测试复跑为绿，
+所以下面的失败不是"测试被改松了"，而是实现被改坏之后测试真的抓到了。
+
+跑法：python red1.py（脚本在临时目录；下面是它的全部输出）。
+
+=== probe 1: TakeOver 先显示 Human、后清空队列（顺序反了） ===
+    control_test.go:239: 接管后 queued=2，期望 0
+--- FAIL: TestQueuedActionRevokedOnTakeover (0.01s)
+FAIL
+FAIL	my-agent-go/internal/browser	0.032s
+FAIL
+
+=== probe 2: tab 限额在 CreateTab 之后才判（先建实例再拒绝） ===
+--- PASS: TestTabLimit (0.00s)
+    control_test.go:498: 第 5 个 tab 被拒绝时仍创建了实例：CreateCalls 4 → 5
+--- FAIL: TestTabLimit (0.00s)
+FAIL
+FAIL	my-agent-go/internal/browser	0.029s
+FAIL
+
+=== probe 3: 只在入队前授权，派发前不再复查 ===
+    control_test.go:682: 派发前没有做第二次授权检查
+--- FAIL: TestAuthorizationIsCheckedBeforeEnqueueAndBeforeInput (0.00s)
+FAIL
+FAIL	my-agent-go/internal/browser	0.019s
+FAIL
+
+=== probe 4: Resume 不需要接管前后的新快照（两道检查一起去掉） ===
+    control_test.go:365: 没有新快照就恢复：期望失败（STALE_SNAPSHOT），实际成功
+--- FAIL: TestResumeRequiresFreshSnapshot (0.00s)
+FAIL
+FAIL	my-agent-go/internal/browser	0.022s
+FAIL
+
+=== probe 5: 已派发超时当成普通失败（状态回到 agent、可重试） ===
+    control_test.go:562: 已派发但超时：错误码 ""，期望 "OUTCOME_UNKNOWN"（消息: context deadline exceeded）
+--- FAIL: TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed (0.06s)
+FAIL
+FAIL	my-agent-go/internal/browser	0.085s
+FAIL
+
+=== 恢复后复跑（确认探针不是靠改测试通过的） ===
+=== RUN   TestTabLimit
+--- PASS: TestTabLimit (0.00s)
+=== RUN   TestQueuedActionRevokedOnTakeover
+--- PASS: TestQueuedActionRevokedOnTakeover (0.60s)
+=== RUN   TestResumeRequiresFreshSnapshot
+--- PASS: TestResumeRequiresFreshSnapshot (0.00s)
+=== RUN   TestTabLimit
+--- PASS: TestTabLimit (0.00s)
+=== RUN   TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed
+--- PASS: TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed (0.06s)
+=== RUN   TestAuthorizationIsCheckedBeforeEnqueueAndBeforeInput
+--- PASS: TestAuthorizationIsCheckedBeforeEnqueueAndBeforeInput (0.00s)
+PASS
+ok  	my-agent-go/internal/browser	0.689s
+
+关于 probe 4 的一处补记：第一版探针只去掉 `st.freshSnapshot == ""` 那道检查，
+用例仍然通过——因为紧随其后还有一道 `snapshots[freshSnapshot].generation` 校验把它兜住了。
+所以本记录里的 probe 4 是"两道检查一起去掉"。那次多余的探针没有白跑：
+它证明恢复路径上的快照校验是双保险，而不是单点。
+（同时这次探针也暴露了用例本身太松：被拒绝的 Resume 之后没有断言"状态与代数原样"，
+已于同一分支补上——现在恢复被拒后必须仍是 human 且代数不变。）

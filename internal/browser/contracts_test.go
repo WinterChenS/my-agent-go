@@ -117,6 +117,21 @@ var nonDTOTypes = map[string]string{
 	"RefTable":    "一份快照的引用表，backend 内存状态，不跨边界",
 	// ControlKind 是 fill 的处理方式分类（行为分支），不是跨边界的数据形状。
 	"ControlKind": "fill 的控件分类，行为分支，不跨边界",
+	// B05：控制权/串行队列/授权的类型。它们的线上契约（schemas/browser.schema.json）
+	// 本轮**不允许**改（B05 的任务边界明确排除 schemas/），所以这里逐个登记理由，
+	// 而不是让 TestSchemaCoversEveryExportedType 变成"随便加类型都行"。
+	// 需要把它们写进 schema 时，必须一次受控变更同时改 schema 与 dtoTypes，
+	// 与 B04 的 Snapshot.Truncated 是同一类欠账。
+	"ControlMode":          "控制状态枚举，线上契约随 schemas/browser.schema.json 的受控变更一起落地（B05 禁止改 schemas/）",
+	"ControlState":         "TakeOver/Resume 的返回值，同上：schema 待受控变更，当前只走进程内/证据通道",
+	"TabInfo":              "面板与工具输出的一致性视图，同上：schema 待受控变更",
+	"AuthorizationRequest": "授权请求（服务端内部形状，事实由 feature 决定而非模型），同上",
+	"AuthorizationToken":   "已授权动作的凭据（含过期时间），不发给模型，schema 待受控变更",
+	"TokenGuard":           "许可签发/复核的行为辅助类型，不是数据形状",
+	"Authorizer":           "授权行为接口，不是数据形状",
+	"Service":              "浏览器工具执行面（行为对象），不是 DTO",
+	"ServiceOptions":       "Service 的构造参数，不是跨边界 DTO",
+	"TimelineEntry":        "动作时间线的证据行（写 JSONL 证据），线上契约随 schema 受控变更一起落",
 }
 
 func loadSchema(t *testing.T) schemaDoc {
