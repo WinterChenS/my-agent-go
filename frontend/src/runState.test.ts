@@ -291,6 +291,25 @@ describe("澄清（不是审批）", () => {
   });
 });
 
+describe("会话归属", () => {
+  it("运行属于哪个会话由发送时的会话与事件共同确定", () => {
+    let s = reduce(initialState, { kind: "user_message", text: "你好", sessionId: "sess-a" });
+    expect(s.activeSessionId).toBe("sess-a");
+
+    s = reduce(s, { kind: "run_started", runId: "run-9", state: "running", sessionId: "sess-a" });
+    // 占位气泡在发送时就存在，runId 由 run_started 回填：右栏产物靠它定位来源轮次。
+    expect(s.messages[1].runId).toBe("run-9");
+    expect(s.messages[0].runId).toBe("run-9");
+
+    // 上一轮事件的重放不能把页面挪到别的会话。
+    s = reduce(s, {
+      kind: "event",
+      ev: ev("message.delta", { text: "旧事件" }, { runId: "run-0", seq: 1 }),
+    });
+    expect(s.activeSessionId).toBe("sess-a");
+  });
+});
+
 describe("终局与停止", () => {
   const running = (): UiState =>
     applyAll(started(), [{ kind: "run_started", runId: "run-1", state: "running" }]);

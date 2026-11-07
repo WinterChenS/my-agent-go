@@ -27,66 +27,11 @@ import { useShell } from "../shell";
 import type { PageProps } from "../navigation";
 
 // ---------------------------------------------------------------- 对话
+//
+// 对话页在 U02 换成了 features/chat/ChatPage（消息流、审批、澄清、附件、右栏四分区）。
+// 这里只做转出：页面自己的状态与动作都在那个模块里，路由文件不再保存一份。
 
-/**
- * 对话页：路由里带了会话 id 就是那个会话；没带就让人先选一个。
- *
- * 不在挂载时自动建会话：用户只是点开"对话"入口，不该凭空多出一条空会话。
- */
-export function ChatPage({ onNavigate, route }: PageProps) {
-  const shell = useShell();
-  const sessionId = route?.params.id ?? "";
-
-  if (!sessionId) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-10">
-        <AsyncState
-          phase="empty"
-          emptyTitle={t("shell.emptyHistory")}
-          emptyHint={t("shell.emptyHistoryHint")}
-          action={
-            <button
-              type="button"
-              onClick={() => void shell.onNewSession()}
-              className="rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
-            >
-              {t("shell.newSession")}
-            </button>
-          }
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-[color:var(--anvil-border)] px-4 py-2">
-        <span className="font-mono text-[11px] text-[color:var(--anvil-muted)]">{sessionId}</span>
-        <button
-          type="button"
-          onClick={() => onNavigate("/")}
-          className="text-[11px] text-[color:var(--anvil-muted)] hover:text-[color:var(--anvil-foreground)]"
-        >
-          {t("nav.workbench")}
-        </button>
-      </header>
-      <div className="min-h-0 flex-1">
-        <WorkbenchView
-          ui={shell.ui}
-          input={shell.input}
-          onInput={shell.onInput}
-          onSend={shell.onSend}
-          onStop={shell.onStop}
-          onDecide={shell.onDecide}
-          busy={shell.busy}
-          workspace={shell.currentWorkspace}
-          onGoSettings={() => onNavigate("/settings")}
-        />
-      </div>
-    </div>
-  );
-}
-
+export { ChatPage } from "../../features/chat/ChatPage";
 // ---------------------------------------------------------------- Agent
 
 /** Agent 页：单个 Profile 的产品化编辑（U03 会接管更完整的字段）。 */

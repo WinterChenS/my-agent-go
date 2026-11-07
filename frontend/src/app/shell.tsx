@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import type { UiState } from "../runState";
 import type { BackendState } from "./useBackend";
+import type { ChatClarificationResponse } from "../features/chat/api";
 
 export interface ShellValue {
   /** 后端公开的快照（工作区/Profile/模型/技能/扩展）。 */
@@ -51,6 +52,17 @@ export interface ShellValue {
   onSend: () => void;
   onStop: () => void;
   onDecide: (item: ApprovalItem, choice: ApprovalChoice) => void;
+  /**
+   * 会话级提交（U02）：消息 + 已解析的附件能力 ID。
+   *
+   * 与 onSend 分开是因为两者的事实不同：onSend 走的是“当前运行时会话”，
+   * 这里必须显式指定会话（会话归属是数据，不是界面偏好）。
+   */
+  onSendToSession: (sessionId: string, text: string, attachmentIds: string[]) => void;
+  /** 澄清答复：只走 AnswerClarification，不进入审批通道。 */
+  onAnswerClarification: (requestId: string, response: ChatClarificationResponse) => void;
+  /** 重放某个 run 的事件（重连/恢复）；重复投递由归约按 eventId/seq 去重。 */
+  onReplayRun: (runId: string, afterSeq: number) => void;
   busy: boolean;
 
   savingSettings: boolean;

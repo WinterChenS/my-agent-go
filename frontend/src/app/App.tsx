@@ -14,6 +14,7 @@ import type { ApprovalChoice, ApprovalItem, CallError, Settings } from "../types
 import { t } from "../i18n";
 import { StatusBadge } from "../components/status/StatusBadge";
 import { historyApi } from "../features/history/api";
+import { chatApi, type ChatClarificationResponse } from "../features/chat/api";
 import { HistorySidebar } from "../features/history/HistorySidebar";
 import { GlobalSearch } from "../features/search/GlobalSearch";
 import { Layout } from "./Layout";
@@ -101,23 +102,97 @@ function Shell() {
     if (!ui.runId) return;
     try {
       await api.abort(ui.runId);
+      // 后端接下了 abort，界面才切到“停止中”：停止也是一次真实的请求，
+      // 不是“点了就算停了”。
+      runDispatch({ kind: "stop_requested" });
     } catch (e) {
-      runDispatch({ kind: "error", message: toCallError(e).message });
+      const ce = toCallError(e);
+      runDispatch({ kind: "error", message: `${ce.code}: ${ce.message}`, code: ce.code });
     }
   }, [ui.runId]);
 
+  /**
+   * 审批结论提交。
+   *
+   * 成功后只能标“已提交”——卡片必须留到后端 approval.resolved 到达才消失。
+   * 之前这里直接 dispatch approval_resolved（本地移除），那正是规格 §5.3 禁止的行为。
+   */
   const decide = useCallback(
     async (item: ApprovalItem, choice: ApprovalChoice) => {
       if (!ui.runId) return;
       try {
         await api.resolveApproval(ui.runId, item.approvalId, choice);
-        runDispatch({ kind: "approval_resolved", approvalId: item.approvalId });
+        runDispatch({ kind: "approval_submitted", approvalId: item.approvalId });
       } catch (e) {
-        runDispatch({ kind: "error", message: toCallError(e).message });
+        const ce = toCallError(e);
+        runDispatch({ kind: "error", message: `${ce.code}: ${ce.message}`, code: ce.code });
       }
     },
     [ui.runId]
   );
+
+  /** 会话级提交（StartSessionRun）：会话归属与附件都由后端判定。 */
+  const sendToSession = useCallback(
+    async (sessionId: string, text: string, attachmentIds: string[]) => {
+      const trimmed = text.trim();
+      if (!trimmed || busy) return;
+      setActionError(null);
+      runDispatch({ kind: "user_message", text: trimmed, sessionId });
+      try {
+        const snap = await chatApi.startSessionRun(sessionId, trimmed, attachmentIds);
+        void backend.refreshStatus();
+        runDispatch({
+          kind: "run_started",
+          runId: snap.runId,
+          sessionId: snap.sessionId,
+          state: snap.state,
+          meta: {
+            provider: snap.provider ?? "",
+            model: snap.model ?? "",
+            configRevision: snap.configRevision,
+            managedSkills: snap.managedSkills ?? [],
+            skillAutoDiscovery: snap.skillAutoDiscovery,
+          },
+        });
+      } catch (e) {
+        const ce = toCallError(e);
+        runDispatch({ kind: "run_start_failed", message: `${ce.code}: ${ce.message}` });
+      }
+    },
+    [busy, backend]
+  );
+
+  /** 澄清答复：独立通道，失败也只是一个可选错误，不影响审批。 */
+  const answerClarification = useCallback(
+    (requestId: string, response: ChatClarificationResponse) => {
+      const sessionId = match.params.id ?? "";
+      if (!sessionId) return;
+      void chatApi
+        .answerClarification(sessionId, requestId, response)
+        .then(() => {
+          const value = response.value?.text;
+          runDispatch({ kind: "clarification_submitted", requestId, value });
+        })
+        .catch((e: unknown) => {
+          const ce = toCallError(e);
+          runDispatch({ kind: "error", message: `${ce.code}: ${ce.message}`, code: ce.code });
+        });
+    },
+    [match.params.id]
+  );
+
+  /** 重放事件：走与实时订阅同一个归约，去重靠 eventId/seq。 */
+  const replayRun = useCallback((runId: string, afterSeq: number) => {
+    void chatApi
+      .replay(runId, afterSeq)
+      .then((events) => {
+        for (const ev of events) runDispatch({ kind: "event", ev });
+      })
+      .catch((e: unknown) => {
+        const ce = toCallError(e);
+        runDispatch({ kind: "error", message: `${ce.code}: ${ce.message}`, code: ce.code });
+      });
+  }, []);
 
   const addWorkspace = useCallback(
     async (path: string) => {
@@ -203,6 +278,10 @@ function Shell() {
       onSend: () => void send(),
       onStop: () => void stop(),
       onDecide: (item, choice) => void decide(item, choice),
+      onSendToSession: (sessionId, text, attachmentIds) =>
+        void sendToSession(sessionId, text, attachmentIds),
+      onAnswerClarification: answerClarification,
+      onReplayRun: replayRun,
       busy,
       savingSettings,
       actionError,
@@ -227,6 +306,9 @@ function Shell() {
       send,
       stop,
       decide,
+      sendToSession,
+      answerClarification,
+      replayRun,
       newSession,
     ]
   );

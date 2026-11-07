@@ -50,6 +50,13 @@ export function toolOutcomeOf(card: UiToolCard): ToolOutcome {
 /** 界面里的消息。tools 带 outcome，其余与 ChatMessage 一致（可直接当 ChatMessage 用）。 */
 export interface UiMessage extends Omit<ChatMessage, "tools"> {
   tools: UiToolCard[];
+  /**
+   * 这条消息属于哪一次 run。
+   *
+   * 发送时还不知道（runId 要等 StartSessionRun 返回），由 run_started 或首条
+   * 事件回填。右栏产物要“回到来源轮次”就靠它定位。
+   */
+  runId?: string;
 }
 
 /**
@@ -103,6 +110,14 @@ export interface ClarificationResolution {
 export interface UiState {
   phase: Phase;
   runId: string | null;
+  /**
+   * 当前这次运行属于哪个会话。
+   *
+   * 为什么必须记：绑定层只有一个活跃 run，而页面是“按会话”的。少了这个字段，
+   * 在 A 会话的页面上会显示 B 会话的审批卡——用户会在错误的上下文里批准一条
+   * 自己没看见的工具调用。
+   */
+  activeSessionId?: string | null;
   messages: UiMessage[];
   approvals: UiApproval[];
   /**
@@ -198,8 +213,8 @@ export const initialState: UiState = {
 
 export type UiAction =
   | { kind: "event"; ev: ProductEvent }
-  | { kind: "user_message"; text: string }
-  | { kind: "run_started"; runId: string; state: RunState; meta?: RunMeta }
+  | { kind: "user_message"; text: string; sessionId?: string }
+  | { kind: "run_started"; runId: string; state: RunState; sessionId?: string; meta?: RunMeta }
   | { kind: "run_start_failed"; message: string }
   /** 审批结论已提交（后端调用成功），等 approval.resolved。 */
   | { kind: "approval_submitted"; approvalId: string }
@@ -297,8 +312,12 @@ function applyEvent(state: UiState, ev: ProductEvent): UiState {
   if (eventId !== "" && seenIds[eventId]) return state;
   const seen = state.lastSeqByRun[ev.runId] ?? 0;
   if (ev.seq > 0 && ev.seq <= seen) return state;
+  const ownsRun = state.runId === null || state.runId === ev.runId;
   const base: UiState = {
     ...state,
+    // 只有“这次运行”的事件能改会话归属：重放上一轮事件不能把页面挪到别的会话。
+    activeSessionId:
+      ownsRun && ev.sessionId ? ev.sessionId : (state.activeSessionId ?? null),
     lastSeqByRun: { ...state.lastSeqByRun, [ev.runId]: ev.seq },
     seenEventIds: eventId === "" ? seenIds : { ...seenIds, [eventId]: true },
   };
@@ -332,7 +351,7 @@ function applyEvent(state: UiState, ev: ProductEvent): UiState {
           msgSeq,
           messages: [
             ...base.messages,
-            { id, role: "assistant", text, tools: [], streaming: true },
+            { id, role: "assistant", text, tools: [], streaming: true, runId: ev.runId },
           ],
         };
       }
@@ -358,7 +377,7 @@ function applyEvent(state: UiState, ev: ProductEvent): UiState {
           msgSeq,
           messages: [
             ...base.messages,
-            { id, role: "assistant", text: "", tools: [card], streaming: true },
+            { id, role: "assistant", text: "", tools: [card], streaming: true, runId: ev.runId },
           ],
         };
       }
@@ -515,6 +534,8 @@ export function reduce(state: UiState, action: UiAction): UiState {
         errorCode: null,
         stopRequested: false,
         settled: null,
+        // 这一轮还没拿到 runId，但会话归属现在就知道了（页面是按会话的）。
+        activeSessionId: action.sessionId ?? state.activeSessionId ?? null,
         messages: [
           ...state.messages,
           { id: u.id, role: "user", text: action.text, tools: [], streaming: false },
@@ -526,7 +547,13 @@ export function reduce(state: UiState, action: UiAction): UiState {
       return {
         ...state,
         runId: action.runId,
+        activeSessionId: action.sessionId ?? state.activeSessionId ?? null,
         phase: action.state,
+        // 占位气泡在发送时就建好了，那时还不知道 runId；这里回填，
+        // 右栏产物才能定位到“产出它的那一轮”。
+        messages: state.messages.map((m) =>
+          m.runId === undefined ? { ...m, runId: action.runId } : m
+        ),
         runMeta: action.meta ?? state.runMeta,
       };
     case "run_start_failed":
