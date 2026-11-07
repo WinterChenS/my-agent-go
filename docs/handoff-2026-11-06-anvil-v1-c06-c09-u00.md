@@ -135,7 +135,7 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 |---|---|---|
 | G0 | **passed=true exit 0** | 31/31 必需位 |
 | G1 | exit 2 | 只缺 `UI04.native`（B07） |
-| G2 | exit 2 | 63/69 集成 PASS + BR08–10 原生 PASS；缺 `BR15`–`BR17`（B06）与 6 条 BLOCKED 的 MOD/MCP 观察装置 |
+| G2 | exit 2 | 63/69 集成 PASS + BR08–10 原生 PASS；仅剩 `BR15`–`BR17`（B06）与 6 条 BLOCKED（MOD02/03、MCP01/02/03/05 需要外部观察装置） |
 
 ### 下一波
 
