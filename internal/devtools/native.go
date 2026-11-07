@@ -365,7 +365,7 @@ func RunNativeForGate(target, display, gate string) int {
 	blocks, fails := 0, 0
 	for _, r := range runnable {
 		nc, _ := lookupNativeCase(table, r, target, display)
-		res := runNativeCase(nc, target, display, root, env)
+		res := runNativeCase(nc, target, display, root, gate, env)
 		if res.blocked {
 			blocks++
 		} else if !res.passed {
@@ -422,7 +422,7 @@ func lookupNativeCase(table []nativeCase, r Requirement, target, display string)
 }
 
 // runNativeCase 执行一条 native case 并写证据。
-func runNativeCase(c nativeCase, target, display, root string, environment contracts.Environment) caseOutcome {
+func runNativeCase(c nativeCase, target, display, root, gate string, environment contracts.Environment) caseOutcome {
 	dir := filepath.Join(root, c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 
@@ -441,7 +441,7 @@ func runNativeCase(c nativeCase, target, display, root string, environment contr
 	started := time.Now().UTC()
 	ev := contracts.GateEvidence{
 		SchemaVersion:    1,
-		GateID:           "G1",
+		GateID:           gate,
 		TaskID:           taskForNativeCase(c.ID),
 		SourceRevision:   GetSourceRevision(),
 		WorktreeDirty:    worktreeDirty(),
