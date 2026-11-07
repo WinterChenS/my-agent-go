@@ -1,0 +1,5 @@
+--- FAIL: TestLinkInspectRejectsPrivatePeer (0.01s)
+    skill_link_test.go:286: 期望被拒绝（LINK_PRIVATE_PEER），实际通过了
+FAIL
+FAIL	my-agent-go/internal/resources	0.034s
+FAIL

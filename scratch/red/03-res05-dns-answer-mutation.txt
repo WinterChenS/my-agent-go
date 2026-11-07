@@ -1,0 +1,5 @@
+--- FAIL: TestLinkInspectRejectsEverySpecialPurposeDNSAnswer (0.02s)
+    skill_link_test.go:215: 期望被拒绝（LINK_SPECIAL_PURPOSE_ADDRESS），实际通过了
+FAIL
+FAIL	my-agent-go/internal/resources	0.041s
+FAIL

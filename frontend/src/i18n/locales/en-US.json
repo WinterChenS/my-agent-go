@@ -428,5 +428,178 @@
     "occlusion": {
       "hidden": "Overlay open: the native page is hidden for now (hiding the panel is not pausing the agent)"
     }
+  },
+  "library": {
+    "title": "Library",
+    "subtitle": "Real managed Skills, Agents, and MCP configuration: source, path, hash, and state come from the backend; importing and dry runs are explicit actions.",
+    "tabs": {
+      "skills": "Skills",
+      "agents": "Agents",
+      "mcp": "MCP"
+    },
+    "actions": {
+      "importLink": "Import from link",
+      "createLocal": "Create locally",
+      "reload": "Reload",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete",
+      "deleteConfirm": "Confirm delete",
+      "edit": "Edit",
+      "saveEdit": "Save",
+      "cancelEdit": "Cancel edit",
+      "dryRun": "Isolated dry run",
+      "diagnose": "Diagnose",
+      "diagnosing": "Diagnosing…",
+      "openAgent": "Open in Agents"
+    },
+    "labels": {
+      "scope": "Scope",
+      "origin": "Origin",
+      "path": "Path",
+      "hash": "Content hash",
+      "size": "Size",
+      "files": "Files",
+      "dependencies": "Required commands",
+      "missingDependencies": "Missing required commands: {commands}",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "unavailableReason": "Unavailable because: {reason}",
+      "pendingNextRun": "Changes apply on the next run",
+      "requires": "Declared requirements",
+      "redirects": "Redirects",
+      "transport": "Transport",
+      "exposure": "Exposure"
+    },
+    "scope": {
+      "user": "User (all projects)",
+      "workspace": "Project"
+    },
+    "origin": {
+      "imported": "Imported",
+      "created": "Created locally"
+    },
+    "empty": {
+      "skills": "No managed Skills yet",
+      "agents": "No Agents yet",
+      "mcp": "No MCP servers yet",
+      "hint": "This list shows real data; there really are no entries."
+    },
+    "import": {
+      "title": "Import a Skill from a link",
+      "urlLabel": "HTTPS link to a SKILL.md or archive",
+      "urlPlaceholder": "https://example.com/skill.zip",
+      "rulesHint": "Only a single SKILL.md or a zip/tar.gz over HTTPS is accepted, and the destination must be a public address (loopback, private networks, and reserved ranges are rejected). Download size, expanded size, file count, and redirects are capped. Inspection only parses the manifest and never runs scripts.",
+      "inspect": "Inspect link",
+      "inspecting": "Inspecting…",
+      "manifest": "Parsed manifest",
+      "name": "name",
+      "description": "description",
+      "form": "Form",
+      "stagedHint": "Content is staged in the managed directory; it is copied into the managed Skills folder only after you confirm.",
+      "confirm": "Confirm import",
+      "importing": "Importing…",
+      "rejectTitle": "Rejected ({count} reasons)",
+      "rejectHint": "Nothing is written when a link is rejected; the managed directory is untouched.",
+      "warningTitle": "Risks to know about",
+      "warningBody": "Anvil never executes scripts from the archive; after you enable this Skill, the model may read them and follow their instructions.",
+      "noWarnings": "No additional risk warnings.",
+      "createTitle": "Create a Skill locally",
+      "createNameLabel": "Skill name (lowercase letters, digits, hyphens)",
+      "createNamePlaceholder": "my-skill",
+      "create": "Create",
+      "creating": "Creating…"
+    },
+    "dryrun": {
+      "title": "Isolated dry run",
+      "promptLabel": "Prompt for the dry run",
+      "promptPlaceholder": "For example: give me an execution plan using this Skill",
+      "warningBody": "This sends a real model request to the selected provider: the prompt and the Skill content are transmitted and may cost money. The dry run uses a temporary agentDir and an empty workspace with read-only tools, no network/browser/connectors/external MCP/shell, and removes the temporary directory afterwards.",
+      "start": "Start dry run",
+      "running": "Running…",
+      "stateLabel": "Outcome",
+      "state": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "timeout": "Timed out",
+        "blocked": "Blocked"
+      },
+      "policyLabel": "Filesystem",
+      "networkLabel": "network",
+      "shellLabel": "shell",
+      "tempCleaned": "Temporary directory removed",
+      "skillUnchanged": "Managed Skill unchanged",
+      "userStateUnchanged": "User data unchanged",
+      "denials": "Denied tool calls",
+      "noDenials": "No tool calls were denied in this run.",
+      "limitations": "Known limitations"
+    },
+    "limit": {
+      "DRYRUN_LIMIT_USER_SKILL_DISCOVERY": "Pi's user-level Skill discovery stays open: the dry run only guarantees that this one managed Skill is explicitly mounted; it does not guarantee that other user-level Skills are invisible."
+    },
+    "caution": {
+      "script": "The archive contains a script file: {path} (it is not executed)",
+      "unknown": "The archive produced a warning: {detail}"
+    },
+    "mcp": {
+      "unknown": "Not diagnosed yet: state unknown, not connected.",
+      "connected": "Handshake succeeded and the tool list is available.",
+      "tools": "Tools",
+      "repairHint": "Fix the configuration or credential according to the error code, then diagnose again; OAuth is not supported in V1."
+    },
+    "mcpState": {
+      "connected": "Connected",
+      "failed": "Failed",
+      "timeout": "Timed out",
+      "auth_required": "Auth required",
+      "disabled": "Disabled",
+      "unavailable": "Unavailable",
+      "unknown": "Not diagnosed"
+    },
+    "agents": {
+      "model": "Model",
+      "workspace": "Workspace",
+      "skills": "Skills",
+      "mcp": "MCP"
+    },
+    "reject": {
+      "link_scheme_https_only": "Only HTTPS links are accepted (got {scheme})",
+      "link_userinfo_rejected": "Links must not embed credentials ({host})",
+      "link_host_invalid": "The link has no usable host ({detail})",
+      "link_port_invalid": "Invalid port: {port}",
+      "link_too_many_redirects": "More than {limit} redirects; stopped following",
+      "link_redirect_scheme": "Redirected to a non-HTTPS address ({scheme})",
+      "link_special_purpose_address": "{host} resolves to {address}, which is in a special-purpose range ({range}); not allowed as a download source",
+      "link_private_peer": "The connected peer is {address} ({range}), not a public address",
+      "link_peer_unknown": "Cannot verify the connected peer ({host})",
+      "link_dns_failed": "DNS resolution failed: {host} ({detail})",
+      "link_download_too_large": "The download exceeds the {limit} byte limit",
+      "link_timeout": "The download timed out ({detail})",
+      "link_download_failed": "Download failed ({detail})",
+      "link_unsupported_form": "Only a single SKILL.md or a zip/tar.gz archive is supported ({url})",
+      "link_archive_too_large": "The archive expands beyond the limit ({kind}, {limit} bytes)",
+      "link_archive_file_count": "Archive has {count} files, over the {limit} limit",
+      "link_archive_entry_too_large": "Archive entry {entry} expands to {size} bytes, over the {limit} limit",
+      "link_archive_path_traversal": "Archive entry escapes the target directory: {entry}",
+      "link_archive_symlink": "Archive contains a link or special file: {entry}",
+      "link_archive_no_skill_md": "No single SKILL.md found in the archive ({candidates} candidates)",
+      "link_archive_corrupt": "Archive is corrupt or unreadable ({detail})",
+      "link_manifest_utf8": "SKILL.md is not valid UTF-8",
+      "link_manifest_frontmatter": "SKILL.md has no usable frontmatter ({detail})",
+      "link_manifest_yaml": "Frontmatter is not valid YAML ({detail})",
+      "link_manifest_name": "Skill name is missing or invalid ({detail})",
+      "link_manifest_description": "Skill description is missing or too long ({detail})",
+      "link_staging_failed": "Failed to write the staging copy ({detail})",
+      "dryrun_write_denied": "Writes are not allowed in a dry run",
+      "dryrun_shell_denied": "Shell execution is not allowed in a dry run",
+      "dryrun_network_denied": "Network access is not allowed in a dry run",
+      "dryrun_browser_denied": "Browser control is not allowed in a dry run",
+      "dryrun_connectors_denied": "Connector calls are not allowed in a dry run",
+      "dryrun_external_mcp_denied": "External MCP tools are not allowed in a dry run",
+      "dryrun_approval_not_available": "This call needs human approval; a dry run has no approver, so it was denied",
+      "unknown": "Unrecognized rejection ({detail})"
+    }
   }
 }

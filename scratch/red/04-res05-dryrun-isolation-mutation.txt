@@ -1,0 +1,5 @@
+--- FAIL: TestDryRunIsolationMountsOnlyTheTestedSkill (0.02s)
+    skill_dryrun_test.go:102: 试运行不得启用自有 MCP（会带进记忆/工具通道）
+FAIL
+FAIL	my-agent-go/internal/resources	0.041s
+FAIL

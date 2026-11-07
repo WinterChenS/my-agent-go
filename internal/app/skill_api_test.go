@@ -8,13 +8,22 @@ package app
 //  3. 系统策略扩展不可关闭。
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/resources"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
@@ -284,5 +293,280 @@ func TestSystemExtensionCannotBeDisabledThroughBindings(t *testing.T) {
 	}
 	if !strings.Contains(res.Error.Message, "不可关闭") {
 		t.Fatalf("错误应说明不可关闭，实际 %q", res.Error.Message)
+	}
+}
+
+// ---------------------------------------------------------------- U04：链接导入与试运行
+
+// dryRunStubWorker 在收到 prompt 后依次发一条文本增量与 agent_settled。
+//
+// 真实 Pi 的完成信号就是 agent_settled（run 包里唯一的终态依据），
+// 所以试运行的收尾逻辑必须能被这条事件驱动，而不是靠 sleep 或轮询猜。
+type dryRunStubWorker struct {
+	events chan pi.RawEvent
+	once   sync.Once
+	calls  int
+}
+
+func newDryRunStubWorker() *dryRunStubWorker {
+	return &dryRunStubWorker{events: make(chan pi.RawEvent, 8)}
+}
+
+func (w *dryRunStubWorker) Call(ctx context.Context, command json.RawMessage) (json.RawMessage, error) {
+	w.calls++
+	if w.calls == 1 {
+		w.events <- pi.RawEvent{
+			Type:   "message_update",
+			Record: json.RawMessage(`{"assistantMessageEvent":{"type":"text_delta","delta":"试运行输出"}}`),
+		}
+		w.events <- pi.RawEvent{
+			Type:   pi.TypeAgentSettled,
+			Record: json.RawMessage(`{"type":"agent_settled","aborted":false}`),
+		}
+	}
+	return json.RawMessage(`{"type":"response","success":true}`), nil
+}
+
+func (w *dryRunStubWorker) Events() <-chan pi.RawEvent { return w.events }
+func (w *dryRunStubWorker) Close(ctx context.Context) error {
+	w.once.Do(func() { close(w.events) })
+	return nil
+}
+func (w *dryRunStubWorker) PID() int                   { return 1 }
+func (w *dryRunStubWorker) StderrTail() (string, bool) { return "", false }
+func (w *dryRunStubWorker) ExitCode() (int, bool)      { return 0, false }
+func (w *dryRunStubWorker) Limitations() []string      { return nil }
+
+// resolverFunc / peerConn 是绑定层测试里的最小替身。
+type resolverFunc func(ctx context.Context, host string) ([]net.IP, error)
+
+func (f resolverFunc) LookupIP(ctx context.Context, host string) ([]net.IP, error) {
+	return f(ctx, host)
+}
+
+type peerConn struct {
+	net.Conn
+	peer net.Addr
+}
+
+func (c *peerConn) RemoteAddr() net.Addr { return c.peer }
+
+// TestCreateSkillThroughBinding 覆盖本地新建在绑定层的落盘。
+func TestCreateSkillThroughBinding(t *testing.T) {
+	d, root := newTestDesktop(t)
+	res := d.CreateSkill("local-skill", "user", "")
+	if res.Error != nil {
+		t.Fatalf("新建失败: %s: %s", res.Error.Code, res.Error.Message)
+	}
+	if res.Item.ID != "local-skill" || !res.Item.Available || res.Item.Origin != resources.OriginCreated {
+		t.Fatalf("新建结果不对: %+v", res.Item)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "local-skill", "SKILL.md")); err != nil {
+		t.Fatalf("文件没落盘: %v", err)
+	}
+	if dup := d.CreateSkill("local-skill", "user", ""); dup.Error == nil || dup.Error.Code != contracts.CodeConfigConflict {
+		t.Fatalf("重名必须返回 CONFIG_CONFLICT，实际 %+v", dup.Error)
+	}
+}
+
+// TestInspectSkillLinkRejectsLoopbackAndKeepsManagedDir：
+// 本机地址是最常见的 SSRF 目标，必须在绑定层就被拒。
+func TestInspectSkillLinkRejectsLoopbackAndKeepsManagedDir(t *testing.T) {
+	d, root := newTestDesktop(t)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("---\nname: loop\ndescription: 本机地址\n---\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	res := d.InspectSkillLink(srv.URL + "/SKILL.md")
+	if len(res.Rejections) == 0 {
+		t.Fatalf("本机地址必须被拒绝，实际 %+v", res)
+	}
+	if res.Rejections[0].Rule != resources.LinkRuleSpecialPurpose {
+		t.Fatalf("拒绝规则 = %s，期望 %s", res.Rejections[0].Rule, resources.LinkRuleSpecialPurpose)
+	}
+	if res.StagedPath != "" {
+		t.Fatalf("被拒绝时不应给出暂存路径: %s", res.StagedPath)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("检查链接不应触碰托管目录: %v", err)
+	}
+}
+
+// TestInspectSkillLinkImportsInspectedCopy 覆盖"检查 → 确认导入 → 暂存清理"。
+//
+// 解析器与拨号器被替换成"解析到公网地址、实际连本机 TLS 服务"：
+// 校验逻辑仍然是真的，只是把终点换成了可观测的本地服务。
+func TestInspectSkillLinkImportsInspectedCopy(t *testing.T) {
+	d, root := newTestDesktop(t)
+	var body bytes.Buffer
+	zw := zip.NewWriter(&body)
+	w, err := zw.Create("demo/SKILL.md")
+	if err != nil {
+		t.Fatalf("建 zip: %v", err)
+	}
+	_, _ = w.Write([]byte("---\nname: linked-skill\ndescription: 来自链接\n---\n正文\n"))
+	if err := zw.Close(); err != nil {
+		t.Fatalf("关闭 zip: %v", err)
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body.Bytes())
+	}))
+	t.Cleanup(srv.Close)
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	public := net.ParseIP("93.184.216.34")
+	addr := srv.Listener.Addr().String()
+	original := newSkillLinkInspector
+	newSkillLinkInspector = func(appRoot string) *resources.LinkInspector {
+		in := resources.NewLinkInspector(appRoot)
+		in.RootCAs = pool
+		in.Resolve = resolverFunc(func(ctx context.Context, host string) ([]net.IP, error) {
+			return []net.IP{public}, nil
+		})
+		in.Dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			conn, dialErr := dialer.DialContext(ctx, network, addr)
+			if dialErr != nil {
+				return nil, dialErr
+			}
+			return &peerConn{Conn: conn, peer: &net.TCPAddr{IP: public, Port: 443}}, nil
+		}
+		return in
+	}
+	t.Cleanup(func() { newSkillLinkInspector = original })
+
+	insp := d.InspectSkillLink("https://example.com/demo.zip")
+	if insp.Error != nil {
+		t.Fatalf("检查失败: %s: %s", insp.Error.Code, insp.Error.Message)
+	}
+	if len(insp.Rejections) != 0 {
+		t.Fatalf("合法链接被拒: %+v", insp.Rejections)
+	}
+	if insp.Name != "linked-skill" || insp.StagedPath == "" {
+		t.Fatalf("检查结果不完整: %+v", insp)
+	}
+	imported := d.ImportSkill(insp.StagedPath, "user", "")
+	if imported.Error != nil {
+		t.Fatalf("导入失败: %s: %s", imported.Error.Code, imported.Error.Message)
+	}
+	if imported.Item.ID != "linked-skill" {
+		t.Fatalf("导入结果不对: %+v", imported.Item)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "skill-links"))
+	if err == nil && len(entries) != 0 {
+		t.Fatalf("导入成功后仍残留暂存目录: %v", entries)
+	}
+}
+
+// TestDryRunSkillUsesIsolatedSandboxAndCleansUp 是 RES05 的核心断言。
+func TestDryRunSkillUsesIsolatedSandboxAndCleansUp(t *testing.T) {
+	d := prepareRuntimeDesktop(t)
+	var (
+		mu    sync.Mutex
+		specs []pi.WorkerSpec
+	)
+	d.mu.Lock()
+	d.workerStarter = func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		mu.Lock()
+		specs = append(specs, spec)
+		mu.Unlock()
+		return newDryRunStubWorker(), nil
+	}
+	work := d.settings.Workspace
+	d.mu.Unlock()
+
+	ws := d.CreateWorkspace(work)
+	if ws.Error != nil {
+		t.Fatalf("登记工作区失败: %s", ws.Error.Message)
+	}
+	if res := d.SetWorkspaceTrust(string(ws.Item.ID), true); res.Error != nil {
+		t.Fatalf("信任工作区失败: %s", res.Error.Message)
+	}
+	if imp := d.ImportSkill(fixtureSkill(t, "dry-skill", "试运行绑定层测试"), "user", ""); imp.Error != nil {
+		t.Fatalf("导入失败: %s: %s", imp.Error.Code, imp.Error.Message)
+	}
+
+	userBefore, err := resources.TreeDigest(d.agentDir(), work)
+	if err != nil {
+		t.Fatalf("计算用户数据 hash: %v", err)
+	}
+
+	res := d.DryRunSkill("dry-skill", "按技能给我一个计划")
+	if res.Error != nil {
+		t.Fatalf("试运行失败: %s: %s", res.Error.Code, res.Error.Message)
+	}
+	if res.State != contracts.RunStateCompleted {
+		t.Fatalf("试运行状态 = %s，期望 completed", res.State)
+	}
+	if !strings.Contains(res.Output, "试运行输出") {
+		t.Fatalf("试运行没有返回模型输出: %q", res.Output)
+	}
+	if !res.TempCleaned {
+		t.Fatal("试运行结束后必须清理临时目录")
+	}
+	if !res.SkillUnchanged {
+		t.Fatal("试运行不应改动托管技能")
+	}
+	if !res.UserStateUnchanged {
+		t.Fatal("试运行不应改动用户 agentDir/工作区")
+	}
+	if res.Policy.Filesystem != "read" || res.Policy.Network || res.Policy.Shell {
+		t.Fatalf("试运行策略不是只读: %+v", res.Policy)
+	}
+
+	mu.Lock()
+	if len(specs) != 1 {
+		mu.Unlock()
+		t.Fatalf("期望启动 1 个 worker，实际 %d", len(specs))
+	}
+	spec := specs[0]
+	mu.Unlock()
+	if spec.AgentDir == d.agentDir() {
+		t.Fatalf("试运行用了用户真实 agentDir: %s", spec.AgentDir)
+	}
+	if spec.WorkingDir == work {
+		t.Fatalf("试运行用了用户真实工作区: %s", spec.WorkingDir)
+	}
+	if !strings.Contains(spec.AgentDir, "dryrun-") {
+		t.Fatalf("试运行 agentDir 不在临时沙箱里: %s", spec.AgentDir)
+	}
+	joined := strings.Join(spec.Args, " ")
+	if !strings.Contains(joined, "--no-mcp") {
+		t.Fatalf("试运行隔离参数缺少 --no-mcp: %s", joined)
+	}
+	if strings.Contains(joined, "builtin:mcp") {
+		t.Fatalf("试运行不应重新启用内置 MCP: %s", joined)
+	}
+	if strings.Count(joined, "--skill") != 1 || !strings.Contains(joined, "dry-skill") {
+		t.Fatalf("试运行应只显式加载待测技能: %s", joined)
+	}
+	if _, err := os.Stat(spec.AgentDir); !os.IsNotExist(err) {
+		t.Fatalf("临时 agentDir 未清理: %v", err)
+	}
+
+	userAfter, err := resources.TreeDigest(d.agentDir(), work)
+	if err != nil {
+		t.Fatalf("再次计算用户数据 hash: %v", err)
+	}
+	for path, digest := range userBefore {
+		if userAfter[path] != digest {
+			t.Fatalf("用户数据被改动: %s", path)
+		}
+	}
+}
+
+// TestDryRunSkillBlocksWithoutPrompt：没有 prompt 就不启动任何进程。
+func TestDryRunSkillBlocksWithoutPrompt(t *testing.T) {
+	d := prepareRuntimeDesktop(t)
+	if imp := d.ImportSkill(fixtureSkill(t, "no-prompt", "缺 prompt"), "user", ""); imp.Error != nil {
+		t.Fatalf("导入失败: %s", imp.Error.Message)
+	}
+	res := d.DryRunSkill("no-prompt", "   ")
+	if res.State != "blocked" || res.Error == nil || res.Error.Code != contracts.CodeUnsupported {
+		t.Fatalf("空 prompt 必须 blocked: %+v", res)
+	}
+	if res.TempCleaned {
+		t.Fatal("没有创建沙箱时不应声称清理过")
 	}
 }

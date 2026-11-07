@@ -17,7 +17,6 @@ import { SkillsSection } from "../../features/skills/SkillsSection";
 import { ExtensionsSection } from "../../features/skills/ExtensionsSection";
 import { MCPSection } from "../../features/mcp/MCPSection";
 import { ToolsSection } from "../../features/tools/ToolsSection";
-import { ResourcesView } from "../../features/resources/ResourcesView";
 import { MemoryView } from "../../features/memory/MemoryView";
 import { RunsView } from "../../features/runs/RunsView";
 import { SettingsView } from "../../features/settings/SettingsView";
@@ -32,6 +31,7 @@ import type { PageProps } from "../navigation";
 // 这里只做转出：页面自己的状态与动作都在那个模块里，路由文件不再保存一份。
 
 export { ChatPage } from "../../features/chat/ChatPage";
+export { LibraryPage } from "../../features/library/LibraryPage";
 // ---------------------------------------------------------------- Agent
 
 /** Agent 页：单个 Profile 的产品化编辑（U03 会接管更完整的字段）。 */
@@ -133,31 +133,6 @@ export function MCPPage() {
       <MCPSection />
       <ToolsSection />
     </div>
-  );
-}
-
-/** 资源库：模型、Skill、MCP、扩展与配置档（U05 会拆出产物与记忆分区）。 */
-export function LibraryPage() {
-  const shell = useShell();
-  return (
-    <ResourcesView
-      profiles={shell.profiles}
-      workspaceId={shell.currentWorkspace?.id ?? ""}
-      models={shell.models}
-      modelOptions={shell.modelOptions}
-      modelRevision={shell.modelRevision}
-      currentModel={shell.currentModel}
-      skills={shell.skills}
-      skillRevision={shell.skillRevision}
-      skillsPending={shell.skillsPending}
-      skillsActiveRun={shell.skillsActiveRun}
-      runtimeSkills={shell.status?.runtimeSkills ?? []}
-      extensions={shell.extensions}
-      extensionRevision={shell.extensionRevision}
-      onChanged={shell.refreshProfiles}
-      onModelsChanged={shell.refreshModels}
-      onSkillsChanged={shell.refreshSkills}
-    />
   );
 }
 

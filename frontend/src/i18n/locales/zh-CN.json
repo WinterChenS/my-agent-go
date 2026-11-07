@@ -428,5 +428,178 @@
     "occlusion": {
       "hidden": "浮层打开中：原生网页暂时隐藏（隐藏面板不等于暂停 agent）"
     }
+  },
+  "library": {
+    "title": "资源库",
+    "subtitle": "这里列出真实的托管 Skill、Agent 与 MCP 配置：来源、路径、hash 与状态都来自后端；导入与试运行是显式动作。",
+    "tabs": {
+      "skills": "Skill",
+      "agents": "Agent",
+      "mcp": "MCP"
+    },
+    "actions": {
+      "importLink": "从链接导入",
+      "createLocal": "本地新建",
+      "reload": "重新读取",
+      "enable": "启用",
+      "disable": "停用",
+      "delete": "删除",
+      "deleteConfirm": "确认删除",
+      "edit": "编辑",
+      "saveEdit": "保存",
+      "cancelEdit": "取消编辑",
+      "dryRun": "隔离试运行",
+      "diagnose": "诊断",
+      "diagnosing": "诊断中…",
+      "openAgent": "在 Agent 页打开"
+    },
+    "labels": {
+      "scope": "启用范围",
+      "origin": "来源",
+      "path": "路径",
+      "hash": "内容 hash",
+      "size": "大小",
+      "files": "文件数",
+      "dependencies": "依赖命令",
+      "missingDependencies": "缺少依赖命令：{commands}",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "available": "可用",
+      "unavailable": "不可用",
+      "unavailableReason": "不可用原因：{reason}",
+      "pendingNextRun": "改动将在下次运行时生效",
+      "requires": "声明依赖",
+      "redirects": "重定向次数",
+      "transport": "传输",
+      "exposure": "工具暴露"
+    },
+    "scope": {
+      "user": "用户级（跨项目）",
+      "workspace": "项目级"
+    },
+    "origin": {
+      "imported": "导入",
+      "created": "本地新建"
+    },
+    "empty": {
+      "skills": "还没有托管 Skill",
+      "agents": "还没有 Agent",
+      "mcp": "还没有 MCP 服务",
+      "hint": "这里显示真实数据；现在确实一条都没有。"
+    },
+    "import": {
+      "title": "从链接导入 Skill",
+      "urlLabel": "SKILL.md 或归档的 HTTPS 链接",
+      "urlPlaceholder": "https://example.com/skill.zip",
+      "rulesHint": "只接受 HTTPS 上的单个 SKILL.md 或 zip/tar.gz；目标地址必须是公开地址（本机、私网、保留段一律拒绝），下载/解压体积、文件数与重定向次数都有上限。检查阶段只解析清单，不执行任何脚本。",
+      "inspect": "检查链接",
+      "inspecting": "检查中…",
+      "manifest": "解析到的清单",
+      "name": "name",
+      "description": "description",
+      "form": "形式",
+      "stagedHint": "内容已暂存在受管目录；确认后才会复制进托管目录。",
+      "confirm": "确认导入",
+      "importing": "导入中…",
+      "rejectTitle": "已拒绝（{count} 条原因）",
+      "rejectHint": "被拒绝时不写入任何文件，托管目录保持不变。",
+      "warningTitle": "需要知道的风险提示",
+      "warningBody": "归档里的脚本不会被产品执行；但导入后启用该 Skill，模型可能读取并按其说明使用它们。",
+      "noWarnings": "没有额外的风险提示。",
+      "createTitle": "本地新建 Skill",
+      "createNameLabel": "技能名（小写字母、数字、连字符）",
+      "createNamePlaceholder": "my-skill",
+      "create": "新建",
+      "creating": "新建中…"
+    },
+    "dryrun": {
+      "title": "隔离试运行",
+      "promptLabel": "试运行用的 prompt",
+      "promptPlaceholder": "例如：按这个技能给我一个执行计划",
+      "warningBody": "这会真的向所选 provider 发一次模型请求：prompt 与 Skill 内容会发送出去，可能产生费用。试运行使用临时 agentDir 与空工作区，工具只读、无网络/浏览器/连接器/外部 MCP/shell，结束后清理临时目录。",
+      "start": "开始试运行",
+      "running": "试运行中…",
+      "stateLabel": "结论",
+      "state": {
+        "completed": "已完成",
+        "failed": "失败",
+        "timeout": "超时",
+        "blocked": "被阻塞"
+      },
+      "policyLabel": "文件系统",
+      "networkLabel": "network",
+      "shellLabel": "shell",
+      "tempCleaned": "临时目录已清理",
+      "skillUnchanged": "托管技能未改动",
+      "userStateUnchanged": "用户数据未改动",
+      "denials": "被拒绝的工具调用",
+      "noDenials": "这次没有被拒绝的工具调用。",
+      "limitations": "已知限制"
+    },
+    "limit": {
+      "DRYRUN_LIMIT_USER_SKILL_DISCOVERY": "Pi 的用户级技能自动发现仍然打开：试运行只保证显式挂载了这一份托管技能，不保证其它用户级技能不可见。"
+    },
+    "caution": {
+      "script": "归档里包含脚本文件：{path}（不会被执行）",
+      "unknown": "归档里有一条提示：{detail}"
+    },
+    "mcp": {
+      "unknown": "尚未诊断：状态未知，不代表已连接。",
+      "connected": "握手成功且工具列表可用。",
+      "tools": "工具数",
+      "repairHint": "按错误码修复配置或凭证后重新诊断；OAuth 在 V1 未支持。"
+    },
+    "mcpState": {
+      "connected": "已连接",
+      "failed": "失败",
+      "timeout": "超时",
+      "auth_required": "需要授权",
+      "disabled": "已停用",
+      "unavailable": "不可用",
+      "unknown": "未诊断"
+    },
+    "agents": {
+      "model": "模型",
+      "workspace": "工作区",
+      "skills": "Skills",
+      "mcp": "MCP"
+    },
+    "reject": {
+      "link_scheme_https_only": "只接受 HTTPS 链接（当前协议是 {scheme}）",
+      "link_userinfo_rejected": "链接里不能带用户名/密码（{host}）",
+      "link_host_invalid": "链接缺少可用的主机名（{detail}）",
+      "link_port_invalid": "端口不合法：{port}",
+      "link_too_many_redirects": "重定向超过 {limit} 次，已停止跟进",
+      "link_redirect_scheme": "重定向到了非 HTTPS 地址（{scheme}）",
+      "link_special_purpose_address": "{host} 解析到 {address}，属于特殊用途地址段（{range}），不允许作为下载来源",
+      "link_private_peer": "连接实际对端是 {address}（{range}），不是公开地址",
+      "link_peer_unknown": "无法确认连接对端地址（{host}）",
+      "link_dns_failed": "域名解析失败：{host}（{detail}）",
+      "link_download_too_large": "下载内容超过上限 {limit} 字节",
+      "link_timeout": "下载超时（{detail}）",
+      "link_download_failed": "下载失败（{detail}）",
+      "link_unsupported_form": "只支持单个 SKILL.md 或 zip/tar.gz 归档（{url}）",
+      "link_archive_too_large": "归档解压后超过上限（{kind}，上限 {limit} 字节）",
+      "link_archive_file_count": "归档文件数 {count} 超过上限 {limit}",
+      "link_archive_entry_too_large": "归档条目 {entry} 解压后 {size} 字节，超过上限 {limit}",
+      "link_archive_path_traversal": "归档条目试图写到目标目录之外：{entry}",
+      "link_archive_symlink": "归档里包含链接或特殊文件：{entry}",
+      "link_archive_no_skill_md": "归档里找不到唯一的 SKILL.md（候选 {candidates} 个）",
+      "link_archive_corrupt": "归档损坏或无法读取（{detail}）",
+      "link_manifest_utf8": "SKILL.md 不是合法的 UTF-8",
+      "link_manifest_frontmatter": "SKILL.md 缺少可用的 frontmatter（{detail}）",
+      "link_manifest_yaml": "frontmatter 不是合法 YAML（{detail}）",
+      "link_manifest_name": "技能 name 不合法或缺失（{detail}）",
+      "link_manifest_description": "技能 description 缺失或过长（{detail}）",
+      "link_staging_failed": "写入暂存目录失败（{detail}）",
+      "dryrun_write_denied": "试运行不允许写文件",
+      "dryrun_shell_denied": "试运行不允许执行 shell",
+      "dryrun_network_denied": "试运行不允许网络请求",
+      "dryrun_browser_denied": "试运行不允许浏览器操作",
+      "dryrun_connectors_denied": "试运行不允许连接器调用",
+      "dryrun_external_mcp_denied": "试运行不允许外部 MCP 工具",
+      "dryrun_approval_not_available": "这一调用需要人工批准，试运行里没有审批人，已拒绝",
+      "unknown": "拒绝原因未识别（{detail}）"
+    }
   }
 }
