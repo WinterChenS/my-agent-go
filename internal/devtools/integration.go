@@ -105,6 +105,8 @@ func integrationCases() []integrationCase {
 	configTests := "internal/config"
 	sessionTests := "internal/session"
 	appTests := "internal/app"
+	artifactTests := "internal/artifact"
+	diagnosticsTests := "internal/diagnostics"
 
 	cases := []integrationCase{
 		// ── 环境 ──
@@ -359,6 +361,29 @@ func integrationCases() []integrationCase {
 			// 父进程只读文件：隔离参数到底有没有到子进程、用户 HOME 有没有被重定向，
 			// 只能从子进程的视角看。
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"worker-argv.json", "worker-env.json"}}},
+
+		// ── 产物与诊断（C07，G3）──
+		// 观察值来自产品自己的库与磁盘（见 internal/artifact|diagnostics 的 observation 文件）：
+		//   artifacts-dump.json    第二个 storage.DB 句柄读出的产物索引行；
+		//   artifact-files.json    工作区/导出根的真实遍历（含 sha256）；
+		//   artifacts-api-dump.json 绑定层同一张库里的产物行；
+		//   diagnostics-dump.json  run_usage/run_events 真实行（unknown 不是 0）；
+		//   diagnostics-bundle.json 诊断包文件遍历 + 对每个文件重新扫描 sentinel。
+		{ID: "ART01", Steps: []integrationStep{
+			{Package: artifactTests, Run: "TestArtifactOutsideScopeDenied|TestPreviewRejectsUnknownMIME"},
+			{Package: appTests, Run: "TestArtifactAPIRoundTrip"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"artifacts-dump.json", "artifact-files.json", "artifacts-api-dump.json", "artifact-exports.json"}}},
+		{ID: "ART02", Steps: []integrationStep{
+			{Package: artifactTests, Run: "TestGetArtifactReportsDrift|TestExportArtifactVerifiesSource|TestListRunArtifactsScopesByRun"},
+			{Package: appTests, Run: "TestArtifactAPISharesIndexDatabase"},
+		},
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"artifacts-dump.json", "artifact-files.json", "artifacts-api-dump.json"}}},
+		{ID: "ART03", Package: diagnosticsTests, Run: "TestUsageUnavailableIsNotZero|TestRunDetailsMarksUnknown|TestRecorderKeepsLocatorsInOversizedPayloads|TestRecorderPersistsSnapshotAsUnavailableOrNumbers",
+			Observation: &observationSpec{Source: "database", Artifacts: []string{"diagnostics-dump.json", "diagnostics-bundle.json"}}},
+		// SEC07.diagnostics：诊断包脱敏与导出根边界。命中数为 0 由重新扫描磁盘文件得出。
+		{ID: "SEC07.diagnostics", Package: diagnosticsTests, Run: "TestDiagnosticExportRedactsSentinels|TestExportDiagnosticsRefusesOutsideTarget",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"diagnostics-bundle.json", "diagnostics-dump.json"}}},
 
 		// ── 会话目录 / 附件 / 导出（C06，G3）──
 		// 观察值全部来自磁盘（见 internal/session/observation_test.go）：

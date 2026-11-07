@@ -147,6 +147,7 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 		if strings.Contains(raw, "costUsd") {
 			t.Fatalf("没有 usage 时不应出现 costUsd：%s", raw)
 		}
+		observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"usageCase": "no-usage-recorded"})
 	})
 
 	t.Run("usage-recorded-but-unavailable", func(t *testing.T) {
@@ -169,6 +170,7 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 		if strings.Contains(raw, "totalTokens") || strings.Contains(raw, "costUsd") {
 			t.Fatalf("没报用量时不应出现 token/cost 字段：%s", raw)
 		}
+		observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"usageCase": "usage-recorded-but-unavailable"})
 	})
 
 	t.Run("tokens-without-price", func(t *testing.T) {
@@ -198,6 +200,7 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 		if sum.Cost.UnknownRuns != 1 {
 			t.Fatalf("应记录 1 个 run 的价格未知，实际 %d", sum.Cost.UnknownRuns)
 		}
+		observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"usageCase": "tokens-without-price"})
 	})
 
 	t.Run("tokens-and-price", func(t *testing.T) {
@@ -222,6 +225,7 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 		if sum.Cost.Availability != contracts.UsageReported || sum.Cost.USD == nil {
 			t.Fatalf("cost 应可用：%+v", sum.Cost)
 		}
+		observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"usageCase": "tokens-and-price"})
 	})
 
 	t.Run("mixed-unknown-cost-is-not-summed", func(t *testing.T) {
@@ -246,6 +250,7 @@ func TestUsageUnavailableIsNotZero(t *testing.T) {
 		if sum.Cost.Availability != contracts.UsageUnavailable || sum.Cost.USD != nil {
 			t.Fatalf("有 run 缺价格时合计费用必须 unavailable（不能只加已知的一笔）：%+v", sum.Cost)
 		}
+		observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"usageCase": "mixed-unknown-cost-is-not-summed"})
 	})
 }
 
@@ -369,6 +374,11 @@ func TestDiagnosticExportRedactsSentinels(t *testing.T) {
 	if res.Redactions == 0 {
 		t.Fatalf("导出结果里的脱敏命中数不应为 0")
 	}
+
+	// SEC07.diagnostics 的外部观察：磁盘上的诊断包重新扫描 sentinel（命中必须为 0）。
+	observeDiagnostics(t, env.db.Path(), env.svc.Root(),
+		[]string{keySentinel, apiKeySentinel, headerSentinel, querySentinel, dsnSentinel, "alice"},
+		map[string]any{"redactions": res.Redactions, "bundleBytes": res.Bytes})
 }
 
 // TestExportDiagnosticsRefusesOutsideTarget 守导出目标只在诊断根内。
@@ -391,6 +401,9 @@ func TestExportDiagnosticsRefusesOutsideTarget(t *testing.T) {
 	if res.Path != filepath.Join(env.svc.Root(), "bundle.json") {
 		t.Fatalf("导出路径不符：%s", res.Path)
 	}
+
+	// SEC07.diagnostics 的外部观察：导出根里到底落了哪些文件（越界目标不在其中）。
+	observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"refusedOutsideTarget": true})
 }
 
 // TestRecorderPersistsSnapshotAsUnavailableOrNumbers 守"落库也不写伪 0"。
@@ -523,6 +536,9 @@ func TestRunDetailsMarksUnknown(t *testing.T) {
 	if !strings.Contains(raw, `"unavailable"`) {
 		t.Fatalf("JSON 里必须能看到 unavailable 段落：%s", raw)
 	}
+
+	// ART03 的外部观察：库里没有任何 usage 行（第二个句柄读回）。
+	observeDiagnostics(t, env.db.Path(), env.svc.Root(), nil, map[string]any{"runDetailsUnknown": true})
 }
 
 // TestRecorderKeepsLocatorsInOversizedPayloads 守"超限载荷也要保留定位字段"。
@@ -564,4 +580,7 @@ func TestRecorderKeepsLocatorsInOversizedPayloads(t *testing.T) {
 	if strings.Contains(stored, sentinel) || strings.Contains(stored, big) {
 		t.Fatalf("截断后的载荷不应保留原始 args：%s", stored)
 	}
+
+	// ART03 的外部观察：库里那一行的截断标记与定位字段（第二个句柄读回）。
+	observeDiagnostics(t, env.db.Path(), env.svc.Root(), []string{sentinel}, map[string]any{"payloadTruncated": true})
 }

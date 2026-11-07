@@ -114,6 +114,12 @@ func TestArtifactAPIRoundTrip(t *testing.T) {
 	if drifted.Item.Verification.ObservedSHA256 == drifted.Item.SHA256 {
 		t.Fatalf("drifted 时实际 hash 不应等于索引 hash")
 	}
+
+	// ART01/ART02 的外部观察：产品会话库里的产物行（第二个句柄读回）。
+	observeAppArtifacts(t, root, filepath.Join(root, "exports"), map[string]any{
+		"bindingRoundTrip": imported.Item.ID,
+		"workspaceDir":     wsDir,
+	})
 }
 
 // TestArtifactAPISharesIndexDatabase 证明产物索引与 usage/事件在同一张库里。
@@ -137,4 +143,7 @@ func TestArtifactAPISharesIndexDatabase(t *testing.T) {
 			t.Fatalf("索引库里没有 007 的表 %s: %v", table, err)
 		}
 	}
+
+	// ART02 的外部观察：同一个库文件里三张表都在（第二个句柄读回）。
+	observeAppArtifacts(t, root, "", map[string]any{"sharesIndexDatabase": true})
 }

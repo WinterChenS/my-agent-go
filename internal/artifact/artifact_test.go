@@ -207,6 +207,9 @@ func TestArtifactOutsideScopeDenied(t *testing.T) {
 	if len(rows) != 0 {
 		t.Fatalf("被拒绝的导入不应留下索引行，实际 %d 条", len(rows))
 	}
+
+	// ART01 的外部观察：库里的索引行（第二个句柄）与磁盘上的真实文件。
+	observeArtifacts(t, env.db.Path(), env.wsDir, env.export, map[string]any{"rejectedImports": 6})
 }
 
 // TestGetArtifactReportsDrift 覆盖 ART02：每次读都重新核对磁盘。
@@ -325,6 +328,11 @@ func TestGetArtifactReportsDrift(t *testing.T) {
 	if reimported.SHA256 != sha256Hex(changed) {
 		t.Fatalf("重新导入应更新 hash：期望 %s，实际 %s", sha256Hex(changed), reimported.SHA256)
 	}
+
+	// ART02 的外部观察：索引行（第二个句柄）+ 磁盘上文件的实际 hash。
+	observeArtifacts(t, env.db.Path(), env.wsDir, env.export, map[string]any{
+		"driftedThenReimported": reimported.ID,
+	})
 }
 
 // TestPreviewRejectsUnknownMIME 覆盖 PreviewArtifact 的白名单。
@@ -387,6 +395,9 @@ func TestPreviewRejectsUnknownMIME(t *testing.T) {
 	} else {
 		requireCode(t, err, contracts.CodeVerificationFailed)
 	}
+
+	// ART01/ART02 的外部观察：索引里的媒体类型与磁盘上的真实字节。
+	observeArtifacts(t, env.db.Path(), env.wsDir, env.export, map[string]any{"previewWhitelist": true})
 }
 
 // TestExportArtifactVerifiesSource 覆盖 ExportArtifact：只导出已核对过的字节。
@@ -438,6 +449,9 @@ func TestExportArtifactVerifiesSource(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(env.export, "again.md")); statErr == nil {
 		t.Fatalf("导出失败不应留下目标文件")
 	}
+
+	// ART02 的外部观察：导出根里到底有哪些文件、源文件 hash 是什么。
+	observeArtifacts(t, env.db.Path(), env.wsDir, env.export, map[string]any{"exportVerifiesSource": true})
 }
 
 // TestListRunArtifactsScopesByRun 守"按 run 列产物"只返回该 run 的行。
@@ -477,4 +491,7 @@ func TestListRunArtifactsScopesByRun(t *testing.T) {
 	if len(none) != 0 {
 		t.Fatalf("没有产物的 run 应返回空切片，实际 %d", len(none))
 	}
+
+	// ART02 的外部观察：run 归属写在库里，可从第二个句柄核对。
+	observeArtifacts(t, env.db.Path(), env.wsDir, env.export, map[string]any{"runScopedArtifacts": 2})
 }
