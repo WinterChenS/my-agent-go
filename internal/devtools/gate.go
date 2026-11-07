@@ -100,6 +100,11 @@ type GateReport struct {
 
 	PerCase        map[string]CaseEval `json:"perCase"`
 	PerRequirement []RequirementEval   `json:"perRequirement,omitempty"`
+	// Deferred 是本轮停用目标（ADR 0005）导致的未评估必需位，形如 "ENV01@win-arm64"。
+	//
+	// 为什么不直接丢掉：把"目标停用"和"这条 case 不需要证据"混在一起，等于让
+	// 停用悄悄缩小验收面。列在报告里，评审能看见哪些位这一轮没被证明。
+	Deferred []string `json:"deferred,omitempty"`
 }
 
 func contains(ss []string, s string) bool {
@@ -169,22 +174,54 @@ func ResolveRequiredAtomicCases(idx *CasesIndex, gateID string) []string {
 // 显式翻译成机器判定，而不是让每个 case 手抄六行：抄漏一个目标的代价远高于
 // 多写一个 switch。未知 scope 必须判死——新增 case 写了 typos 不能静默变成
 // 「不需要证据」。
+// activeTargets 返回本轮验收的目标（ADR 0005 下只有 win-x64）。
+//
+// 读不到平台配置时退化为 KnownTargets：配置缺失由 GOV05/EvaluateGate 的
+// 环境校验另行判死，这里不静默缩小验收面。
+func activeTargets() []string {
+	plats, err := LoadPlatformsFromRepo()
+	if err != nil {
+		return append([]string{}, KnownTargets...)
+	}
+	out := make([]string, 0, len(KnownTargets))
+	for _, id := range KnownTargets {
+		if tm, ok := plats.Target(id); ok && tm.IsActive() {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		return append([]string{}, KnownTargets...)
+	}
+	return out
+}
+
 func targetsForScope(scope string) ([]string, bool) {
-	all := append([]string{}, KnownTargets...)
+	all := activeTargets()
 	switch strings.TrimSpace(scope) {
 	case "ALL", "NATIVE", "HOST+ALL路径集成":
 		return all, true
 	case "LNX", "Linux两架构":
-		return []string{"linux-x64", "linux-arm64"}, true
+		return intersectTargets([]string{"linux-x64", "linux-arm64"}, all), true
 	case "Windows两架构":
-		return []string{"win-x64", "win-arm64"}, true
+		return intersectTargets([]string{"win-x64", "win-arm64"}, all), true
 	case "macOS两架构":
-		return []string{"mac-x64", "mac-arm64"}, true
+		return intersectTargets([]string{"mac-x64", "mac-arm64"}, all), true
 	case "HOST":
 		// 由 Requirement.Target 为空表达，见 ResolveRequiredEvidence。
 		return nil, true
 	}
 	return nil, false
+}
+
+// intersectTargets 返回 want 里仍在 active 中的目标（保持 want 顺序）。
+func intersectTargets(want, active []string) []string {
+	out := make([]string, 0, len(want))
+	for _, w := range want {
+		if contains(active, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // normalizeDisplay 让非 Linux 目标的空 display 与 "desktop" 等价。
@@ -227,12 +264,23 @@ func allowedDisplays(target string) []string {
 // ResolveRequiredEvidence 展开某 gate 的全部必需证据位（case × target × display）。
 // 返回的问题列表非空时，门禁必须判死（索引/scope 有误，无法判定）。
 func ResolveRequiredEvidence(idx *CasesIndex, gateID string) ([]Requirement, []string) {
+	reqs, problems, _ := ResolveRequiredEvidenceWithDeferred(idx, gateID)
+	return reqs, problems
+}
+
+// ResolveRequiredEvidenceWithDeferred 与 ResolveRequiredEvidence 相同，但也返回
+// 因目标停用（ADR 0005）而未评估的必需位。
+//
+// 分开一个函数而不是改签名：现有调用点很多，改签名会把"停用"这件事扩散到
+// 所有调用者；只有 gate 报告需要看见它。
+func ResolveRequiredEvidenceWithDeferred(idx *CasesIndex, gateID string) ([]Requirement, []string, []string) {
 	byID := map[string]CaseEntry{}
 	for _, c := range idx.Cases {
 		byID[c.ID] = c
 	}
 	var reqs []Requirement
 	var problems []string
+	var deferred []string
 	for _, id := range ResolveRequiredAtomicCases(idx, gateID) {
 		c, ok := byID[id]
 		if !ok {
@@ -249,8 +297,17 @@ func ResolveRequiredEvidence(idx *CasesIndex, gateID string) ([]Requirement, []s
 			problems = append(problems, fmt.Sprintf("case %s 的 scope %q 未知（无法确定必需目标）", id, c.Scope))
 			continue
 		}
+		// 停用目标（ADR 0005）逐条记 deferred：既不算缺失，也不算通过。
+		// 必须在 HOST 分支之前算：HOST 没有目标维度，deferredTargetsForScope 返回空。
+		for _, t := range deferredTargetsForScope(scope) {
+			deferred = append(deferred, id+"@"+t)
+		}
 		if scope == "HOST" {
 			reqs = append(reqs, Requirement{CaseID: id})
+			continue
+		}
+		if len(targets) == 0 {
+			// 该 case 的所有目标本轮都停用：只剩 deferred，不静默消失。
 			continue
 		}
 		for _, t := range targets {
@@ -259,7 +316,32 @@ func ResolveRequiredEvidence(idx *CasesIndex, gateID string) ([]Requirement, []s
 			}
 		}
 	}
-	return reqs, problems
+	return reqs, problems, deferred
+}
+
+// deferredTargetsForScope 返回该 scope 里因停用而未评估的目标（保持稳定顺序）。
+func deferredTargetsForScope(scope string) []string {
+	var want []string
+	switch strings.TrimSpace(scope) {
+	case "ALL", "NATIVE", "HOST+ALL路径集成":
+		want = append([]string{}, KnownTargets...)
+	case "LNX", "Linux两架构":
+		want = []string{"linux-x64", "linux-arm64"}
+	case "Windows两架构":
+		want = []string{"win-x64", "win-arm64"}
+	case "macOS两架构":
+		want = []string{"mac-x64", "mac-arm64"}
+	default:
+		return nil
+	}
+	active := activeTargets()
+	out := make([]string, 0, len(want))
+	for _, w := range want {
+		if !contains(active, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // evidenceFile 是把 GateEvidence 与其所在目录绑定，便于重新计算报告哈希。
@@ -295,11 +377,19 @@ func EvaluateGate(idx *CasesIndex, gateID, evidenceRoot string, base GateBaselin
 		failGate(rep, fmt.Sprintf("未知 gate: %s（已知: %s）", gateID, strings.Join(KnownGates, ",")))
 		return rep, nil
 	}
-	reqs, problems := ResolveRequiredEvidence(idx, gateID)
+	reqs, problems, deferred := ResolveRequiredEvidenceWithDeferred(idx, gateID)
+	rep.Deferred = deferred
 	for _, p := range problems {
 		failGate(rep, p)
 	}
 	if len(reqs) == 0 {
+		if len(deferred) > 0 {
+			// 全部必需位都落在停用目标上：这不是"通过"，也不是"索引缺失"，
+			// 而是"这一轮没有可评估的面"。明确说出来，避免被当成绿。
+			failGate(rep, fmt.Sprintf("gate %s 的必需位全部落在停用目标上（ADR 0005）：%s；没有可评估的证据面",
+				gateID, strings.Join(deferred, ",")))
+			return rep, nil
+		}
 		failGate(rep, fmt.Sprintf("gate %s 没有必需 case（索引缺失或不完整）", gateID))
 		return rep, nil
 	}

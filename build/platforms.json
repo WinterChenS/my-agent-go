@@ -1,23 +1,24 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-11-03",
+  "generatedAt": "2026-11-06",
   "defaultChannel": "internal",
   "host": {
     "os": "windows",
     "arch": "amd64",
     "osVersion": "Windows 10 Pro 22H2 (Build 19045)",
-    "note": "基线最低验收系统为 Windows 11 24H2（build 26100）；本机为 Windows 10 22H2 build 19045，属偏差：GOV05 起，低于目标 minOSVersion/minOSBuild 的证据由门禁直接拒绝，本机产生的 win-x64 证据只能作为开发证据，不能作为验收结论。host 块仅为描述性信息，最低要求只以 targets[].minOSVersion/minOSBuild 为准。"
+    "note": "本轮验收平台由 ADR 0005 收敛为 win-x64 / Windows 10 22H2（build 19045）：本机即可产出验收级证据。其余五个目标在 ADR 0005 下暂停（active=false），它们的必需位在 gate 报告里列为 deferred，不计为缺失、也不计为通过。最低要求只以 targets[].minOSVersion/minOSBuild 为准。"
   },
   "targets": [
     {
       "targetId": "win-x64",
       "goos": "windows",
       "goarch": "amd64",
-      "minOSVersion": "11",
-      "minOSBuild": 26100,
+      "minOSVersion": "10",
+      "minOSBuild": 19045,
       "package": "NSIS .exe",
       "status": "READY_HOST",
-      "limitations": "可开发/构建；打包工具(NSIS/MakeAppx/SignTool/MSIX)未安装，最终安装包暂不可产；OS 版本低于基线最低验收。"
+      "limitations": "可开发/构建/验收（ADR 0005：本轮只验收 win-x64 / Windows 10 22H2）。打包工具(NSIS/MakeAppx/SignTool/MSIX)未安装，最终安装包另属 X03。",
+      "active": true
     },
     {
       "targetId": "win-arm64",
@@ -27,7 +28,9 @@
       "minOSBuild": 26100,
       "package": "NSIS .exe",
       "status": "BLOCKED",
-      "reason": "无 Windows ARM64 运行环境，无法验证构建、WebView2 与原生打包。"
+      "reason": "无 Windows ARM64 运行环境，无法验证构建、WebView2 与原生打包。（ADR 0005：本轮不验收该目标，必需位记为 deferred。）",
+      "active": false,
+      "deferredBy": "ADR 0005"
     },
     {
       "targetId": "mac-x64",
@@ -37,7 +40,9 @@
       "minOSBuild": 0,
       "package": ".dmg / .app",
       "status": "BLOCKED",
-      "reason": "无 macOS Intel 运行环境，无法验证 WKWebView、签名与公证。"
+      "reason": "无 macOS Intel 运行环境，无法验证 WKWebView、签名与公证。（ADR 0005：本轮不验收该目标，必需位记为 deferred。）",
+      "active": false,
+      "deferredBy": "ADR 0005"
     },
     {
       "targetId": "mac-arm64",
@@ -47,7 +52,9 @@
       "minOSBuild": 0,
       "package": ".dmg / .app",
       "status": "BLOCKED",
-      "reason": "无 macOS Apple Silicon 运行环境，无法验证 WKWebView、签名与公证。"
+      "reason": "无 macOS Apple Silicon 运行环境，无法验证 WKWebView、签名与公证。（ADR 0005：本轮不验收该目标，必需位记为 deferred。）",
+      "active": false,
+      "deferredBy": "ADR 0005"
     },
     {
       "targetId": "linux-x64",
@@ -57,7 +64,9 @@
       "minOSBuild": 0,
       "package": ".deb + AppImage",
       "status": "BLOCKED",
-      "reason": "无 Linux amd64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。"
+      "reason": "无 Linux amd64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。（ADR 0005：本轮不验收该目标，必需位记为 deferred。）",
+      "active": false,
+      "deferredBy": "ADR 0005"
     },
     {
       "targetId": "linux-arm64",
@@ -67,7 +76,9 @@
       "minOSBuild": 0,
       "package": ".deb + AppImage",
       "status": "BLOCKED",
-      "reason": "无 Linux ARM64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。"
+      "reason": "无 Linux ARM64 运行环境，无法验证 WebKitGTK 在 X11/Wayland 双会话。（ADR 0005：本轮不验收该目标，必需位记为 deferred。）",
+      "active": false,
+      "deferredBy": "ADR 0005"
     }
   ]
 }

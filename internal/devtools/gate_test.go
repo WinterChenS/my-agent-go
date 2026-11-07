@@ -456,11 +456,15 @@ func TestGateAcceptsAllRequiredEvidence(t *testing.T) {
 	}
 }
 
-func TestGateAcceptsAllScopeOnSixTargets(t *testing.T) {
+// TestGateAcceptsAllScopeOnActiveTargets：scope=ALL 展开为本轮**验收目标**（ADR 0005 下是 win-x64）。
+//
+// 停用目标不能既不算缺失也不算 deferred：它们必须出现在报告里（见
+// TestGateReportsDeferredTargetsInsteadOfDroppingThem），否则停用就悄悄缩小了验收面。
+func TestGateAcceptsAllScopeOnActiveTargets(t *testing.T) {
 	idx := testIndexOne(t, CaseEntry{ID: "SEC06", Owner: "F04", Required: true, Scope: "ALL", Gates: []string{"G0"}})
 	root := t.TempDir()
 	base := testBaseline()
-	for _, target := range KnownTargets {
+	for _, target := range activeTargets() {
 		writeEvidence(t, root, base.SourceRevision, "G0", target, "SEC06", base.VersionsLockHash, nil)
 	}
 	rep, err := EvaluateGate(idx, "G0", root, base)
@@ -468,10 +472,14 @@ func TestGateAcceptsAllScopeOnSixTargets(t *testing.T) {
 		t.Fatalf("EvaluateGate error: %v", err)
 	}
 	if !rep.Passed || rep.ExitCode != 0 {
-		t.Fatalf("六目标齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+		t.Fatalf("验收目标齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
 	}
-	if len(rep.PerRequirement) != 6 {
-		t.Fatalf("scope=ALL 应展开为 6 条必需证据位，实际 %d", len(rep.PerRequirement))
+	if len(rep.PerRequirement) != len(activeTargets()) {
+		t.Fatalf("scope=ALL 应展开为 %d 条必需证据位（active=%v），实际 %d",
+			len(activeTargets()), activeTargets(), len(rep.PerRequirement))
+	}
+	if len(rep.Deferred) == 0 {
+		t.Fatalf("scope=ALL 里停用目标必须记进 Deferred（ADR 0005），实际为空")
 	}
 }
 
@@ -481,8 +489,13 @@ func TestGateRejectsAllScopeMissingOneTarget(t *testing.T) {
 	idx := testIndexOne(t, CaseEntry{ID: "SEC06", Owner: "F04", Required: true, Scope: "ALL", Gates: []string{"G0"}})
 	root := t.TempDir()
 	base := testBaseline()
-	for _, target := range KnownTargets {
-		if target == "mac-arm64" {
+	active := activeTargets()
+	if len(active) == 0 {
+		t.Fatal("没有验收目标，测试前提不成立")
+	}
+	missing := active[0]
+	for _, target := range active {
+		if target == missing {
 			continue
 		}
 		writeEvidence(t, root, base.SourceRevision, "G0", target, "SEC06", base.VersionsLockHash, nil)
@@ -492,15 +505,20 @@ func TestGateRejectsAllScopeMissingOneTarget(t *testing.T) {
 		t.Fatalf("EvaluateGate error: %v", err)
 	}
 	if rep.Passed || rep.ExitCode != 2 {
-		t.Fatalf("缺 mac-arm64 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+		t.Fatalf("缺 %s 应判死，实际 passed=%v exitCode=%d", missing, rep.Passed, rep.ExitCode)
 	}
-	if !reasonMentions(rep, "mac-arm64") {
-		t.Fatalf("报告应明确指出缺 mac-arm64，实际 reasons=%v", rep.Reasons)
+	if !reasonMentions(rep, missing) {
+		t.Fatalf("报告应明确指出缺 %s，实际 reasons=%v", missing, rep.Reasons)
 	}
 }
 
-// TestGateRejectsLinuxMissingWayland：Linux 只跑 X11 不能宣称 LNX 通过。
-func TestGateRejectsLinuxMissingWayland(t *testing.T) {
+// TestDeferredLinuxScopeIsReported：Linux 目标在 ADR 0005 下停用，LNX scope 的 case
+// 不能因此"凭空通过"——它必须出现在 Deferred 里，且不能产生必需证据位。
+//
+// 保留原来的 X11/Wayland 判定逻辑（双会话不能合并成一份）作为**将来恢复 Linux 验收时**
+// 仍然有效的测试：这里直接按 X11+Wayland 写入两份证据，然后断言在当前矩阵下它们
+// 不被当成必需位（否则本机会一直要求 linux 证据）。
+func TestDeferredLinuxScopeIsReported(t *testing.T) {
 	idx := testIndexOne(t, CaseEntry{ID: "BR03", Owner: "B03", Required: true, Scope: "LNX", Gates: []string{"G1"}})
 	root := t.TempDir()
 	base := testBaseline()
@@ -516,27 +534,38 @@ func TestGateRejectsLinuxMissingWayland(t *testing.T) {
 	for _, target := range []string{"linux-x64", "linux-arm64"} {
 		writeDisplayed(target, "x11")
 	}
+	for _, target := range []string{"linux-x64", "linux-arm64"} {
+		writeDisplayed(target, "wayland")
+	}
 	rep, err := EvaluateGate(idx, "G1", root, base)
 	if err != nil {
 		t.Fatalf("EvaluateGate error: %v", err)
 	}
+	if len(activeTargets()) != 0 && contains(activeTargets(), "linux-x64") {
+		// 将来恢复 Linux 验收时，这条分支才是主断言。
+		if !rep.Passed || rep.ExitCode != 0 {
+			t.Fatalf("X11+Wayland 齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep.Passed, rep.ExitCode, rep.Reasons)
+		}
+		return
+	}
+	// 全部必需位都停用时 gate 不能判通过：那会成为"停用即绿"。
 	if rep.Passed || rep.ExitCode != 2 {
-		t.Fatalf("缺 Wayland 应判死，实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
+		t.Fatalf("全停用的 gate 必须判非通过（不能把停用当通过），实际 passed=%v exitCode=%d", rep.Passed, rep.ExitCode)
 	}
-	if !reasonMentions(rep, "wayland") {
-		t.Fatalf("报告应指出缺 wayland，实际 reasons=%v", rep.Reasons)
+	if !strings.Contains(strings.Join(rep.Reasons, " "), "停用目标") {
+		t.Fatalf("拒绝原因必须说明是停用目标导致的，实际 reasons=%v", rep.Reasons)
 	}
-
-	// 反向对照：两个 display 都齐 → 通过（否则上面的判死可能只是「永远判死」）。
-	for _, target := range []string{"linux-x64", "linux-arm64"} {
-		writeDisplayed(target, "wayland")
+	if len(rep.PerRequirement) != 0 {
+		t.Fatalf("停用目标不应产生必需证据位，实际 %d 条", len(rep.PerRequirement))
 	}
-	rep2, err := EvaluateGate(idx, "G1", root, base)
-	if err != nil {
-		t.Fatalf("EvaluateGate error: %v", err)
+	found := false
+	for _, d := range rep.Deferred {
+		if strings.HasPrefix(d, "BR03@linux-") {
+			found = true
+		}
 	}
-	if !rep2.Passed || rep2.ExitCode != 0 {
-		t.Fatalf("X11+Wayland 齐全应通过，实际 passed=%v exitCode=%d reasons=%v", rep2.Passed, rep2.ExitCode, rep2.Reasons)
+	if !found {
+		t.Fatalf("Linux 必需位必须出现在 Deferred 里，实际 %v", rep.Deferred)
 	}
 }
 
@@ -852,17 +881,24 @@ func TestGateRejectsBelowMinimumOSVersion(t *testing.T) {
 	t.Run("windows-below-build", func(t *testing.T) {
 		root := t.TempDir()
 		base := testBaseline()
-		// 本机真实身份：Windows 10 22H2 build 19045，低于 Windows 11 24H2 (26100)。
-		writeMinimumEvidenceForAllTargets(t, root, base, "ENV03", "G0", "win-x64", func(e *contracts.GateEvidence) {
+		// ADR 0005：win-x64 的最低线是 Windows 10 22H2 build 19045（本机即最低线）。
+		// 这里写 19044（最低线减一），证明 GOV05 仍在拦"低于最低"而不是被整体调松。
+		writeEvidence(t, root, base.SourceRevision, "G0", "win-x64", "ENV03", base.VersionsLockHash, func(e *contracts.GateEvidence) {
 			e.Environment.OSVersion = "10"
-			e.Environment.OSBuild = "19045"
+			e.Environment.OSBuild = "19044"
 		})
+		for _, target := range activeTargets() {
+			if target == "win-x64" {
+				continue
+			}
+			writeEvidence(t, root, base.SourceRevision, "G0", target, "ENV03", base.VersionsLockHash, nil)
+		}
 		rep, err := EvaluateGate(idx, "G0", root, base)
 		if err != nil {
 			t.Fatalf("EvaluateGate error: %v", err)
 		}
 		if rep.Passed || rep.ExitCode != 2 {
-			t.Fatalf("Windows 10 build 19045 证据应判死，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
+			t.Fatalf("低于最低 build 的证据应判死，实际 passed=%v reasons=%v", rep.Passed, rep.Reasons)
 		}
 	})
 
@@ -921,11 +957,15 @@ func TestPlatformMinimumsCoverEveryTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载 build/platforms.json: %v", err)
 	}
+	// ADR 0005：win-x64 是**本轮唯一验收目标**，最低线收敛为 Windows 10 22H2
+	// （build 19045，即本机）。其余五个目标必须显式声明 active=false 且写上
+	// 停用依据，避免"忘了写 active"被当成"继续要求六目标"或"悄悄不要求"。
 	want := map[string][2]string{
-		"win-x64": {"11", "26100"}, "win-arm64": {"11", "26100"},
+		"win-x64": {"10", "19045"}, "win-arm64": {"11", "26100"},
 		"mac-x64": {"14", "0"}, "mac-arm64": {"14", "0"},
 		"linux-x64": {"24.04", "0"}, "linux-arm64": {"24.04", "0"},
 	}
+	active := []string{}
 	for target, expected := range want {
 		tm, ok := plats.Target(target)
 		if !ok {
@@ -937,6 +977,14 @@ func TestPlatformMinimumsCoverEveryTarget(t *testing.T) {
 		if strconv.FormatInt(int64(tm.MinOSBuild), 10) != expected[1] {
 			t.Fatalf("%s minOSBuild=%d，期望 %s", target, tm.MinOSBuild, expected[1])
 		}
+		if tm.IsActive() {
+			active = append(active, target)
+		} else if tm.DeferredBy == "" {
+			t.Fatalf("%s 被停用但没有写 deferredBy（停用必须有依据可查）", target)
+		}
+	}
+	if len(active) != 1 || active[0] != "win-x64" {
+		t.Fatalf("ADR 0005 下验收目标必须恰好是 win-x64，实际 %v", active)
 	}
 }
 

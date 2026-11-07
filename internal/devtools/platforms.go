@@ -6,8 +6,9 @@ package devtools
 // 门禁、集成 runner、原生 runner 都要用同一份口径。写两处必然会分叉——
 // 一处调低阈值让本机绿，另一处还在拦，结论就说不清是谁对。
 //
-// 本机是 Windows 10 22H2 build 19045，低于 win-x64 的最低要求 Windows 11 24H2
-// （build 26100）。这是**预期**：本机产生的 win-x64 证据必须被门禁拒绝。
+// ADR 0005（2026-11-06）把本轮验收平台收敛为 win-x64 / Windows 10 22H2（build 19045）：
+// 本机即可产出验收级证据；其余五个目标 active=false，它们的必需位在 gate 报告里
+// 记为 deferred（不计缺失、也不计通过），见 activeTargets/ResolveRequiredEvidence。
 
 import (
 	"encoding/json"
@@ -32,6 +33,16 @@ type PlatformTarget struct {
 	MinOSVersion string `json:"minOSVersion"`
 	// MinOSBuild 是目标最低 OS build 号；0 表示该平台不按 build 判定。
 	MinOSBuild int `json:"minOSBuild"`
+	// Active 表示该目标本轮是否验收（ADR 0005）。缺省视为 true：
+	// 老配置没有这个字段时行为不变，不会因为漏写一个字段悄悄停掉一个目标。
+	Active *bool `json:"active,omitempty"`
+	// DeferredBy 记录停用依据（例如 "ADR 0005"），用于 gate 报告点名。
+	DeferredBy string `json:"deferredBy,omitempty"`
+}
+
+// IsActive 报告该目标本轮是否验收（缺省 true）。
+func (t PlatformTarget) IsActive() bool {
+	return t.Active == nil || *t.Active
 }
 
 // Platforms 是 build/platforms.json 的解析结果。
