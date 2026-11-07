@@ -31,6 +31,7 @@ import (
 	"my-agent-go/internal/resources"
 	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
+	"my-agent-go/internal/scheduler"
 	"my-agent-go/internal/session"
 	"my-agent-go/internal/storage"
 	"my-agent-go/internal/workspace"
@@ -184,6 +185,19 @@ type Desktop struct {
 	connectorDB      *storage.DB
 	connectorPending map[string]connectors.PendingApproval
 
+	// schedulerMu 保护 C09 调度器单例与它的库。
+	// 与 d.mu 分开：首次打开任务页会构建运行时并迁移数据库。
+	schedulerMu  sync.Mutex
+	schedulerSvc *scheduler.Service
+	schedulerDB  *storage.DB
+
+	// persistentSubs 是"跨运行时重建仍然有效"的 run 事件订阅者（C09 调度器）。
+	//
+	// run.Service 会因模型/技能/MCP 变化被重建（空闲时），旧订阅随旧服务消失。
+	// 订阅者登记在这里，每次构建新运行时重新挂上；否则调度器会一直监听已关闭的
+	// 旧服务，occurrence 永远停在 running 或只能落到"未知"。
+	persistentSubs []func(contracts.Event)
+
 	// runtimeMCP/runtimeMCPDigest 是最近一次构建交给 Pi 的外部 MCP 集合。
 	// digest 参与运行时签名：改服务/改参数/改暴露策略都会重建 runtime，
 	// 有 run 在跑时则记 pending（旧 run 不静默变化）。
@@ -207,6 +221,13 @@ func New(root string) (*Desktop, error) {
 	// 以更准确的错误码出现，比在启动阶段吞掉它更有用。
 	if s.Workspace != "" {
 		_ = os.MkdirAll(s.Workspace, 0o755)
+	}
+	// C09：定时任务的后台循环必须在启动时就跑起来，而不是等用户点开任务页。
+	// 它不需要先建好运行时（真正需要执行时才通过委托件去取 RunService），
+	// 所以这里可以安全地提前拉起；失败只记原因，不阻断启动——
+	// 一个打不开的调度库不该让聊天也一起打不开。
+	if _, schedErr := d.schedulerService(); schedErr != nil {
+		d.setLastErr("定时任务不可用（不会按时触发）：" + schedErr.Error())
 	}
 	return d, nil
 }
@@ -808,6 +829,7 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 
 	d.mu.Lock()
 	d.svc = svc
+	persistent := append([]func(contracts.Event){}, d.persistentSubs...)
 	d.runtimeKey = key
 	d.runtimeSessionID = string(sessionID)
 	d.runtimeProvider = setup.Provider
@@ -819,6 +841,12 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 	d.runtimeMCPDigest = mcpPlan.Digest
 	d.pendingRuntimeKey = ""
 	d.mu.Unlock()
+
+	// 跨运行时的订阅者（C09 调度器）挂到新实例上：它们的语义是"这个进程的
+	// run 事件"，不是"某一个 run.Service 实例的事件"。
+	for _, fn := range persistent {
+		_ = svc.Subscribe(fn)
+	}
 	return svc, nil
 }
 
@@ -1143,6 +1171,19 @@ func (d *Desktop) Shutdown() {
 	// 会话目录库同样与应用同寿命。
 	if sessionDB != nil {
 		_ = sessionDB.Close()
+	}
+	// 调度器（任务定义 + occurrence）同样与应用同寿命：先停后台循环再关库。
+	d.schedulerMu.Lock()
+	schedulerSvc := d.schedulerSvc
+	schedulerDB := d.schedulerDB
+	d.schedulerSvc = nil
+	d.schedulerDB = nil
+	d.schedulerMu.Unlock()
+	if schedulerSvc != nil {
+		_ = schedulerSvc.Close(context.Background())
+	}
+	if schedulerDB != nil {
+		_ = schedulerDB.Close()
 	}
 	// 连接器库（定义 + 追加式审计）同样与应用同寿命。
 	d.connectorMu.Lock()
