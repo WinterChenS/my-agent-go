@@ -17,7 +17,6 @@ import { ExtensionsSection } from "../../features/skills/ExtensionsSection";
 import { MCPSection } from "../../features/mcp/MCPSection";
 import { ToolsSection } from "../../features/tools/ToolsSection";
 import { RunsView } from "../../features/runs/RunsView";
-import { SettingsView } from "../../features/settings/SettingsView";
 import { WorkbenchView } from "../../features/workbench/WorkbenchView";
 import { useShell } from "../shell";
 
@@ -27,6 +26,9 @@ import { useShell } from "../shell";
 // 这里只做转出：页面自己的状态与动作都在那个模块里，路由文件不再保存一份。
 
 export { ChatPage } from "../../features/chat/ChatPage";
+// 设置与观测（U06）：页面本体在各自 feature 里，路由文件不再保存一份状态。
+export { SettingsPage } from "../../features/settings/SettingsPage";
+export { ObservabilityPage } from "../../features/observability/ObservabilityPage";
 export { LibraryPage } from "../../features/library/LibraryPage";
 export { MemoryPage } from "../../features/memory/MemoryPage";
 // ---------------------------------------------------------------- Agent
@@ -76,33 +78,6 @@ export function MCPPage() {
 export function RunsPage() {
   const shell = useShell();
   return <RunsView ui={shell.ui} workspace={shell.currentWorkspace} />;
-}
-
-/** 设置：运行环境、工作区信任、语言与主题。 */
-export function SettingsPage() {
-  const shell = useShell();
-  if (!shell.settings) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-5">
-        <AsyncState
-          phase={shell.backend.loading ? "loading" : "error"}
-          error={shell.backend.error ?? undefined}
-          onRetry={shell.refreshProfiles}
-        />
-      </div>
-    );
-  }
-  return (
-    <SettingsView
-      settings={shell.settings}
-      status={shell.status}
-      workspaces={shell.workspaces}
-      saving={shell.savingSettings}
-      error={shell.actionError}
-      onSave={shell.saveSettings}
-      onTrust={shell.trustWorkspace}
-    />
-  );
 }
 
 // ---------------------------------------------------------------- 未实现（共享状态）

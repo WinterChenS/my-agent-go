@@ -29,6 +29,7 @@ const REQUIRED_PATTERNS = [
   "/schedules",
   "/library",
   "/settings",
+  "/observability",
 ] as const;
 
 function concrete(pattern: string): string {
@@ -147,6 +148,7 @@ describe("导航目录", () => {
       "connectors",
       "schedules",
       "settings",
+      "observability",
     ]);
     for (const group of groups) {
       for (const item of group.items) {

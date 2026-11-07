@@ -143,8 +143,10 @@
       "connectors": "Connectors for external services",
       "schedules": "Durable local schedules",
       "settings": "Runtime, workspace, language and theme",
-      "runs": "The event stream of this run"
-    }
+      "runs": "The event stream of this run",
+      "observability": "Inspect usage, run chains and diagnostics export."
+    },
+    "observability": "Observability"
   },
   "shell": {
     "piStatus": "Pi status",
@@ -768,6 +770,215 @@
       "confirmed": "Confirmed",
       "scopeEnabled": "Injection enabled for {scope}",
       "scopeDisabled": "Injection disabled for {scope} (entries kept)"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Runtime settings, the Pi runtime and application updates are managed here.",
+    "general": {
+      "title": "General",
+      "hint": "Language and theme only affect the interface; they never interrupt a running session.",
+      "save": "Save preferences",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "conflictHint": "The configuration was changed in another window. Reload before deciding whether to overwrite it."
+    },
+    "model": {
+      "title": "Models",
+      "hint": "Model definitions come from the resource library; secrets live only in the OS credential store.",
+      "current": "Current model",
+      "source": {
+        "resources": "Resource library",
+        "settings": "Legacy settings fields",
+        "none": "Not configured"
+      },
+      "listTitle": "Models in the resource library",
+      "emptyTitle": "No model definitions yet",
+      "emptyHint": "Define a model in the resource library and set it as current.",
+      "activate": "Set as current",
+      "activating": "Switching…",
+      "active": "Current",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "reachable": "Reachable ({latency} ms)",
+      "unreachable": "Unreachable",
+      "deferred": "Switched: a run is still active, so the new model takes effect on the next run.",
+      "credential": "Credential",
+      "credentialPresent": "Stored in the OS credential store",
+      "credentialMissing": "No stored credential"
+    },
+    "permissions": {
+      "title": "Permissions",
+      "hint": "Ceilings come from system policy and the workspace; this page only shows what the backend computed.",
+      "filesystem": "Filesystem",
+      "network": "Network",
+      "shell": "Shell",
+      "allowed": "Allowed",
+      "denied": "Not allowed",
+      "networkUnavailable": "Network access is unavailable in V1: the ceiling is always off, so there is no switch for it.",
+      "shellDefault": "Allow shell tools by default",
+      "shellDefaultHint": "Each call still requires approval.",
+      "saved": "Saved",
+      "sources": {
+        "system": "System policy",
+        "user": "User config",
+        "workspace": "Workspace config",
+        "default": "Default"
+      },
+      "workspacesTitle": "Workspaces",
+      "workspacesHint": "No command can run in an untrusted workspace.",
+      "trusted": "Trusted",
+      "untrusted": "Not trusted",
+      "trust": "Trust",
+      "untrust": "Revoke trust",
+      "workspacesEmptyTitle": "No workspaces registered",
+      "workspacesEmptyHint": "Add a directory from chat or the workbench."
+    },
+    "pi": {
+      "title": "Pi runtime",
+      "hint": "The host manages every Pi candidate, install and rollback on this machine; an external Pi is never overwritten or modified.",
+      "discover": "Discover again",
+      "discovering": "Discovering…",
+      "emptyTitle": "No Pi found",
+      "emptyHint": "Install a version from the trusted manifest, or put Pi on PATH and discover again.",
+      "version": "Version",
+      "hash": "Hash",
+      "select": "Select",
+      "selected": "Selected",
+      "installTitle": "Install and upgrade",
+      "installHint": "Only versions in the trusted manifest shipped with this binary are downloaded; the UI never supplies a URL or hash.",
+      "installVersion": "Version",
+      "install": "Install",
+      "installing": "Installing…",
+      "cancelInstall": "Cancel install",
+      "rollback": "Roll back",
+      "rollingBack": "Rolling back…",
+      "rollbackHint": "Rolling back is available only when the backend confirms a verified previous version exists.",
+      "previousVersion": "Rolled back from",
+      "managedRoot": "Managed root",
+      "failedStage": "Failed stage",
+      "states": {
+        "discovering": "Discovering",
+        "ready_verified": "Verified",
+        "ready_compatible": "Compatible",
+        "upgrade_available": "Upgrade available",
+        "incompatible": "Incompatible",
+        "missing": "Missing",
+        "installing": "Installing",
+        "rollback_available": "Rollback available",
+        "failed": "Failed"
+      },
+      "origin": {
+        "preferred": "User-specified",
+        "saved": "Previously selected",
+        "managed": "Managed install",
+        "path": "From PATH",
+        "common": "Common location"
+      },
+      "distribution": {
+        "standalone": "Standalone",
+        "npm": "npm launcher"
+      },
+      "stage": {
+        "download": "Download",
+        "verify": "Verify",
+        "extract": "Extract",
+        "probe": "Probe",
+        "activate": "Activate",
+        "validate": "Validate request"
+      }
+    },
+    "update": {
+      "title": "Application updates",
+      "hint": "Updates download in the background and are installed on the next normal start; the app is never restarted for you.",
+      "unavailableReason": "The application update service is not implemented yet (F09 is missing): there are no UpdateStatus, CheckForUpdate, DownloadUpdate, UpdateBlockers or ExitAndUpdate bindings.",
+      "noFakeActions": "Until real state exists, this section shows no progress bar and offers no \"exit and update\"."
+    },
+    "security": {
+      "title": "Security",
+      "hint": "Secrets are kept only by the OS credential store; this page never echoes or rewrites them.",
+      "storeStatus": "Credential store status",
+      "storeUnavailable": "Cannot confirm the OS credential store is usable: the CredentialStoreStatus binding is missing.",
+      "credentialsTitle": "Model credentials",
+      "credentialsHint": "Derived from the credential reference in each model definition; the secret itself is never read.",
+      "credentialsEmptyTitle": "No model definitions yet",
+      "credentialsEmptyHint": "Define a model in the resource library to see credential coverage here.",
+      "credentialPresent": "Stored in the OS credential store",
+      "credentialMissing": "No stored credential",
+      "legacyFallback": "Legacy fallback",
+      "legacyActive": "The current model comes from the legacy settings fields, so the API key is written to settings.json in plaintext.",
+      "legacyInactive": "The current model comes from the resource library; its secret is kept in the OS credential store.",
+      "noSecret": "Saved secrets are never displayed or rewritten here."
+    },
+    "diagnostics": {
+      "title": "Diagnostics",
+      "hint": "The diagnostics bundle is written to the local diagnostics directory and is never uploaded.",
+      "openPage": "Open observability"
+    }
+  },
+  "observability": {
+    "title": "Observability",
+    "subtitle": "Usage, run chains and diagnostics come from backend records; missing data is shown as unavailable, never as zero.",
+    "usage": {
+      "title": "Usage summary",
+      "hint": "Time range is RFC3339; empty means no bound. Missing usage or pricing is shown as unavailable.",
+      "from": "From",
+      "to": "To",
+      "apply": "Apply range",
+      "runs": "Runs",
+      "reportedRuns": "With usage",
+      "unreportedRuns": "Without usage",
+      "input": "Input tokens",
+      "output": "Output tokens",
+      "total": "Total tokens",
+      "cost": "Cost",
+      "priceSource": "Price source",
+      "estimated": "Estimated",
+      "unavailable": "Unavailable"
+    },
+    "run": {
+      "title": "Run chain",
+      "hint": "Open by run id; anvil://observability?run=<id> also deep-links here.",
+      "emptyTitle": "No run selected",
+      "emptyHint": "Open a run from the chat run details or an anvil:// deep link.",
+      "listUnavailableReason": "Cannot list recent runs or errors: C07 has no run-listing binding yet (only UsageSummary and RunDetails). Open a run by id.",
+      "openSession": "Open source session"
+    },
+    "chain": {
+      "title": "Event chain",
+      "eventCount": "Events",
+      "empty": "This run has no events to show."
+    },
+    "tools": {
+      "title": "Tool executions",
+      "unknown": "Unknown tool",
+      "failed": "Failed"
+    },
+    "approvals": {
+      "title": "Approvals",
+      "unknown": "Unknown tool"
+    },
+    "unavailable": {
+      "title": "Unavailable sections",
+      "empty": "No gaps."
+    },
+    "artifacts": {
+      "title": "Artifacts"
+    },
+    "export": {
+      "title": "Diagnostics export",
+      "hint": "Written only to the local diagnostics directory and never uploaded; content is redacted on write.",
+      "action": "Export diagnostics",
+      "exporting": "Exporting…",
+      "path": "Path",
+      "bytes": "Size",
+      "sha256": "SHA-256",
+      "redactions": "Redactions",
+      "runs": "Runs",
+      "events": "Events",
+      "artifacts": "Artifacts",
+      "schema": "Schema version",
+      "generatedAt": "Generated at"
     }
   }
 }
