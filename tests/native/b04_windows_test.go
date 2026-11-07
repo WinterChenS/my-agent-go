@@ -710,7 +710,7 @@ func TestClosedShadowAndCrossOriginAreUnsupported(t *testing.T) {
 		t.Fatalf("点外层按钮: %v", err)
 	}
 	// 与 BR10 的 closed-shadow 分支同理：计数是服务端异步记账，立刻读会偶发读到 0。
-	waitCounter(t, primary, browserfixture.CounterFrameAction, 1, 5*time.Second)
+	waitCounter(t, primary, browserfixture.CounterFrameAction, 1, 15*time.Second)
 	if got := fixtureCounter(t, primary.URL, browserfixture.CounterFrameAction); got != 1 {
 		t.Fatalf("外层按钮的服务端计数 %d，期望 1", got)
 	}
@@ -756,7 +756,7 @@ func TestClosedShadowAndCrossOriginAreUnsupported(t *testing.T) {
 	}
 	// 计数由 fixture 服务端异步记账（点击 → JS → fetch）；立刻读会偶发读到 0。
 	// 用有界等待而不是 sleep：真没触发时仍然失败（2026-11-07 实测到一次）。
-	waitCounter(t, primary, browserfixture.CounterShadowLight, 1, 5*time.Second)
+	waitCounter(t, primary, browserfixture.CounterShadowLight, 1, 15*time.Second)
 	if got := fixtureCounter(t, primary.URL, browserfixture.CounterShadowLight); got != 1 {
 		t.Fatalf("光 DOM 按钮计数 %d，期望 1", got)
 	}
@@ -791,7 +791,10 @@ func TestTrustedOnlyPostConditionFailure(t *testing.T) {
 	res, err := h.host.Act(ctx, h.tab, browser.Action{
 		Kind: browser.ActionClick, SnapshotID: snap.ID, Ref: target.Ref,
 		ExpectedCondition: browser.ExpectedCondition{
-			Kind: browser.ConditionElementText, Ref: last.Ref, Value: "trusted", TimeoutMS: 10000,
+			// 12s（动作超时 15s 以内）：整仓并行跑时真实 WebView2 的回合明显变慢，
+			// 10s 会在负载高时把"慢"误报成"后置条件不成立"（2026-11-07 实测一次）。
+			// 条件真的不成立时仍然失败，只是给足渲染时间。
+			Kind: browser.ConditionElementText, Ref: last.Ref, Value: "trusted", TimeoutMS: 12000,
 		},
 	})
 	if err != nil {
@@ -801,6 +804,7 @@ func TestTrustedOnlyPostConditionFailure(t *testing.T) {
 		t.Fatalf("CDP 点击是可信事件，应当核验通过: delivered=%t verified=%t status=%s detail=%s",
 			res.Delivered, res.Verified, res.Verification.Status, res.Verification.Detail)
 	}
+	waitCounter(t, primary, browserfixture.CounterTrustedOnly, 1, 15*time.Second)
 	if got := fixtureCounter(t, primary.URL, browserfixture.CounterTrustedOnly); got != 1 {
 		t.Fatalf("服务端 trusted-only 计数 %d，期望 1", got)
 	}
