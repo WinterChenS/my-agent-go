@@ -189,8 +189,8 @@ func TestSaveConnectorRejectsUnsupportedKind(t *testing.T) {
 	d, _ := newTestDesktop(t)
 	res := d.SaveConnector(ConnectorSaveRequest{
 		ID:           "team-chat",
-		Kind:         "dingtalk",
-		DisplayName:  "钉钉",
+		Kind:         "jira",
+		DisplayName:  "Jira（V1 不提供的平台）",
 		Enabled:      true,
 		Capabilities: []string{"chat.send"},
 	})

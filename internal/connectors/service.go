@@ -857,6 +857,10 @@ func checkAllowedResources(def Definition, action ActionDescriptor, args json.Ra
 	if action.Risk == RiskRead {
 		return nil
 	}
+	if def.Kind != KindMail {
+		// 五个 HTTP 平台的资源目标由 catalog/scope 表确定（频道/文档/页面/仓库）。
+		return requireWriteTargets(def, action, args)
+	}
 	patterns := def.AllowedResources
 	if len(patterns) == 0 {
 		return contracts.NewAppError(contracts.CodeUnauthorized, "连接器未声明允许的资源范围，拒绝外发", false)
@@ -924,7 +928,7 @@ func resourceScope(def Definition, action ActionDescriptor, args json.RawMessage
 			return "mail:to=" + strings.Join(in.To, ",")
 		}
 	}
-	return "connector:" + def.ID + ":" + action.ID
+	return scopeFor(def, action, args)
 }
 
 // ToolName 返回动作对应的工具名（MCP 与审计共用同一个名字）。

@@ -212,8 +212,9 @@ func TestConnectorRegistryDeclaresCapabilitiesAndScopes(t *testing.T) {
 	env := newTestEnv(t, nil)
 	ctx := context.Background()
 
-	// 未实现的平台类型（C08b 的五个适配器）不得被接受成"已实现"。
-	unsupported := &fakeDriver{kind: Kind("dingtalk")}
+	// 未实现的平台类型不得被接受成"已实现"（V1 只有 mail 与 C08b 的五个平台，
+	// jira 永远不在这张表里——这里用它是为了让"不支持"有一个稳定样本）。
+	unsupported := &fakeDriver{kind: Kind("jira")}
 	err := env.svc.Register(unsupported)
 	requireCode(t, err, contracts.CodeUnsupported)
 

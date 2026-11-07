@@ -52,10 +52,30 @@ type Snapshot struct {
 	MailSearched      int `json:"mailSearched"` // IMAP 取回信头（搜索）
 	OAuthTokensIssued int `json:"oauthTokensIssued"`
 	OAuthCodeRejected int `json:"oauthCodeRejected"`
+
+	// C08b：五个 HTTP 平台的独立计数（读动作只增加 HTTPRequests）。
+	HTTPRequests          int `json:"httpRequests"`
+	HTTPUnauthorized      int `json:"httpUnauthorized"`
+	DingtalkTokensIssued  int `json:"dingtalkTokensIssued"`
+	DingtalkGroupMessages int `json:"dingtalkGroupMessages"`
+	FeishuTokensIssued    int `json:"feishuTokensIssued"`
+	FeishuDocUpdated      int `json:"feishuDocUpdated"`
+	FeishuMessages        int `json:"feishuMessages"`
+	SlackReplies          int `json:"slackReplies"`
+	NotionPagesCreated    int `json:"notionPagesCreated"`
+	NotionPagesUpdated    int `json:"notionPagesUpdated"`
+	GitHubIssuesCreated   int `json:"githubIssuesCreated"`
+	GitHubComments        int `json:"githubComments"`
 }
 
 // ExternalWrites 是"已经对平台产生写副作用"的次数。
-func (s Snapshot) ExternalWrites() int { return s.MailAccepted }
+//
+// 加总而不是只看 mail：CONN02 的判定是"拒绝时副作用 0 次"，任何一个平台的
+// 写计数器非 0 都说明有一条写通道绕过了授权。
+func (s Snapshot) ExternalWrites() int {
+	return s.MailAccepted + s.DingtalkGroupMessages + s.FeishuDocUpdated + s.FeishuMessages +
+		s.SlackReplies + s.NotionPagesCreated + s.NotionPagesUpdated + s.GitHubIssuesCreated + s.GitHubComments
+}
 
 // Counter 是副作用计数器。
 type Counter struct {

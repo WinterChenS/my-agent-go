@@ -25,8 +25,15 @@ import (
 type Kind string
 
 const (
-	// KindMail 是 IMAP/SMTP 邮箱连接器（C08a 唯一落地的适配器）。
+	// KindMail 是 IMAP/SMTP 邮箱连接器（C08a）。
 	KindMail Kind = "mail"
+	// KindDingtalk / KindFeishu / KindSlack / KindNotion / KindGitHub 是 C08b 的
+	// 五个 HTTP 平台适配器。
+	KindDingtalk Kind = "dingtalk"
+	KindFeishu   Kind = "feishu"
+	KindSlack    Kind = "slack"
+	KindNotion   Kind = "notion"
+	KindGitHub   Kind = "github"
 )
 
 // KnownKinds 返回本构建真正支持的连接器类型。
@@ -54,6 +61,23 @@ type Capability string
 const (
 	CapabilityMailRead Capability = "mail.read"
 	CapabilityMailSend Capability = "mail.send"
+
+	// 五个 HTTP 平台按"读 / 写 / 对外发消息"分档：能只读就不能顺手写。
+	CapabilityDingtalkRead Capability = "dingtalk.read"
+	CapabilityDingtalkSend Capability = "dingtalk.send"
+
+	CapabilityFeishuRead  Capability = "feishu.read"
+	CapabilityFeishuWrite Capability = "feishu.write"
+	CapabilityFeishuSend  Capability = "feishu.send"
+
+	CapabilitySlackRead Capability = "slack.read"
+	CapabilitySlackSend Capability = "slack.send"
+
+	CapabilityNotionRead  Capability = "notion.read"
+	CapabilityNotionWrite Capability = "notion.write"
+
+	CapabilityGitHubRead  Capability = "github.read"
+	CapabilityGitHubWrite Capability = "github.write"
 )
 
 // Risk 是动作的风险等级。
@@ -270,6 +294,11 @@ type Endpoints struct {
 	// IMAPAddr / SMTPAddr 是 mail 的服务器地址（host:port）。
 	IMAPAddr string `json:"imapAddr,omitempty"`
 	SMTPAddr string `json:"smtpAddr,omitempty"`
+	// APIBase 是五个 HTTP 平台适配器的 API 基地址（http(s)://host[:port]）。
+	// 同样非敏感：它只是"打哪个端点"，凭证仍然只在凭证库里。
+	APIBase string `json:"apiBase,omitempty"`
+	// Account 是平台侧的工作区/租户/组织标识（非敏感，用于 UI 展示与审计可读性）。
+	Account string `json:"account,omitempty"`
 	// Username 是登录名（同时作为 IMAP/SMTP 的认证用户）。
 	Username string `json:"username,omitempty"`
 	// From 是发件人地址。

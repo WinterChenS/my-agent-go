@@ -99,14 +99,12 @@ func (d *Desktop) connectorService() (*connectors.Service, error) {
 		Definitions: store,
 		// 同一份 SQLStore 既是定义存储也是审计存储：审计与定义在同一个库里，
 		// 备份/迁移时不会只带走一半。
-		Audit:       store,
-		Credentials: creds,
-		Policy:      pol,
-		DriverFactory: func(def connectors.Definition) (connectors.Driver, error) {
-			return mail.New(mail.Settings{Endpoints: def.Endpoints})
-		},
-		OnPending:    d.rememberConnectorApproval,
-		ApprovalWait: defaultConnectorApprovalTTL,
+		Audit:         store,
+		Credentials:   creds,
+		Policy:        pol,
+		DriverFactory: connectorDriver,
+		OnPending:     d.rememberConnectorApproval,
+		ApprovalWait:  defaultConnectorApprovalTTL,
 	})
 	if err != nil {
 		_ = db.Close()
@@ -119,6 +117,19 @@ func (d *Desktop) connectorService() (*connectors.Service, error) {
 	d.connectorSvc = svc
 	d.connectorDB = db
 	return svc, nil
+}
+
+// connectorDriver 按定义装配适配器。
+//
+// 装配层只回答"哪个 kind 用哪个适配器"：契约、风险、限流、策略都不在这层，
+// 否则每加一个平台就多一条可能的绕过路径。
+func connectorDriver(def connectors.Definition) (connectors.Driver, error) {
+	switch def.Kind {
+	case connectors.KindMail:
+		return mail.New(mail.Settings{Endpoints: def.Endpoints})
+	}
+	return nil, contracts.NewAppError(
+		contracts.CodeUnsupported, "没有该类型的连接器驱动: "+string(def.Kind), false)
 }
 
 // seedDefaultConnector 在首次打开时放一条"未启用、未配置"的 mail 定义。
