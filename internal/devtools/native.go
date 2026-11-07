@@ -266,7 +266,21 @@ func validNativeDisplay(target, display string) bool {
 }
 
 // RunNative 是 `verify --suite=native` 的入口。
+// RunNative 跑 G1 的原生必需位（兼容旧调用）。
 func RunNative(target, display string) int {
+	return RunNativeForGate(target, display, "G1")
+}
+
+// RunNativeForGate 跑指定 gate 的原生必需位。
+//
+// 为什么需要 gate 参数：原生 case 不只属于 G1（BR08–BR10 属 G2），而证据目录按
+// <rev>/<gate>/<target>/<display>/<case> 分开。写错 gate 的证据会被门禁判死
+// （gateId 与请求不一致），所以选位与落盘必须用同一个 gate。
+func RunNativeForGate(target, display, gate string) int {
+	if !contains(KnownGates, gate) {
+		fmt.Fprintf(os.Stderr, "未知 gate: %s\n", gate)
+		return 2
+	}
 	if target == "" {
 		fmt.Fprintln(os.Stderr, "native 必须指定 --target")
 		return 2
@@ -299,7 +313,7 @@ func RunNative(target, display string) int {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 2
 	}
-	reqs, problems := ResolveRequiredEvidence(idx, "G1")
+	reqs, problems := ResolveRequiredEvidence(idx, gate)
 	for _, p := range problems {
 		fmt.Fprintf(os.Stderr, "索引问题: %s\n", p)
 		return 2
@@ -337,7 +351,7 @@ func RunNative(target, display string) int {
 	}
 
 	rev, dirty := SourceIdentity()
-	root := evidenceRoot(rev, "G1", target, display)
+	root := evidenceRoot(rev, gate, target, display)
 	fmt.Printf("== verify --suite=native --target=%s --display=%s ==\n", target, display)
 	fmt.Printf("证据根: %s\n", root)
 	fmt.Printf("宿主环境: os=%s version=%s build=%s arch=%s display=%s\n",

@@ -57,6 +57,9 @@ func RunExternalWithPath(pathEnv []string, name string, args ...string) (int, st
 	return 2, out.String(), errb.String(), runErr
 }
 
+// IsNativeSuite 报告一个 suite 是否由原生 runner 执行（需要 gate 维度的证据目录）。
+func IsNativeSuite(suite string) bool { return suite == "native" }
+
 // RunVerify 是 `verify` 子命令入口。suite 必须属于已知集合；
 // 未知 suite 返回 2；F01 未实现的 runner 也返回 2，绝不自动发现空目录判成功。
 func RunVerify(suite, target, display, artifact string) int {

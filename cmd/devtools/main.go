@@ -85,7 +85,11 @@ func main() {
 				fmt.Fprintf(os.Stderr, "--case 只支持 --suite=integration（当前 suite=%q）\n", suite)
 				os.Exit(2)
 			}
-			code = devtools.RunVerify(suite, target, display, artifact)
+			if devtools.IsNativeSuite(suite) {
+				code = devtools.RunNativeForGate(target, display, gate)
+			} else {
+				code = devtools.RunVerify(suite, target, display, artifact)
+			}
 		}
 	case "package":
 		code = devtools.RunPackage(target, channel)
