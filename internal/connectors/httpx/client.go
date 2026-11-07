@@ -160,22 +160,30 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 // 读动作没有平台侧写副作用，因此任何失败都可以是确定失败（框架会把
 // Dispatched 置 false，SafeToRetry=true）。
 func (c *Client) Read(ctx context.Context, method, path string, query url.Values, body, out any) error {
+	_, err := c.ReadWithResponse(ctx, method, path, query, body, out)
+	return err
+}
+
+// ReadWithResponse 是 Read 的带响应头版本。
+//
+// 需要它的是 GitHub 的列表分页：下一页在 Link 头里，而不是在响应体里。
+func (c *Client) ReadWithResponse(ctx context.Context, method, path string, query url.Values, body, out any) (Response, error) {
 	resp, _, err := c.Do(ctx, method, path, query, body)
 	if err != nil {
-		return err
+		return Response{}, err
 	}
 	if resp.Status/100 != 2 {
-		return statusError(resp)
+		return resp, statusError(resp)
 	}
 	if err := resp.Decode(out); err != nil {
-		return err
+		return resp, err
 	}
 	if rej, ok := out.(Rejection); ok {
 		if rerr := rej.Rejected(); rerr != nil {
-			return rerr
+			return resp, rerr
 		}
 	}
-	return nil
+	return resp, nil
 }
 
 // Write 执行一次写请求，并按 CONN06 归一结果。

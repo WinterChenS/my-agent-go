@@ -294,6 +294,103 @@ func notionActions() []ActionDescriptor {
 	}
 }
 
+// githubActions 是 GitHub 的 V1 动作。
+//
+// create_issue / comment_pr 按 external-send 处理：它们会在别人的通知流里出现，
+// 与"写一份自己的文档"不是同一类风险。
+func githubActions() []ActionDescriptor {
+	return []ActionDescriptor{
+		{
+			ID:          "read_repo",
+			Kind:        KindGitHub,
+			Title:       "读取仓库",
+			Description: "Read the metadata of one GitHub repository.",
+			Risk:        RiskRead,
+			Capability:  CapabilityGitHubRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo": map[string]any{"type": "string", "description": "owner/name."},
+				},
+				"required": []string{"repo"},
+			},
+		},
+		{
+			ID:          "read_issue",
+			Kind:        KindGitHub,
+			Title:       "读取议题",
+			Description: "Read one issue of a GitHub repository.",
+			Risk:        RiskRead,
+			Capability:  CapabilityGitHubRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo":   map[string]any{"type": "string", "description": "owner/name."},
+					"number": map[string]any{"type": "integer", "description": "Issue number."},
+				},
+				"required": []string{"repo", "number"},
+			},
+		},
+		{
+			ID:          "read_pr",
+			Kind:        KindGitHub,
+			Title:       "读取合并请求",
+			Description: "Read one pull request plus a page of its changed files (Link-header pagination).",
+			Risk:        RiskRead,
+			Capability:  CapabilityGitHubRead,
+			Idempotency: IdempotencyReadOnly,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo":   map[string]any{"type": "string", "description": "owner/name."},
+					"number": map[string]any{"type": "integer", "description": "Pull request number."},
+					"cursor": map[string]any{"type": "string", "description": "Page number of changed files, starting at 1."},
+					"limit":  map[string]any{"type": "integer", "description": "Files per page, max 100."},
+				},
+				"required": []string{"repo", "number"},
+			},
+		},
+		{
+			ID:          "create_issue",
+			Kind:        KindGitHub,
+			Title:       "创建议题",
+			Description: "Create one issue in a repository. Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskExternalSend,
+			Capability:  CapabilityGitHubWrite,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo":  map[string]any{"type": "string", "description": "owner/name."},
+					"title": map[string]any{"type": "string", "description": "Issue title."},
+					"body":  map[string]any{"type": "string", "description": "Issue body (markdown)."},
+				},
+				"required": []string{"repo", "title"},
+			},
+		},
+		{
+			ID:          "comment_pr",
+			Kind:        KindGitHub,
+			Title:       "评论合并请求",
+			Description: "Comment on one pull request (issue thread). Non-idempotent: an unknown outcome is reported, never replayed automatically.",
+			Risk:        RiskExternalSend,
+			Capability:  CapabilityGitHubWrite,
+			Idempotency: IdempotencyNone,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo":   map[string]any{"type": "string", "description": "owner/name."},
+					"number": map[string]any{"type": "integer", "description": "Pull request (issue) number."},
+					"body":   map[string]any{"type": "string", "description": "Comment body (markdown)."},
+				},
+				"required": []string{"repo", "number", "body"},
+			},
+		},
+	}
+}
+
 // catalog 是 kind → 动作表的唯一注册点。
 var catalog = map[Kind][]ActionDescriptor{
 	KindMail:     mailActions(),
@@ -301,6 +398,7 @@ var catalog = map[Kind][]ActionDescriptor{
 	KindFeishu:   feishuActions(),
 	KindSlack:    slackActions(),
 	KindNotion:   notionActions(),
+	KindGitHub:   githubActions(),
 }
 
 // Catalog 返回某个 kind 的动作副本。

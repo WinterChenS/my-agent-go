@@ -20,6 +20,7 @@ import (
 	"my-agent-go/internal/connectors"
 	"my-agent-go/internal/connectors/dingtalk"
 	"my-agent-go/internal/connectors/feishu"
+	"my-agent-go/internal/connectors/github"
 	"my-agent-go/internal/connectors/mail"
 	"my-agent-go/internal/connectors/notion"
 	"my-agent-go/internal/connectors/slack"
@@ -139,6 +140,8 @@ func connectorDriver(def connectors.Definition) (connectors.Driver, error) {
 		return slack.New(slack.Settings{Endpoints: def.Endpoints})
 	case connectors.KindNotion:
 		return notion.New(notion.Settings{Endpoints: def.Endpoints})
+	case connectors.KindGitHub:
+		return github.New(github.Settings{Endpoints: def.Endpoints})
 	}
 	return nil, contracts.NewAppError(
 		contracts.CodeUnsupported, "没有该类型的连接器驱动: "+string(def.Kind), false)
