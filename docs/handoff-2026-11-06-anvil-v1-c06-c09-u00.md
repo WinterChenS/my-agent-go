@@ -14,7 +14,7 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 | 工作树 | 干净 |
 | case 数 | 198（`tests/acceptance/cases.json`） |
 | `oracle-allowlist.json` | 空（`legacyProcessOracleCeiling = 0`） |
-| 有 canonical runner 的必需原子 case | 198 − 109 = 89 |
+| 必需原子 case（不含 9 条复合） | 189 条：**80 条有 canonical runner**，109 条没有 |
 | 证据根 | `docs/evidence/runs/<revision>/<gate>/<target>[/<display>]/<case>/`（gitignore） |
 | 本机台账 | `C:\Users\Administrator\AppData\Local\Temp\anvil-sdd\progress.md`（机器本地） |
 
