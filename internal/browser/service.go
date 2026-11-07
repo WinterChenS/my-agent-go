@@ -18,6 +18,7 @@ package browser
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -327,6 +328,27 @@ func (s *Service) Observe(ctx context.Context, exec contracts.ExecutionContext, 
 		Detail: fmt.Sprintf("elements=%d", len(snap.Elements)),
 	})
 	return snap, nil
+}
+
+// Tabs 返回该会话拥有的 tab（按创建顺序）。
+//
+// 只返回自己的：跨 session 的 tab 连"存在"都不该被看见，否则一次探测就能枚举
+// 别人的浏览上下文（BR12 的跨 session 隔离在列表层面也要成立）。
+func (s *Service) Tabs(exec contracts.ExecutionContext) []TabID {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(string(exec.SessionID)) == "" {
+		return nil
+	}
+	out := make([]TabID, 0, len(s.tabs))
+	for _, st := range s.tabs {
+		if st.owner != exec.SessionID || st.closed {
+			continue
+		}
+		out = append(out, st.id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // Control 返回当前控制状态（面板与工具输出共用同一份事实）。
