@@ -88,6 +88,10 @@
 
 ## 2. 证据（win-x64 / G2 / desktop，rev `bc1477e`，worktreeDirty=false）
 
+> 证据根按「生成时的 HEAD」命名（`docs/evidence/runs/<rev>/…`，gitignore）。本报告是 docs-only 提交，
+> 所以它自己会把 HEAD 再往前挪一次；父任务在合并后的干净树上重跑下面同一条命令即可得到以新 HEAD
+> 命名的证据，内容与本节一致（代码在 `bc1477e` 之后没有变化）。
+
 ```
 powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 verify --suite=integration --target=win-x64 --gate=G2 --case=BR15,BR16,BR17
   → 证据根: docs\evidence\runs\bc1477e\G2\win-x64
