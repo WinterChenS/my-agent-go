@@ -6,6 +6,11 @@ package browserfixture
 // 约定：页面里的数字来自服务端（fetch 返回的 count），只是给人看的；
 // 自动化断言一律读 Counter()，不读这些数字，也不读任何 toast。
 
+import (
+	"strconv"
+	"strings"
+)
+
 const indexPage = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Browser fixture</title>
 <style>body{font:14px/1.6 system-ui,sans-serif;margin:24px}code{background:#f4f4f4;padding:1px 4px}</style>
@@ -24,6 +29,7 @@ const indexPage = `<!doctype html>
   <li><a id="link-download" href="/download">下载</a></li>
   <li><a id="link-popup" href="/popup">window.open 新窗口</a></li>
   <li><a id="link-slow" href="/slow?ms=1500">慢加载（1–3s 可配）</a></li>
+  <li><a id="link-huge" href="/huge?nodes=400&amp;labelLen=6&amp;textChars=200">巨型页面（元素/文本/JSON 限额）</a></li>
 </ul>
 <p>本 origin 服务端计数：<code id="counters">pending</code></p>
 <script>
@@ -262,5 +268,64 @@ remote 页面不能自己选本机任意路径。</p>
 fetch('/__counters').then(function (r) { return r.json(); }).then(function (m) {
   document.getElementById('download-count').textContent = String(m['download'] || 0);
 });
+</script>
+</body></html>`
+
+// hugePageHTML 生成一个可配置规模的页面，用来压 BR09 的三条限额
+// （元素 300 / 文本 40000 字符 / snapshot JSON 256KiB）。
+//
+// 为什么由服务端按参数生成而不是写死一个大模板：三条限额要分别被触发，
+// 写死一页只能证明"这一页超限了"，无法证明"上限是 300 而不是正好这一页的元素数"。
+//
+//   - nodes      可交互元素（button）数量；
+//   - labelLen   每个按钮文字的字符数（用中日韩字符，JSON 里 3 字节/字符）；
+//   - textChars  正文段落的字符数（同样用中日韩字符，用来压文本与 JSON 上限）。
+//
+// 结构上仍然带 data-origin，所以 TestEveryPageIsServedWithItsOwnOrigin 也覆盖它。
+func hugePageHTML(origin string, nodes, labelLen, textChars int) string {
+	label := strings.Repeat("钮", labelLen)
+	if labelLen <= 0 {
+		label = ""
+	}
+	var b strings.Builder
+	b.WriteString("<!doctype html>\n<html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>巨型页面</title>\n")
+	b.WriteString("<style>body{font:13px/1.5 system-ui,sans-serif;margin:12px}</style>\n</head>\n")
+	b.WriteString("<body data-origin=\"" + origin + "\">\n<h1 id=\"huge-title\">巨型页面</h1>\n")
+	b.WriteString("<p id=\"huge-params\">nodes=" + strconv.Itoa(nodes) + " labelLen=" + strconv.Itoa(labelLen) +
+		" textChars=" + strconv.Itoa(textChars) + "</p>\n<div id=\"huge-buttons\">\n")
+	for i := 0; i < nodes; i++ {
+		b.WriteString("<button type=\"button\" id=\"huge-" + strconv.Itoa(i) + "\">" + label + strconv.Itoa(i) +
+			"</button>\n")
+	}
+	b.WriteString("</div>\n<p id=\"huge-text\">" + strings.Repeat("文", textChars) + "</p>\n")
+	b.WriteString("</body></html>\n")
+	return b.String()
+}
+
+// noisePage 把整个视口涂成随机像素，用来压 BR09 的"截图 ≤4MiB"。
+//
+// 为什么需要它：普通页面（大片留白）PNG 压得很小，永远碰不到 4MiB 上限，
+// 于是"超限时受控缩小或明确报错"这条分支永远没有真实证据。随机像素不可压缩，
+// 排版 2000×3000 时一张 PNG 就有十几 MB，正好把这条分支逼出来。
+const noisePage = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>噪声页面</title>
+<style>html,body{margin:0;padding:0;overflow:hidden}canvas{display:block}</style>
+</head><body data-origin="{{ORIGIN}}">
+<canvas id="noise"></canvas>
+<script>
+var c = document.getElementById('noise');
+var w = window.innerWidth, h = window.innerHeight;
+c.width = w; c.height = h;
+c.style.width = w + 'px'; c.style.height = h + 'px';
+var ctx = c.getContext('2d');
+var img = ctx.createImageData(w, h);
+var data = img.data;
+var chunk = new Uint8Array(65536);
+for (var off = 0; off < data.length; off += chunk.length) {
+  crypto.getRandomValues(chunk);
+  var n = Math.min(chunk.length, data.length - off);
+  for (var i = 0; i < n; i++) data[off + i] = chunk[i];
+}
+ctx.putImageData(img, 0, 0);
 </script>
 </body></html>`

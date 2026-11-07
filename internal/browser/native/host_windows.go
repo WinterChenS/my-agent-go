@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -64,20 +65,15 @@ type host struct {
 	navSeq     uint64
 	renderNav  atomic.Uint64
 	lastSlot   browser.SlotGeometry
-	snaps      map[string]*snapshotRefs
-	snapSeq    uint64
-}
-
-// snapshotRefs 让 Act 能在"同一个文档、同一个元素"上动作。
-//
-// 刻意按元素本体定位而不是按坐标：坐标会因滚动/重排而指向别的元素，那正是
-// BR08 要挡的"按位置重新解析"。B01a 只在元素上打一个 data-myagent-ref 属性
-// 做身份标记；B04 会把这个注册表搬进隔离世界的正式实现。
-type snapshotRefs struct {
-	id         string
-	navigation string
-	execCtx    int64
-	refs       map[string]browser.Element
+	// refs 是 B04 的引用注册表：ref 只在产生它的快照里有效，且永不重新编号。
+	refs *browser.RefRegistry
+	// refNonce 是本 tab 的元素身份前缀：uid 形如 "<nonce>-e7"，
+	// 页面自己写的 data-anvil-uid 无法与它撞车。
+	refNonce string
+	// isoWorld/isoWorldNav 是当前文档的隔离世界执行上下文（同一文档复用）。
+	isoWorld    int64
+	isoWorldNav string
+	snapSeq     uint64
 }
 
 // NewWindowsHost 构造 Windows 宿主。构造本身不碰任何 native 资源：
@@ -103,7 +99,12 @@ func NewWindowsHost(parent browser.NativeParent, opts HostOptions) (NativeHost, 
 		return nil, appErr(contracts.CodeInternal, "创建 ProfilePath(%s) 失败: %v", abs, err)
 	}
 	opts.ProfilePath = abs
-	return &host{opts: opts, snaps: map[string]*snapshotRefs{}}, nil
+	return &host{
+		opts: opts,
+		refs: browser.NewRefRegistry(),
+		// nonce 用时间戳：它只需要"本进程内唯一"，不是安全凭据。
+		refNonce: fmt.Sprintf("b%x", time.Now().UnixNano()),
+	}, nil
 }
 
 // ---------- BrowserSurface ----------
@@ -322,12 +323,12 @@ func (h *host) Capabilities() browser.CapabilitySet {
 	if !set.Screenshot {
 		reason("screenshot", "本实例还没有成功完成过一次 CDP 页面截图")
 	}
-	reason("trustedInput", "B01a 只实现 click/fill 的 CDP 可信输入路径，未做 trusted-only 站点的行为验证")
-	reason("act:key", "key 动作未实现（B01b）")
-	reason("act:scroll", "scroll 动作未实现（B01b）")
-	reason("act:select/checkbox", "select/checkbox 语义未实现（B01b）")
-	reason("crossOriginFrames", "B01a 只观察顶层文档；cross-origin iframe 进 UnsupportedFrames 并标注原因")
-	reason("closedShadowRoots", "闭合 shadow root 读不到，B01a 不声称支持")
+	// trusted-only 站点的行为无法在执行前识别：CDP 输入在多数站点上就是 trusted，
+	// 但站点可以自建闸门。所以这里不声明"支持任意站点的事件策略"（BR10）。
+	reason("trustedInput", "只保证 CDP Input.* 派发的事件（isTrusted=true）；站点自定义的事件闸门无法预判，未满足后置条件时返回 VerificationFailed")
+	for _, u := range browser.UncoveredSurfaces() {
+		reason(u.Capability, u.Reason)
+	}
 	reason("downloads", "下载委托未实现（B06）")
 	reason("popups", "window.open 未代理（B06）")
 	return set
@@ -474,24 +475,111 @@ func (h *host) Act(ctx context.Context, tab browser.TabID, action browser.Action
 // Screenshot 用 CDP Page.captureScreenshot 取页面像素。
 //
 // 为什么不用整屏截屏：那会把 Wails 主窗口 UI 一起截进来，拿它冒充"页面截图"
-// 是 BR01 明确禁止的。CapturePreview（ICoreWebView2 的 API）作为退路保留，
-// B01a 只用 CDP 这一条并如实标注。
+// 是 BR01 明确禁止的。
+//
+// 4MiB 是硬上限（基线 §7）。超过时只有两条正确出路：受控缩小并**更新 scale**，
+// 或者明确报错。绝不截断 base64——那会得到一张坏图，却看起来"有截图"。
 func (h *host) Screenshot(ctx context.Context, tab browser.TabID) (browser.Image, error) {
 	if err := h.requireTab(ctx, tab); err != nil {
 		return browser.Image{}, err
 	}
+	cssW, cssH, scale, err := h.viewportMetrics(ctx)
+	if err != nil {
+		return browser.Image{}, err
+	}
+	var img browser.Image
+	needsDownscale := false
+	raw, err := h.capturePNG(ctx, tab, nil)
+	var tooLarge *resultTooLargeError
+	switch {
+	case err == nil:
+		if img, err = buildImage(raw, cssW, cssH, scale, h.navigationID()); err != nil {
+			return browser.Image{}, err
+		}
+		needsDownscale = !browser.ScreenshotFits(len(img.Bytes))
+	case errors.As(err, &tooLarge):
+		// 结果本身大到无法传输：等同于"超过 4MiB"，走受控缩小（下面统一处理）。
+		needsDownscale = true
+		h.emit(BrowserEvent{TabID: tab, Type: "screenshot_too_large_to_transport", Payload: map[string]any{
+			"method": "Page.captureScreenshot",
+		}})
+	default:
+		return browser.Image{}, err
+	}
+	if needsDownscale {
+		// 受控缩小：每次重新截图（不是本地重采样），并把 clip 的 scale 记进 Image.Scale。
+		var lastErr error
+		var downscaled float64
+		for _, factor := range browser.ScreenshotDownscaleFactors() {
+			clip := &captureClip{X: 0, Y: 0, Width: cssW, Height: cssH, Scale: factor}
+			candidate, err := h.capturePNG(ctx, tab, clip)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if !browser.ScreenshotFits(len(candidate)) {
+				continue
+			}
+			if img, err = buildImage(candidate, cssW, cssH, scale*factor, h.navigationID()); err != nil {
+				return browser.Image{}, err
+			}
+			downscaled = factor
+			break
+		}
+		if downscaled == 0 {
+			detail := ""
+			if lastErr != nil {
+				detail = "（最后一次缩小截图失败: " + lastErr.Error() + "）"
+			}
+			return browser.Image{}, appErr(contracts.CodeUnsupported,
+				"截图超过 %d 字节上限，受控缩小到最小档 %.2f 仍超限，未返回任何被截断的图片%s",
+				browser.MaxScreenshotBytes, browser.ScreenshotDownscaleFactors()[len(browser.ScreenshotDownscaleFactors())-1], detail)
+		}
+		h.emit(BrowserEvent{TabID: tab, Type: "screenshot_downscaled", Payload: map[string]any{
+			"factor": downscaled,
+			"scale":  img.Scale,
+			"bytes":  len(img.Bytes),
+		}})
+	}
+	if err := img.Validate(); err != nil {
+		return browser.Image{}, err
+	}
+	h.caps.screenshot.Store(true)
+	return img, nil
+}
+
+// captureClip 是一次截图裁剪参数（CSS px + 缩放因子）。
+type captureClip struct {
+	X, Y, Width, Height, Scale float64
+}
+
+// capturePNG 取一次 PNG 原始字节，失败时按两条通道重试。
+//
+// 重试的是"截图通道"而不是"动作"：截图是只读操作，重试不违反"不自动重放"
+// 的规则（基线 §7 限制的是有副作用的调用）。每次尝试都写事件。
+func (h *host) capturePNG(ctx context.Context, tab browser.TabID, clip *captureClip) ([]byte, error) {
 	// 先把页面抬到前台：窗口被遮住时 captureScreenshot 默认走 compositor surface，
-	// 可能一直不完成（本机实测过一次 15s 超时）。截图是只读操作，重试不违反
-	// “不自动重放”的规则；重试的参数会写到结果的错误/事件里。
+	// 可能一直不完成（本机实测过一次 15s 超时）。
 	if _, err := h.cdpRoundTrip(ctx, "Page.bringToFront", `{}`, 3*time.Second); err != nil {
 		h.emit(BrowserEvent{TabID: tab, Type: "bring_to_front_failed", Payload: map[string]any{"error": err.Error()}})
+	}
+	build := func(fromSurface bool) string {
+		params := `{"format":"png"`
+		if !fromSurface {
+			params += `,"fromSurface":false`
+		}
+		if clip != nil {
+			params += fmt.Sprintf(`,"clip":{"x":%.2f,"y":%.2f,"width":%.2f,"height":%.2f,"scale":%.4f}`,
+				clip.X, clip.Y, clip.Width, clip.Height, clip.Scale)
+		}
+		return params + `}`
 	}
 	variants := []struct {
 		params string
 		nom    string
 	}{
-		{`{"format":"png"}`, "surface"},
-		{`{"format":"png","fromSurface":false}`, "renderer"},
+		{build(true), "surface"},
+		{build(false), "renderer"},
 	}
 	var res string
 	var lastErr error
@@ -512,41 +600,37 @@ func (h *host) Screenshot(ctx context.Context, tab browser.TabID) (browser.Image
 		}})
 	}
 	if lastErr != nil {
-		return browser.Image{}, lastErr
+		return nil, lastErr
 	}
 	var payload struct {
 		Data string `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(res), &payload); err != nil {
-		return browser.Image{}, appErr(contracts.CodeInternal, "解析 captureScreenshot 结果失败: %v", err)
+		return nil, appErr(contracts.CodeInternal, "解析 captureScreenshot 结果失败: %v", err)
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload.Data)
 	if err != nil {
-		return browser.Image{}, appErr(contracts.CodeInternal, "截图 base64 解码失败: %v", err)
+		return nil, appErr(contracts.CodeInternal, "截图 base64 解码失败: %v", err)
 	}
+	return raw, nil
+}
+
+// buildImage 从 PNG 字节与 CSS viewport 构造 Image（像素尺寸以实际 PNG 为准）。
+func buildImage(raw []byte, cssW, cssH, fallbackScale float64, navID string) (browser.Image, error) {
 	cfg, err := png.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
 		return browser.Image{}, appErr(contracts.CodeInternal, "截图不是合法 PNG: %v", err)
 	}
-	cssW, cssH, scale, err := h.viewportMetrics(ctx)
-	if err != nil {
-		return browser.Image{}, err
-	}
-	img := browser.Image{
+	return browser.Image{
 		Bytes:        raw,
 		MimeType:     "image/png",
 		PixelWidth:   cfg.Width,
 		PixelHeight:  cfg.Height,
 		CSSWidth:     cssW,
 		CSSHeight:    cssH,
-		Scale:        scale,
-		NavigationID: h.navigationID(),
-	}
-	if err := img.Validate(); err != nil {
-		return browser.Image{}, err
-	}
-	h.caps.screenshot.Store(true)
-	return img, nil
+		Scale:        browser.DerivedScale(cfg.Width, cssW, fallbackScale),
+		NavigationID: navID,
+	}, nil
 }
 
 // CloseTab 关闭当前 tab：销毁 controller 与子窗口。
@@ -702,7 +786,9 @@ func (h *host) closeTabOnUI() {
 	// 页面缩放跟着 controller 一起消失：回到 1 表示“没有活着的 controller”，
 	// 下一次 CreateTab 会按 lastSlot.Zoom 重新设置。
 	h.zoomBits.Store(math.Float64bits(1))
-	h.snaps = map[string]*snapshotRefs{}
+	h.refs.Reset()
+	h.isoWorld = 0
+	h.isoWorldNav = ""
 	if h.tabOpen {
 		h.emit(BrowserEvent{TabID: h.tab, Type: EventTabClosed})
 	}

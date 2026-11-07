@@ -575,7 +575,8 @@ func TestEveryPageIsServedWithItsOwnOrigin(t *testing.T) {
 	pages := []string{
 		"/", "/form", "/spa", "/same-url", "/cross-origin", "/frame",
 		"/closed-shadow", "/trusted-only", "/login", "/download", "/popup",
-		"/slow?ms=1000",
+		"/slow?ms=1000", "/noise",
+		"/huge?nodes=400&labelLen=6&textChars=200",
 	}
 	for _, p := range pages {
 		res := get(t, f.Primary.URL+p, nil)

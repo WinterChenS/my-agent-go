@@ -257,29 +257,50 @@ func newComHandler(fn func(errorCode uintptr, payload uintptr)) *comHandler {
 	return h
 }
 
+// cdpResultMaxUnits 是一条 CDP 结果最多读取的 UTF-16 单元数（32M 单元 ≈ 64MB）。
+//
+// 上限存在两个理由：坏指针不能把进程读崩；超出上限时必须**明确报告被截断**，
+// 而不是把半截 JSON 当结果交出去（B04 的"不许静默截断"同样适用于传输层）。
+// base64 截图会到这个量级，所以上限不能太小；真的更大时由截图路径改用受控缩小。
+const cdpResultMaxUnits = 32 << 20
+
 // utf16FromNativePtr 把 native 返回的 UTF-16 指针读成 Go 字符串。
 //
-// 读到 NUL 为止，并给一个硬上限（8M 个 UTF-16 单元）：坏指针不能把进程读崩。
-// CDP 的 base64 截图会到这个量级，所以上限不能太小。
-func utf16FromNativePtr(p uintptr, limit int) string {
-	const maxLimit = 8 << 20
+// 第二个返回值表示"结果是否被上限截断"：截断的 JSON 一定不是合法结果，
+// 调用方必须把它当错误处理，不能回退成"看起来空的结果"。
+func utf16FromNativePtr(p uintptr, limit int) (string, bool) {
 	if p == 0 {
-		return ""
+		return "", false
 	}
-	if limit <= 0 || limit > maxLimit {
-		limit = maxLimit
+	if limit <= 0 || limit > cdpResultMaxUnits {
+		limit = cdpResultMaxUnits
 	}
 	buf := make([]uint16, 0, 512)
 	base := ptrFromUintptr(p)
 	for i := 0; i < limit; i++ {
 		c := *(*uint16)(unsafe.Add(base, i*2))
 		if c == 0 {
-			break
+			return windows.UTF16ToString(buf), false
 		}
 		buf = append(buf, c)
 	}
-	return windows.UTF16ToString(buf)
+	return windows.UTF16ToString(buf), true
 }
+
+// resultTooLargeError 表示一条 CDP 结果超出了可传输上限。
+//
+// 它不是业务失败，而是"这条结果太大了"：截图路径据此改用受控缩小，
+// 其他路径必须把它当错误上报（绝不返回半截 JSON）。
+type resultTooLargeError struct {
+	method string
+}
+
+func (e *resultTooLargeError) Error() string {
+	return "CDP " + e.method + " 的结果超过传输上限（会被截断）：拒绝返回不完整的 JSON"
+}
+
+// Code 让它对上层也表现得像一个可分类的错误。
+func (e *resultTooLargeError) Code() string { return contracts.CodeUnsupported }
 
 // ptrFromUintptr 把 native 交回来的整数地址还原成指针。
 //
@@ -363,7 +384,12 @@ func (c *cdpClient) start(method, params string) (*cdpCall, error) {
 				"CDP %s 失败 HRESULT=0x%08x", method, uint32(errorCode))}
 			return
 		}
-		call.ch <- cdpResult{resultJSON: utf16FromNativePtr(payload, 8<<20)}
+		value, truncated := utf16FromNativePtr(payload, cdpResultMaxUnits)
+		if truncated {
+			call.ch <- cdpResult{err: &resultTooLargeError{method: method}}
+			return
+		}
+		call.ch <- cdpResult{resultJSON: value}
 	})
 	c.mu.Lock()
 	c.keep = append(c.keep, handler)

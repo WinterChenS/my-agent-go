@@ -185,6 +185,16 @@ type Snapshot struct {
 	Elements          []Element          `json:"elements"`
 	Text              string             `json:"text"`
 	UnsupportedFrames []UnsupportedFrame `json:"unsupportedFrames"`
+
+	// Truncated 表示本次观察因为基线 §7 的限额（元素/文本/JSON）被裁剪过。
+	//
+	// 它刻意**不进 JSON**：`schemas/browser.schema.json` 是串行维护的跨边界
+	// 契约，B04 不改它（新增线上字段要同步改 schema 与 DTO 一致性测试，属于
+	// 另一次受控变更）。裁剪事实因此通过两条通道表达：这个 Go 字段（MCP 层
+	// B05 可以直接读给模型看）与证据 artifact（limits.json，逐项写明哪条上限
+	// 被触发）。JSON 本身仍然是合法且**完整**的——只是内容被如实裁剪过，
+	// 不会出现半个 base64 或坏掉的 JSON。
+	Truncated bool `json:"-"`
 }
 
 // ExpectedCondition 是动作执行后的有界检查。

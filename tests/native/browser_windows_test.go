@@ -41,6 +41,14 @@ type harness struct {
 // newHarness 建窗口、Attach、CreateTab 并等到页面 ready。
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t, nil)
+}
+
+// newHarnessWith 允许用例在构造宿主前调整 HostOptions（B04 用它接事件日志）。
+//
+// configure 为 nil 时行为与 newHarness 完全一致：B01a/B01b 的用例不受影响。
+func newHarnessWith(t *testing.T, configure func(*native.HostOptions)) *harness {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
@@ -73,7 +81,11 @@ func newHarness(t *testing.T) *harness {
 	})
 
 	parent := browser.NewNativeParent(win.HWND(), "test-main-window")
-	host, err := native.NewWindowsHost(parent, native.HostOptions{ProfilePath: profileDir})
+	hostOpts := native.HostOptions{ProfilePath: profileDir}
+	if configure != nil {
+		configure(&hostOpts)
+	}
+	host, err := native.NewWindowsHost(parent, hostOpts)
 	if err != nil {
 		t.Fatalf("NewWindowsHost: %v", err)
 	}

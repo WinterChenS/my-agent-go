@@ -1,0 +1,6 @@
+=== RUN   TestStaleRefAfterNavigationIsRejected
+    b04_windows_test.go:333: 替换后的新节点复用了旧 ref "e1"：这正是「重新编号后误点」的入口
+--- FAIL: TestStaleRefAfterNavigationIsRejected (2.40s)
+FAIL
+FAIL	my-agent-go/tests/native	2.469s
+FAIL

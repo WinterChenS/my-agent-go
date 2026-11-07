@@ -96,6 +96,9 @@ type Origin struct {
 
 	mu       sync.Mutex
 	counters map[string]int
+	// lastForm 是服务端收到的最后一次表单载荷（B04 的 fill 读回 oracle）。
+	// 只存 fixture 自己的数据；页面上的回显只是给人看的，断言一律读这里。
+	lastForm map[string]any
 }
 
 // New 启动两个 origin，端口都由内核分配（listen :0），因此并行测试不会互撞。
@@ -233,8 +236,11 @@ func (o *Origin) routes(mux *http.ServeMux, other string) {
 	mux.HandleFunc("POST /__login", o.handleLogin)
 	mux.HandleFunc("GET /__download/report.csv", o.handleDownload)
 	mux.HandleFunc("GET /slow", o.handleSlow)
+	mux.HandleFunc("GET /huge", o.handleHuge)
+	mux.HandleFunc("GET /noise", o.page(noisePage, other))
 
 	mux.HandleFunc("GET /__counters", o.handleCounters)
+	mux.HandleFunc("GET /__form/last", o.handleLastForm)
 	mux.HandleFunc("GET /__whoami", o.handleWhoami)
 	mux.HandleFunc("POST /__reset", o.handleReset)
 }
@@ -270,13 +276,17 @@ func (o *Origin) handleFormSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n := o.inc(CounterFormSubmit)
-	writeJSON(w, http.StatusOK, map[string]any{
+	record := map[string]any{
 		"count":   n,
 		"name":    body.Name,
 		"confirm": body.Confirm,
 		"plan":    body.Plan,
 		"note":    body.Note,
-	})
+	}
+	o.mu.Lock()
+	o.lastForm = record
+	o.mu.Unlock()
+	writeJSON(w, http.StatusOK, record)
 }
 
 func (o *Origin) handleSPAAction(w http.ResponseWriter, r *http.Request) {
@@ -462,4 +472,49 @@ func (o *Origin) handleWhoami(w http.ResponseWriter, r *http.Request) {
 func (o *Origin) handleReset(w http.ResponseWriter, r *http.Request) {
 	o.Reset()
 	writeJSON(w, http.StatusOK, map[string]any{"reset": true})
+}
+
+// handleHuge 按查询参数生成巨型页面（B04/BR09 的限额压测页）。
+//
+// 三个参数都有硬上限：测试要能"刚好超限"，但不能让一次请求把内存吃光。
+func (o *Origin) handleHuge(w http.ResponseWriter, r *http.Request) {
+	nodes := clampQueryInt(r.URL.Query().Get("nodes"), 400, 0, 2000)
+	labelLen := clampQueryInt(r.URL.Query().Get("labelLen"), 6, 0, 120)
+	textChars := clampQueryInt(r.URL.Query().Get("textChars"), 200, 0, 60000)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(hugePageHTML(o.URL, nodes, labelLen, textChars)))
+}
+
+// handleLastForm 返回服务端收到的最后一次表单载荷。
+//
+// 这是 fill 的读回 oracle：断言 field 值真的以服务端看到的样子到达，
+// 而不是页面把某个内存变量回显了一遍。
+func (o *Origin) handleLastForm(w http.ResponseWriter, r *http.Request) {
+	o.mu.Lock()
+	last := o.lastForm
+	o.mu.Unlock()
+	if last == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "还没有收到任何表单提交"})
+		return
+	}
+	writeJSON(w, http.StatusOK, last)
+}
+
+// clampQueryInt 把查询参数夹进 [lo, hi]；缺失/非法取 def。
+func clampQueryInt(raw string, def, lo, hi int) int {
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
