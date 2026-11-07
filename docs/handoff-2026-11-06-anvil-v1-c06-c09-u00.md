@@ -114,3 +114,30 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
 3. B07 + UI04.native：右栏原生 slot、遮挡协调、接管（G1 的最后一块）。
 4. U03–U07：Agent/资源库/记忆/观测/主题/i18n 逐页迁移（文案基线只许缩小）。
 5. X03/X04 + F09：打包（`devtools package` 仍是占位）、更新服务、性能与发布。
+
+## 6. 2026-11-07 第三波：B05 已取证并合并
+
+- **B05 合并**（`ec5dd1d`）：控制权（接管/恢复/`Pausing`/`ControlUncertain`）、每 tab 串行队列、4+12 tab 限额
+  （拒绝时用 backend 计数证明**没有创建实例**）、派发前二次授权、浏览器动作作为 policy-gated MCP 工具、
+  陈旧 ref/换 origin 拒绝、`OutcomeUnknown` 不重放。观察值来自 `action-timeline.jsonl`、`control-states.jsonl`、
+  `counters-*.json`、`policy-decisions.jsonl`、`mcp-calls.jsonl`。
+- **G2 的六条浏览器检查已取证**：BR11/BR12/BR13/BR14、SEC03.browser、SEC04.browser 全部 PASS。
+- 两个 gate 缺陷在本轮被修掉（都有回归测试）：
+  1. `gate` 以前会扫整个 revision 目录，同一 case 同时属于 G0 与 G2 时两份证据互相判成"重复/串 gate"——
+     **跑得越全 gate 越红**。现在按目录里的 gate 段过滤（`ac7b8ed`）。
+  2. 原生 runner 支持 `--gate`（BR08–BR10 属 G2）。
+- `E02` 的 MOD02/03、MCP01/02/03/05 在合并后能跑通，但只产出 test-process oracle，按纪律**改记为 BLOCKED**
+  并写明缺口（需要把 fixture provider 收到的请求与探针结论落盘）；不再让它们看起来在自证。
+
+### 当前 gate 状态（HEAD `de62371`）
+
+| gate | 结果 | 说明 |
+|---|---|---|
+| G0 | **passed=true exit 0** | 31/31 必需位 |
+| G1 | exit 2 | 只缺 `UI04.native`（B07） |
+| G2 | exit 2 | 63/69 集成 PASS + BR08–10 原生 PASS；缺 `BR15`–`BR17`（B06）与 6 条 BLOCKED 的 MOD/MCP 观察装置 |
+
+### 下一波
+
+`B06`（cookie/profile 隔离、弹窗继承、下载确认与 hash → BR15–BR17）+ `B07`（右栏原生 slot/遮挡 → UI04.native）
++ `U03/U04/U05`（Agent/资源库/记忆页面）；随后 `U06/U07`、`F09`、`X03/X04`。
