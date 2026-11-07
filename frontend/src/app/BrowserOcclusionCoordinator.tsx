@@ -10,6 +10,17 @@
 //   - 同一来源可被多个实例持有，引用计数归零才恢复；
 //   - 协调器只调 setOverlay。它**不**接管控制权、不停止 run：
 //     **隐藏面板 ≠ 暂停 agent**。把"藏起来"做成"停下来"会静默终止用户正在跑的 run。
+//
+// 已经接入的来源（每个都只是在组件里一行 `useBrowserOcclusionLayer(名字, open)`）：
+//   - `approval-card`：工具审批卡（features/chat/ApprovalCard.tsx）；
+//   - `clarification-card`：内容澄清卡（features/chat/ClarificationCard.tsx）。
+//
+// 以后新增的 dialog / 命令面板 / 确认框照同一方式接入，**不要**自己去调
+// setOverlay，也不要在打开时顺手 stop run：
+//
+//   useBrowserOcclusionLayer("settings-dialog", open);
+//
+// 漏接的后果是可以预期的：那一层弹出时会被原生网页盖住。
 
 import {
   createContext,

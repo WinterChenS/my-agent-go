@@ -14,6 +14,7 @@
 // 这个组件只接收一个已提交的本地标记（submitted），不做任何自行移除。
 
 import { formatDate, t } from "../../i18n";
+import { useBrowserOcclusionLayer } from "../../app/BrowserOcclusionCoordinator";
 import type { UiApproval } from "../../runState";
 import type { ApprovalChoice } from "../../types";
 
@@ -34,6 +35,11 @@ export interface ApprovalCardProps {
 export function ApprovalCard({ item, onDecide, disabled = false }: ApprovalCardProps) {
   const submitted = item.submitted === true;
   const locked = submitted || disabled;
+
+  // 遮挡登记：原生网页是盖在右栏 slot 上的子窗口，**不会**被 DOM 的 z-index 挡住。
+  // 卡片在挂载期间持有这一层（按来源引用计数），原生视图让位；卡片消失即恢复。
+  // 这只是“看不见”，不接管控制权、不停止 run（隐藏面板 ≠ 暂停 agent）。
+  useBrowserOcclusionLayer("approval-card", true);
 
   return (
     <section

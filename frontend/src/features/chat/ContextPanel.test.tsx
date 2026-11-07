@@ -36,6 +36,8 @@ vi.mock("./api", () => ({
 }));
 
 import { ContextPanel } from "./ContextPanel";
+import { BrowserPanel } from "../browser/BrowserPanel";
+import { browserApiStub, browserStateFixture } from "../browser/testFixtures";
 
 function details(overrides: Record<string, any> = {}) {
   return {
@@ -206,6 +208,43 @@ describe("窄窗抽屉不重建浏览器分区", () => {
     );
     expect(document.querySelector("[data-browser-probe]")).not.toBeNull();
     expect(document.querySelector("[data-context-panel]")?.getAttribute("data-open")).toBe("false");
+    expect(mounts.count).toBe(1);
+  });
+
+  it("装的是真实浏览器面板时，抽屉开关同样不重挂载原生槽位", async () => {
+    // 这一条用**产品里真的会挂上去的组件**（BrowserPanel），而不是探针：
+    // 挂载计数来自 BrowserSlot 自己的 onMount，节点身份来自 data-browser-slot。
+    const mounts = { count: 0 };
+    const api = browserApiStub(browserStateFixture());
+    const panel = (
+      <BrowserPanel
+        api={api}
+        onSlotMount={() => {
+          mounts.count += 1;
+        }}
+        pollIntervalMs={0}
+      />
+    );
+
+    const { rerender } = render(
+      <ContextPanel runId="run-1" open onToggle={() => undefined} narrow={false} browserSlot={panel} />
+    );
+    await waitFor(() => expect(document.querySelector("[data-browser-slot]")).not.toBeNull());
+    expect(mounts.count).toBe(1);
+    const slot = document.querySelector("[data-browser-slot]");
+    const tabs = document.querySelector("[data-browser-tabs]");
+    expect(tabs).not.toBeNull();
+
+    rerender(<ContextPanel runId="run-1" open onToggle={() => undefined} narrow browserSlot={panel} />);
+    expect(document.querySelector("[data-context-panel]")?.getAttribute("data-mode")).toBe("drawer");
+    expect(document.querySelector("[data-browser-slot]")).toBe(slot);
+    expect(document.querySelector("[data-browser-tabs]")).toBe(tabs);
+    expect(mounts.count).toBe(1);
+
+    rerender(
+      <ContextPanel runId="run-1" open={false} onToggle={() => undefined} narrow browserSlot={panel} />
+    );
+    expect(document.querySelector("[data-browser-slot]")).toBe(slot);
     expect(mounts.count).toBe(1);
   });
 });

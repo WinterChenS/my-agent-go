@@ -9,13 +9,16 @@
 // 界面状态全部由真实形状的后端事件经 runState 归约器算出来，测试里不手搓
 // “看起来对”的 UiState——那样测的就不是事件驱动的行为了。
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { t } from "../../i18n";
 import { initialState, reduce, type UiState } from "../../runState";
 import type { CallError, ProductEvent } from "../../types";
 import { ShellProvider, type ShellValue } from "../../app/shell";
+import { BrowserOcclusionProvider } from "../../app/BrowserOcclusionCoordinator";
+import { browserApi } from "../browser/api";
+import { browserStateFixture } from "../browser/testFixtures";
 
 const backend = vi.hoisted(() => ({
   list: null as unknown as (...a: any[]) => Promise<any>,
@@ -480,3 +483,198 @@ describe("ChatPage 附件与导出", () => {
     expect(screen.getByRole("button", { name: t("chat.sessionActions.reload") })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------- 右栏浏览器面板（W01）
+//
+// 面板的后端事实用 features/browser/testFixtures 的 fixture（形状 = Go 侧
+// BrowserStateResult 的镜像）。这里守的是**接入**：聊天页真的把面板挂进了浏览器
+// 分区、状态真的来自 BrowserState()、没有宿主时如实显示、抽屉开关不重挂载、
+// 审批/澄清卡真的登记了遮挡。
+
+/** 真实视口的替代：useNarrowLayout 读的就是 window.matchMedia。 */
+function stubMatchMedia(narrow: boolean) {
+  const listeners = new Set<() => void>();
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: narrow,
+      media: query,
+      onchange: null,
+      addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+      removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe("ChatPage 右栏浏览器面板", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it("浏览器分区挂的是真实面板，tabs 与控制态来自 BrowserState 绑定", async () => {
+    const stateSpy = vi.spyOn(browserApi, "state").mockResolvedValue(browserStateFixture());
+    const slotSpy = vi.spyOn(browserApi, "updateSlot").mockResolvedValue(null);
+
+    renderPage(stateFrom([]));
+
+    // 挂载路径：聊天页 → 上下文面板的浏览器分区 → BrowserPanel。
+    await waitFor(() =>
+      expect(document.querySelector("[data-context-section='browser'] [data-browser-panel]")).not.toBeNull()
+    );
+    // 旧的“没有浏览器状态接口”占位不再出现在聊天页上。
+    expect(document.querySelector("[data-browser-section='unavailable']")).toBeNull();
+    expect(stateSpy).toHaveBeenCalled();
+
+    // tab 列表来自后端事实，不由 React 自己造。
+    const tab = document.querySelector("[data-browser-tab='tab-1']") as HTMLElement;
+    expect(tab).not.toBeNull();
+    expect(tab.textContent).toContain("https://example.test/form");
+
+    // 控制态也来自同一个快照（human = 用户已接管，可恢复）。
+    expect(document.querySelector("[data-browser-control='human']")).not.toBeNull();
+    expect(screen.getByRole("button", { name: t("browser.control.resume") })).toBeEnabled();
+
+    // 槽位宣称的可用性 = 后端确实挂上了原生宿主。
+    const slot = document.querySelector("[data-browser-slot]") as HTMLElement;
+    expect(slot.getAttribute("data-browser-slot-state")).toBe("available");
+    // 面板挂载后会把这块矩形报给后端（原生视图要摆到这里）。
+    await waitFor(() => expect(slotSpy).toHaveBeenCalled());
+  });
+
+  it("没有原生宿主时如实显示 unavailable 与原因，不画假标签页", async () => {
+    vi.spyOn(browserApi, "state").mockResolvedValue(
+      browserStateFixture({
+        available: false,
+        tabs: [],
+        activeTab: "",
+        visible: false,
+        requestedVisible: false,
+        unsupported: [
+          {
+            capability: "surface",
+            reason: "没有挂载原生宿主：右侧不显示网页（不是加载失败，也不是空页面）",
+          },
+        ],
+      })
+    );
+    vi.spyOn(browserApi, "updateSlot").mockResolvedValue(null);
+
+    renderPage(stateFrom([]));
+
+    const slot = await waitFor(() => {
+      const node = document.querySelector("[data-browser-slot]") as HTMLElement;
+      expect(node).not.toBeNull();
+      return node;
+    });
+    expect(slot.getAttribute("data-browser-slot-state")).toBe("unavailable");
+    // 原因由后端给出：这是“没有宿主”，不是“加载失败”，也不是“没有数据”。
+    const reason = document.querySelector("[data-browser-unavailable-reason='surface']");
+    expect(reason?.textContent).toContain("没有挂载原生宿主");
+    expect(document.querySelector("[data-browser-tabs='empty']")).not.toBeNull();
+  });
+
+  it("窄窗抽屉开关只改布局：面板与原生槽位节点不重建", async () => {
+    stubMatchMedia(true);
+    vi.spyOn(browserApi, "state").mockResolvedValue(browserStateFixture());
+    vi.spyOn(browserApi, "updateSlot").mockResolvedValue(null);
+
+    const user = userEvent.setup();
+    renderPage(stateFrom([]));
+
+    await waitFor(() => expect(document.querySelector("[data-browser-slot]")).not.toBeNull());
+    // 进入窄窗时面板默认收起：收起是隐藏，不是卸载。
+    const panel = document.querySelector("[data-context-panel]") as HTMLElement;
+    await waitFor(() => expect(panel.getAttribute("data-mode")).toBe("drawer"));
+    expect(panel.getAttribute("data-open")).toBe("false");
+
+    const slotNode = document.querySelector("[data-browser-slot]");
+    const panelNode = document.querySelector("[data-browser-panel]");
+
+    await user.click(screen.getByRole("button", { name: t("chat.context.openPanel") }));
+    await waitFor(() => expect(panel.getAttribute("data-open")).toBe("true"));
+
+    // 同一个 DOM 节点：原生子视图的宿主没有被重建，tab 列表也还在。
+    expect(document.querySelector("[data-browser-slot]")).toBe(slotNode);
+    expect(document.querySelector("[data-browser-panel]")).toBe(panelNode);
+    expect(document.querySelector("[data-browser-tab='tab-1']")).not.toBeNull();
+
+    // 再收起一次：仍然是隐藏。
+    await user.click(screen.getAllByRole("button", { name: t("chat.context.closePanel") })[0]);
+    await waitFor(() => expect(panel.getAttribute("data-open")).toBe("false"));
+    expect(document.querySelector("[data-browser-slot]")).toBe(slotNode);
+  });
+
+  it("审批卡与澄清卡挂载时登记遮挡层，消失后释放", async () => {
+    vi.spyOn(browserApi, "state").mockResolvedValue(browserStateFixture());
+    vi.spyOn(browserApi, "updateSlot").mockResolvedValue(null);
+
+    const layers: Array<{ source: string; open: boolean }> = [];
+    const occlusion = {
+      setOverlay: async (source: string, open: boolean) => {
+        layers.push({ source, open });
+        return null;
+      },
+    };
+    const tree = (ui: UiState) => (
+      <BrowserOcclusionProvider api={occlusion}>
+        <ShellProvider value={shellValue(ui)}>
+          <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} />
+        </ShellProvider>
+      </BrowserOcclusionProvider>
+    );
+
+    const pending = stateFrom([
+      ev("approval.request", {
+        approvalId: "apr-1",
+        toolName: "bash",
+        toolCallId: "c1",
+        arguments: {},
+        expiresAtUnix: 1_800_000_000,
+      }),
+      ev("clarification.requested", {
+        requestId: "ui-1",
+        kind: "confirm",
+        question: "确定要用 staging 吗？",
+        options: [],
+      }),
+    ]);
+    const { rerender } = render(tree(pending));
+
+    // 两张卡都是盖在原生网页之上的应用浮层：各自按名字登记。
+    await waitFor(() => {
+      expect(layers).toContainEqual({ source: "approval-card", open: true });
+      expect(layers).toContainEqual({ source: "clarification-card", open: true });
+    });
+
+    const afterApproval = reduce(pending, {
+      kind: "event",
+      ev: ev("approval.resolved", { approvalId: "apr-1", choice: "deny", reason: "run_settled" }),
+    });
+    const resolved = reduce(afterApproval, {
+      kind: "event",
+      ev: ev("clarification.resolved", { requestId: "ui-1", answered: true }),
+    });
+    rerender(tree(resolved));
+
+    await waitFor(() => {
+      expect(layers).toContainEqual({ source: "approval-card", open: false });
+      expect(layers).toContainEqual({ source: "clarification-card", open: false });
+    });
+    // 卡片消失后遮挡必须解除：否则原生网页会一直看不见。
+    expect(document.querySelector("[data-approval-card]")).toBeNull();
+    expect(document.querySelector("[data-clarification-card]")).toBeNull();
+  });
+});
+
+
