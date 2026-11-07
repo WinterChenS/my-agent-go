@@ -639,9 +639,17 @@ func eventsOfType(t *testing.T, svc *Service, id contracts.RunID, typ string) []
 
 func lastRunErrorCode(t *testing.T, svc *Service, id contracts.RunID) string {
 	t.Helper()
-	evs := eventsOfType(t, svc, id, EventRunError)
-	if len(evs) == 0 {
-		t.Fatalf("run %s 没有任何 run.error 事件", id)
+	// 有界等待，而不是"读一次没有就失败"：失败路径是先迁移终态、再发 run.error
+	// （见 failProvider/finishFailed）。调用方看到 failed 时，那条事件可能还没进流，
+	// 于是整包并行跑时会偶发"没有任何 run.error 事件"（2026-11-06 实测）。
+	// 这里等的是**同一进程内紧接着会发**的事件，不是拿时间掩盖真实缺陷：
+	// 事件真的缺失时仍会在 2 秒后判失败。
+	var evs []contracts.Event
+	if !eventually(t, 2*time.Second, func() bool {
+		evs = eventsOfType(t, svc, id, EventRunError)
+		return len(evs) > 0
+	}) {
+		t.Fatalf("run %s 在任何终态之后 2 秒内都没有 run.error 事件", id)
 	}
 	var p runErrorPayload
 	if err := json.Unmarshal(evs[len(evs)-1].Payload, &p); err != nil {
