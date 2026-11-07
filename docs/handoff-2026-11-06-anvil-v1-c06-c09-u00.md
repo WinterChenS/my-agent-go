@@ -162,3 +162,34 @@ GOV05 runner、E01 证据接线** 落地之后的真实状态。它不替代规�
   - 原生宿主只呈现单 tab；back 是应用级历史（无 BFCache）；隐藏时无法 CDP 截图；OS 打字只覆盖小写 ASCII
   - 真实 WebView2 的 `NewWindowRequested`/`DownloadStarting` 未接（B06 用受控 backend 证明语义，limitations 已写）
 - `E03` 已派发（模型 `deepseek-2/deepseek-v4.1-flash`）：给那 6 条补 observation 装置，是 G2 的最后一块。
+
+## 8. 2026-11-07 第五波：E03 合并，**G0/G1/G2 三项全部通过**
+
+- **E03 合并**（`e868f8d`）：MOD02/03、MCP01/02/03/05 六条补上外部观察装置（probe 收到的请求体 + 探针结论、
+  MCP 侧工具调用/诊断结论落盘），6 条全部转为 `external-observation`。`Blocked` 字段改为
+  `realPiBlockedReasonFor(...)` 的只读探测（装置缺失时如实 BLOCKED，不 skip 成 PASS）。
+- **gate 结果（HEAD `9b2435f`，干净工作区，本机 win-x64 / Win10 19045）**：
+
+| gate | 结果 |
+|---|---|
+| **G0** | **passed=true exit 0**（31/31） |
+| **G1** | **passed=true exit 0**（7/7，含 UI04.native） |
+| **G2** | **passed=true exit 0**（69/69；66 条集成 + 3 条原生） |
+
+四套件：`static` 0、`unit` 0、`integration --gate=G0/G2` 0/0（G2 集成 66/66 通过，BR08–10 走原生）、
+`native --gate=G1/G2` 0/0。
+ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条打印，不计通过也不计缺失。
+
+- 已派发 U03（Profile 编辑页，UI07）与 U04+U05（资源库/技能链接导入 RES05、记忆页 UI08/UI09），
+  模型 `deepseek-2/deepseek-v4.1-flash`，各自独立 worktree。
+
+### 剩余工作（G3 及之后）
+
+1. **U03–U07**：Profile 编辑页、资源库（含 RES05 URL 导入与试运行）、记忆页、观测页、主题/i18n 逐页迁移、品牌页；
+   对应 UI07–UI13、SRCH01、I18N/THEME/BRAND、RES05。
+2. **产品接线**：`BrowserPanel` 挂进 `ChatPage`、`cmd/myagent/main.go` 调 `SetBrowserBridge`（UI04.workbench/E2E03 前置）。
+3. **CONN07/SCH06**：连接器页与调度页（C08/C09 已有后端）。
+4. **RUN01/04/06.ui**：聊天页真实 Wails + Pi 端到端。
+5. **X01 E2E01–07**、**X03 打包**（`devtools package` 目前是占位）、**X04 迁移/更新/性能**、**F09 更新服务**、
+   **X05 REL01–04**。
+6. **仍 BLOCKED**：签名预认证清单（无发行私钥）、托管包五目标 `sizeBytes`、真实 OAuth/连接器账号。
