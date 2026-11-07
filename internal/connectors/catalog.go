@@ -419,6 +419,25 @@ func LookupAction(kind Kind, actionID string) (ActionDescriptor, bool) {
 	return ActionDescriptor{}, false
 }
 
+// defaultRateLimits 是每个平台的**本地**节流上限（"N 次/60 秒"）。
+//
+// 这些值刻意低于各平台官方配额：本地限流的目的是"别在一条链路上把平台的配额
+// 打满"，而不是把官方配额抄一遍。定义里显式给出 RateLimit 时以定义为谁。
+var defaultRateLimits = map[Kind]RateLimit{
+	KindMail:     {Requests: 30, PerSeconds: 60},
+	KindDingtalk: {Requests: 20, PerSeconds: 60},
+	KindFeishu:   {Requests: 20, PerSeconds: 60},
+	KindSlack:    {Requests: 30, PerSeconds: 60},
+	KindNotion:   {Requests: 20, PerSeconds: 60},
+	KindGitHub:   {Requests: 30, PerSeconds: 60},
+}
+
+// DefaultRateLimit 返回某平台的默认节流上限。
+func DefaultRateLimit(kind Kind) (RateLimit, bool) {
+	limit, ok := defaultRateLimits[kind]
+	return limit, ok
+}
+
 // KnownCapability 判定某能力是否属于该 kind 的 catalog。
 func KnownCapability(kind Kind, c Capability) bool {
 	for _, a := range catalog[kind] {

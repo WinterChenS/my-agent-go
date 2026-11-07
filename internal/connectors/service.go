@@ -778,7 +778,14 @@ func (s *Service) health(ctx context.Context, def Definition) Health {
 func (s *Service) takeRate(def Definition) error {
 	limit := def.RateLimit
 	if limit.Requests == 0 && limit.PerSeconds == 0 {
-		limit = RateLimit{Requests: defaultRateRequests, PerSeconds: defaultRatePerSeconds}
+		// 未配置时用**该平台**的默认上限，而不是一个与平台无关的常数：
+		// 钉钉/飞书/Notion 的官方配额明显低于 Slack/GitHub，抄同一个数字会让
+		// 某几个平台长期顶着配额跑。
+		if fallback, ok := DefaultRateLimit(def.Kind); ok {
+			limit = fallback
+		} else {
+			limit = RateLimit{Requests: defaultRateRequests, PerSeconds: defaultRatePerSeconds}
+		}
 	}
 	if limit.Requests <= 0 || limit.PerSeconds <= 0 {
 		return contracts.NewAppError(contracts.CodeUnsupported, "限流参数不完整（requests/perSeconds 都要 > 0）", false)
