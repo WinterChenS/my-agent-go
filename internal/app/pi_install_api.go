@@ -54,6 +54,67 @@ type piInstallProgressEvent struct {
 	Stage     string `json:"stage"`
 }
 
+// PiManifestEntry 是设置页可选的一条受信清单条目。
+//
+// 字段与 internal/piinstall.InstallableEntry 一一对应：Usable 的判据来自
+// 安装器真正使用的 loader（Entry），不是界面或绑定层自己算的。
+type PiManifestEntry struct {
+	Version           string `json:"version"`
+	TargetID          string `json:"targetId"`
+	AssetName         string `json:"assetName"`
+	SizeBytes         int64  `json:"sizeBytes"`
+	SHA256            string `json:"sha256"`
+	Signature         string `json:"signature,omitempty"`
+	Usable            bool   `json:"usable"`
+	UnavailableReason string `json:"unavailableReason,omitempty"`
+}
+
+// PiInstallManifestResult 是嵌入受信清单的可用性视图。
+type PiInstallManifestResult struct {
+	Schema      int               `json:"schema"`
+	GeneratedAt string            `json:"generatedAt"`
+	HostTarget  string            `json:"hostTarget"`
+	Entries     []PiManifestEntry `json:"entries"`
+	Error       *CallError        `json:"error,omitempty"`
+}
+
+// PiInstallManifest 列出随二进制下发的受信清单条目（版本/目标/大小/哈希/可用）。
+//
+// 读的是**安装服务实际使用的那一份清单**（含测试注入），不另读一次嵌入文件：
+// 两份清单意味着"设置页说能装、安装器说没有这个版本"。
+func (d *Desktop) PiInstallManifest() PiInstallManifestResult {
+	res := PiInstallManifestResult{
+		HostTarget: pi.HostTarget(),
+		Entries:    []PiManifestEntry{},
+	}
+	svc, err := d.piInstallService()
+	if err != nil {
+		res.Error = toCallError(err)
+		return res
+	}
+	res.Schema = svc.Manifest.Schema
+	res.GeneratedAt = svc.Manifest.GeneratedAt
+	for _, e := range svc.Manifest.InstallableEntries() {
+		res.Entries = append(res.Entries, PiManifestEntry{
+			Version:           e.Version,
+			TargetID:          e.TargetID,
+			AssetName:         e.AssetName,
+			SizeBytes:         e.SizeBytes,
+			SHA256:            e.SHA256,
+			Signature:         e.Signature,
+			Usable:            e.Usable,
+			UnavailableReason: e.UnavailableReason,
+		})
+	}
+	return res
+}
+
+// HostTarget 返回当前宿主的发行目标 id（win-x64 …）。
+//
+// 映射只有一处：internal/runtime/pi.HostTarget()。绑定层不再写一份 switch——
+// 两份映射一定会分叉（一份改了另一份忘了改），而目标 id 是对外的稳定标识。
+func (d *Desktop) HostTarget() string { return pi.HostTarget() }
+
 // piInstallService 返回安装服务单例（懒建）。
 //
 // 生产路径不注入任何东西：托管根取 pi.ManagedRoot()，清单取嵌入清单，
