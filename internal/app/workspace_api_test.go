@@ -31,6 +31,21 @@ func newTestDesktop(t *testing.T) (*Desktop, string) {
 	if err != nil {
 		t.Fatalf("构造 Desktop: %v", err)
 	}
+	// FIX2：运行前闸门默认用“立刻通过”的替身，不 spawn 真实探测。
+	//
+	// 绝大多数用例测的不是闸门本身，而是一个 stub 的 Pi 文件根本不可能通过六项
+	// 契约探测；如果它们必须传真的探测，整包会因为 spawn 失败而变成“契约失败”。
+	// 闸门自己的行为由 pi_lifecycle_api_test.go 的 FIX2 用例显式覆盖替身来验证。
+	d.mu.Lock()
+	d.piContractProbe = func(_ context.Context, inst pi.PiInstallation) (pi.ContractReport, error) {
+		return pi.ContractReport{
+			Version:      inst.Version,
+			State:        pi.StateReadyCompatible,
+			Capabilities: append([]string(nil), pi.ContractChecks...),
+			Environment:  "isolated-agentdir",
+		}, nil
+	}
+	d.mu.Unlock()
 	t.Cleanup(d.Shutdown)
 	return d, root
 }
