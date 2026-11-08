@@ -1,4 +1,16 @@
-// 输入区（U02 / UI06）。
+// 输入区（U02 / D2b）。
+//
+// 解剖来自原型 `assets/studio.css` 1086–1160 + `assets/pages.css` 的
+// .composer-project-row / .composer-attachments / .attachment-drawer：
+//
+//   composer-wrap（padding 10px 26px 14px，向上渐隐）
+//     ├─ 项目行（胶囊：文件夹图标 + 项目名）
+//     └─ composer（max-width 760，radius 12，border-strong，shadow）
+//          ├─ textarea（2 行，13.5px/1.65，padding 13px 14px 4px）
+//          ├─ 附件行（有附件才出现）
+//          ├─ 抽屉（+ 打开：路径输入 / 文件 / 目录 / Skill）
+//          └─ bar：+ 28×28 · 模型 · 思考级别 · 权限摘要 · 停止/发送
+//     └─ foot（提示 + 快捷键）
 //
 // 这里有三个“不能假装”的地方：
 //
@@ -8,14 +20,15 @@
 //    变成“全都失败”，也不能被静默丢掉。
 //
 // 2. **Profile / 模型 / 思考级别是后端事实，不是这里的选择器状态。**
-//    显示的是启动快照（当前模型）与后端即将使用的 Profile；后端还没有“按轮次传
-//    thinking level / profile”的入口时，这里不做一个点了没用的下拉框（那才是假动作），
-//    只显示后端给出的事实并说明由谁决定。
+//    原型在这一行放的是三个下拉框；产品侧**没有**按轮次传 model/thinking 的入口，
+//    所以这里只显示后端给出的事实（启动快照）并把缺失写成“未知”。
+//    做一个点了没用的下拉框才是假动作。
 //
 // 3. **停止是一次真实请求。** 点下去只是“已请求停止”，界面切到 stopping 由后端
 //    abort 接受之后才发生；停止期间不接受新消息（否则界面上会同时出现两轮）。
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Brain, Folder, Paperclip, Plus, Shield, Sparkles, Square, ArrowUp } from "lucide-react";
 import { formatBytes, formatError, t } from "../../i18n";
 import type { CallError, Profile, SkillResource } from "../../types";
 import type { FixtureSignal } from "./readiness";
@@ -77,6 +90,10 @@ export interface ComposerProps {
   checkingHint?: string | null;
   /** 内置 fixture（脚本化回放）标记；null = 用的是真实 provider。 */
   fixture?: FixtureSignal | null;
+  /** 项目行显示的项目名（来自壳层的当前工作区）；空 = 显示“未绑定项目”。 */
+  projectName?: string;
+  /** 项目行的路径（悬停提示）；空则不显示。 */
+  projectPath?: string;
 }
 
 /** 把用户给的路径收敛成一个 pending 附件；空路径不算。 */
@@ -86,6 +103,18 @@ function pendingFromPath(path: string, source: PendingAttachment["source"]): Pen
   const normalized = trimmed.replace(/\\/g, "/");
   const base = normalized.split("/").filter(Boolean).pop() ?? trimmed;
   return { path: trimmed, displayName: base, source };
+}
+
+/**
+ * 快捷键提示里的修饰键。
+ *
+ * 原型写的是 ⌘（导出包来自 macOS）。产品六目标里有四个 Windows/Linux 目标，
+ * 在那些平台上把 Ctrl 画成 ⌘ 是**说错了一件事**：用户按 ⌘ 什么都不会发生。
+ */
+function modifierKey(): string {
+  if (typeof navigator === "undefined") return "Ctrl";
+  const platform = navigator.platform || navigator.userAgent || "";
+  return /Mac|iPhone|iPad|iPod/.test(platform) ? "⌘" : "Ctrl";
 }
 
 export function Composer({
@@ -104,6 +133,8 @@ export function Composer({
   blockedHint = null,
   checkingHint = null,
   fixture = null,
+  projectName = "",
+  projectPath = "",
 }: ComposerProps) {
   const [pathInput, setPathInput] = useState("");
   const [pending, setPending] = useState<PendingAttachment[]>([]);
@@ -112,6 +143,7 @@ export function Composer({
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<CallError | null>(null);
   const [skillId, setSkillId] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   /**
@@ -193,6 +225,7 @@ export function Composer({
     setPending([]);
     setAccepted([]);
     setRejected([]);
+    setDrawerOpen(false);
   }, [canSend, value, accepted, onSend]);
 
   const onKeyDown = useCallback(
@@ -222,169 +255,35 @@ export function Composer({
     return t("chat.composer.permissionSummary", { filesystem, network, shell });
   }, [permission]);
 
+  const hasAttachments = accepted.length > 0 || rejected.length > 0;
+  const footHint = blockedHint ?? checkingHint ?? (stopRequested ? t("chat.composer.stopRequested") : null);
+
   return (
-    <div data-composer="" className="space-y-2 border-t border-[color:var(--anvil-border)] px-3 py-2">
-      {/* 后端事实：Profile / 模型 / 思考级别 / 权限摘要 */}
-      <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[color:var(--anvil-muted)]">
-        <div className="flex items-center gap-1" title={t("chat.composer.profileHint")}>
-          <dt>{t("chat.composer.profile")}</dt>
-          <dd data-composer-profile="" className="text-[color:var(--anvil-foreground)]">
-            {profile ? profile.name || profile.id : t("common.unknown")}
-          </dd>
-        </div>
-        <div className="flex items-center gap-1" title={t("chat.composer.modelHint")}>
-          <dt>{t("chat.composer.model")}</dt>
-          <dd data-composer-model="" className="font-mono text-[color:var(--anvil-foreground)]">
-            {modelLabel || t("common.unknown")}
-          </dd>
-          {fixture ? (
-            <span
-              data-fixture-badge=""
-              title={t("chat.composer.fixtureHint")}
-              className="rounded-full border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--anvil-warning)]"
-            >
-              {t("chat.composer.fixtureBadge")}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-1">
-          <dt>{t("chat.composer.thinking")}</dt>
-          <dd data-composer-thinking="" className="text-[color:var(--anvil-foreground)]">
-            {t("chat.composer.thinkingUnknown")}
-          </dd>
-        </div>
-      </dl>
-
-      <p data-permission-summary="" className="text-[10px] text-[color:var(--anvil-muted)]">
-        {t("chat.composer.permission")}
-        {" · "}
-        {permissionText}
-      </p>
-
-      {/* 附件 */}
-      <section aria-labelledby="composer-attachments" className="space-y-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <h2
-            id="composer-attachments"
-            className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]"
+    <div data-composer="" className="achat-composer-wrap">
+      {/* 项目行：只显示事实（当前工作区）。产品没有“在对话里换项目”的后端入口，
+          所以这里不做成一个点了没用的下拉。 */}
+      <div className="achat-project-row">
+        <div className="achat-project-control">
+          <span
+            className="achat-project-trigger"
+            data-composer-project=""
+            title={projectPath || undefined}
+            role="group"
+            aria-label={t("chat.composer.project")}
           >
-            {t("chat.composer.attachments")}
-          </h2>
-          {resolving ? (
-            <span className="text-[10px] text-[color:var(--anvil-muted)]">{t("chat.composer.resolving")}</span>
-          ) : null}
+            <Folder size={12} aria-hidden />
+            <span>{projectName || t("chat.composer.noProject")}</span>
+          </span>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <input
-            type="text"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            placeholder={t("chat.composer.pathPlaceholder")}
-            aria-label={t("chat.composer.pathPlaceholder")}
-            className="min-w-0 flex-1 rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
-          />
-          <button
-            type="button"
-            onClick={() => addPath("file")}
-            className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
-          >
-            {t("chat.composer.addFile")}
-          </button>
-          <button
-            type="button"
-            onClick={() => addPath("directory")}
-            className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
-          >
-            {t("chat.composer.addDirectory")}
-          </button>
-        </div>
-
-        {skills.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <label htmlFor="composer-skill" className="text-[10px] text-[color:var(--anvil-muted)]">
-              {t("chat.composer.skillPick")}
-            </label>
-            <select
-              id="composer-skill"
-              value={skillId}
-              onChange={(e) => setSkillId(e.target.value)}
-              className="rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-1.5 py-1 text-[10px] text-[color:var(--anvil-foreground)]"
-            >
-              <option value="">{t("common.unknown")}</option>
-              {skills.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name || s.id}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={addSkill}
-              disabled={!skillId}
-              className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("chat.composer.addSkill")}
-            </button>
-          </div>
-        ) : null}
-
-        <p className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
-          {t("chat.composer.attachmentsHint")}
-        </p>
-
-        {resolveError ? (
-          <p role="alert" className="text-[10px] text-[color:var(--anvil-danger)]">
-            {t("chat.composer.resolveFailed", { code: resolveError.code })}
-          </p>
-        ) : null}
-
-        {accepted.length === 0 && rejected.length === 0 && pending.length === 0 ? (
-          <p className="text-[10px] text-[color:var(--anvil-muted)]">{t("chat.composer.noAttachments")}</p>
-        ) : null}
-
-        <ul className="space-y-1">
-          {accepted.map((item) => (
-            <li
-              key={item.id}
-              data-attachment-accepted={item.id}
-              className="flex flex-wrap items-center gap-1.5 rounded border border-[color:var(--anvil-border)] px-2 py-1 text-[10px]"
-            >
-              <span className="text-[color:var(--anvil-foreground)]">{item.displayName}</span>
-              <span className="text-[color:var(--anvil-muted)]">{formatBytes(item.size)}</span>
-              <span className="font-mono text-[color:var(--anvil-muted)]">{item.sha256.slice(0, 12)}</span>
-              <span data-attachment-status={item.status} className="text-[color:var(--anvil-success)]">
-                {t("chat.composer.accepted")}
-              </span>
-              <button
-                type="button"
-                onClick={() => removeAccepted(item.id)}
-                className="ml-auto rounded border border-[color:var(--anvil-border)] px-1.5 py-0.5 text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
-              >
-                {t("chat.composer.remove")}
-              </button>
-            </li>
-          ))}
-          {rejected.map((item) => (
-            <li
-              key={`${item.path}:${item.code}`}
-              data-attachment-rejected={item.code}
-              className="rounded border border-[color:var(--anvil-danger-border)] bg-[color:var(--anvil-danger-surface)] px-2 py-1 text-[10px]"
-            >
-              <span className="text-[color:var(--anvil-foreground)]">{item.displayName || item.path}</span>
-              <span className="ml-1 text-[color:var(--anvil-danger)]">
-                {t("chat.composer.rejected")}
-              </span>
-              <p data-attachment-reason="" className="mt-0.5 text-[color:var(--anvil-foreground)]">
-                {t("chat.composer.rejectedReason", { code: item.code, message: item.message })}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* 输入 */}
-      <div className="flex items-end gap-2">
+      <form
+        className="achat-composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
         <label htmlFor="composer-input" className="sr-only">
           {t("chat.composer.placeholder")}
         </label>
@@ -392,54 +291,241 @@ export function Composer({
           id="composer-input"
           ref={textareaRef}
           value={value}
-          rows={3}
+          rows={2}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={t("chat.composer.placeholder")}
           disabled={stopRequested || blockedHint !== null}
-          className="min-h-0 flex-1 resize-y rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1.5 text-[12px] leading-relaxed text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)] disabled:opacity-60"
         />
-        <div className="flex shrink-0 flex-col gap-1">
+
+        {/* 附件行：没有附件时整行不出现（原型 hidden） */}
+        {hasAttachments ? (
+          <div className="achat-composer-attachments" data-composer-attachments="" aria-live="polite">
+            {accepted.map((item) => (
+              <span
+                key={item.id}
+                data-attachment-accepted={item.id}
+                className="achat-attachment"
+                data-kind={item.mediaType?.startsWith("application/x-anvil-skill") ? "skill" : "file"}
+              >
+                <Paperclip size={11} aria-hidden />
+                <b style={{ fontWeight: 550, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.displayName}
+                </b>
+                <span>{formatBytes(item.size)}</span>
+                <span className="achat-mono">{item.sha256.slice(0, 8)}</span>
+                <span data-attachment-status={item.status} title={t("chat.composer.accepted")}>
+                  {t("chat.composer.accepted")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAccepted(item.id)}
+                  aria-label={t("chat.composer.remove")}
+                  title={t("chat.composer.remove")}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {rejected.map((item) => (
+              <span
+                key={`${item.path}:${item.code}`}
+                data-attachment-rejected={item.code}
+                className="achat-attachment-rejected"
+              >
+                <span>
+                  <b style={{ fontWeight: 550 }}>{item.displayName || item.path}</b>
+                  {" · "}
+                  {t("chat.composer.rejected")}
+                  <span data-attachment-reason="" style={{ display: "block", marginTop: 1 }}>
+                    {t("chat.composer.rejectedReason", { code: item.code, message: item.message })}
+                  </span>
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {/* 附件抽屉：由「+」打开（原型 attachment-drawer） */}
+        {drawerOpen ? (
+          <div
+            id="composer-attachment-drawer"
+            className="achat-attachment-drawer"
+            data-attachment-drawer=""
+            role="group"
+            aria-label={t("chat.composer.attachmentsMenu")}
+          >
+            <div className="achat-attachment-group">
+              <span className="achat-attachment-label">{t("chat.composer.filesOrDirectory")}</span>
+              <input
+                className="achat-attachment-input"
+                type="text"
+                value={pathInput}
+                onChange={(e) => setPathInput(e.target.value)}
+                placeholder={t("chat.composer.pathPlaceholder")}
+                aria-label={t("chat.composer.pathPlaceholder")}
+              />
+              <div className="achat-attachment-actions">
+                <button type="button" className="achat-btn achat-btn-sm" onClick={() => addPath("file")}>
+                  {t("chat.composer.addFile")}
+                </button>
+                <button type="button" className="achat-btn achat-btn-sm" onClick={() => addPath("directory")}>
+                  {t("chat.composer.addDirectory")}
+                </button>
+              </div>
+            </div>
+
+            {skills.length > 0 ? (
+              <div className="achat-attachment-group">
+                <label className="achat-attachment-label" htmlFor="composer-skill">
+                  {t("chat.composer.skillPick")}
+                </label>
+                <select
+                  id="composer-skill"
+                  className="achat-attachment-select"
+                  value={skillId}
+                  onChange={(e) => setSkillId(e.target.value)}
+                >
+                  <option value="">{t("common.unknown")}</option>
+                  {skills.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name || s.id}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="achat-btn achat-btn-sm"
+                  onClick={addSkill}
+                  disabled={!skillId}
+                  style={{ alignSelf: "flex-start" }}
+                >
+                  {t("chat.composer.addSkill")}
+                </button>
+              </div>
+            ) : null}
+
+            {resolving ? <p className="achat-attachment-note">{t("chat.composer.resolving")}</p> : null}
+            {!hasAttachments && !resolving ? (
+              <p className="achat-attachment-note">{t("chat.composer.noAttachments")}</p>
+            ) : null}
+            <p className="achat-attachment-note">{t("chat.composer.attachmentsHint")}</p>
+            {resolveError ? (
+              <p role="alert" className="achat-attachment-note" style={{ color: "var(--anvil-danger)" }}>
+                {t("chat.composer.resolveFailed", { code: resolveError.code })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* bar：+ · 模型 · 思考级别 · 权限摘要 · 停止/发送 */}
+        <div className="achat-composer-bar">
           <button
             type="button"
-            onClick={send}
-            disabled={!canSend}
-            className="rounded-md border border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] px-3 py-1.5 text-xs text-[color:var(--anvil-accent)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="achat-plus"
+            data-composer-plus=""
+            aria-label={t("chat.composer.attachmentsMenu")}
+            title={t("chat.composer.attachmentsMenu")}
+            aria-expanded={drawerOpen}
+            aria-controls="composer-attachment-drawer"
+            onClick={() => setDrawerOpen((v) => !v)}
           >
-            {t("chat.composer.send")}
+            <Plus size={14} aria-hidden />
           </button>
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={!busy || stopRequested}
-            className="rounded-md border border-[color:var(--anvil-border)] px-3 py-1.5 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {stopRequested ? t("chat.composer.stopping") : t("chat.composer.stop")}
-          </button>
+
+          <span className="achat-ctl" title={t("chat.composer.modelHint")}>
+            <Sparkles size={13} aria-hidden />
+            <span data-composer-model="" className="achat-ctl-mono">
+              {modelLabel || t("common.unknown")}
+            </span>
+            {fixture ? (
+              <span
+                data-fixture-badge=""
+                title={t("chat.composer.fixtureHint")}
+                className="achat-badge achat-badge-warn"
+              >
+                {t("chat.composer.fixtureBadge")}
+              </span>
+            ) : null}
+          </span>
+
+          <span className="achat-ctl" title={t("chat.composer.profileHint")}>
+            <Brain size={13} aria-hidden />
+            <span data-composer-thinking="">{t("chat.composer.thinkingUnknown")}</span>
+          </span>
+
+          <span className="achat-ctl" title={t("chat.composer.permission")} data-composer-permission="">
+            <Shield size={13} aria-hidden />
+            <span data-permission-summary="">
+              {t("chat.composer.permission")}
+              {" · "}
+              {permissionText}
+            </span>
+          </span>
+
+          <div className="achat-composer-actions">
+            <button
+              type="button"
+              className="achat-btn achat-btn-sm"
+              onClick={onStop}
+              disabled={!busy || stopRequested}
+            >
+              <Square size={11} aria-hidden />
+              {stopRequested ? t("chat.composer.stopping") : t("chat.composer.stop")}
+            </button>
+            <button
+              type="submit"
+              className="achat-send"
+              disabled={!canSend}
+              aria-label={t("chat.composer.send")}
+              title={t("chat.composer.send")}
+            >
+              <ArrowUp size={15} aria-hidden />
+            </button>
+          </div>
         </div>
+      </form>
+
+      {/* foot：提示 + 快捷键（原型的 .composer-foot） */}
+      <div className="achat-composer-foot">
+        {footHint !== null ? (
+          <span
+            data-composer-blocked={blockedHint !== null ? "" : undefined}
+            data-composer-checking={checkingHint !== null && blockedHint === null ? "" : undefined}
+            data-composer-readonly={stopRequested ? "" : undefined}
+            className={blockedHint !== null ? "achat-hint-warn" : undefined}
+            role="status"
+          >
+            {footHint}
+          </span>
+        ) : (
+          <span>{t("chat.composer.footHint")}</span>
+        )}
+        <span className="achat-composer-foot-spacer" />
+        <span className="achat-kbdset">
+          <kbd className="achat-kbd">{modifierKey()}</kbd>
+          <kbd className="achat-kbd">↵</kbd>
+          {t("chat.composer.footSend")}
+        </span>
+        <span className="achat-kbdset">
+          <kbd className="achat-kbd">⇧</kbd>
+          <kbd className="achat-kbd">↵</kbd>
+          {t("chat.composer.footNewline")}
+        </span>
       </div>
 
-      {stopRequested ? (
-        <p data-composer-readonly="" className="text-[10px] text-[color:var(--anvil-muted)]">
-          {t("chat.composer.stopRequested")}
-        </p>
-      ) : null}
-
-      {checkingHint !== null ? (
-        <p data-composer-checking="" role="status" className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
-          {checkingHint}
-        </p>
-      ) : null}
-
-      {blockedHint !== null ? (
-        <p data-composer-blocked="" role="status" className="text-[10px] leading-relaxed text-[color:var(--anvil-warning)]">
-          {blockedHint}
-        </p>
-      ) : null}
-
       {sendError ? (
-        <p role="alert" className="text-[10px] text-[color:var(--anvil-danger)]">
+        <p role="alert" className="achat-hint achat-hint-danger" style={{ maxWidth: 760, margin: "6px auto 0" }}>
           {formatError(sendError)}
+        </p>
+      ) : null}
+
+      {/* profile 仍是后端事实：不给下拉，只在有值时以 title 说明（读屏可及）。 */}
+      {profile ? (
+        <p className="achat-hint sr-only" data-composer-profile="">
+          {t("chat.composer.profile")}
+          {" · "}
+          {profile.name || profile.id}
         </p>
       ) : null}
     </div>

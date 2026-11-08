@@ -1,0 +1,1489 @@
+/*
+ * 对话页几何（D2b）。
+ *
+ * 来源：`docs/ui/Agent-客户端产品原型/assets/studio.css`（chat surface 873–900、
+ * composer 1086–1160、rail 1157–1200）+ `assets/pages.css` 417–600（chat-page /
+ * msg-actions / stream-status / rail-foot / composer-project-row / inline-thil …）。
+ *
+ * 三条纪律：
+ *
+ *  1. **数字逐字来自原型。** 布局骨架（`minmax(0,1fr) 400px`、760 / 26 / 22 / 8、
+ *     rail-head 42px、气泡 9px 13px …）是视觉契约的一部分；"看起来差不多"不行，
+ *     `chat-diff.mjs` 会实测这些盒子并要求误差 ≤1px。
+ *
+ *  2. **类名加 `achat-` 前缀。** 原型用的是 `.thread` / `.msg` / `.tool` / `.rail`
+ *     这种通名，直接搬进产品会和其它 feature 的样式互相污染。名字前缀化，
+ *     数值不改；`D2b-report.md` 里有「原型 class → 组件/类名」对照表。
+ *
+ *  3. **只引用 `--anvil-*` 令牌。** 颜色映射（原型 → 产品，见 index.css 注释）：
+ *        --surface   → --anvil-surface-raised
+ *        --surface-2 → --anvil-surface
+ *        --surface-3 → --anvil-surface-3
+ *        --bg        → --anvil-background
+ *        --fg/--fg-2 → --anvil-foreground / --anvil-fg-2
+ *        --warn*     → --anvil-warning*，--danger* → --anvil-danger*
+ *        --r-xs/sm/md/lg → --anvil-r-xs/sm/md/lg
+ *     写死颜色会在深色主题下失控（而且 uiaudit 的对比度门禁读的就是令牌）。
+ */
+
+/* ==========================================================================
+   1. 页面骨架（原型 .chat-page / .chat-layout / .thread-col / .thread）
+   ========================================================================== */
+
+.achat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+}
+
+/* 页头（原型在 .topbar 里：chat-head-main + chat-head-actions） */
+.achat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--anvil-border);
+  background: var(--anvil-background);
+}
+.achat-head-main {
+  min-width: 0;
+  flex: 1;
+}
+.achat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--anvil-font-display);
+  font-size: 13.5px;
+  font-weight: 560;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: var(--anvil-foreground);
+}
+.achat-title h1 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+}
+.achat-subline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--anvil-muted);
+  line-height: 1.4;
+  margin-top: 1px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.achat-subline-sep {
+  color: var(--anvil-border-strong);
+}
+.achat-subline-mono {
+  font-family: var(--anvil-font-mono);
+}
+.achat-project-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--anvil-fg-2);
+}
+.achat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+
+/* 页头动作里要出错信息时：横幅跨整行，不挤进 52px 的动作行 */
+.achat-head-notice {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--anvil-border);
+  background: var(--anvil-surface);
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+}
+
+/* .chat-layout */
+.achat-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0;
+  flex: 1;
+  min-height: 0;
+  transition: grid-template-columns 0.2s ease;
+}
+.achat-layout[data-rail="open"] {
+  grid-template-columns: minmax(0, 1fr) 400px;
+}
+
+/* .thread-col */
+.achat-thread-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid transparent;
+}
+.achat-layout[data-rail="open"] .achat-thread-col {
+  border-right-color: var(--anvil-border);
+}
+
+/* .thread */
+.achat-thread {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 22px 0 8px;
+  scroll-behavior: smooth;
+}
+
+/* .thread-inner */
+.achat-thread-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* ==========================================================================
+   2. 消息节奏（原型 .msg / .msg-user .bubble / .msg-meta / .agent-head / .prose）
+   ========================================================================== */
+
+.achat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.achat-msg[data-role="user"] {
+  align-items: flex-end;
+}
+
+/* 消息列表本身不产生盒子：它的孩子直接参与 .achat-thread-inner 的 26px 节奏。
+   （否则「轮次间距」会被包一层 wrapper 吃掉。） */
+.achat-msg-list {
+  display: contents;
+}
+
+.achat-bubble {
+  background: var(--anvil-surface);
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-md);
+  padding: 9px 13px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  max-width: 88%;
+  color: var(--anvil-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.achat-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--anvil-muted);
+}
+.achat-msg[data-role="user"] .achat-msg-meta {
+  flex-direction: row-reverse;
+}
+
+/* .agent-head */
+.achat-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  min-width: 0;
+}
+.achat-agent-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--anvil-foreground);
+  color: var(--anvil-background);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  flex: none;
+}
+.achat-agent-name {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--anvil-foreground);
+}
+.achat-agent-model {
+  font-size: 11px;
+  color: var(--anvil-muted);
+  font-family: var(--anvil-font-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* .prose */
+.achat-prose {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--anvil-fg-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* .stream-status */
+.achat-stream-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--anvil-muted);
+  padding-top: 2px;
+}
+
+/* 状态点（原型 .live-dot / @keyframes pulse） */
+.achat-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--anvil-success);
+  animation: achat-pulse 1.4s ease-in-out infinite;
+  flex: none;
+}
+@keyframes achat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ==========================================================================
+   3. 卡片（原型 .tool / .confirm / .inline-thil / .badge / .btn / .iconbtn）
+   ========================================================================== */
+
+/* ---- 工具卡（.tool / .tool-row / .tool-body） ---- */
+.achat-tool {
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-md);
+  background: var(--anvil-surface-raised);
+  overflow: hidden;
+}
+.achat-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  min-height: 38px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.achat-tool-row:hover {
+  background: var(--anvil-surface);
+}
+.achat-tool-ico {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--anvil-r-xs);
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--anvil-surface-3);
+  color: var(--anvil-fg-2);
+}
+.achat-tool-name {
+  font-family: var(--anvil-font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--anvil-foreground);
+  flex: none;
+}
+.achat-tool-arg {
+  font-family: var(--anvil-font-mono);
+  font-size: 11.5px;
+  color: var(--anvil-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.achat-tool-dur {
+  font-family: var(--anvil-font-mono);
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+  margin-left: auto;
+  flex: none;
+}
+.achat-tool-caret {
+  transition: transform 0.16s ease;
+  color: var(--anvil-muted);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.achat-tool[data-open="true"] .achat-tool-caret {
+  transform: rotate(90deg);
+}
+.achat-tool-body {
+  display: none;
+  border-top: 1px solid var(--anvil-border);
+  background: var(--anvil-background);
+  padding: 10px 12px;
+  font-family: var(--anvil-font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--anvil-fg-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+}
+.achat-tool[data-open="true"] .achat-tool-body {
+  display: block;
+}
+
+/* ---- 审批卡（.confirm / -head / -body / -desc / -code / -foot） ---- */
+.achat-confirm {
+  border: 1px solid color-mix(in oklab, var(--anvil-warning) 34%, var(--anvil-border));
+  border-radius: var(--anvil-r-md);
+  background: var(--anvil-surface-raised);
+  overflow: hidden;
+  box-shadow: var(--anvil-shadow-sm);
+}
+.achat-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 13px;
+  background: var(--anvil-warning-soft);
+  border-bottom: 1px solid color-mix(in oklab, var(--anvil-warning) 22%, transparent);
+}
+.achat-confirm-head-title {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--anvil-foreground);
+}
+.achat-confirm-body {
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.achat-confirm-desc {
+  font-size: 12.5px;
+  color: var(--anvil-fg-2);
+  line-height: 1.65;
+}
+.achat-confirm-code {
+  font-family: var(--anvil-font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  background: var(--anvil-surface);
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-sm);
+  padding: 8px 10px;
+  color: var(--anvil-fg-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+}
+.achat-confirm-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 13px;
+  border-top: 1px solid var(--anvil-border);
+  background: var(--anvil-surface);
+  flex-wrap: wrap;
+}
+.achat-confirm-foot-hint {
+  font-size: 11px;
+  color: var(--anvil-muted);
+  margin-right: auto;
+}
+
+/* ---- 澄清卡（.inline-thil / -mark / -main / -kicker / -note） ---- */
+.achat-thil {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--anvil-accent) 24%, var(--anvil-border));
+  border-radius: var(--anvil-r-md);
+  background: color-mix(in oklab, var(--anvil-accent-soft) 58%, var(--anvil-surface-raised));
+}
+.achat-thil[data-submitted="true"] {
+  border-color: color-mix(in oklab, var(--anvil-success) 25%, var(--anvil-border));
+  background: var(--anvil-success-soft);
+}
+.achat-thil-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-surface-raised);
+  border: 1px solid var(--anvil-border);
+  color: var(--anvil-accent);
+  flex: none;
+}
+.achat-thil-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.achat-thil-kicker {
+  font-size: 9.5px;
+  color: var(--anvil-accent);
+  letter-spacing: 0.06em;
+}
+.achat-thil-question {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--anvil-foreground);
+  line-height: 1.45;
+}
+.achat-thil p {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--anvil-muted);
+  margin: 0;
+}
+.achat-thil-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--anvil-muted);
+}
+.achat-thil-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.achat-thil-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.achat-thil-textarea {
+  width: 100%;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-surface-raised);
+  color: var(--anvil-foreground);
+  padding: 7px 9px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.achat-thil-textarea:focus-visible {
+  border-color: var(--anvil-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--anvil-accent) 12%, transparent);
+}
+
+/* ---- 错误卡（.conversation-state 的虚线态 + danger 语气） ---- */
+.achat-error-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px dashed color-mix(in oklab, var(--anvil-danger) 40%, var(--anvil-border-strong));
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-danger-soft);
+}
+.achat-error-card .achat-error-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--anvil-surface-raised);
+  border: 1px solid var(--anvil-border);
+  color: var(--anvil-danger);
+  flex: none;
+}
+.achat-error-card-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.achat-error-card b {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--anvil-foreground);
+}
+.achat-error-card p {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--anvil-muted);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.achat-error-card .achat-error-code {
+  font-family: var(--anvil-font-mono);
+  font-size: 10.5px;
+  color: var(--anvil-foreground);
+}
+
+/* ---- 收口条（.conversation-state 的常规态） ---- */
+.achat-state-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px dashed var(--anvil-border-strong);
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-surface);
+}
+.achat-state-row[data-settled="completed"] .achat-state-icon {
+  color: var(--anvil-success);
+}
+.achat-state-row[data-settled="failed"] .achat-state-icon {
+  color: var(--anvil-danger);
+}
+.achat-state-row[data-settled="cancelled"] .achat-state-icon,
+.achat-state-row[data-settled="interrupted"] .achat-state-icon {
+  color: var(--anvil-warning);
+}
+.achat-state-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--anvil-surface-raised);
+  border: 1px solid var(--anvil-border);
+  flex: none;
+}
+.achat-state-row > div {
+  min-width: 0;
+  flex: 1;
+}
+.achat-state-row b {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--anvil-foreground);
+}
+.achat-state-row span:not(.achat-state-icon) {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--anvil-muted);
+  margin-top: 1px;
+}
+
+/* ---- 空态 ---- */
+.achat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 16px;
+  text-align: center;
+}
+.achat-empty b {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--anvil-foreground);
+}
+.achat-empty p {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--anvil-muted);
+  margin: 0;
+  max-width: 46ch;
+}
+
+/* ==========================================================================
+   4. 原语（原型 .btn / .btn-sm / .btn-primary / .btn-danger / .iconbtn /
+      .badge / .badge-warn / .tag / .hint / .kbd）
+   ========================================================================== */
+
+.achat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--anvil-r-sm);
+  border: 1px solid var(--anvil-border-strong);
+  background: var(--anvil-surface-raised);
+  color: var(--anvil-foreground);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.13s ease, border-color 0.13s ease, color 0.13s ease;
+  white-space: nowrap;
+}
+.achat-btn:hover {
+  background: var(--anvil-surface);
+  border-color: var(--anvil-muted);
+}
+.achat-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.achat-btn :is(svg) {
+  color: var(--anvil-muted);
+  flex: none;
+}
+.achat-btn-sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  border-radius: var(--anvil-r-xs);
+}
+.achat-btn-primary {
+  background: var(--anvil-accent);
+  border-color: var(--anvil-accent);
+  color: var(--anvil-on-accent);
+  font-weight: 550;
+}
+.achat-btn-primary:hover {
+  background: var(--anvil-accent-hover);
+  border-color: var(--anvil-accent-hover);
+  color: var(--anvil-on-accent);
+}
+.achat-btn-primary :is(svg) {
+  color: currentColor;
+}
+.achat-btn-danger {
+  background: var(--anvil-surface-raised);
+  border-color: color-mix(in oklab, var(--anvil-danger) 35%, var(--anvil-border));
+  color: var(--anvil-danger);
+}
+.achat-btn-danger:hover {
+  background: var(--anvil-danger-soft);
+  border-color: var(--anvil-danger);
+  color: var(--anvil-danger);
+}
+.achat-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--anvil-fg-2);
+}
+.achat-btn-ghost:hover {
+  background: var(--anvil-surface-3);
+  border-color: transparent;
+  color: var(--anvil-foreground);
+}
+
+.achat-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--anvil-r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--anvil-muted);
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.achat-iconbtn:hover {
+  background: var(--anvil-surface-3);
+  color: var(--anvil-foreground);
+}
+.achat-iconbtn[aria-pressed="true"] {
+  background: var(--anvil-surface-3);
+  color: var(--anvil-foreground);
+}
+.achat-iconbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.achat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--anvil-r-xs);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--anvil-border);
+  background: var(--anvil-surface);
+  color: var(--anvil-fg-2);
+  white-space: nowrap;
+}
+.achat-badge-warn {
+  background: var(--anvil-warning-soft);
+  border-color: color-mix(in oklab, var(--anvil-warning) 26%, transparent);
+  color: var(--anvil-warning);
+}
+.achat-badge-accent {
+  background: var(--anvil-accent-soft);
+  border-color: color-mix(in oklab, var(--anvil-accent) 22%, transparent);
+  color: var(--anvil-accent);
+}
+.achat-badge-success {
+  background: var(--anvil-success-soft);
+  border-color: color-mix(in oklab, var(--anvil-success) 24%, transparent);
+  color: var(--anvil-success);
+}
+.achat-badge-danger {
+  background: var(--anvil-danger-soft);
+  border-color: color-mix(in oklab, var(--anvil-danger) 24%, transparent);
+  color: var(--anvil-danger);
+}
+.achat-badge .achat-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}
+.achat-badge-mono {
+  font-family: var(--anvil-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+button.achat-badge {
+  cursor: pointer;
+}
+button.achat-badge:hover {
+  border-color: var(--anvil-border-strong);
+  color: var(--anvil-foreground);
+}
+
+.achat-hint {
+  font-size: 11px;
+  color: var(--anvil-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+.achat-hint-danger {
+  color: var(--anvil-danger);
+}
+.achat-hint-warn {
+  color: var(--anvil-warning);
+}
+.achat-mono {
+  font-family: var(--anvil-font-mono);
+}
+
+.achat-kbdset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.achat-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--anvil-border);
+  border-radius: 3px;
+  background: var(--anvil-surface-raised);
+  font-family: var(--anvil-font-mono);
+  font-size: 9.5px;
+  color: var(--anvil-muted);
+}
+
+/* 弹出菜单（页头「更多操作」/ 导出 / 项目菜单共用） */
+.achat-menu {
+  position: absolute;
+  z-index: 45;
+  min-width: 196px;
+  padding: 4px;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-md);
+  background: var(--anvil-surface-raised);
+  box-shadow: var(--anvil-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.achat-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--anvil-r-sm);
+  background: transparent;
+  color: var(--anvil-fg-2);
+  text-align: left;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.achat-menu-item:hover,
+.achat-menu-item:focus-visible {
+  outline: none;
+  background: var(--anvil-surface);
+  color: var(--anvil-foreground);
+}
+.achat-menu-item[data-danger="true"]:hover,
+.achat-menu-item[data-danger="true"]:focus-visible {
+  background: var(--anvil-danger-soft);
+  color: var(--anvil-danger);
+}
+.achat-menu-separator {
+  height: 1px;
+  margin: 3px -4px;
+  background: var(--anvil-border);
+}
+.achat-menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/* ==========================================================================
+   5. 输入区（原型 1086–1160 + pages.css 的 composer-project-row / -attachments）
+   ========================================================================== */
+
+.achat-composer-wrap {
+  flex: none;
+  padding: 10px 26px 14px;
+  background: linear-gradient(
+    to top,
+    var(--anvil-background) 62%,
+    color-mix(in oklab, var(--anvil-background) 60%, transparent)
+  );
+}
+
+.achat-project-row {
+  max-width: 760px;
+  margin: 0 auto 6px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.achat-project-control {
+  position: relative;
+}
+.achat-project-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 280px;
+  height: 25px;
+  padding: 0 8px;
+  border: 1px solid var(--anvil-border);
+  border-radius: 999px;
+  background: var(--anvil-surface-raised);
+  color: var(--anvil-fg-2);
+  font-size: 10.5px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--anvil-foreground) 5%, transparent);
+}
+.achat-project-trigger:hover,
+.achat-project-trigger[aria-expanded="true"] {
+  border-color: var(--anvil-border-strong);
+  background: var(--anvil-surface);
+  color: var(--anvil-foreground);
+}
+.achat-project-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.achat-project-menu {
+  position: absolute;
+  z-index: 45;
+  left: 0;
+  bottom: calc(100% + 5px);
+  width: 274px;
+  padding: 5px;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-md);
+  background: var(--anvil-surface-raised);
+  box-shadow: var(--anvil-shadow-lg);
+}
+.achat-project-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  min-width: 0;
+}
+.achat-project-summary > span:last-child {
+  min-width: 0;
+}
+.achat-project-summary b,
+.achat-project-summary small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.achat-project-summary b {
+  font-size: 11px;
+  font-weight: 580;
+  color: var(--anvil-foreground);
+}
+.achat-project-summary small {
+  margin-top: 1px;
+  font-size: 9px;
+  color: var(--anvil-muted);
+}
+
+/* .composer */
+.achat-composer {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+  border: 1px solid var(--anvil-border-strong);
+  border-radius: var(--anvil-r-lg);
+  background: var(--anvil-surface-raised);
+  box-shadow: var(--anvil-shadow-md);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.achat-composer:focus-within {
+  border-color: color-mix(in oklab, var(--anvil-accent) 55%, var(--anvil-border-strong));
+  box-shadow: var(--anvil-shadow-md), 0 0 0 3px color-mix(in oklab, var(--anvil-accent) 10%, transparent);
+}
+.achat-composer textarea {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  resize: none;
+  padding: 13px 14px 4px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  min-height: 52px;
+  max-height: 160px;
+  outline: none;
+  color: var(--anvil-foreground);
+  font-family: inherit;
+}
+.achat-composer textarea::placeholder {
+  color: var(--anvil-muted);
+}
+.achat-composer textarea:disabled {
+  opacity: 0.6;
+}
+
+.achat-composer-attachments {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 2px;
+  overflow-x: auto;
+  flex-wrap: wrap;
+}
+.achat-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  min-height: 28px;
+  padding: 0 5px 0 7px;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-surface);
+  flex: none;
+  font-size: 10.5px;
+}
+.achat-attachment[data-kind="skill"] {
+  background: color-mix(in oklab, var(--anvil-accent) 5%, var(--anvil-surface-raised));
+  border-color: color-mix(in oklab, var(--anvil-accent) 18%, var(--anvil-border));
+}
+.achat-attachment-rejected {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--anvil-danger-border, color-mix(in oklab, var(--anvil-danger) 30%, var(--anvil-border)));
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-danger-soft);
+  font-size: 10.5px;
+  color: var(--anvil-foreground);
+}
+.achat-attachment > span[data-attachment-status] {
+  font-size: 9px;
+  color: var(--anvil-success);
+  white-space: nowrap;
+}
+.achat-attachment button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--anvil-r-xs);
+  background: transparent;
+  color: var(--anvil-muted);
+  cursor: pointer;
+}
+.achat-attachment button:hover {
+  background: var(--anvil-surface-3);
+  color: var(--anvil-foreground);
+}
+
+/* 附件抽屉（原型 .attachment-drawer）：挂在输入框上方，从「+」打开 */
+.achat-attachment-drawer {
+  position: absolute;
+  z-index: 40;
+  left: 8px;
+  bottom: 43px;
+  width: 258px;
+  padding: 6px;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-md);
+  background: var(--anvil-surface-raised);
+  box-shadow: var(--anvil-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.achat-attachment-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.achat-attachment-label {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--anvil-muted);
+  padding: 2px 2px 0;
+}
+.achat-attachment-input,
+.achat-attachment-select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--anvil-border);
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-background);
+  color: var(--anvil-foreground);
+  font-size: 11px;
+  outline: none;
+}
+.achat-attachment-input:focus-visible,
+.achat-attachment-select:focus-visible {
+  border-color: var(--anvil-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--anvil-accent) 12%, transparent);
+}
+.achat-attachment-actions {
+  display: flex;
+  gap: 5px;
+}
+.achat-attachment-note {
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--anvil-muted);
+  margin: 0;
+  padding: 0 2px;
+}
+
+/* .composer-bar */
+.achat-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 8px 10px;
+  flex-wrap: wrap;
+}
+.achat-plus {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid var(--anvil-border-strong);
+  border-radius: var(--anvil-r-sm);
+  background: var(--anvil-surface-raised);
+  color: var(--anvil-fg-2);
+  cursor: pointer;
+}
+.achat-plus:hover,
+.achat-plus[aria-expanded="true"] {
+  background: var(--anvil-surface);
+  color: var(--anvil-foreground);
+  border-color: var(--anvil-accent);
+}
+.achat-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--anvil-r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--anvil-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.achat-ctl > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* 权限摘要是后端事实，可能很长（三个“未知”）：一行收口，完整文案在 title 里。 */
+.achat-ctl > span[data-permission-summary] {
+  max-width: 260px;
+}
+.achat-ctl :is(svg) {
+  color: currentColor;
+  opacity: 0.8;
+  flex: none;
+}
+.achat-ctl-mono {
+  font-family: var(--anvil-font-mono);
+  font-size: 11px;
+}
+.achat-composer-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.achat-send {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--anvil-r-sm);
+  border: 1px solid var(--anvil-accent);
+  background: var(--anvil-accent);
+  color: var(--anvil-on-accent);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.13s ease, border-color 0.13s ease;
+}
+.achat-send:hover {
+  background: var(--anvil-accent-hover);
+  border-color: var(--anvil-accent-hover);
+}
+.achat-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.achat-send:focus-visible,
+.achat-plus:focus-visible,
+.achat-btn:focus-visible,
+.achat-iconbtn:focus-visible,
+.achat-badge:focus-visible,
+.achat-rail-tab:focus-visible,
+.achat-tool-row:focus-visible {
+  outline: 2px solid var(--anvil-focus);
+  outline-offset: 2px;
+}
+
+/* .composer-foot */
+.achat-composer-foot {
+  max-width: 760px;
+  margin: 7px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--anvil-muted);
+  padding: 0 4px;
+  flex-wrap: wrap;
+}
+.achat-composer-foot-spacer {
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   6. 右栏（原型 1157–1200 + pages.css rail-foot / file-row / source / exec-row）
+   ========================================================================== */
+
+.achat-rail {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--anvil-surface-raised);
+  border-left: 1px solid var(--anvil-border);
+}
+.achat-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 42px;
+  flex: none;
+  border-bottom: 1px solid var(--anvil-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.achat-rail-head::-webkit-scrollbar {
+  display: none;
+}
+.achat-rail-tab {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--anvil-r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--anvil-muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.13s ease, color 0.13s ease, border-color 0.13s ease;
+}
+.achat-rail-tab:hover {
+  color: var(--anvil-foreground);
+  background: var(--anvil-surface);
+}
+.achat-rail-tab[aria-selected="true"] {
+  color: var(--anvil-foreground);
+  background: var(--anvil-surface);
+  border-color: var(--anvil-border);
+  font-weight: 550;
+}
+.achat-rail-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.achat-rail-pane {
+  display: none;
+}
+.achat-rail-pane[data-active="true"] {
+  display: block;
+}
+.achat-rail-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--anvil-border);
+  background: var(--anvil-surface);
+  font-size: 11px;
+  color: var(--anvil-muted);
+}
+.achat-rail-foot-spacer {
+  margin-left: auto;
+}
+.achat-rail-empty {
+  padding: 46px 20px;
+  text-align: center;
+  color: var(--anvil-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.achat-section-label {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--anvil-muted);
+  padding: 12px 14px 6px;
+}
+.achat-file-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--anvil-border);
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  color: inherit;
+}
+.achat-file-row-main {
+  min-width: 0;
+  flex: 1;
+}
+.achat-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--anvil-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.achat-file-sub {
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+  font-family: var(--anvil-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.achat-file-ext {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--anvil-r-xs);
+  border: 1px solid var(--anvil-border);
+  background: var(--anvil-surface);
+  display: grid;
+  place-items: center;
+  font-family: var(--anvil-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--anvil-fg-2);
+  flex: none;
+  text-transform: uppercase;
+}
+.achat-file-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.achat-exec-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--anvil-border);
+  font-size: 11.5px;
+}
+.achat-exec-row:last-child {
+  border-bottom: 0;
+}
+.achat-exec-label {
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+  letter-spacing: 0.04em;
+}
+.achat-exec-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--anvil-foreground);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.achat-exec-sub {
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+  font-family: var(--anvil-font-mono);
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+.achat-exec-t {
+  font-family: var(--anvil-font-mono);
+  font-size: 10.5px;
+  color: var(--anvil-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 窄窗抽屉遮罩与抓手（原型 .rail-scrim / .rail-drawer-handle） */
+.achat-rail-scrim {
+  display: none;
+}
+.achat-rail-handle {
+  display: none;
+}
+
+/* ==========================================================================
+   7. 窄屏：≤1100px 右栏变成底部抽屉（原型 ≤900px 的 .rail 抽屉形态）
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .achat-layout,
+  .achat-layout[data-rail="open"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .achat-rail {
+    display: flex;
+    position: fixed;
+    z-index: 72;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: min(78vh, 720px);
+    border: 1px solid var(--anvil-border);
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: var(--anvil-shadow-lg);
+    transform: translateY(105%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0.2s;
+  }
+  .achat-rail[data-open="true"] {
+    transform: translateY(0);
+    visibility: visible;
+  }
+  .achat-rail-handle {
+    display: grid;
+    place-items: center;
+    height: 14px;
+    flex: none;
+  }
+  .achat-rail-handle span {
+    width: 34px;
+    height: 3px;
+    border-radius: 99px;
+    background: var(--anvil-border-strong);
+  }
+  .achat-rail-scrim[data-open="true"] {
+    display: block;
+    position: fixed;
+    z-index: 71;
+    inset: 52px 0 0 0;
+    border: 0;
+    background: color-mix(in oklab, var(--anvil-foreground) 22%, transparent);
+    cursor: default;
+  }
+  .achat-thread-col {
+    border-right-color: transparent;
+  }
+}
+
+@media (max-width: 620px) {
+  .achat-head {
+    padding: 6px 12px;
+  }
+  .achat-thread-inner,
+  .achat-composer-wrap {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .achat-bubble {
+    max-width: 100%;
+  }
+}

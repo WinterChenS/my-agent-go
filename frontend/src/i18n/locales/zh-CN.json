@@ -239,10 +239,21 @@
     "emptyTitle": "还没有开始对话",
     "emptyHint": "在下面输入第一条消息；工具调用与审批会按后端事件顺序出现在这里。",
     "streaming": "正在输出…",
+    "streamingBadge": "生成中",
     "thinkingState": "Pi 状态",
     "settled": "本轮结论",
     "settledHint": "结论只来自后端的终局事件；工具跑完不代表这一轮结束。",
     "sessionId": "会话 ID",
+    "head": {
+      "more": "更多操作",
+      "pendingClarifications": "{count} 项待澄清",
+      "pendingApprovals": "{count} 项待授权",
+      "clarificationsHint": "跳到这一项待澄清的内容确认（不授予任何权限）",
+      "approvalsHint": "跳到这一项待授权的工具调用"
+    },
+    "agent": {
+      "badge": "Pi"
+    },
     "role": {
       "user": "你",
       "assistant": "Agent"
@@ -256,6 +267,7 @@
       "unknownHint": "停止或中断之后这个调用没有回填结果：不显示成功，也不显示失败。",
       "args": "参数",
       "result": "输出",
+      "noResult": "还没有回填结果。",
       "showArgs": "展开参数",
       "hideArgs": "收起参数"
     },
@@ -268,6 +280,9 @@
       "session": "本会话内允许",
       "deny": "拒绝",
       "submitted": "已提交，等待后端结论",
+      "riskBadge": "需要确认",
+      "requestedTool": "工具调用",
+      "footHint": "本次会话内有效 · 可拒绝",
       "pendingHint": "按钮点击后只表示请求已提交；这条要等后端 approval.resolved 到达才会消失。",
       "resolvedWithReason": "后端已拒绝这条审批（原因：{reason}）",
       "resolvedOnce": "后端已批准一次",
@@ -294,6 +309,8 @@
     },
     "clarification": {
       "title": "需要你回答",
+      "kicker": "THIL · 内容确认",
+      "note": "只确认业务内容，不会授予工具权限",
       "question": "问题",
       "chooseOption": "选择一个选项",
       "answerLabel": "回答",
@@ -312,6 +329,13 @@
       "stop": "停止",
       "stopping": "正在停止…",
       "stopRequested": "停止已请求：不会再派发新消息，等后端回终局。",
+      "project": "当前项目",
+      "noProject": "未绑定项目",
+      "attachmentsMenu": "添加文件、目录或 Skill",
+      "filesOrDirectory": "文件或目录",
+      "footHint": "Enter 发送，Shift+Enter 换行。",
+      "footSend": "发送",
+      "footNewline": "换行",
       "profile": "Profile",
       "profileHint": "这一轮用哪个 Profile 由后端启动参数决定",
       "model": "模型",
@@ -433,6 +457,9 @@
       "errors": "错误",
       "diagnostics": "诊断",
       "events": "事件数",
+      "tabs": "右栏分区",
+      "runLabel": "本轮 run",
+      "railFootIdle": "还没有运行记录",
       "openPanel": "展开上下文",
       "closePanel": "收起上下文",
       "drawer": "上下文抽屉",

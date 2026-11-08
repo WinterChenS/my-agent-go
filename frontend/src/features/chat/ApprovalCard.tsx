@@ -1,4 +1,4 @@
-// 工具审批卡（U02 / UI06）。
+// 工具审批卡（U02 / D2b）。
 //
 // 这一张卡是整个对话页最容易做错的地方，所以把纪律写在这里：
 //
@@ -11,17 +11,22 @@
 // 曾经的实现是点完就地移除，那会让界面在“后端其实拒绝了/根本没收到”时
 // 显示成“授权成功”——用户以为工具已经能跑了，实际什么都没发生。
 //
-// 这个组件只接收一个已提交的本地标记（submitted），不做任何自行移除。
+// 几何来自原型 `assets/studio.css` 的 `.confirm`（警示头 + 正文 + 代码块 +
+// 底部动作条）：头和底都是 `--surface-2` 面，正文在 `--surface` 上。原型的
+// 三个动作是「拒绝 / 总是允许 / 允许本次」，与我们的 deny / session_scope / once
+// 一一对应（同一组按钮，只是文案跟着 catalog 走）。
 
+import { Shield } from "lucide-react";
 import { formatDate, t } from "../../i18n";
 import { useBrowserOcclusionLayer } from "../../app/BrowserOcclusionCoordinator";
 import type { UiApproval } from "../../runState";
 import type { ApprovalChoice } from "../../types";
 
-const CHOICES: { choice: ApprovalChoice; labelKey: string }[] = [
-  { choice: "once", labelKey: "chat.approval.once" },
-  { choice: "session_scope", labelKey: "chat.approval.session" },
+/** 原型 .confirm-foot 的动作顺序：拒绝在左，主操作在右。 */
+const CHOICES: { choice: ApprovalChoice; labelKey: string; primary?: boolean }[] = [
   { choice: "deny", labelKey: "chat.approval.deny" },
+  { choice: "session_scope", labelKey: "chat.approval.session" },
+  { choice: "once", labelKey: "chat.approval.once", primary: true },
 ];
 
 export interface ApprovalCardProps {
@@ -46,62 +51,61 @@ export function ApprovalCard({ item, onDecide, disabled = false }: ApprovalCardP
       data-approval-card={item.approvalId}
       data-submitted={submitted ? "true" : "false"}
       aria-labelledby={`approval-${item.approvalId}`}
-      className="rounded-md border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-2.5 py-2"
+      className="achat-confirm"
     >
-      <header className="flex flex-wrap items-center gap-2">
-        <h3
-          id={`approval-${item.approvalId}`}
-          className="text-[11px] font-medium text-[color:var(--anvil-foreground)]"
-        >
+      <div className="achat-confirm-head">
+        <Shield size={14} aria-hidden />
+        <h3 id={`approval-${item.approvalId}`} className="achat-confirm-head-title">
           {t("chat.approval.title")}
         </h3>
-        <span className="text-[10px] text-[color:var(--anvil-muted)]">{t("chat.approval.tool")}</span>
-        <span className="font-mono text-[11px] text-[color:var(--anvil-foreground)]">{item.toolName}</span>
-        {submitted ? (
-          <span
-            data-approval-submitted="true"
-            className="rounded-full border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)]"
-          >
-            {t("chat.approval.submitted")}
-          </span>
-        ) : null}
-      </header>
+        <span className="achat-badge achat-badge-warn" style={{ marginLeft: "auto" }}>
+          {t("chat.approval.riskBadge")}
+        </span>
+      </div>
 
-      <p className="mt-1 text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
-        {t("chat.approval.pendingHint")}
-      </p>
-
-      {item.expiresAtUnix > 0 ? (
-        <p data-approval-expires="" className="mt-1 text-[10px] text-[color:var(--anvil-muted)]">
-          {t("chat.approval.expiresAt")}
+      <div className="achat-confirm-body">
+        <p className="achat-confirm-desc">
+          {t("chat.approval.requestedTool")}
           {" · "}
-          {formatDate(new Date(item.expiresAtUnix * 1000).toISOString())}
+          <span className="achat-mono" style={{ color: "var(--anvil-foreground)" }}>
+            {item.toolName}
+          </span>
         </p>
-      ) : null}
-
-      <div className="mt-2 space-y-1">
-        <p className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">
-          {t("chat.approval.arguments")}
-        </p>
-        <pre className="max-h-40 overflow-auto rounded bg-[color:var(--anvil-background)] p-2 font-mono text-[10px] leading-relaxed text-[color:var(--anvil-foreground)]">
+        <p className="achat-confirm-desc">{t("chat.approval.pendingHint")}</p>
+        {item.expiresAtUnix > 0 ? (
+          <p data-approval-expires="" className="achat-hint">
+            {t("chat.approval.expiresAt")}
+            {" · "}
+            {formatDate(new Date(item.expiresAtUnix * 1000).toISOString())}
+          </p>
+        ) : null}
+        <pre className="achat-confirm-code" data-approval-args="">
           {item.args}
         </pre>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-2">
-        {CHOICES.map(({ choice, labelKey }) => (
+      <div className="achat-confirm-foot">
+        <span className="achat-confirm-foot-hint">
+          {submitted ? t("chat.approval.submitted") : t("chat.approval.footHint")}
+        </span>
+        {submitted ? (
+          <span data-approval-submitted="true" className="achat-badge">
+            {t("chat.approval.submitted")}
+          </span>
+        ) : null}
+        {CHOICES.map(({ choice, labelKey, primary }) => (
           <button
             key={choice}
             type="button"
             disabled={locked}
             onClick={() => onDecide(item, choice)}
             className={[
-              "rounded-md border px-2.5 py-1 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]",
-              choice === "deny"
-                ? "border-[color:var(--anvil-danger-border)] text-[color:var(--anvil-danger)]"
-                : "border-[color:var(--anvil-border)] text-[color:var(--anvil-foreground)]",
-              locked ? "cursor-not-allowed opacity-50" : "hover:bg-[color:var(--anvil-surface)]",
-            ].join(" ")}
+              "achat-btn",
+              "achat-btn-sm",
+              primary ? "achat-btn-primary" : choice === "deny" ? "achat-btn-danger" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             {t(labelKey)}
           </button>

@@ -58,6 +58,17 @@ function renderComposer(overrides: Partial<Parameters<typeof Composer>[0]> = {})
   return { ...utils, onSend, onStop, onChange };
 }
 
+/**
+ * 打开附件抽屉（原型的 `+` 按钮）。
+ *
+ * D2b 把“路径输入 / 添加文件 / 添加目录 / Skill”收进了原型那个抽屉里，
+ * 所以每个附件用例的第一件事是打开它——这是产品里用户真实的点击路径。
+ */
+async function openAttachmentDrawer(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: t("chat.composer.attachmentsMenu") }));
+  expect(document.querySelector("[data-attachment-drawer]")).not.toBeNull();
+}
+
 const ACCEPTED = {
   id: "att-1",
   displayName: "a.md",
@@ -89,6 +100,7 @@ describe("Composer 附件", () => {
       ],
     });
     renderComposer();
+    await openAttachmentDrawer(user);
 
     await user.type(screen.getByLabelText(t("chat.composer.pathPlaceholder")), "/work/locked.bin");
     await user.click(screen.getByRole("button", { name: t("chat.composer.addFile") }));
@@ -109,6 +121,7 @@ describe("Composer 附件", () => {
     const user = userEvent.setup();
     backend.resolveAttachments = async () => ({ sessionId: "sess-1", items: [ACCEPTED], rejected: [] });
     const { onSend } = renderComposer();
+    await openAttachmentDrawer(user);
 
     await user.type(screen.getByLabelText(t("chat.composer.pathPlaceholder")), "/work/a.md");
     await user.click(screen.getByRole("button", { name: t("chat.composer.addFile") }));
@@ -127,6 +140,7 @@ describe("Composer 附件", () => {
       error: { code: "CONFIG_MISSING", message: "附件存储不可用", retryable: false },
     });
     renderComposer();
+    await openAttachmentDrawer(user);
 
     await user.type(screen.getByLabelText(t("chat.composer.pathPlaceholder")), "/work/a.md");
     await user.click(screen.getByRole("button", { name: t("chat.composer.addFile") }));
@@ -135,6 +149,57 @@ describe("Composer 附件", () => {
       expect(screen.getByText(t("chat.composer.resolveFailed", { code: "CONFIG_MISSING" }))).toBeInTheDocument()
     );
     expect(document.querySelector("[data-attachment-accepted]")).toBeNull();
+  });
+});
+
+describe("Composer 解剖（D2b）", () => {
+  it("附件入口是「+」抽屉：未打开时没有路径输入，打开后有 aria-expanded 与抽屉节点", async () => {
+    const user = userEvent.setup();
+    renderComposer();
+
+    const plus = screen.getByRole("button", { name: t("chat.composer.attachmentsMenu") });
+    expect(plus.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("[data-attachment-drawer]")).toBeNull();
+    // 附件行在没有附件时不占位（原型的 hidden）
+    expect(document.querySelector("[data-composer-attachments]")).toBeNull();
+
+    await user.click(plus);
+    expect(plus.getAttribute("aria-expanded")).toBe("true");
+    const drawer = document.querySelector("[data-attachment-drawer]") as HTMLElement;
+    expect(drawer).not.toBeNull();
+    expect(within(drawer).getByLabelText(t("chat.composer.pathPlaceholder"))).toBeInTheDocument();
+    expect(drawer.getAttribute("aria-label")).toBe(t("chat.composer.attachmentsMenu"));
+
+    await user.click(plus);
+    expect(plus.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("[data-attachment-drawer]")).toBeNull();
+  });
+
+  it("有附件时才出现附件行，移除后整行消失", async () => {
+    const user = userEvent.setup();
+    backend.resolveAttachments = async () => ({ sessionId: "sess-1", items: [ACCEPTED], rejected: [] });
+    renderComposer();
+    await openAttachmentDrawer(user);
+
+    await user.type(screen.getByLabelText(t("chat.composer.pathPlaceholder")), "/work/a.md");
+    await user.click(screen.getByRole("button", { name: t("chat.composer.addFile") }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-composer-attachments]")).not.toBeNull()
+    );
+
+    await user.click(screen.getByRole("button", { name: t("chat.composer.remove") }));
+    expect(document.querySelector("[data-attachment-accepted]")).toBeNull();
+    expect(document.querySelector("[data-composer-attachments]")).toBeNull();
+  });
+
+  it("脚注写清快捷键，且修饰键与平台一致（不是永远画 ⌘）", () => {
+    renderComposer();
+    const foot = document.querySelector(".achat-composer-foot") as HTMLElement;
+    expect(foot).not.toBeNull();
+    expect(foot.textContent).toContain(t("chat.composer.footSend"));
+    expect(foot.textContent).toContain(t("chat.composer.footNewline"));
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+    expect(foot.textContent).toContain(isMac ? "⌘" : "Ctrl");
   });
 });
 
