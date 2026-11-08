@@ -239,10 +239,21 @@
     "emptyTitle": "No conversation yet",
     "emptyHint": "Type the first message below. Tool calls and approvals appear here in backend event order.",
     "streaming": "Streaming…",
+    "streamingBadge": "Generating",
     "thinkingState": "Pi state",
     "settled": "Run outcome",
     "settledHint": "The outcome comes only from the backend terminal event; a finished tool call does not end the run.",
     "sessionId": "Session ID",
+    "head": {
+      "more": "More actions",
+      "pendingClarifications": "{count} clarification(s) pending",
+      "pendingApprovals": "{count} approval(s) pending",
+      "clarificationsHint": "Jump to the pending content question (grants no permission)",
+      "approvalsHint": "Jump to the pending tool approval"
+    },
+    "agent": {
+      "badge": "Pi"
+    },
     "role": {
       "user": "You",
       "assistant": "Agent"
@@ -256,6 +267,7 @@
       "unknownHint": "After a stop or interruption this call never reported a result: neither success nor failure is claimed.",
       "args": "Arguments",
       "result": "Output",
+      "noResult": "No result has been reported yet.",
       "showArgs": "Show arguments",
       "hideArgs": "Hide arguments"
     },
@@ -268,6 +280,9 @@
       "session": "Allow for this session",
       "deny": "Deny",
       "submitted": "Submitted, waiting for the backend",
+      "riskBadge": "Needs confirmation",
+      "requestedTool": "Tool call",
+      "footHint": "Valid for this session · can be denied",
       "pendingHint": "A click only submits the request; this card disappears when the backend approval.resolved arrives.",
       "resolvedWithReason": "The backend denied this approval (reason: {reason})",
       "resolvedOnce": "The backend allowed it once",
@@ -294,6 +309,8 @@
     },
     "clarification": {
       "title": "Your answer is needed",
+      "kicker": "THIL · content confirmation",
+      "note": "Confirms content only; it grants no tool permission",
       "question": "Question",
       "chooseOption": "Choose an option",
       "answerLabel": "Answer",
@@ -312,6 +329,13 @@
       "stop": "Stop",
       "stopping": "Stopping…",
       "stopRequested": "Stop requested: no new message is dispatched until the backend settles the run.",
+      "project": "Current project",
+      "noProject": "No project attached",
+      "attachmentsMenu": "Add a file, directory or Skill",
+      "filesOrDirectory": "File or directory",
+      "footHint": "Enter sends, Shift+Enter adds a line.",
+      "footSend": "Send",
+      "footNewline": "New line",
       "profile": "Profile",
       "profileHint": "The backend decides which Profile this run uses",
       "model": "Model",
@@ -433,6 +457,9 @@
       "errors": "Errors",
       "diagnostics": "Diagnostics",
       "events": "Events",
+      "tabs": "Rail sections",
+      "runLabel": "Run",
+      "railFootIdle": "No run recorded yet",
       "openPanel": "Show context",
       "closePanel": "Hide context",
       "drawer": "Context drawer",

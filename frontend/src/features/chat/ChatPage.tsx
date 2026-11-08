@@ -1,10 +1,22 @@
-// 对话页（U02 / UI06）。
+// 对话页（U02 / D2b）。
 //
 // 页面只做三件事：读这个会话的后端事实、把事件状态渲染出来、把用户动作转发给后端。
 // 它不保存第二份业务真相：
 //   - 消息、工具、审批、澄清的状态在 runState（由后端事件推进）；
 //   - 会话标题/置顶/归档/revision 在 C06 会话目录（改完重新读）；
 //   - 产物与执行事实在 C07（右栏读），导出由后端写文件。
+//
+// 骨架（D2b）来自原型 `docs/ui/Agent-客户端产品原型/chat.html` +
+// `assets/studio.css` 873–900 / 1086–1200：
+//
+//   .achat（.chat-page：flex 列、min-height:0）
+//     ├─ .achat-head（页头：标题/副行/右侧动作）
+//     └─ .achat-layout（.chat-layout：grid minmax(0,1fr) 0 → open 时 1fr 400px）
+//          ├─ .achat-thread-col（.thread-col）
+//          │    ├─ .achat-thread（.thread：padding 22px 0 8px，唯一滚动区）
+//          │    │    └─ .achat-thread-inner（max-width 760 / padding 0 26px / gap 26px）
+//          │    └─ .achat-composer-wrap（padding 10px 26px 14px）
+//          └─ .achat-rail（.rail：400px 由 grid 给，head 42px）
 //
 // 几个刻意的选择：
 //   - 重命名/置顶/归档/删除一律带 expectedRevision，冲突显示 CONFIG_CONFLICT 并给重新读取，
@@ -18,12 +30,22 @@
 //     如实显示 unavailable 与原因，而不是画一个假的标签页。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Download,
+  Folder,
+  MoreHorizontal,
+  PanelRight,
+  Globe,
+  MessageSquare,
+  ShieldAlert,
+} from "lucide-react";
 import { AsyncState } from "../../components/states/AsyncState";
 import { StatusBadge } from "../../components/status/StatusBadge";
-import { formatBytes, formatError, t } from "../../i18n";
+import { formatBytes, formatError, getLocale, isLocale, setLocale, storeLocalePreference, t, SUPPORTED_LOCALES } from "../../i18n";
 import type { CallError, RunState } from "../../types";
 import type { ClarificationItem, UiApproval } from "../../runState";
 import type { ApprovalChoice } from "../../types";
+import { clarificationsOf } from "../../runState";
 import { useShell } from "../../app/shell";
 import type { PageProps } from "../../app/navigation";
 import { toCallError } from "../../app/useBackend";
@@ -38,6 +60,7 @@ import { MessageList } from "./MessageList";
 import { useBrowserApprovals, type BrowserApprovalBackend } from "./browserApproval";
 import { chatApi, type ChatClarificationResponse, type ChatExportFormat, type ChatExportResult } from "./api";
 import type { UiState } from "../../runState";
+import "./chat.css";
 
 /** 已知的 run 状态集合：未知状态按 unknown 显示，不猜。 */
 const RUN_STATES: readonly string[] = [
@@ -94,6 +117,13 @@ const EXPORT_FORMATS: { format: ChatExportFormat; labelKey: string }[] = [
   { format: "json", labelKey: "chat.export.json" },
 ];
 
+/** 页头副行的权限摘要：与输入区同一份措辞（同一批后端事实，颜色/语气一致）。 */
+function permissionHeadline(permission: PermissionSummary): string {
+  const part = (value: boolean | null) =>
+    value === null ? t("chat.composer.permissionMissing") : value ? t("chat.composer.permissionOn") : t("chat.composer.permissionOff");
+  return part(permission.shell);
+}
+
 export interface ChatPageProps extends PageProps {
   /**
    * 浏览器审批通道（M1）。产品里用默认的绑定；测试注入替身。
@@ -134,6 +164,8 @@ const defaultReadinessBackend: ReadinessBackend = {
   discoverPi: () => settingsApi.discoverPiFast(),
 };
 
+type HeadMenu = "more" | "export" | null;
+
 export function ChatPage({
   onNavigate,
   route,
@@ -156,8 +188,11 @@ export function ChatPage({
   const [exportResult, setExportResult] = useState<ChatExportResult | null>(null);
   const [exportError, setExportError] = useState<CallError | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [menu, setMenu] = useState<HeadMenu>(null);
+  const [locale, setLocaleState] = useState(() => getLocale());
 
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const headRef = useRef<HTMLElement | null>(null);
 
   /**
    * 当前这次运行是否属于本页面这个会话。
@@ -276,6 +311,18 @@ export function ChatPage({
     if (narrow) setPanelOpen(false);
   }, [narrow]);
 
+  // 菜单的“点外面关掉”：只监听一次，不把每个菜单都做成受控焦点陷阱。
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (e: MouseEvent) => {
+      const node = e.target;
+      if (node instanceof Node && headRef.current?.contains(node)) return;
+      setMenu(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menu]);
+
   /** 会话目录变更：成功就重新读；CAS 冲突原样露出 code。 */
   const runMutation = useCallback(
     async (fn: SessionMutation) => {
@@ -344,6 +391,7 @@ export function ChatPage({
   const exportSession = useCallback(
     async (format: ChatExportFormat) => {
       if (!sessionId) return;
+      setMenu(null);
       setExporting(format);
       setExportError(null);
       setExportResult(null);
@@ -407,7 +455,18 @@ export function ChatPage({
     if (!root) return;
     const target = root.querySelector(`[data-run-id="${runId}"]`);
     if (target instanceof HTMLElement) {
-      target.scrollIntoView({ block: "center" });
+      // jsdom 没有 scrollIntoView：有就滚，没有也别让定位本身失败。
+      if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "center" });
+      target.setAttribute("data-located", "true");
+    }
+  }, []);
+
+  /** 页头的待办徽标：点它滚到对应的卡片（真实动作，不是装饰）。 */
+  const locateSelector = useCallback((selector: string) => {
+    const root = messagesRef.current;
+    const target = root?.querySelector(selector);
+    if (target instanceof HTMLElement) {
+      if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "center" });
       target.setAttribute("data-located", "true");
     }
   }, []);
@@ -466,203 +525,348 @@ export function ChatPage({
   const checkingHint =
     checkingReadiness && readinessReport === null ? t("chat.composer.checkingReadiness") : null;
 
+  const switchLocale = useCallback((next: string) => {
+    if (!isLocale(next)) return;
+    // 先让本次会话生效，再写本地镜像（权威值仍以后端 Preferences 为准）。
+    setLocale(next);
+    storeLocalePreference(next);
+    setLocaleState(next);
+  }, []);
+
   // 没有任何会话 id：沿用 U01 的空态（不自动建会话）。
   if (!sessionId) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-10">
-        <AsyncState
-          phase="empty"
-          emptyTitle={t("shell.emptyHistory")}
-          emptyHint={t("shell.emptyHistoryHint")}
-          action={
-            <button
-              type="button"
-              onClick={() => void shell.onNewSession()}
-              className="rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
-            >
-              {t("shell.newSession")}
-            </button>
-          }
-        />
+      <div className="achat" data-chat-page="">
+        <div className="achat-empty">
+          <AsyncState
+            phase="empty"
+            emptyTitle={t("shell.emptyHistory")}
+            emptyHint={t("shell.emptyHistoryHint")}
+            action={
+              <button
+                type="button"
+                onClick={() => void shell.onNewSession()}
+                className="achat-btn achat-btn-sm"
+              >
+                {t("shell.newSession")}
+              </button>
+            }
+          />
+        </div>
       </div>
     );
   }
 
   if (sessionLoading && !session) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-6">
-        <AsyncState phase="loading" loadingLabel={t("chat.loading")} />
+      <div className="achat" data-chat-page="">
+        <div className="achat-empty">
+          <AsyncState phase="loading" loadingLabel={t("chat.loading")} />
+        </div>
       </div>
     );
   }
 
   if (sessionError && !session) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-6">
-        <AsyncState phase="error" error={sessionError} onRetry={() => void loadSession()} />
+      <div className="achat" data-chat-page="">
+        <div className="achat-empty">
+          <AsyncState phase="error" error={sessionError} onRetry={() => void loadSession()} />
+        </div>
       </div>
     );
   }
 
   const title = session?.title || t("chat.untitled");
+  const clarificationCount = runBelongsToPage ? clarificationsOf(shell.ui).length : 0;
+  const approvalCount = runBelongsToPage
+    ? shell.ui.approvals.length + (browserPending.items?.length ?? 0)
+    : 0;
+  const projectName = shell.currentWorkspace?.name ?? "";
+  const projectPath = shell.currentWorkspace?.canonicalPath ?? "";
 
   return (
-    <div className="flex h-full min-h-0">
-      {/* 主列：头部 + 消息流 + 输入区 */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="shrink-0 space-y-1.5 border-b border-[color:var(--anvil-border)] px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 data-session-title="" className="min-w-0 truncate text-[13px] font-medium text-[color:var(--anvil-foreground)]">
-              {title}
-            </h1>
-            <span className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">
-              {t("chat.thinkingState")}
-            </span>
+    <div className="achat" data-chat-page="">
+      {/* ---------------- 页头 ---------------- */}
+      <header className="achat-head" data-chat-head="" ref={headRef}>
+        <div className="achat-head-main">
+          <div className="achat-title">
+            <h1 data-session-title="">{title}</h1>
             <StatusBadge status={runStateBadge(shell.ui.phase)} />
             {session?.pinned ? (
-              <span className="rounded-full border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)]">
-                {t("chat.sessionActions.pinnedBadge")}
-              </span>
+              <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.pinnedBadge")}</span>
             ) : null}
             {session?.archived ? (
-              <span className="rounded-full border border-[color:var(--anvil-border)] px-2 py-0.5 text-[10px] text-[color:var(--anvil-muted)]">
-                {t("chat.sessionActions.archivedBadge")}
-              </span>
+              <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.archivedBadge")}</span>
             ) : null}
-            <span className="ml-auto font-mono text-[10px] text-[color:var(--anvil-muted)]">
-              {t("chat.sessionId")}
+          </div>
+          <div className="achat-subline">
+            <span className="achat-project-mark" data-chat-project-mark="">
+              <Folder size={10} aria-hidden />
+              {projectName || t("chat.composer.noProject")}
+            </span>
+            <span className="achat-subline-sep" aria-hidden>
+              /
+            </span>
+            <span className="achat-subline-mono">{modelLabel || t("common.unknown")}</span>
+            <span className="achat-subline-sep" aria-hidden>
+              /
+            </span>
+            <span className="achat-subline-mono">
+              {t("chat.composer.thinking")}
               {" · "}
-              {sessionId}
+              {t("chat.composer.thinkingUnknown")}
+            </span>
+            <span className="achat-subline-sep" aria-hidden>
+              /
+            </span>
+            <span className="achat-subline-mono">
+              {t("chat.composer.permission")}
+              {" · "}
+              {permissionHeadline(permission)}
             </span>
           </div>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {renaming ? (
-              <span className="flex flex-wrap items-center gap-1.5">
-                <label htmlFor="session-title-input" className="sr-only">
-                  {t("chat.sessionActions.renamePlaceholder")}
-                </label>
-                <input
-                  id="session-title-input"
-                  value={draftTitle}
-                  onChange={(e) => setDraftTitle(e.target.value)}
-                  placeholder={t("chat.sessionActions.renamePlaceholder")}
-                  className="rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)]"
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveTitle()}
-                  className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
-                >
-                  {t("chat.sessionActions.save")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRenaming(false);
-                    setDraftTitle(session?.title ?? "");
-                  }}
-                  className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
-                >
-                  {t("chat.sessionActions.cancel")}
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setRenaming(true)}
-                className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
-              >
-                {t("chat.sessionActions.rename")}
-              </button>
-            )}
-
+        <div className="achat-head-actions">
+          {clarificationCount > 0 ? (
             <button
               type="button"
-              onClick={() => void togglePin()}
-              className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
+              data-chat-clarification-badge=""
+              className="achat-badge achat-badge-accent"
+              onClick={() => locateSelector("[data-clarification-card]")}
+              title={t("chat.head.clarificationsHint")}
             >
-              {session?.pinned ? t("chat.sessionActions.unpin") : t("chat.sessionActions.pin")}
+              <MessageSquare size={11} aria-hidden />
+              {t("chat.head.pendingClarifications", { count: clarificationCount })}
             </button>
+          ) : null}
+          {approvalCount > 0 ? (
             <button
               type="button"
-              onClick={() => void toggleArchive()}
-              className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
+              data-chat-approval-badge=""
+              className="achat-badge achat-badge-warn"
+              onClick={() => locateSelector("[data-approval-card],[data-browser-approval-card]")}
+              title={t("chat.head.approvalsHint")}
             >
-              {session?.archived ? t("chat.sessionActions.unarchive") : t("chat.sessionActions.archive")}
+              <i className="achat-dot" aria-hidden />
+              {t("chat.head.pendingApprovals", { count: approvalCount })}
             </button>
-            {confirmingDelete ? (
-              <span className="flex items-center gap-1.5">
-                <span className="text-[10px] text-[color:var(--anvil-danger)]">
-                  {t("chat.sessionActions.deleteConfirm")}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void removeSession()}
-                  className="rounded-md border border-[color:var(--anvil-danger-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-danger)] hover:bg-[color:var(--anvil-danger-surface)]"
-                >
-                  {t("chat.sessionActions.confirm")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)]"
-                >
-                  {t("chat.sessionActions.cancel")}
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
-              >
-                {t("chat.sessionActions.delete")}
-              </button>
-            )}
+          ) : null}
 
-            {EXPORT_FORMATS.map(({ format, labelKey }) => (
-              <button
-                key={format}
-                type="button"
-                onClick={() => void exportSession(format)}
-                disabled={exporting !== null}
-                className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("chat.export.label")}
-                {" · "}
-                {t(labelKey)}
-              </button>
-            ))}
+          <span className="achat-badge" style={{ gap: 3, padding: "0 5px" }}>
+            <Globe size={12} aria-hidden style={{ color: "var(--anvil-muted)" }} />
+            <select
+              aria-label={t("locale.label")}
+              value={locale}
+              onChange={(e) => switchLocale(e.target.value)}
+              style={{
+                border: 0,
+                background: "transparent",
+                color: "inherit",
+                fontSize: 10.5,
+                outline: "none",
+                cursor: "pointer",
+              }}
+            >
+              {SUPPORTED_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {t(`locale.${code}`)}
+                </option>
+              ))}
+            </select>
+          </span>
 
-            {shell.ui.runId ? (
-              <button
-                type="button"
-                onClick={() =>
-                  shell.onReplayRun(shell.ui.runId as string, shell.ui.lastSeqByRun[shell.ui.runId as string] ?? 0)
-                }
-                className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
+          {/* 导出：一个按钮 + 三个格式（原型的导出对话框在这里是一层菜单） */}
+          <div className="achat-menu-anchor">
+            <button
+              type="button"
+              className="achat-btn achat-btn-sm"
+              aria-haspopup="menu"
+              aria-expanded={menu === "export"}
+              onClick={() => setMenu((m) => (m === "export" ? null : "export"))}
+            >
+              <Download size={13} aria-hidden />
+              {t("chat.export.label")}
+            </button>
+            {menu === "export" ? (
+              <div
+                className="achat-menu"
+                role="menu"
+                aria-label={t("chat.export.label")}
+                style={{ right: 0, top: "calc(100% + 5px)" }}
               >
-                {t("chat.replay")}
-              </button>
+                {EXPORT_FORMATS.map(({ format, labelKey }) => (
+                  <button
+                    key={format}
+                    type="button"
+                    role="menuitem"
+                    disabled={exporting !== null}
+                    onClick={() => void exportSession(format)}
+                    className="achat-menu-item"
+                  >
+                    {t("chat.export.label")}
+                    {" · "}
+                    {t(labelKey)}
+                  </button>
+                ))}
+              </div>
             ) : null}
-
-            <ContextPanelToggle open={panelOpen} narrow={narrow} onToggle={() => setPanelOpen((v) => !v)} />
           </div>
 
-          {exporting ? (
-            <p className="text-[10px] text-[color:var(--anvil-muted)]">{t("chat.export.writing")}</p>
+          <ContextPanelToggle open={panelOpen} narrow={narrow} onToggle={() => setPanelOpen((v) => !v)} />
+
+          {/* 更多：重命名 / 置顶 / 归档 / 重放 / 删除 */}
+          <div className="achat-menu-anchor">
+            <button
+              type="button"
+              className="achat-iconbtn"
+              aria-haspopup="menu"
+              aria-expanded={menu === "more"}
+              aria-label={t("chat.head.more")}
+              title={t("chat.head.more")}
+              onClick={() => setMenu((m) => (m === "more" ? null : "more"))}
+            >
+              <MoreHorizontal size={16} aria-hidden />
+            </button>
+            {menu === "more" ? (
+              <div
+                className="achat-menu"
+                role="menu"
+                aria-label={t("chat.head.more")}
+                style={{ right: 0, top: "calc(100% + 5px)" }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="achat-menu-item"
+                  onClick={() => {
+                    setRenaming(true);
+                    setMenu(null);
+                  }}
+                >
+                  {t("chat.sessionActions.rename")}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="achat-menu-item"
+                  onClick={() => {
+                    setMenu(null);
+                    void togglePin();
+                  }}
+                >
+                  {session?.pinned ? t("chat.sessionActions.unpin") : t("chat.sessionActions.pin")}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="achat-menu-item"
+                  onClick={() => {
+                    setMenu(null);
+                    void toggleArchive();
+                  }}
+                >
+                  {session?.archived ? t("chat.sessionActions.unarchive") : t("chat.sessionActions.archive")}
+                </button>
+                {shell.ui.runId ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="achat-menu-item"
+                    onClick={() => {
+                      setMenu(null);
+                      shell.onReplayRun(
+                        shell.ui.runId as string,
+                        shell.ui.lastSeqByRun[shell.ui.runId as string] ?? 0
+                      );
+                    }}
+                  >
+                    {t("chat.replay")}
+                  </button>
+                ) : null}
+                <div className="achat-menu-separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="achat-menu-item"
+                  data-danger="true"
+                  onClick={() => {
+                    setConfirmingDelete(true);
+                    setMenu(null);
+                  }}
+                >
+                  {t("chat.sessionActions.delete")}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      {/* 页头下方的状态区：重命名 / 删除确认 / 导出结果 / 动作错误 */}
+      {renaming || confirmingDelete || exporting || exportError || exportResult || actionError ? (
+        <div className="achat-head-notice" data-chat-head-notice="">
+          {renaming ? (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+              <label htmlFor="session-title-input" className="sr-only">
+                {t("chat.sessionActions.renamePlaceholder")}
+              </label>
+              <input
+                id="session-title-input"
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                placeholder={t("chat.sessionActions.renamePlaceholder")}
+                className="achat-attachment-input"
+                style={{ maxWidth: 320 }}
+              />
+              <button type="button" onClick={() => void saveTitle()} className="achat-btn achat-btn-sm">
+                {t("chat.sessionActions.save")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRenaming(false);
+                  setDraftTitle(session?.title ?? "");
+                }}
+                className="achat-btn achat-btn-sm achat-btn-ghost"
+              >
+                {t("chat.sessionActions.cancel")}
+              </button>
+            </div>
           ) : null}
+
+          {confirmingDelete ? (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+              <span className="achat-hint achat-hint-danger">{t("chat.sessionActions.deleteConfirm")}</span>
+              <button
+                type="button"
+                onClick={() => void removeSession()}
+                className="achat-btn achat-btn-sm achat-btn-danger"
+              >
+                {t("chat.sessionActions.confirm")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="achat-btn achat-btn-sm achat-btn-ghost"
+              >
+                {t("chat.sessionActions.cancel")}
+              </button>
+            </div>
+          ) : null}
+
+          {exporting ? <span className="achat-hint">{t("chat.export.writing")}</span> : null}
           {exportError ? (
-            <p role="alert" className="text-[10px] text-[color:var(--anvil-danger)]">
+            <span role="alert" className="achat-hint achat-hint-danger">
               {t("chat.export.failed", { code: exportError.code })}
-            </p>
+            </span>
           ) : null}
           {exportResult ? (
-            <dl data-export-result="" className="space-y-0.5 text-[10px] text-[color:var(--anvil-muted)]">
+            <dl data-export-result="" style={{ margin: 0, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
               <div>
                 <dt className="inline">{t("chat.export.done")} · {t("chat.export.path")}：</dt>
-                <dd data-export-path="" className="inline break-all font-mono text-[color:var(--anvil-foreground)]">
+                <dd data-export-path="" className="inline achat-mono" style={{ color: "var(--anvil-foreground)" }}>
                   {exportResult.path}
                 </dd>
               </div>
@@ -676,26 +880,25 @@ export function ChatPage({
               </div>
               <div>
                 <dt className="inline">{t("chat.export.sha256")}：</dt>
-                <dd className="inline break-all font-mono">{exportResult.sha256}</dd>
+                <dd className="inline achat-mono">{exportResult.sha256}</dd>
               </div>
             </dl>
           ) : null}
+
           {actionError ? (
-            <div data-session-action-error="" role="alert" className="space-y-0.5">
-              <p className="text-[10px] text-[color:var(--anvil-danger)]">{formatError(actionError)}</p>
-              <p className="font-mono text-[10px] text-[color:var(--anvil-muted)]">{actionError.code}</p>
+            <div data-session-action-error="" role="alert" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <span className="achat-hint achat-hint-danger">{formatError(actionError)}</span>
+              <span className="achat-mono" style={{ fontSize: 10.5 }}>
+                {actionError.code}
+              </span>
               {actionError.code === "CONFIG_CONFLICT" ? (
                 <>
-                  <p className="text-[10px] text-[color:var(--anvil-muted)]">
-                    {t("chat.sessionActions.conflict")}
-                  </p>
-                  <p className="text-[10px] text-[color:var(--anvil-muted)]">
-                    {t("chat.sessionActions.conflictHint")}
-                  </p>
+                  <span className="achat-hint">{t("chat.sessionActions.conflict")}</span>
+                  <span className="achat-hint">{t("chat.sessionActions.conflictHint")}</span>
                   <button
                     type="button"
                     onClick={() => void loadSession()}
-                    className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[10px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
+                    className="achat-btn achat-btn-sm"
                   >
                     {t("chat.sessionActions.reload")}
                   </button>
@@ -703,69 +906,83 @@ export function ChatPage({
               ) : null}
             </div>
           ) : null}
-        </header>
+        </div>
+      ) : null}
 
-        <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          {runBelongsToPage ? null : (
-            <p data-other-session-run="" className="mb-2 text-[10px] text-[color:var(--anvil-warning)]">
-              {t("chat.otherSessionRun")}
-            </p>
-          )}
-          <MessageList
-            ui={runBelongsToPage ? shell.ui : shellValueWithoutRun(shell.ui)}
-            onDecide={onDecide}
-            onClarify={onClarify}
-            canRespond={shell.ui.runId !== null}
-            onRetry={lastUserText ? retry : undefined}
-            browserApprovals={runBelongsToPage ? browserPending : undefined}
+      {/* ---------------- 主体：线程列 + 右栏 ---------------- */}
+      <div
+        className="achat-layout"
+        data-chat-layout=""
+        data-rail={panelOpen ? "open" : "closed"}
+        id="chat-layout"
+      >
+        <div className="achat-thread-col" data-chat-thread-col="">
+          <div className="achat-thread" data-chat-thread="" ref={messagesRef}>
+            <div className="achat-thread-inner" data-thread-inner="">
+              {runBelongsToPage ? null : (
+                <p data-other-session-run="" className="achat-hint achat-hint-warn">
+                  {t("chat.otherSessionRun")}
+                </p>
+              )}
+              <MessageList
+                ui={runBelongsToPage ? shell.ui : shellValueWithoutRun(shell.ui)}
+                onDecide={onDecide}
+                onClarify={onClarify}
+                canRespond={shell.ui.runId !== null}
+                onRetry={lastUserText ? retry : undefined}
+                browserApprovals={runBelongsToPage ? browserPending : undefined}
+                modelLabel={modelLabel}
+              />
+              {readinessReport && readinessReport.blockers.length > 0 ? (
+                <ReadinessPanel
+                  report={readinessReport}
+                  checking={checkingReadiness}
+                  onNavigate={onNavigate}
+                  onRecheck={() => void runReadinessCheck()}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <Composer
+            sessionId={sessionId}
+            value={shell.input}
+            onChange={shell.onInput}
+            onSend={sendWhenReady}
+            onStop={shell.onStop}
+            stopRequested={shell.ui.stopRequested === true}
+            busy={shell.busy}
+            modelLabel={modelLabel}
+            profile={null}
+            skills={shell.skills}
+            permission={permission}
+            sendError={shell.actionError}
+            blockedHint={blockedHint}
+            checkingHint={checkingHint}
+            fixture={fixture}
+            projectName={projectName}
+            projectPath={projectPath}
           />
         </div>
 
-        {readinessReport && readinessReport.blockers.length > 0 ? (
-          <ReadinessPanel
-            report={readinessReport}
-            checking={checkingReadiness}
-            onNavigate={onNavigate}
-            onRecheck={() => void runReadinessCheck()}
-          />
-        ) : null}
-
-        <Composer
-          sessionId={sessionId}
-          value={shell.input}
-          onChange={shell.onInput}
-          onSend={sendWhenReady}
-          onStop={shell.onStop}
-          stopRequested={shell.ui.stopRequested === true}
-          busy={shell.busy}
-          modelLabel={modelLabel}
-          profile={null}
-          skills={shell.skills}
-          permission={permission}
-          sendError={shell.actionError}
-          blockedHint={blockedHint}
-          checkingHint={checkingHint}
-          fixture={fixture}
+        {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建）。
+            浏览器分区挂真实面板：宽窄切换只改 aside 的 class，面板与原生槽位节点
+            位置不变，因此不会被卸载/重建（挂载计数断言在 ContextPanel.test 里）。 */}
+        <ContextPanel
+          runId={shell.ui.runId ?? ""}
+          browserSlot={
+            <BrowserPanel
+              // 停止按钮只在“这一页确实有一轮在跑”时出现：别的会话的 run 不能
+              // 从这个页面被停掉（那也是“点了就停”的假动作）。
+              canStop={runBelongsToPage && shell.busy}
+              onStop={shell.onStop}
+            />
+          }
+          onLocateTurn={locateTurn}
+          open={panelOpen}
+          onToggle={() => setPanelOpen((v) => !v)}
         />
       </div>
-
-      {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建）。
-          浏览器分区挂真实面板：宽窄切换只改 aside 的 class，面板与原生槽位节点
-          位置不变，因此不会被卸载/重建（挂载计数断言在 ContextPanel.test 里）。 */}
-      <ContextPanel
-        runId={shell.ui.runId ?? ""}
-        browserSlot={
-          <BrowserPanel
-            // 停止按钮只在“这一页确实有一轮在跑”时出现：别的会话的 run 不能
-            // 从这个页面被停掉（那也是“点了就停”的假动作）。
-            canStop={runBelongsToPage && shell.busy}
-            onStop={shell.onStop}
-          />
-        }
-        onLocateTurn={locateTurn}
-        open={panelOpen}
-        onToggle={() => setPanelOpen((v) => !v)}
-      />
     </div>
   );
 }

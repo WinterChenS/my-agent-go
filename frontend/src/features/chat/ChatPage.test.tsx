@@ -529,6 +529,8 @@ describe("ChatPage 附件与导出", () => {
     renderPage(stateFrom([]));
 
     await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+    // 附件入口在「+」打开的抽屉里（原型的 attachment-drawer）。
+    await user.click(screen.getByRole("button", { name: t("chat.composer.attachmentsMenu") }));
     const input = screen.getByLabelText(t("chat.composer.pathPlaceholder"));
     await user.type(input, "/etc/shadow");
     await user.click(screen.getByRole("button", { name: t("chat.composer.addFile") }));
@@ -558,7 +560,8 @@ describe("ChatPage 附件与导出", () => {
     renderPage(stateFrom([]));
 
     await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: `${t("chat.export.label")} · ${t("chat.export.markdown")}` }));
+    await user.click(screen.getByRole("button", { name: t("chat.export.label") }));
+    await user.click(screen.getByRole("menuitem", { name: `${t("chat.export.label")} · ${t("chat.export.markdown")}` }));
 
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith("sess-1", "markdown", ""));
     await waitFor(() => expect(document.querySelector("[data-export-path]")).not.toBeNull());
@@ -573,7 +576,8 @@ describe("ChatPage 附件与导出", () => {
     renderPage(stateFrom([]));
 
     await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: t("chat.sessionActions.rename") }));
+    await user.click(screen.getByRole("button", { name: t("chat.head.more") }));
+    await user.click(screen.getByRole("menuitem", { name: t("chat.sessionActions.rename") }));
     const input = screen.getByLabelText(t("chat.sessionActions.renamePlaceholder"));
     await user.clear(input);
     await user.type(input, "新的标题");
@@ -1018,5 +1022,268 @@ describe("浏览器写动作审批（M1）", () => {
     await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
     expect(document.querySelector("[data-browser-approval-card]")).toBeNull();
     expect(browser.resolved).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------- 骨架与几何契约（D2b）
+//
+// 这一组守的是**结构**：原型 chat.html 的容器链、页头动作、输入区解剖、右栏抽屉。
+// 像素数字（760 / 400 / 26 / 22 / 9px 13px）在 jsdom 里量不到（不解析外部 CSS），
+// 那部分由 `chat-diff.mjs` 在构建产物上实测并出 chat-diff.json；这里守的是
+// 「盒子存在、层级正确、可访问名字对、顺序对」——几何错了会先在这里断。
+
+describe("ChatPage 骨架（D2b）", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it("容器链：page → head → layout(rail=open) → thread-col → thread → thread-inner → composer", async () => {
+    renderPage(stateFrom([ev("message.delta", { text: "先跑一下测试" })]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const page = document.querySelector("[data-chat-page]") as HTMLElement;
+    expect(page).not.toBeNull();
+
+    const head = page.querySelector("[data-chat-head]") as HTMLElement;
+    const layout = page.querySelector("[data-chat-layout]") as HTMLElement;
+    expect(head).not.toBeNull();
+    expect(layout).not.toBeNull();
+    // 页头在布局之前（原型的 chat-head-main 在 .chat-layout 之上）。
+    expect(head.compareDocumentPosition(layout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 宽窗默认开栏：列宽由 data-rail 决定（1fr 400px）。
+    expect(layout.getAttribute("data-rail")).toBe("open");
+
+    const threadCol = layout.querySelector("[data-chat-thread-col]") as HTMLElement;
+    expect(threadCol).not.toBeNull();
+    const thread = threadCol.querySelector("[data-chat-thread]") as HTMLElement;
+    const composer = threadCol.querySelector("[data-composer]") as HTMLElement;
+    expect(thread).not.toBeNull();
+    expect(composer).not.toBeNull();
+    // 输入区在线程之后（同一个列里，滚动区只在线程上）。
+    expect(thread.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const inner = thread.querySelector("[data-thread-inner]") as HTMLElement;
+    expect(inner).not.toBeNull();
+    // 26px 的消息节奏来自 .thread-inner 的 flex gap：消息必须是它的直接孩子，
+    // 不能套一层带自己间距的 wrapper（那会把节奏吃掉）。
+    const list = inner.querySelector("[data-message-list]") as HTMLElement;
+    expect(list).not.toBeNull();
+    expect(list.parentElement).toBe(inner);
+    expect(list.className).toContain("achat-msg-list");
+  });
+
+  it("消息节奏：用户是右侧气泡、助手块带头像/名字/模型，工具卡挂在助手块里", async () => {
+    const ui = stateFrom([
+      ev("message.delta", { text: "我先跑一下测试" }),
+      ev("tool.start", { toolCallId: "c1", toolName: "bash", args: { command: "go test ./..." } }),
+    ]);
+    renderPage(ui, {
+      currentModel: { provider: "deepseek", model: "deepseek-v4.1-flash" } as any,
+    });
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const user = document.querySelector('[data-role="user"]') as HTMLElement;
+    expect(user).not.toBeNull();
+    expect(user.className).toContain("achat-msg");
+    const bubble = user.querySelector("[data-message-text]") as HTMLElement;
+    expect(bubble).not.toBeNull();
+    expect(bubble.className).toContain("achat-bubble");
+    // 用户消息不画头像/工具卡
+    expect(user.querySelector("[data-tool-card]")).toBeNull();
+
+    const assistant = document.querySelector('[data-role="assistant"]') as HTMLElement;
+    expect(assistant).not.toBeNull();
+    expect(assistant.querySelector(".achat-agent-badge")).not.toBeNull();
+    expect(assistant.querySelector(".achat-agent-name")?.textContent).toBe(t("chat.role.assistant"));
+    // 模型来自启动快照（真实事实），不是编的标签
+    expect(assistant.querySelector(".achat-agent-model")?.textContent).toBe(
+      "deepseek / deepseek-v4.1-flash"
+    );
+    expect(assistant.querySelector("[data-tool-card]")).not.toBeNull();
+    // 正文是 prose 而不是气泡（助手块整宽）
+    const prose = assistant.querySelector("[data-message-text]") as HTMLElement;
+    expect(prose.className).toContain("achat-prose");
+  });
+
+  it("页头动作：待办徽标显示真实计数，计数为 0 时不出现", async () => {
+    // 没有待办：两个徽标都不该出现（不做“0 项待授权”的噪音）。
+    renderPage(stateFrom([]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+    expect(document.querySelector("[data-chat-clarification-badge]")).toBeNull();
+    expect(document.querySelector("[data-chat-approval-badge]")).toBeNull();
+    expect(document.querySelector("[data-chat-head] [data-session-title]")?.textContent).toBe("验收会话");
+  });
+
+  it("页头动作：有待澄清/待授权时给出计数，点一下跳到对应卡片", async () => {
+    const user = userEvent.setup();
+    const ui = stateFrom([
+      ev("approval.request", {
+        approvalId: "apr-1",
+        toolName: "bash",
+        toolCallId: "c1",
+        arguments: { command: "rm -rf build" },
+        expiresAtUnix: 1_800_000_000,
+      }),
+      ev("clarification.requested", {
+        requestId: "ui-1",
+        method: "select",
+        question: "用哪个环境？",
+        options: ["staging", "prod"],
+      }),
+    ]);
+    renderPage(ui);
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    // 审批与澄清都来自后端事件，徽标的数字就是它们的条数。
+    const approvalBadge = document.querySelector("[data-chat-approval-badge]") as HTMLElement;
+    const clarificationBadge = document.querySelector("[data-chat-clarification-badge]") as HTMLElement;
+    expect(approvalBadge.textContent).toBe(t("chat.head.pendingApprovals", { count: 1 }));
+    expect(clarificationBadge.textContent).toBe(t("chat.head.pendingClarifications", { count: 1 }));
+
+    // 点击是真实动作：把对应卡片滚进视野并标记（不是装饰性徽标）。
+    await user.click(clarificationBadge);
+    expect(
+      document.querySelector("[data-clarification-card='ui-1']")?.getAttribute("data-located")
+    ).toBe("true");
+    await user.click(approvalBadge);
+    expect(document.querySelector("[data-approval-card='apr-1']")?.getAttribute("data-located")).toBe(
+      "true"
+    );
+  });
+
+  it("输入区解剖与焦点顺序：项目行 → 文本域 → + → 模型/思考/权限 → 停止/发送 → 脚注", async () => {
+    renderPage(stateFrom([]), {
+      currentWorkspace: {
+        id: "ws-a",
+        name: "my-agent-go-ui",
+        canonicalPath: "/work/my-agent-go-ui",
+        trusted: true,
+        createdAt: "2026-11-06T00:00:00Z",
+      },
+    });
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const composer = document.querySelector("[data-composer]") as HTMLElement;
+    // 项目行在输入框之前（原型 composer-project-row 在 form 之上）
+    const project = composer.querySelector("[data-composer-project]") as HTMLElement;
+    const textarea = composer.querySelector("#composer-input") as HTMLTextAreaElement;
+    const bar = composer.querySelector(".achat-composer-bar") as HTMLElement;
+    const foot = composer.querySelector(".achat-composer-foot") as HTMLElement;
+    expect(project).not.toBeNull();
+    expect(project.textContent).toContain("my-agent-go-ui");
+    expect(textarea).not.toBeNull();
+    expect(bar).not.toBeNull();
+    expect(foot).not.toBeNull();
+    expect(project.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(textarea.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar.compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 焦点顺序 = 视觉顺序：文本域 → 「+」 → 停止 → 发送（模型/思考/权限是事实展示，不可聚焦）
+    const focusables = Array.from(
+      composer.querySelectorAll<HTMLElement>("textarea, button, input, select, [tabindex]")
+    ).filter((el) => el.tagName !== "BUTTON" || !(el as HTMLButtonElement).disabled);
+    const order = focusables.map((el) => el.id || el.getAttribute("aria-label") || el.tagName);
+    expect(order.indexOf("composer-input")).toBe(0);
+    expect(order[1]).toBe(t("chat.composer.attachmentsMenu"));
+
+    // bar 里的顺序（含禁用控件）：+ → 模型 → 思考级别 → 权限摘要 → 停止 → 发送
+    const barChildren = Array.from(bar.children);
+    expect(barChildren[0].getAttribute("data-composer-plus")).toBe("");
+    expect(barChildren[1].querySelector("[data-composer-model]")).not.toBeNull();
+    expect(barChildren[2].querySelector("[data-composer-thinking]")).not.toBeNull();
+    expect(barChildren[3].getAttribute("data-composer-permission")).toBe("");
+    const actions = barChildren[barChildren.length - 1];
+    expect(actions.className).toContain("achat-composer-actions");
+    const actionButtons = Array.from(actions.querySelectorAll("button")).map((b) =>
+      b.getAttribute("aria-label") ?? b.textContent
+    );
+    expect(actionButtons[0]).toBe(t("chat.composer.stop"));
+    expect(actionButtons[actionButtons.length - 1]).toBe(t("chat.composer.send"));
+
+    // 每条控制都有可访问名字（不是只有图标）
+    for (const name of [
+      t("chat.composer.attachmentsMenu"),
+      t("chat.composer.stop"),
+      t("chat.composer.send"),
+    ]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    // 权限摘要是后端事实；读不到就写“未知”，不编一个“允许”
+    expect(document.querySelector("[data-permission-summary]")?.textContent).toContain(
+      t("chat.composer.permission")
+    );
+    expect(document.querySelector("[data-composer-thinking]")?.textContent).toBe(
+      t("chat.composer.thinkingUnknown")
+    );
+  });
+
+  it("发送禁用态与原因：前提未满足时输入框与发送都禁用，并写明为什么", async () => {
+    renderPage(stateFrom([]));
+    await waitFor(() => expect(document.querySelector("[data-composer-blocked]")).not.toBeNull());
+    const textarea = screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(true);
+    const send = screen.getByRole("button", { name: t("chat.composer.send") }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+  });
+
+  it("右栏：宽窗是第二列，四个 tab 都在 DOM 里，切换只改可见性", async () => {
+    const user = userEvent.setup();
+    renderPage(stateFrom([]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const rail = document.querySelector("[data-context-panel]") as HTMLElement;
+    expect(rail).not.toBeNull();
+    expect(rail.getAttribute("data-mode")).toBe("aside");
+    const tablist = rail.querySelector('[role="tablist"]') as HTMLElement;
+    expect(tablist).not.toBeNull();
+    const tabs = Array.from(tablist.querySelectorAll('[role="tab"]')) as HTMLElement[];
+    expect(tabs.map((el) => el.getAttribute("data-rail-tab"))).toEqual([
+      "browser",
+      "artifacts",
+      "citations",
+      "execution",
+    ]);
+    // 四个分区始终在 DOM 里（切换是可见性，不是条件渲染——否则原生浏览器视图会被销毁）
+    const paneOf = (id: string) =>
+      document.querySelector(`[data-context-section='${id}']`) as HTMLElement;
+    for (const id of ["browser", "artifacts", "citations", "execution"]) {
+      expect(paneOf(id)).not.toBeNull();
+    }
+    expect(paneOf("browser").getAttribute("data-active")).toBe("true");
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+
+    await user.click(tabs[1]);
+    expect(paneOf("browser").getAttribute("data-active")).toBe("false");
+    expect(paneOf("artifacts").getAttribute("data-active")).toBe("true");
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    // 切 tab 之后浏览器分区仍然在（节点没有被重建/摘掉）
+    expect(paneOf("browser")).not.toBeNull();
+  });
+
+  it("窄窗：右栏变成抽屉，默认收起；展开后 data-open=true 并出现遮罩", async () => {
+    const user = userEvent.setup();
+    stubMatchMedia(true);
+    renderPage(stateFrom([]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const rail = document.querySelector("[data-context-panel]") as HTMLElement;
+    await waitFor(() => expect(rail.getAttribute("data-mode")).toBe("drawer"));
+    expect(rail.getAttribute("data-open")).toBe("false");
+    // 抽屉只在窄窗出现抓手
+    expect(rail.querySelector(".achat-rail-handle")).not.toBeNull();
+    expect(document.querySelector("[data-rail-scrim]")?.getAttribute("data-open")).toBe("false");
+
+    await user.click(screen.getByRole("button", { name: t("chat.context.openPanel") }));
+    await waitFor(() => expect(rail.getAttribute("data-open")).toBe("true"));
+    expect(document.querySelector("[data-rail-scrim]")?.getAttribute("data-open")).toBe("true");
+    // 遮罩是一层覆盖层，不接管控制权：点它等于收起
+    await user.click(document.querySelector("[data-rail-scrim]") as HTMLElement);
+    await waitFor(() => expect(rail.getAttribute("data-open")).toBe("false"));
   });
 });
