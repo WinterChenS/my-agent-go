@@ -740,10 +740,13 @@ function Badge({
   tone: "success" | "warning" | "danger" | "neutral";
   children: string;
 }) {
+  // 徽标底色用 surface-raised 而不是同名 *-surface：浅色主题下
+  // `--anvil-success` 压在 `--anvil-success-surface` 上只有 4.49（AA 要 4.5），
+  // 而压在 surface-raised 上四种色调都 ≥5.0（实机 UI13 的 low-contrast 发现的）。
   const cls = {
-    success: "bg-[color:var(--anvil-success-surface)] text-[color:var(--anvil-success)]",
-    warning: "bg-[color:var(--anvil-warning-surface)] text-[color:var(--anvil-warning)]",
-    danger: "bg-[color:var(--anvil-danger-surface)] text-[color:var(--anvil-danger)]",
+    success: "bg-[color:var(--anvil-surface-raised)] text-[color:var(--anvil-success)]",
+    warning: "bg-[color:var(--anvil-surface-raised)] text-[color:var(--anvil-warning)]",
+    danger: "bg-[color:var(--anvil-surface-raised)] text-[color:var(--anvil-danger)]",
     neutral: "bg-[color:var(--anvil-surface-raised)] text-[color:var(--anvil-muted)]",
   }[tone];
   return <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] ${cls}`}>{children}</span>;
