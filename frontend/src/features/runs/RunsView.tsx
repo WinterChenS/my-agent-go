@@ -33,8 +33,8 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-5">
       <header>
-        <h2 className="text-sm font-medium text-slate-200">当前运行</h2>
-        <p className="mt-0.5 text-[11px] text-slate-500">
+        <h2 className="text-sm font-medium text-[color:var(--anvil-foreground)]">当前运行</h2>
+        <p className="mt-0.5 text-[11px] text-[color:var(--anvil-muted)]">
           数据直接来自事件流，不是从界面上反推的。
         </p>
       </header>
@@ -45,7 +45,7 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
           hint="在工作台发起一次任务后，这里会显示它的状态与工具调用统计。"
         />
       ) : (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-white/10 bg-[#141922] px-3 py-2.5 text-[11px]">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-3 py-2.5 text-[11px]">
           <Row label="run ID" value={ui.runId} mono />
           <Row label="状态" value={PHASE_LABEL[ui.phase] ?? ui.phase} />
           <Row label="工作区" value={workspace?.canonicalPath ?? "未选择"} mono />
@@ -66,28 +66,28 @@ export function RunsView({ ui, workspace }: { ui: UiState; workspace: Workspace 
             label="配置 revision"
             value={ui.runMeta ? String(ui.runMeta.configRevision) : "未记录"}
           />
-          <div className="col-span-2 mt-1 flex items-center gap-4 border-t border-white/5 pt-2 text-[11px]">
-            <span className="flex items-center gap-1 text-emerald-400">
+          <div className="col-span-2 mt-1 flex items-center gap-4 border-t border-[color:var(--anvil-border)] pt-2 text-[11px]">
+            <span className="flex items-center gap-1 text-[color:var(--anvil-success)]">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> 工具完成 {ok}
             </span>
-            <span className="flex items-center gap-1 text-rose-400">
+            <span className="flex items-center gap-1 text-[color:var(--anvil-danger)]">
               <XCircle className="h-3.5 w-3.5" aria-hidden /> 工具失败 {failed}
             </span>
-            <span className="flex items-center gap-1 text-sky-400">
+            <span className="flex items-center gap-1 text-[color:var(--anvil-accent)]">
               <Activity className="h-3.5 w-3.5" aria-hidden /> 执行中 {running}
             </span>
           </div>
         </dl>
       )}
 
-      <section className="rounded-lg border border-dashed border-white/10 px-3 py-2.5">
+      <section className="rounded-lg border border-dashed border-[color:var(--anvil-border)] px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <h2 className="text-[12px] text-slate-400">历史运行</h2>
-          <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">
+          <h2 className="text-[12px] text-[color:var(--anvil-muted)]">历史运行</h2>
+          <span className="rounded bg-[color:var(--anvil-surface)] px-1.5 py-0.5 text-[9px] text-[color:var(--anvil-muted)]">
             未实现 · C06
           </span>
         </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+        <p className="mt-1 text-[11px] leading-relaxed text-[color:var(--anvil-muted)]">
           事件目前只保留在内存里（最多 20000 条，用于订阅重连的 Replay），
           重启后不可查。把运行记录落到数据库、并支持按会话浏览属于 C06。
         </p>
@@ -109,8 +109,8 @@ function Row({
 }) {
   return (
     <div className="min-w-0" data-testid={testId}>
-      <dt className="text-[10px] uppercase tracking-wide text-slate-600">{label}</dt>
-      <dd className={"truncate text-slate-300 " + (mono ? "font-mono text-[10px]" : "")} title={value}>
+      <dt className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">{label}</dt>
+      <dd className={"truncate text-[color:var(--anvil-foreground)] " + (mono ? "font-mono text-[10px]" : "")} title={value}>
         {value}
       </dd>
     </div>
@@ -134,8 +134,8 @@ function SkillsRow({ meta }: { meta: RunMeta | null }) {
   const managed = managedSkillsLabel(meta.managedSkills);
   return (
     <div className="min-w-0" data-testid="run-skills">
-      <dt className="text-[10px] uppercase tracking-wide text-slate-600">技能</dt>
-      <dd className="min-w-0 text-slate-300">
+      <dt className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">技能</dt>
+      <dd className="min-w-0 text-[color:var(--anvil-foreground)]">
         <div
           className="truncate font-mono text-[10px]"
           title={managed}

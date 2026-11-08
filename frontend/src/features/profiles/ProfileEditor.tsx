@@ -116,7 +116,7 @@ export function ProfileEditor({ profile, workspaceId, onSaved, onReloaded }: Pro
       )}
 
       {error && (
-        <div className="rounded-md border border-rose-400/30 bg-rose-500/5 px-2.5 py-2 text-[11px] text-rose-300">
+        <div className="rounded-md border border-[color:var(--anvil-danger-border)] bg-[color:var(--anvil-danger-surface)] px-2.5 py-2 text-[11px] text-[color:var(--anvil-danger)]">
           <span className="font-mono text-[10px]">{error.code}</span> {error.message}
         </div>
       )}
@@ -173,7 +173,7 @@ export function ProfileEditor({ profile, workspaceId, onSaved, onReloaded }: Pro
         </Field>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
+      <div className="flex flex-wrap items-center gap-4 text-[11px] text-[color:var(--anvil-muted)]">
         <label className="flex items-center gap-1.5">
           <input
             type="checkbox"
@@ -216,7 +216,7 @@ export function ProfileEditor({ profile, workspaceId, onSaved, onReloaded }: Pro
                 memoryPolicy: { ...draft.memoryPolicy, maxEntries: Number(e.target.value) || 0 },
               })
             }
-            className="w-16 rounded border border-white/10 bg-[#0f1218] px-1.5 py-0.5 text-[11px] text-slate-200 outline-none focus:border-sky-500/50"
+            className="w-16 rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-1.5 py-0.5 text-[11px] text-[color:var(--anvil-foreground)] outline-none focus:border-[color:var(--anvil-accent-border)]"
           />
         </label>
       </div>
@@ -225,7 +225,7 @@ export function ProfileEditor({ profile, workspaceId, onSaved, onReloaded }: Pro
         <button
           onClick={() => void save()}
           disabled={saving}
-          className="flex items-center gap-1.5 rounded-md bg-sky-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-400 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
+          className="flex items-center gap-1.5 rounded-md bg-[color:var(--anvil-accent)] px-3 py-1.5 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-accent)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           {saving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -234,7 +234,7 @@ export function ProfileEditor({ profile, workspaceId, onSaved, onReloaded }: Pro
           )}
           {saving ? "保存中…" : "保存"}
         </button>
-        <span className="text-[10px] text-slate-600">基于 revision {baseRevision}</span>
+        <span className="text-[10px] text-[color:var(--anvil-muted)]">基于 revision {baseRevision}</span>
       </div>
     </div>
   );
@@ -255,19 +255,19 @@ function ConflictPanel({
 }) {
   const diff = conflict.diff ?? [];
   return (
-    <div className="rounded-md border border-amber-400/40 bg-amber-400/5 p-2.5" role="alert">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-200">
+    <div className="rounded-md border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] p-2.5" role="alert">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--anvil-warning)]">
         <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
         保存被拒绝：磁盘上的版本已被改动（当前 revision {conflict.current.revision}）
       </div>
       {diff.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-amber-100/70">
+        <p className="mt-1.5 text-[11px] text-[color:var(--anvil-warning)]">
           字段内容相同，只有 revision 不同——可能是同一份内容被保存了两次。
         </p>
       ) : (
         <table className="mt-2 w-full text-[11px]">
           <thead>
-            <tr className="text-left text-amber-200/60">
+            <tr className="text-left text-[color:var(--anvil-warning)]">
               <th className="py-0.5 pr-2 font-normal">字段</th>
               <th className="py-0.5 pr-2 font-normal">我的改动</th>
               <th className="py-0.5 font-normal">磁盘上的</th>
@@ -283,7 +283,7 @@ function ConflictPanel({
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           onClick={onReload}
-          className="flex items-center gap-1 rounded border border-amber-400/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-400/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+          className="flex items-center gap-1 rounded border border-[color:var(--anvil-warning-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-warning)] hover:bg-[color:var(--anvil-warning-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <RotateCcw className="h-3 w-3" aria-hidden /> 放弃我的改动，重新加载
         </button>
@@ -292,12 +292,12 @@ function ConflictPanel({
           onChange={(e) => onCopyId(e.target.value)}
           placeholder="新配置档 ID"
           aria-label="另存为的新配置档 ID"
-          className="w-32 rounded border border-white/10 bg-[#0f1218] px-1.5 py-1 text-[11px] text-slate-200 outline-none focus:border-amber-400/50"
+          className="w-32 rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-1.5 py-1 text-[11px] text-[color:var(--anvil-foreground)] outline-none focus:border-[color:var(--anvil-warning-border)]"
         />
         <button
           onClick={onSaveAsCopy}
           disabled={!copyId.trim()}
-          className="flex items-center gap-1 rounded border border-white/15 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/5 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          className="flex items-center gap-1 rounded border border-[color:var(--anvil-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <Check className="h-3 w-3" aria-hidden /> 另存为新配置档
         </button>
@@ -308,10 +308,10 @@ function ConflictPanel({
 
 function DiffRow({ d }: { d: ProfileFieldDiff }) {
   return (
-    <tr className="border-t border-amber-400/10 align-top">
-      <td className="py-1 pr-2 font-mono text-[10px] text-amber-200/80">{d.field}</td>
-      <td className="py-1 pr-2 text-slate-300">{d.mine || "（空）"}</td>
-      <td className="py-1 text-slate-400">{d.theirs || "（空）"}</td>
+    <tr className="border-t border-[color:var(--anvil-warning-border)] align-top">
+      <td className="py-1 pr-2 font-mono text-[10px] text-[color:var(--anvil-warning)]">{d.field}</td>
+      <td className="py-1 pr-2 text-[color:var(--anvil-foreground)]">{d.mine || "（空）"}</td>
+      <td className="py-1 text-[color:var(--anvil-muted)]">{d.theirs || "（空）"}</td>
     </tr>
   );
 }
@@ -327,15 +327,15 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">{label}</span>
       {children}
-      {hint && <span className="text-[10px] text-slate-600">{hint}</span>}
+      {hint && <span className="text-[10px] text-[color:var(--anvil-muted)]">{hint}</span>}
     </label>
   );
 }
 
 const inputCls =
-  "rounded border border-white/10 bg-[#0f1218] px-2 py-1.5 text-[12px] text-slate-200 outline-none focus:border-sky-500/50 disabled:opacity-50";
+  "rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1.5 text-[12px] text-[color:var(--anvil-foreground)] outline-none focus:border-[color:var(--anvil-accent-border)] disabled:opacity-50";
 
 function splitIDs(v: string): string[] | null {
   const ids = v

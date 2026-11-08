@@ -66,7 +66,7 @@ export function WorkbenchView({
               action={
                 <button
                   onClick={onGoSettings}
-                  className="rounded-md bg-amber-400 px-2.5 py-1 text-xs font-medium text-amber-950 hover:bg-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+                  className="rounded-md bg-[color:var(--anvil-warning)] px-2.5 py-1 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-warning)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   去设置里处理
                 </button>
@@ -76,11 +76,11 @@ export function WorkbenchView({
 
           {messages.length === 0 && !blocked && (
             <div className="mt-14 text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/5">
-                <Terminal className="h-5 w-5 text-slate-400" aria-hidden />
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)]">
+                <Terminal className="h-5 w-5 text-[color:var(--anvil-muted)]" aria-hidden />
               </div>
-              <p className="text-sm text-slate-400">说点什么，让 agent 在工作目录里干活。</p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="text-sm text-[color:var(--anvil-muted)]">说点什么，让 agent 在工作目录里干活。</p>
+              <p className="mt-1 text-xs text-[color:var(--anvil-muted)]">
                 工具调用会在执行前请求授权；拒绝的话命令不会运行。
               </p>
             </div>
@@ -89,20 +89,20 @@ export function WorkbenchView({
           {messages.map((m) => (
             <article key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
               {m.role === "user" ? (
-                <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-sm bg-sky-500/15 px-3.5 py-2.5 text-sm text-sky-50">
+                <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-sm bg-[color:var(--anvil-accent-surface)] px-3.5 py-2.5 text-sm text-[color:var(--anvil-foreground)]">
                   {m.text}
                 </div>
               ) : (
                 <div className="w-full">
                   {m.text && (
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{m.text}</div>
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-[color:var(--anvil-foreground)]">{m.text}</div>
                   )}
                   {m.tools.map((t) => (
                     <ToolView key={`${t.runId}:${t.toolCallId}`} card={t} />
                   ))}
                   {m.streaming && !m.text && m.tools.length === 0 && (
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" aria-hidden />
+                    <div className="flex items-center gap-1.5 text-xs text-[color:var(--anvil-muted)]">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--anvil-accent)]" aria-hidden />
                       正在思考…
                     </div>
                   )}
@@ -114,32 +114,32 @@ export function WorkbenchView({
           {approvals.map((a) => (
             <section
               key={a.approvalId}
-              className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3.5"
+              className="rounded-xl border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] p-3.5"
               aria-label={`需要授权：${a.toolName}`}
             >
-              <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
+              <div className="flex items-center gap-2 text-sm font-medium text-[color:var(--anvil-warning)]">
                 <AlertTriangle className="h-4 w-4" aria-hidden />
                 需要授权：{a.toolName}
               </div>
-              <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/30 p-2.5 text-[11px] leading-relaxed text-slate-300">
+              <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-[color:var(--anvil-surface)] p-2.5 text-[11px] leading-relaxed text-[color:var(--anvil-foreground)]">
                 {a.args}
               </pre>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   onClick={() => onDecide(a, "once")}
-                  className="flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-950 hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                  className="flex items-center gap-1.5 rounded-md bg-[color:var(--anvil-success)] px-3 py-1.5 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-success)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   <Check className="h-3.5 w-3.5" aria-hidden /> 允许一次
                 </button>
                 <button
                   onClick={() => onDecide(a, "session")}
-                  className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                  className="rounded-md border border-[color:var(--anvil-border)] px-3 py-1.5 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   本会话允许
                 </button>
                 <button
                   onClick={() => onDecide(a, "deny")}
-                  className="flex items-center gap-1.5 rounded-md border border-rose-400/40 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+                  className="flex items-center gap-1.5 rounded-md border border-[color:var(--anvil-danger-border)] px-3 py-1.5 text-xs text-[color:var(--anvil-danger)] hover:bg-[color:var(--anvil-danger-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden /> 拒绝
                 </button>
@@ -148,14 +148,14 @@ export function WorkbenchView({
           ))}
 
           {error && (
-            <div className="rounded-lg border border-rose-400/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
+            <div className="rounded-lg border border-[color:var(--anvil-danger-border)] bg-[color:var(--anvil-danger-surface)] px-3 py-2 text-xs text-[color:var(--anvil-danger)]">
               {error}
             </div>
           )}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-white/10 px-4 py-2.5">
+      <div className="shrink-0 border-t border-[color:var(--anvil-border)] px-4 py-2.5">
         <div className="mx-auto flex max-w-3xl items-end gap-2">
           <textarea
             value={input}
@@ -169,12 +169,12 @@ export function WorkbenchView({
             rows={2}
             aria-label="输入指令"
             placeholder="输入指令，Enter 发送，Shift+Enter 换行"
-            className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-white/10 bg-[#161b24] px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-sky-500/50"
+            className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface-raised)] px-3 py-2.5 text-sm text-[color:var(--anvil-foreground)] outline-none placeholder:text-[color:var(--anvil-muted)] focus:border-[color:var(--anvil-accent-border)]"
           />
           {busy ? (
             <button
               onClick={onStop}
-              className="flex h-[44px] items-center gap-1.5 rounded-lg bg-rose-500/90 px-3.5 text-xs font-medium text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+              className="flex h-[44px] items-center gap-1.5 rounded-lg bg-[color:var(--anvil-danger)] px-3.5 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
             >
               <CircleStop className="h-4 w-4" aria-hidden /> 停止
             </button>
@@ -182,7 +182,7 @@ export function WorkbenchView({
             <button
               onClick={onSend}
               disabled={!input.trim()}
-              className="flex h-[44px] items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 text-xs font-medium text-white hover:bg-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:opacity-40"
+              className="flex h-[44px] items-center gap-1.5 rounded-lg bg-[color:var(--anvil-accent)] px-3.5 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)] disabled:opacity-40"
             >
               <Send className="h-4 w-4" aria-hidden /> 发送
             </button>
@@ -196,35 +196,35 @@ export function WorkbenchView({
 function ToolView({ card }: { card: ToolCard }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-[#141922]">
+    <div className="mt-2 overflow-hidden rounded-lg border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)]">
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-sky-400"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5" aria-hidden />
         ) : (
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         )}
-        <Terminal className="h-3.5 w-3.5 text-slate-500" aria-hidden />
+        <Terminal className="h-3.5 w-3.5 text-[color:var(--anvil-muted)]" aria-hidden />
         <span className="font-medium">{card.toolName}</span>
         {card.running ? (
-          <span className="ml-auto text-[10px] text-sky-400">执行中…</span>
+          <span className="ml-auto text-[10px] text-[color:var(--anvil-accent)]">执行中…</span>
         ) : card.isError ? (
-          <span className="ml-auto text-[10px] text-rose-400">失败</span>
+          <span className="ml-auto text-[10px] text-[color:var(--anvil-danger)]">失败</span>
         ) : (
-          <span className="ml-auto text-[10px] text-emerald-400">完成</span>
+          <span className="ml-auto text-[10px] text-[color:var(--anvil-success)]">完成</span>
         )}
       </button>
       {open && (
-        <div className="border-t border-white/5 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-600">参数</div>
-          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-slate-400">{card.args}</pre>
+        <div className="border-t border-[color:var(--anvil-border)] px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">参数</div>
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-[color:var(--anvil-muted)]">{card.args}</pre>
           {card.result !== undefined && (
             <>
-              <div className="mt-2 text-[10px] uppercase tracking-wide text-slate-600">结果</div>
-              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-slate-300">
+              <div className="mt-2 text-[10px] uppercase tracking-wide text-[color:var(--anvil-muted)]">结果</div>
+              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-[color:var(--anvil-foreground)]">
                 {card.result || "(空)"}
               </pre>
             </>

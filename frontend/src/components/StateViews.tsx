@@ -10,7 +10,7 @@ import type { CallError } from "../types";
 
 export function LoadingState({ label = "加载中…" }: { label?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-500">
+    <div className="flex flex-col items-center justify-center gap-2 py-12 text-[color:var(--anvil-muted)]">
       <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
       <p className="text-xs" role="status" aria-live="polite">
         {label}
@@ -32,11 +32,11 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-slate-500">
+      <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]">
         {icon ?? <Inbox className="h-4 w-4" aria-hidden />}
       </div>
-      <p className="text-sm text-slate-300">{title}</p>
-      {hint && <p className="max-w-md text-xs leading-relaxed text-slate-500">{hint}</p>}
+      <p className="text-sm text-[color:var(--anvil-foreground)]">{title}</p>
+      {hint && <p className="max-w-md text-xs leading-relaxed text-[color:var(--anvil-muted)]">{hint}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
@@ -59,25 +59,25 @@ export function ErrorState({
 }) {
   return (
     <div
-      className="rounded-xl border border-rose-400/30 bg-rose-500/5 p-4"
+      className="rounded-xl border border-[color:var(--anvil-danger-border)] bg-[color:var(--anvil-danger-surface)] p-4"
       role="alert"
     >
       <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" aria-hidden />
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--anvil-danger)]" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-rose-200">
+          <p className="text-sm font-medium text-[color:var(--anvil-danger)]">
             {title ?? "操作失败"}
-            <span className="ml-2 rounded bg-rose-400/10 px-1.5 py-0.5 font-mono text-[10px] text-rose-300">
+            <span className="ml-2 rounded bg-[color:var(--anvil-danger-surface)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--anvil-danger)]">
               {error.code}
             </span>
           </p>
-          <p className="mt-1 break-words text-xs leading-relaxed text-rose-200/80">
+          <p className="mt-1 break-words text-xs leading-relaxed text-[color:var(--anvil-danger)]">
             {error.message}
           </p>
           {onRetry && (
             <button
               onClick={onRetry}
-              className="mt-2.5 rounded-md border border-rose-400/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+              className="mt-2.5 rounded-md border border-[color:var(--anvil-danger-border)] px-2.5 py-1 text-xs text-[color:var(--anvil-danger)] hover:bg-[color:var(--anvil-danger-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
             >
               重试
             </button>
@@ -102,12 +102,12 @@ export function NoPermissionState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4" role="alert">
+    <div className="rounded-xl border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] p-4" role="alert">
       <div className="flex items-start gap-2">
-        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--anvil-warning)]" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-amber-200">需要先完成一步</p>
-          <p className="mt-1 break-words text-xs leading-relaxed text-amber-100/70">{message}</p>
+          <p className="text-sm font-medium text-[color:var(--anvil-warning)]">需要先完成一步</p>
+          <p className="mt-1 break-words text-xs leading-relaxed text-[color:var(--anvil-warning)]">{message}</p>
           {action && <div className="mt-2.5">{action}</div>}
         </div>
       </div>

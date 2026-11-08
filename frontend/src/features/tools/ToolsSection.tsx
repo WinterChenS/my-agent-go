@@ -95,8 +95,8 @@ export function ToolsSection() {
     <section>
       <header className="mb-2 flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-medium text-slate-200">工具目录</h2>
-          <p className="mt-0.5 text-[11px] text-slate-500">
+          <h2 className="text-sm font-medium text-[color:var(--anvil-foreground)]">工具目录</h2>
+          <p className="mt-0.5 text-[11px] text-[color:var(--anvil-muted)]">
             工具的有效状态来自配置与 Pi 的诊断：hidden / 已禁用 / 诊断失败都显示为不可用。
             未知 MCP 工具默认逐次审批，不信任 readOnlyHint。
           </p>
@@ -104,7 +104,7 @@ export function ToolsSection() {
         <button
           onClick={() => void load()}
           disabled={loading}
-          className="flex shrink-0 items-center gap-1 rounded border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          className="flex shrink-0 items-center gap-1 rounded border border-[color:var(--anvil-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <RefreshCw className="h-3 w-3" aria-hidden /> 刷新
         </button>
@@ -130,23 +130,23 @@ export function ToolsSection() {
         <div className="space-y-2">
           {groups.map(([source, tools]) => (
             <div key={source}>
-              <div className="mb-1 flex items-center gap-1.5 text-[10px] text-slate-500">
-                <span className="font-medium text-slate-400">
+              <div className="mb-1 flex items-center gap-1.5 text-[10px] text-[color:var(--anvil-muted)]">
+                <span className="font-medium text-[color:var(--anvil-muted)]">
                   {SOURCE_LABEL[source] ?? source}
                 </span>
                 <span>· {tools.length}</span>
                 {source === "extension" && (
-                  <span className="text-slate-600">（工具清单未知，需在运行记录中查看实际调用）</span>
+                  <span className="text-[color:var(--anvil-muted)]">（工具清单未知，需在运行记录中查看实际调用）</span>
                 )}
               </div>
               <ul className="space-y-1">
                 {tools.map((tool) => (
                   <li
                     key={tool.source + "/" + tool.name}
-                    className="rounded-md border border-white/10 bg-[#141922] px-2.5 py-1.5"
+                    className="rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-2.5 py-1.5"
                   >
                     <div className="flex items-center gap-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-200">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--anvil-foreground)]">
                         {tool.name}
                       </code>
                       <Badge tone={toneFor(tool)}>
@@ -156,7 +156,7 @@ export function ToolsSection() {
                       {tool.server && <Badge tone="slate">{tool.server}</Badge>}
                     </div>
                     {tool.description && (
-                      <div className="mt-0.5 line-clamp-2 text-[10px] text-slate-500">
+                      <div className="mt-0.5 line-clamp-2 text-[10px] text-[color:var(--anvil-muted)]">
                         {tool.description}
                       </div>
                     )}
@@ -179,10 +179,10 @@ function Badge({
   children: string;
 }) {
   const cls = {
-    emerald: "bg-emerald-400/10 text-emerald-300",
-    slate: "bg-white/5 text-slate-500",
-    rose: "bg-rose-400/10 text-rose-300",
-    amber: "bg-amber-400/10 text-amber-200",
+    emerald: "bg-[color:var(--anvil-success-surface)] text-[color:var(--anvil-success)]",
+    slate: "bg-[color:var(--anvil-surface)] text-[color:var(--anvil-muted)]",
+    rose: "bg-[color:var(--anvil-danger-surface)] text-[color:var(--anvil-danger)]",
+    amber: "bg-[color:var(--anvil-warning-surface)] text-[color:var(--anvil-warning)]",
   }[tone];
   return <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] ${cls}`}>{children}</span>;
 }
