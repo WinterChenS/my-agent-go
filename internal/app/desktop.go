@@ -6,6 +6,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	anvil "my-agent-go"
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/connectors"
 	"my-agent-go/internal/contracts"
@@ -227,6 +229,17 @@ func New(root string) (*Desktop, error) {
 	d := &Desktop{root: root}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("创建应用数据目录失败: %w", err)
+	}
+	// 产品自带的 Pi 扩展（策略/澄清/附件）随二进制分发：打包后的可执行文件旁
+	// 没有 pi-extensions/，所以启动时就把嵌入内容物化到 <appRoot>/extensions/product。
+	// 不物化的话，发布包里每一次 run 都会停在"找不到策略扩展"——也就是没有
+	// 执行前授权，工具一律不可用。
+	setProductExtensionsDir(productExtensionsDirFor(root))
+	if err := materializeProductExtensions(); err != nil {
+		// 不在这里让应用整体起不来：解析时还会再试一次（并重写被改过的副本），
+		// 真拿不到策略扩展时 run 入口会以 CONFIG_MISSING 明确拒绝。先把原因留痕，
+		// 免得"为什么突然没有执行前授权"没有任何线索。
+		d.setLastErr("产品扩展物化失败：" + err.Error())
 	}
 	s, err := d.loadSettings()
 	if err != nil {
@@ -1430,9 +1443,51 @@ func (d *Desktop) version() string {
 	return "0.1.0-dev"
 }
 
-// findPolicyExtension 定位仓库内的策略扩展。
+// productExtensionsSubdir 是产品自带扩展在 <appRoot>/extensions 下的命名空间。
 //
-// 打包后扩展随可执行文件分发；开发态从当前工作目录向上找。
+// 为什么不直接放 <appRoot>/extensions/<name>：那个目录是**用户可以安装/启用/删除**
+// 的第三方扩展目录（resources.Layout.ExtensionsDir，扩展页扫的就是它）。把自带扩展
+// 放进去会有两个后果：其一，策略扩展会以"可关闭的第三方扩展"出现在扩展页，
+// 而它事实上不可关闭；其二，澄清/附件扩展会被 CompileExtensions 当成托管扩展
+// 再 -e 一次，同一份扩展被加载两遍。子目录不带 index.ts，resources 的扫描按
+// 结构跳过它——产品目录与用户目录各归各的。
+const productExtensionsSubdir = "product"
+
+var (
+	productExtMu sync.Mutex
+	// productExtDir 是已物化的产品扩展目录（<appRoot>/extensions/product）。
+	// 由 New 设置：解析入口是包级函数（Status/技能试运行/run 装配共用），
+	// 每个 Desktop 只是同一个应用数据根的一个视图。
+	productExtDir string
+)
+
+// productExtensionAsset 是嵌入内容的读取入口。
+//
+// 生产恒为 anvil.ProductExtension；测试用钩子模拟"这个构建没带某条扩展"，
+// 否则只能改嵌入本身，"嵌入缺失"这条分支就无从验证。
+var productExtensionAsset = anvil.ProductExtension
+
+// productExtensionsDirFor 返回某个应用数据根下的产品扩展目录。
+func productExtensionsDirFor(root string) string {
+	return filepath.Join(root, "extensions", productExtensionsSubdir)
+}
+
+func setProductExtensionsDir(dir string) {
+	productExtMu.Lock()
+	productExtDir = dir
+	productExtMu.Unlock()
+}
+
+func productExtensionsDir() string {
+	productExtMu.Lock()
+	dir := productExtDir
+	productExtMu.Unlock()
+	return dir
+}
+
+// findPolicyExtension 定位产品自带的策略扩展。
+//
+// 找不到就是 CONFIG_MISSING：没有它工具调用没有执行前授权，宁可拒绝启动。
 func findPolicyExtension() (string, error) {
 	p, ok := findProductExtension("harness-policy.ts", "POLICY_EXT")
 	if !ok {
@@ -1442,17 +1497,30 @@ func findPolicyExtension() (string, error) {
 	return p, nil
 }
 
-// findProductExtension 在"可执行文件旁 → 上级 → 当前目录 → 上级"里找一个扩展文件。
+// findProductExtension 按"env 覆盖 → 物化副本 → 开发态布局"的顺序定位一个产品扩展。
 //
 // envName 是**不带前缀**的变量名（经 envLookup 解析，ANVIL_* 优先）。
 // 只做文件定位，不读内容、不执行：扩展是有权限的代码，加载决定权在隔离参数里。
+//
+// 物化副本那一步会先校正盘上内容（缺失或被改动就重写）：策略扩展被换成
+// "永远 allow"的版本比找不到它更危险——run 会照常跑起来，授权却已经没了。
 func findProductExtension(name, envName string) (string, bool) {
-	candidates := []string{}
 	if envName != "" {
 		if v, _ := envLookup(envName); v != "" {
-			candidates = append(candidates, v)
+			if abs, err := filepath.Abs(v); err == nil && fileExists(abs) {
+				return abs, true
+			}
 		}
 	}
+	// 物化副本：打包后的唯一可靠来源。解析时也重写被改过的文件，
+	// 而不是只在启动时校验一次。
+	if p, err := materializeProductExtension(name); err == nil && p != "" {
+		return p, true
+	}
+	// 开发态便利：仓库布局（可执行文件旁 → 上级 → 当前目录 → 上级）。
+	// 发布包里走不到这里（没有 pi-extensions/），但它让 `go run` 与
+	// 直接跑测试二进制时不必先物化。
+	candidates := []string{}
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)
 		candidates = append(candidates,
@@ -1470,6 +1538,76 @@ func findProductExtension(name, envName string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// materializeProductExtension 保证 <appRoot>/extensions/product/<name> 与嵌入内容一致。
+//
+// 返回空路径表示"这条扩展不在嵌入里"（这个构建没带它）；err 只在真写不下去时非 nil。
+// 内容相同就完全不写：每次启动都重写会让 mtime 抖动，测试与安装包校验都会被噪音干扰。
+func materializeProductExtension(name string) (string, error) {
+	body, ok := productExtensionAsset(name)
+	if !ok || len(body) == 0 {
+		return "", nil
+	}
+	dir := productExtensionsDir()
+	if strings.TrimSpace(dir) == "" {
+		return "", errors.New("产品扩展目录未初始化（Desktop 尚未构造）")
+	}
+	target := filepath.Join(dir, name)
+	if current, err := os.ReadFile(target); err == nil && bytes.Equal(current, body) {
+		return target, nil
+	}
+	if err := writeProductExtension(target, body); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// materializeProductExtensions 把嵌入的产品扩展全部写到位（启动时调用一次）。
+func materializeProductExtensions() error {
+	var errs []error
+	for _, name := range anvil.ProductExtensionNames() {
+		if _, err := materializeProductExtension(name); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// writeProductExtension 原子写出一个产品扩展（tmp → fsync → rename）。
+//
+// 不用 os.WriteFile：Pi 可能在写到一半时读到半个扩展文件，那种失败会以
+// "扩展语法错误"出现，离真正的原因很远。rename 在同一目录内是原子的。
+func writeProductExtension(target string, body []byte) error {
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("创建产品扩展目录失败: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-ext-*")
+	if err != nil {
+		return fmt.Errorf("写产品扩展临时文件失败: %w", err)
+	}
+	tmpName := tmp.Name()
+	// rename 成功后 Remove 是 no-op；失败时清掉残片，不在应用数据目录里留垃圾。
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("写产品扩展 %s 失败: %w", target, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("同步产品扩展 %s 失败: %w", target, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭产品扩展临时文件失败: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		return fmt.Errorf("设置产品扩展权限失败: %w", err)
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		return fmt.Errorf("替换产品扩展 %s 失败: %w", target, err)
+	}
+	return nil
 }
 
 // productExtensionPaths 返回产品自带、不可关闭的系统扩展（只含实际存在的）。
