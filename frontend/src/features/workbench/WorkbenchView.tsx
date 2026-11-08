@@ -132,7 +132,7 @@ export function WorkbenchView({
                   <Check className="h-3.5 w-3.5" aria-hidden /> 允许一次
                 </button>
                 <button
-                  onClick={() => onDecide(a, "session")}
+                  onClick={() => onDecide(a, "session_scope")}
                   className="rounded-md border border-[color:var(--anvil-border)] px-3 py-1.5 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   本会话允许

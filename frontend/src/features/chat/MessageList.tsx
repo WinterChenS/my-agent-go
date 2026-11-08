@@ -158,7 +158,9 @@ function approvalResolutionText(resolution: ApprovalResolution): string {
       ? t("chat.approval.resolvedWithReason", { reason: resolution.reason })
       : t("chat.approval.resolvedDeny");
   }
-  if (resolution.choice === "session") return t("chat.approval.resolvedSession");
+  if (resolution.choice === "session_scope" || resolution.choice === "session") {
+    return t("chat.approval.resolvedSession");
+  }
   if (resolution.choice === "once") return t("chat.approval.resolvedOnce");
   return t("chat.approval.resolvedDeny");
 }

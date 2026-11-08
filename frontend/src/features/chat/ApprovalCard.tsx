@@ -20,7 +20,7 @@ import type { ApprovalChoice } from "../../types";
 
 const CHOICES: { choice: ApprovalChoice; labelKey: string }[] = [
   { choice: "once", labelKey: "chat.approval.once" },
-  { choice: "session", labelKey: "chat.approval.session" },
+  { choice: "session_scope", labelKey: "chat.approval.session" },
   { choice: "deny", labelKey: "chat.approval.deny" },
 ];
 

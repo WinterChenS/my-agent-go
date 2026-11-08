@@ -109,7 +109,9 @@ export interface Settings {
   shellAllowed: boolean;
 }
 
-export type ApprovalChoice = "once" | "session" | "deny";
+// 取值必须与 Go 侧 policy.ApprovalChoice 一致（once / session_scope / deny）。
+// 曾经写过 "session"，后端回 UNSUPPORTED: 未知审批选项: session（2026-11-08 实测）。
+export type ApprovalChoice = "once" | "session_scope" | "deny";
 
 // ---- 消息模型（UI 侧）----
 
