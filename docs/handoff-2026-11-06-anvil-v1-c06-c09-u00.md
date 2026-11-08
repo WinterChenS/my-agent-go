@@ -290,3 +290,19 @@ ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条�
 UI01–UI11、UI04.workbench、SES01–03、SRCH01、I18N01、THEME01、BRAND01–03、RES05、CONN07、SCH06、RUN01/04/06.ui、
 SEC07.diagnostics、ART01–03、BR07.tool、E2E01–07。多数实现已存在（页面/后端都在），缺的是**把已有证据接进 runner**；
 E2E 与 RUN*.ui 还需要真实 Wails + Pi 1.5.0 的端到端脚本。
+
+## 13. 2026-11-08 磁盘事件与 F3 合并
+
+- **C 盘曾只剩 1 GB**（本机 C 盘 149 GB 已用）。根因：`npm-cache` 8.9 GB + Go 构建缓存 7.0 GB +
+  `%TEMP%` 8.4 GB，其中两处真实泄漏：`anvil-u07-build-*` 97 个（每个 31 MB 的 exe，从不清理）、
+  `policy-executor-*` 173 个（684 MB）。已清缓存与泄漏目录，C 盘回到 **13.8 GB 可用**。
+- 缓存与临时目录已迁到 D 盘并持久化：`GOCACHE=D:\caches\go-build`、`GOMODCACHE=D:\caches\go-mod`、
+  npm `cache=D:\caches
+pm-cache`、`PLAYWRIGHT_BROWSERS_PATH=D:\caches\ms-playwright`、
+  runner 子进程 `TEMP/TMP=D:\caches	mp`（`scripts/devtools.ps1`，可用 `ANVIL_CACHE_ROOT` 覆盖）。
+- 两处泄漏已修：两个测试在创建目录前扫掉 1 小时前的遗留（并发进程的目录不动）。
+  约定与规则写进 `docs/development-disk-layout.md`。
+- **F3 合并**（`796a91d`）：Skill/MCP 页改为 catalog 驱动（I18N04）、667 处直接调色板类清零（THEME01）、
+  `<title>` 改为 Anvil（BRAND）；单测 334、文案基线 538→366。THEME01/BRAND 仍缺 native runner。
+- 已重新产出本地预览包：`D:\projectnvil-preview\Anvil-796a91d-win-x64\`（+ zip），
+  便携模式数据在该目录 `data\` 下。
