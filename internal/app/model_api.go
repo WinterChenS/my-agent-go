@@ -172,6 +172,17 @@ func (d *Desktop) DeleteModel(expectedRevision uint64, id string) ModelResult {
 		out.Error = toCallError(err)
 		return out
 	}
+	// 删除当前正在用的模型会让下一次运行指向一个不存在的 ref。
+	// 选择"拒绝"而不是"静默取消选择"：用户可能只是想在列表里清理，
+	// 而当前模型是他刚刚确认过的决定，替他把这个决定改掉不是清理。
+	d.mu.Lock()
+	active := d.settings.ModelRef
+	d.mu.Unlock()
+	if active != "" && active == id {
+		out.Error = toCallError(contracts.NewAppError(contracts.CodeConfigConflict,
+			"模型 "+id+" 是当前使用的模型；请先切换到别的模型再删除", false))
+		return out
+	}
 	doc, err := svc.Delete(context.Background(), expectedRevision, id)
 	if err != nil {
 		out.Error = toCallError(err)
@@ -340,5 +351,177 @@ func (d *Desktop) ModelsForProfile() []string {
 		}
 		out = append(out, m.ID)
 	}
+	return out
+}
+
+// ---------------------------------------------------------------- MP1：模型维护
+//
+// 用户诉求："自动读取本地已有的模型，并且可以额外添加模型和供应商"。
+// 这一层只做转接：发现、探测、导入、供应商 CRUD 的判定都在 resources。
+// 明文 HTTP 的放行规则同样在 resources（私网放行并标 insecure，公网要显式确认）。
+
+// ModelDiscoveryResult 是本地端点自动发现的结果。
+type ModelDiscoveryResult struct {
+	Items []resources.DiscoveredEndpoint `json:"items"`
+	Error *CallError                     `json:"error,omitempty"`
+}
+
+// ModelProviderProbeResult 是用户显式扫描任意端点的结果。
+//
+// Probe.Error 是端点侧的分类失败（不可达/超时/HTTP 错误），外层 Error 是
+// "这次扫描根本没发起"（端点非法、公网明文未确认、凭证不存在）。
+type ModelProviderProbeResult struct {
+	Probe resources.ProviderProbe `json:"probe"`
+	Error *CallError              `json:"error,omitempty"`
+}
+
+// ModelImportResult 是一次导入的结论。
+type ModelImportResult struct {
+	Imported []string                    `json:"imported"`
+	Updated  []string                    `json:"updated"`
+	Skipped  []string                    `json:"skipped"`
+	Models   []resources.ModelDefinition `json:"models"`
+	Revision uint64                      `json:"revision"`
+	Error    *CallError                  `json:"error,omitempty"`
+}
+
+// ProviderListResult 是供应商列表。
+type ProviderListResult struct {
+	Items    []resources.Provider `json:"items"`
+	Revision uint64               `json:"revision"`
+	Error    *CallError           `json:"error,omitempty"`
+}
+
+// ProviderResult 是单个供应商操作的结果。
+type ProviderResult struct {
+	Item     resources.Provider `json:"item"`
+	Revision uint64             `json:"revision"`
+	Error    *CallError         `json:"error,omitempty"`
+}
+
+// DiscoverModels 自动探测回环上的本地模型端点。
+//
+// 这是静默动作，所以只碰回环；要扫局域网/公网端点必须走 ProbeProviderModels
+// （用户显式输入地址并点击）。
+func (d *Desktop) DiscoverModels() ModelDiscoveryResult {
+	out := ModelDiscoveryResult{Items: []resources.DiscoveredEndpoint{}}
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	items, err := svc.DiscoverModels(ctx)
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	if items != nil {
+		out.Items = items
+	}
+	return out
+}
+
+// ProbeProviderModels 扫描用户输入的端点（含局域网明文网关）。
+//
+// allowInsecure 必须是用户的显式确认：公网 + 明文 HTTP 只有它为 true 才放行，
+// 且返回的 Insecure 会告诉界面"凭据会以明文经过网络"。
+func (d *Desktop) ProbeProviderModels(baseURL, api, credentialRef string, allowInsecure bool) ModelProviderProbeResult {
+	svc, err := d.resourceServices()
+	if err != nil {
+		return ModelProviderProbeResult{Error: toCallError(err)}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	probe, err := svc.ProbeProviderModels(ctx, baseURL, api, credentialRef, allowInsecure)
+	if err != nil {
+		return ModelProviderProbeResult{Error: toCallError(err)}
+	}
+	return ModelProviderProbeResult{Probe: probe}
+}
+
+// ImportModels 把扫描到的模型导入成模型定义（按 provider+model 幂等）。
+func (d *Desktop) ImportModels(providerID, baseURL, api string, modelIDs []string, defaults resources.ImportDefaults, allowInsecure bool) ModelImportResult {
+	out := ModelImportResult{Imported: []string{}, Updated: []string{}, Skipped: []string{}, Models: []resources.ModelDefinition{}}
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	res, err := svc.ImportModels(context.Background(), resources.ImportSpec{
+		ProviderID:    providerID,
+		BaseURL:       baseURL,
+		API:           api,
+		ModelIDs:      modelIDs,
+		Defaults:      defaults,
+		AllowInsecure: allowInsecure,
+	})
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	out.Imported = res.Imported
+	out.Updated = res.Updated
+	out.Skipped = res.Skipped
+	out.Revision = res.Revision
+	if res.Models != nil {
+		out.Models = res.Models
+	}
+	return out
+}
+
+// ListProviders 列出供应商（显式记录 + 只靠模型出现的 providerId）。
+func (d *Desktop) ListProviders() ProviderListResult {
+	out := ProviderListResult{Items: []resources.Provider{}}
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	set, err := svc.ListProviders(context.Background())
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	if set.Items != nil {
+		out.Items = set.Items
+	}
+	out.Revision = set.Revision
+	return out
+}
+
+// SaveProvider 新建/更新供应商，并让引用它的模型一起指向新端点。
+func (d *Desktop) SaveProvider(id, baseURL, api string, allowInsecure bool) ProviderResult {
+	out := ProviderResult{}
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	item, revision, err := svc.SaveProvider(context.Background(), id, baseURL, api, allowInsecure)
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	out.Item = item
+	out.Revision = revision
+	return out
+}
+
+// DeleteProvider 删除供应商；仍有模型引用时明确拒绝并列出引用者。
+func (d *Desktop) DeleteProvider(id string) ProviderResult {
+	out := ProviderResult{}
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	revision, err := svc.DeleteProvider(context.Background(), id)
+	if err != nil {
+		out.Error = toCallError(err)
+		return out
+	}
+	out.Revision = revision
 	return out
 }

@@ -11,6 +11,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +122,10 @@ func TestModelLifecycleThroughBindings(t *testing.T) {
 		"currentModelRef":    cur.Ref,
 	})
 
+	// 当前模型不能直接删除（MP1）：先切回未配置，再清理列表。
+	if err := d.SetActiveModel(""); err.Error != nil {
+		t.Fatalf("取消当前模型失败: %s", err.Error.Message)
+	}
 	del := d.DeleteModel(list.Revision, "m-demo")
 	if del.Error != nil {
 		t.Fatalf("删除失败: %s", del.Error.Message)
@@ -185,11 +191,21 @@ func TestStartRejectsDeletedActiveModel(t *testing.T) {
 	if act := d.SetActiveModel("m-demo"); act.Error != nil {
 		t.Fatalf("设为当前: %s", act.Error.Message)
 	}
-	if del := d.DeleteModel(saved.Revision, "m-demo"); del.Error != nil {
-		t.Fatalf("删除模型: %s", del.Error.Message)
+	// 通过绑定删除当前模型会被拒绝（MP1）。这里要模拟的是"配置在别处
+	// 被删掉/文件损坏"的外部事实，所以直接走资源服务，绕过绑定层的保护。
+	svc, err := d.resourceServices()
+	if err != nil {
+		t.Fatalf("取资源服务: %v", err)
+	}
+	set, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("列举模型: %v", err)
+	}
+	if _, err := svc.Delete(context.Background(), set.Revision, "m-demo"); err != nil {
+		t.Fatalf("外部删除模型: %v", err)
 	}
 
-	_, err := d.Start("你好")
+	_, err = d.Start("你好")
 	if err == nil {
 		t.Fatal("当前模型不存在时必须拒绝启动")
 	}
@@ -370,4 +386,139 @@ func eventuallyTrue(d time.Duration, cond func() bool) bool {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return false
+}
+
+// TestModelMaintenanceBindings 覆盖 MP1 的绑定面：
+// 自动发现（只回环、有界）、显式探测（局域网明文放行并标 insecure、公网明文拒绝）、
+// 导入幂等、供应商列举与"有引用就拒绝删除"。
+func TestModelMaintenanceBindings(t *testing.T) {
+	d, _ := newTestDesktop(t)
+
+	// 自动发现：四个默认目标都返回结构，不 panic、不超时。
+	discovered := d.DiscoverModels()
+	if discovered.Error != nil {
+		t.Fatalf("自动发现失败: %s: %s", discovered.Error.Code, discovered.Error.Message)
+	}
+	if len(discovered.Items) != 4 {
+		t.Fatalf("默认矩阵应有 4 个端点，实际 %d", len(discovered.Items))
+	}
+	for _, it := range discovered.Items {
+		if !it.Reachable && (it.Error == nil || it.Error.Code == "") {
+			t.Fatalf("%s 不可达时必须给稳定错误码", it.Kind)
+		}
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{"id": "local-a", "object": "model"},
+				{"id": "local-b", "object": "model"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	probe := d.ProbeProviderModels(srv.URL, "openai-completions", "", false)
+	if probe.Error != nil {
+		t.Fatalf("回环探测失败: %s: %s", probe.Error.Code, probe.Error.Message)
+	}
+	if !probe.Probe.Reachable || len(probe.Probe.Models) != 2 {
+		t.Fatalf("探测结果不对: %+v", probe.Probe)
+	}
+
+	// 局域网明文端点：允许，但要标 insecure。
+	lanProbe := d.ProbeProviderModels("http://192.168.3.10:3425/v1", "openai-completions", "", false)
+	if lanProbe.Error != nil {
+		t.Fatalf("局域网明文端点不能被校验拒绝: %s: %s", lanProbe.Error.Code, lanProbe.Error.Message)
+	}
+	if !lanProbe.Probe.Insecure {
+		t.Fatal("局域网明文端点必须标 insecure")
+	}
+	// 公网明文在没有显式确认时拒绝。
+	if pub := d.ProbeProviderModels("http://203.0.113.9:8000/v1", "openai-completions", "", false); pub.Error == nil {
+		t.Fatal("公网明文端点未确认时必须被拒绝")
+	}
+
+	defaults := resources.ImportDefaults{ContextWindow: 32000, MaxOutput: 4096, InputKinds: []string{"text"}}
+	baseURL := srv.URL + "/v1"
+	first := d.ImportModels("local", baseURL, "openai-completions", []string{"local-a", "local-b"}, defaults, false)
+	if first.Error != nil {
+		t.Fatalf("导入失败: %s: %s", first.Error.Code, first.Error.Message)
+	}
+	if len(first.Imported) != 2 || len(first.Models) != 2 {
+		t.Fatalf("首次导入应新建 2 条，实际 imported=%v models=%d", first.Imported, len(first.Models))
+	}
+
+	second := d.ImportModels("local", baseURL, "openai-completions", []string{"local-a", "local-b"}, defaults, false)
+	if second.Error != nil {
+		t.Fatalf("重复导入失败: %s: %s", second.Error.Code, second.Error.Message)
+	}
+	if len(second.Imported) != 0 || len(second.Updated) != 2 {
+		t.Fatalf("重复导入应只更新，实际 imported=%v updated=%v", second.Imported, second.Updated)
+	}
+
+	providers := d.ListProviders()
+	if providers.Error != nil {
+		t.Fatalf("列举供应商失败: %s", providers.Error.Message)
+	}
+	if len(providers.Items) != 1 || len(providers.Items[0].ModelIDs) != 2 {
+		t.Fatalf("供应商应带 2 条模型，实际 %+v", providers.Items)
+	}
+
+	// 还有模型引用时必须拒绝删除，并说出引用者。
+	del := d.DeleteProvider("local")
+	if del.Error == nil {
+		t.Fatal("供应商仍被引用时必须拒绝删除")
+	}
+	if del.Error.Code != contracts.CodeConfigConflict {
+		t.Fatalf("期望 %s，实际 %s", contracts.CodeConfigConflict, del.Error.Code)
+	}
+	for _, id := range first.Imported {
+		if !strings.Contains(del.Error.Message, id) {
+			t.Fatalf("拒绝原因要列出引用者 %s，实际 %q", id, del.Error.Message)
+		}
+	}
+
+	// 保存供应商（含局域网明文）走真实绑定并标 insecure。
+	saved := d.SaveProvider("lan", "http://192.168.3.10:3425/v1", "openai-completions", false)
+	if saved.Error != nil {
+		t.Fatalf("保存局域网供应商失败: %s: %s", saved.Error.Code, saved.Error.Message)
+	}
+	if !saved.Item.Insecure {
+		t.Fatal("局域网明文供应商必须标 insecure")
+	}
+}
+
+// TestDeleteActiveModelIsRefused：删除当前使用的模型必须被明确拒绝，
+// 否则下一次 run 会指向一个不存在的 ref（症状是"启动就失败"，与删除无关）。
+func TestDeleteActiveModelIsRefused(t *testing.T) {
+	d, _ := newTestDesktop(t)
+	def := demoModel()
+	saved := d.SaveModel(0, def, "")
+	if saved.Error != nil {
+		t.Fatalf("保存模型失败: %s", saved.Error.Message)
+	}
+	if act := d.SetActiveModel(saved.Item.ID); act.Error != nil {
+		t.Fatalf("设为当前失败: %s", act.Error.Message)
+	}
+
+	del := d.DeleteModel(saved.Revision, saved.Item.ID)
+	if del.Error == nil {
+		t.Fatal("删除当前使用的模型必须被拒绝")
+	}
+	if del.Error.Code != contracts.CodeConfigConflict {
+		t.Fatalf("期望 %s，实际 %s", contracts.CodeConfigConflict, del.Error.Code)
+	}
+	if !strings.Contains(del.Error.Message, "请先切换") {
+		t.Fatalf("拒绝原因要告诉用户下一步，实际 %q", del.Error.Message)
+	}
+
+	// 切回未配置后可以删除。
+	if act := d.SetActiveModel(""); act.Error != nil {
+		t.Fatalf("取消当前模型失败: %s", act.Error.Message)
+	}
+	if del := d.DeleteModel(saved.Revision, saved.Item.ID); del.Error != nil {
+		t.Fatalf("切换后应能删除: %s: %s", del.Error.Code, del.Error.Message)
+	}
 }

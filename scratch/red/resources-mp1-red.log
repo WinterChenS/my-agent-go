@@ -1,0 +1,14 @@
+# my-agent-go/internal/resources [my-agent-go/internal/resources.test]
+internal\resources\providers_test.go:24:23: undefined: ImportDefaults
+internal\resources\discovery_test.go:69:2: undefined: WithDiscoveryTargets
+internal\resources\discovery_test.go:69:25: undefined: DiscoveryTarget
+internal\resources\discovery_test.go:74:20: svc.DiscoverModels undefined (type *Service has no field or method DiscoverModels)
+internal\resources\discovery_test.go:81:23: undefined: DiscoveredEndpoint
+internal\resources\discovery_test.go:117:2: undefined: WithDiscoveryTargets
+internal\resources\discovery_test.go:117:25: undefined: DiscoveryTarget
+internal\resources\discovery_test.go:121:20: svc.DiscoverModels undefined (type *Service has no field or method DiscoverModels)
+internal\resources\discovery_test.go:132:43: undefined: CodeDiscoveryUnreachable
+internal\resources\discovery_test.go:133:53: undefined: CodeDiscoveryUnreachable
+internal\resources\discovery_test.go:133:53: too many errors
+FAIL	my-agent-go/internal/resources [build failed]
+FAIL
