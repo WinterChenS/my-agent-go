@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { EmptyState, ErrorState, LoadingState, NoPermissionState } from "./StateViews";
+import { t } from "../i18n";
 
 describe("LoadingState", () => {
   it("有 role=status 与 aria-live，读屏能感知加载", () => {
@@ -40,11 +41,11 @@ describe("ErrorState", () => {
     const { rerender } = render(
       <ErrorState error={{ code: "INTERNAL_ERROR", message: "x" }} onRetry={onRetry} />
     );
-    screen.getByRole("button", { name: "重试" }).click();
+    screen.getByRole("button", { name: t("common.retry") }).click();
     expect(onRetry).toHaveBeenCalledTimes(1);
 
     rerender(<ErrorState error={{ code: "INTERNAL_ERROR", message: "x" }} />);
-    expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("common.retry") })).toBeNull();
   });
 
   it("message 不会被截断成只剩 code", () => {

@@ -19,10 +19,8 @@ import { api } from "../../api";
 import { toCallError } from "../../app/useBackend";
 import { ProfileEditor } from "../profiles/ProfileEditor";
 import { ModelsSection } from "../models/ModelsSection";
-import { SkillsSection } from "../skills/SkillsSection";
-import { ExtensionsSection } from "../skills/ExtensionsSection";
-import { MCPSection } from "../mcp/MCPSection";
-import { ToolsSection } from "../tools/ToolsSection";
+import { SkillsPage } from "../skills/SkillsPage";
+import { McpPage } from "../mcp/McpPage";
 import { EmptyState } from "../../components/StateViews";
 
 export interface ResourcesViewProps {
@@ -103,7 +101,7 @@ export function ResourcesView({
         onChanged={onModelsChanged}
       />
 
-      <SkillsSection
+      <SkillsPage
         skills={skills}
         revision={skillRevision}
         pending={skillsPending}
@@ -111,12 +109,8 @@ export function ResourcesView({
         runtimeSkills={runtimeSkills}
         workspaceId={workspaceId}
         onChanged={onSkillsChanged}
-      />
-
-      <ExtensionsSection
         extensions={extensions}
-        revision={extensionRevision}
-        onChanged={onSkillsChanged}
+        extensionRevision={extensionRevision}
       />
 
       <section>
@@ -204,9 +198,7 @@ export function ResourcesView({
         )}
       </section>
 
-      <MCPSection />
-
-      <ToolsSection />
+      <McpPage />
     </div>
   );
 }

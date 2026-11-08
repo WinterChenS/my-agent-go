@@ -999,5 +999,198 @@
       "schema": "Schema version",
       "generatedAt": "Generated at"
     }
+  },
+  "skills": {
+    "title": "Skills",
+    "subtitle": "Import from a local folder and copy it into the product-managed directory (the source folder is left untouched). Only enabled managed skills are handed to Pi explicitly via --skill; Pi's own local skill discovery stays on, so it may also load skills that already exist on this machine, and a same-name copy is not blocked by these switches (the run record keeps the two facts apart).",
+    "pending": {
+      "activeRun": "Skill changes saved. A run is still in progress and keeps using the old skill set; the change applies from the next run after it ends.",
+      "saved": "Skill changes saved; they apply from the next run."
+    },
+    "import": {
+      "pathLabel": "Local path (skill folder or SKILL.md)",
+      "pathAria": "Skill import path",
+      "pathPlaceholder": "D:\\skills\\my-skill",
+      "scopeAria": "Skill scope",
+      "submit": "Import",
+      "hint": "Importing only copies files: no script inside the skill is executed, and the dependency commands it declares are not installed.",
+      "pathRequired": "Enter a local skill folder (or the path to SKILL.md). Importing copies the content into the product directory and leaves the source untouched.",
+      "done": "Imported {name}.",
+      "donePending": "Imported {name}. It applies from the next run."
+    },
+    "scope": {
+      "user": "User level",
+      "workspaceOption": "This workspace only",
+      "workspaceBadge": "Workspace only"
+    },
+    "state": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "staleInRun": "A run still uses the old set"
+    },
+    "labels": {
+      "noDescription": "(no description)",
+      "dependencies": "Dependencies: {commands}"
+    },
+    "empty": {
+      "title": "No skills yet",
+      "hint": "A skill is a SKILL.md file (its frontmatter needs name and description). Only after importing it may Pi use it for a suitable task."
+    },
+    "actions": {
+      "edit": "Edit",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete",
+      "deleteConfirm": "Confirm delete"
+    },
+    "editor": {
+      "contentLabel": "SKILL.md content",
+      "contentAria": "SKILL.md content",
+      "saved": "Saved. The change loads on the next run.",
+      "nameHint": "name cannot be changed (it is the directory name and the stable reference); re-import to rename."
+    }
+  },
+  "extensions": {
+    "title": "Extensions",
+    "subtitle": "Extensions are code that runs inside the Pi process. System policy extensions cannot be disabled; third-party extensions are off by default, and enabling one is trusting it — but trust is not a free pass on approvals.",
+    "empty": "No extensions to list. This is also what you see when the system policy extension cannot be resolved — that means the repository layout is broken, not that none exist.",
+    "systemBadge": "System resource · cannot be disabled",
+    "enabledBadge": "Enabled",
+    "disabledBadge": "Not enabled",
+    "confirmEnable": "Confirm enable"
+  },
+  "mcp": {
+    "title": "MCP servers",
+    "subtitle": "External MCP servers are connected by Pi (stdio / Streamable HTTP). The configuration only stores the command and its arguments or the url, plus credential references; disabling removes the server from the isolated agentDir's mcp.json and applies from the next run.",
+    "actions": {
+      "create": "New",
+      "diagnoseAll": "Diagnose all",
+      "diagnose": "Diagnose",
+      "edit": "Edit",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete",
+      "deleteConfirm": "Confirm delete"
+    },
+    "pending": {
+      "activeRun": "MCP changes saved. A run is still in progress and keeps using the old mcp.json; the change applies from the next run after it ends.",
+      "saved": "MCP changes saved; they apply from the next run (disabled servers are removed when the runtime is rebuilt)."
+    },
+    "diagnoseNotReady": "No usable Pi is configured, so diagnosis is unavailable; the state will not be shown as connected.",
+    "errorTitle": "MCP operation failed",
+    "state": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "unchecked": "Not checked",
+      "failed": "Connection failed",
+      "timeout": "Connection timed out",
+      "authRequired": "Authorization required",
+      "incomplete": "Configuration incomplete"
+    },
+    "labels": {
+      "exposure": "Exposure {value}",
+      "missingUrl": "(missing url)",
+      "tools": "Tools: {count}",
+      "toolsWithNames": "Tools: {count} ({names})"
+    },
+    "badges": {
+      "pendingNextRun": "Applies from the next run",
+      "runningInUse": "Still in use by a run"
+    },
+    "authUnsupported": "MCP OAuth sign-in is not supported in V1. Save the credential as a ref and reference it through headerRefs, or authorize in an external client. This will not be shown as connected.",
+    "toolsNote": "The connection is managed by Pi; the diagnosis does not include inputSchema.",
+    "credential": {
+      "hint": "Credentials live only in the OS keychain; the configuration stores just the ref",
+      "refAria": "Credential ref",
+      "valueAria": "Credential value",
+      "valuePlaceholder": "Token text (for example: Bearer xyz)",
+      "save": "Save credential",
+      "required": "Enter a credential ref and a value; the value is written to the OS keychain only and never echoed back.",
+      "saved": "Saved credential {ref} (the value is not echoed back and is not written into mcp.json)."
+    },
+    "loading": "Reading MCP configuration…",
+    "empty": {
+      "title": "No MCP servers yet",
+      "hint": "stdio needs the executable and its arguments entered separately; HTTP needs a Streamable HTTP endpoint (usually /mcp). Save secrets as credentials first, then reference them in the configuration."
+    },
+    "exposureAria": "Exposure for {id}",
+    "editor": {
+      "titleEdit": "Edit {id}",
+      "titleCreate": "New MCP server",
+      "idLabel": "Server ID",
+      "idAria": "MCP server ID",
+      "transportLabel": "Transport",
+      "transportAria": "Transport",
+      "transportStdioOption": "stdio",
+      "transportHttpOption": "http (Streamable HTTP)",
+      "commandLabel": "Executable (no arguments)",
+      "commandAria": "Command",
+      "workingDirLabel": "Working directory (optional, absolute path)",
+      "workingDirAria": "Working directory",
+      "argsLabel": "Arguments (one per line; do not write shell commands)",
+      "argsAria": "Arguments",
+      "urlLabel": "URL (Streamable HTTP)",
+      "urlAria": "URL",
+      "urlPlaceholder": "https://example.test/mcp",
+      "exposureLabel": "Exposure",
+      "exposureAria": "Exposure",
+      "exposureDirectOption": "direct (declared to the model)",
+      "exposureDeferredOption": "deferred (through tool_search)",
+      "exposureHiddenOption": "hidden (unreachable)",
+      "envRefsLabel": "Environment references (NAME=ref)",
+      "envRefsAria": "Environment references",
+      "headerRefsLabel": "Header references (Name=ref)",
+      "headerRefsAria": "Header references",
+      "save": "Save MCP",
+      "hint": "Saving only validates and writes the configuration: the command is not executed and the url is not connected."
+    },
+    "errors": {
+      "idRequired": "Enter a server ID (it becomes the key in mcp.json)",
+      "refLine": "A reference line must read NAME=ref: {line}"
+    },
+    "notice": {
+      "exposure": "Updated the exposure of {id} to {exposure}.",
+      "saved": "Saved {id}. Saving does not execute the command and does not connect the url."
+    }
+  },
+  "tools": {
+    "title": "Tool catalog",
+    "subtitle": "A tool's effective state comes from configuration and Pi's diagnosis: hidden / disabled / failed diagnosis all show as unavailable. Unknown MCP tools require approval for each call; readOnlyHint is not trusted.",
+    "actions": {
+      "refresh": "Refresh"
+    },
+    "errorTitle": "Failed to read the tool catalog",
+    "loading": "Reading the tool catalog…",
+    "empty": {
+      "title": "The tool catalog is empty",
+      "hint": "There are no tools to list right now. MCP server tools appear only after a diagnosis succeeds (Pi must connect first); the extension tool list is registered by the Pi runtime and cannot be enumerated statically."
+    },
+    "source": {
+      "builtin": "Built-in (Pi)",
+      "extension": "Extension",
+      "mcp": "External MCP",
+      "harness": "Own MCP"
+    },
+    "extensionUnknown": "(tool list unknown; check the run record for the actual calls)",
+    "capability": {
+      "available": "Available",
+      "deferred": "Needs tool_search",
+      "hidden": "Hidden",
+      "unknown": "Unknown",
+      "unavailable": "Unavailable",
+      "disabled": "Disabled"
+    },
+    "policy": {
+      "approval": "Approve each call",
+      "auto": "Auto-allow",
+      "denied": "Denied"
+    },
+    "builtin": {
+      "read": "Read workspace files (read-only)",
+      "write": "Write workspace files",
+      "edit": "Edit workspace files",
+      "bash": "Run shell commands (subject to permissions and approval)",
+      "tool_search": "Activated by Pi for MCP servers with deferred exposure: search for and declare tools that are not declared yet"
+    }
   }
 }

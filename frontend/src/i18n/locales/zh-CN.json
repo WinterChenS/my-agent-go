@@ -999,5 +999,198 @@
       "schema": "Schema 版本",
       "generatedAt": "生成时间"
     }
+  },
+  "skills": {
+    "title": "技能",
+    "subtitle": "从本地导入，复制进产品管理目录（源目录不会被改动）。托管的技能只有「启用」的会通过 --skill 显式交给 Pi；Pi 自己的本地技能发现保持开启，它可能另外加载你机器上已有的技能，同名副本也不会被这里的开关挡住（运行记录里分开写这两件事）。",
+    "pending": {
+      "activeRun": "技能改动已保存。当前还有 run 在跑，它仍使用旧技能集合；结束后的下一次运行生效。",
+      "saved": "技能改动已保存，下一次运行生效。"
+    },
+    "import": {
+      "pathLabel": "本地路径（技能目录或 SKILL.md）",
+      "pathAria": "技能导入路径",
+      "pathPlaceholder": "D:\\skills\\my-skill",
+      "scopeAria": "技能作用域",
+      "submit": "导入",
+      "hint": "导入只复制文件，不执行技能里的任何脚本，也不会自动安装它声明的依赖命令。",
+      "pathRequired": "请填写本地技能目录（或 SKILL.md 的路径）。导入会把内容复制进产品目录，不改源目录。",
+      "done": "已导入 {name}。",
+      "donePending": "已导入 {name}。下次运行生效。"
+    },
+    "scope": {
+      "user": "用户级",
+      "workspaceOption": "仅当前工作区",
+      "workspaceBadge": "仅工作区"
+    },
+    "state": {
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "staleInRun": "运行中仍是旧集合"
+    },
+    "labels": {
+      "noDescription": "（无描述）",
+      "dependencies": "依赖 {commands}"
+    },
+    "empty": {
+      "title": "还没有技能",
+      "hint": "技能是一份 SKILL.md（frontmatter 里要有 name 与 description）。导入后 Pi 才可能在合适的任务里调用它。"
+    },
+    "actions": {
+      "edit": "编辑",
+      "enable": "启用",
+      "disable": "禁用",
+      "delete": "删除",
+      "deleteConfirm": "确认删除"
+    },
+    "editor": {
+      "contentLabel": "SKILL.md 内容",
+      "contentAria": "SKILL.md 内容",
+      "saved": "已保存。改动会在下一次运行时加载。",
+      "nameHint": "name 不能改名（它是目录名与稳定引用）；要改名请重新导入。"
+    }
+  },
+  "extensions": {
+    "title": "扩展",
+    "subtitle": "扩展是会在 Pi 进程里执行的代码。系统策略扩展不可关闭；第三方扩展默认关闭，启用即信任——但信任不等于免审批。",
+    "empty": "没有可列出的扩展。系统策略扩展未解析到时也会是空的——那说明仓库布局有问题，而不是\"本来就没有\"。",
+    "systemBadge": "系统资源 · 不可关闭",
+    "enabledBadge": "已启用",
+    "disabledBadge": "未启用",
+    "confirmEnable": "确认启用"
+  },
+  "mcp": {
+    "title": "MCP 服务",
+    "subtitle": "外部 MCP 由 Pi 连接（stdio / Streamable HTTP）。配置里只保存 command 与参数或 url，以及凭证引用；禁用会把服务从隔离 agentDir 的 mcp.json 里移除，下一次运行生效。",
+    "actions": {
+      "create": "新建",
+      "diagnoseAll": "诊断全部",
+      "diagnose": "诊断",
+      "edit": "编辑",
+      "enable": "启用",
+      "disable": "禁用",
+      "delete": "删除",
+      "deleteConfirm": "确认删除"
+    },
+    "pending": {
+      "activeRun": "MCP 改动已保存。当前还有 run 在跑，它仍使用旧的 mcp.json；结束后的下一次运行生效。",
+      "saved": "MCP 改动已保存，下一次运行生效（重建运行时后会移除已禁用的服务）。"
+    },
+    "diagnoseNotReady": "未配置可用的 Pi，诊断不可用；状态不会显示成\"已连接\"。",
+    "errorTitle": "MCP 操作失败",
+    "state": {
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "unchecked": "未检查",
+      "failed": "连接失败",
+      "timeout": "连接超时",
+      "authRequired": "需要鉴权",
+      "incomplete": "配置不完整"
+    },
+    "labels": {
+      "exposure": "暴露 {value}",
+      "missingUrl": "（缺少 url）",
+      "tools": "工具 {count} 个",
+      "toolsWithNames": "工具 {count} 个：{names}"
+    },
+    "badges": {
+      "pendingNextRun": "下次运行生效",
+      "runningInUse": "运行中仍在使用"
+    },
+    "authUnsupported": "V1 未支持 MCP OAuth 登录；请把凭证保存为 ref 并通过 headerRefs 引用，或在外部客户端完成授权。这里不会显示成已连接。",
+    "toolsNote": "连接由 Pi 管理；诊断结果不含 inputSchema。",
+    "credential": {
+      "hint": "凭证只存 OS 凭证库；配置里只写 ref",
+      "refAria": "凭证引用名",
+      "valueAria": "凭证值",
+      "valuePlaceholder": "令牌原文（如 Bearer xyz）",
+      "save": "保存凭证",
+      "required": "请填写凭证引用名与值；值只写入 OS 凭证库，不会回显。",
+      "saved": "已保存凭证 {ref}（值不会回显，也不会写进 mcp.json）。"
+    },
+    "loading": "读取 MCP 配置…",
+    "empty": {
+      "title": "还没有 MCP 服务",
+      "hint": "stdio 需要可执行文件与参数分开填写；HTTP 需要 Streamable HTTP 端点（通常是 /mcp）。密钥请先保存为凭证，再在配置里引用。"
+    },
+    "exposureAria": "暴露策略 {id}",
+    "editor": {
+      "titleEdit": "编辑 {id}",
+      "titleCreate": "新建 MCP 服务",
+      "idLabel": "服务 ID",
+      "idAria": "MCP 服务 ID",
+      "transportLabel": "传输方式",
+      "transportAria": "传输方式",
+      "transportStdioOption": "stdio",
+      "transportHttpOption": "http（Streamable HTTP）",
+      "commandLabel": "可执行文件（不含参数）",
+      "commandAria": "命令",
+      "workingDirLabel": "工作目录（可选，绝对路径）",
+      "workingDirAria": "工作目录",
+      "argsLabel": "参数（每行一个；不要写 shell 命令）",
+      "argsAria": "参数",
+      "urlLabel": "URL（Streamable HTTP）",
+      "urlAria": "URL",
+      "urlPlaceholder": "https://example.test/mcp",
+      "exposureLabel": "暴露策略",
+      "exposureAria": "暴露策略",
+      "exposureDirectOption": "direct（直接声明给模型）",
+      "exposureDeferredOption": "deferred（经 tool_search）",
+      "exposureHiddenOption": "hidden（不可达）",
+      "envRefsLabel": "环境变量引用（NAME=ref）",
+      "envRefsAria": "环境变量引用",
+      "headerRefsLabel": "请求头引用（Name=ref）",
+      "headerRefsAria": "请求头引用",
+      "save": "保存 MCP",
+      "hint": "保存只做校验与写配置：不执行 command，不连接 url。"
+    },
+    "errors": {
+      "idRequired": "请填写服务 ID（会成为 mcp.json 的键名）",
+      "refLine": "引用行必须写成 NAME=ref：{line}"
+    },
+    "notice": {
+      "exposure": "已更新 {id} 的暴露策略为 {exposure}。",
+      "saved": "已保存 {id}。保存不会执行 command，也不会连接 url。"
+    }
+  },
+  "tools": {
+    "title": "工具目录",
+    "subtitle": "工具的有效状态来自配置与 Pi 的诊断：hidden / 已禁用 / 诊断失败都显示为不可用。未知 MCP 工具默认逐次审批，不信任 readOnlyHint。",
+    "actions": {
+      "refresh": "刷新"
+    },
+    "errorTitle": "工具目录读取失败",
+    "loading": "读取工具目录…",
+    "empty": {
+      "title": "工具目录为空",
+      "hint": "当前没有任何可列出的工具。MCP 服务的工具需要先诊断（Pi 连接成功后才会出现）；扩展工具清单由 Pi 运行时注册，产品无法静态枚举。"
+    },
+    "source": {
+      "builtin": "内置（Pi）",
+      "extension": "扩展",
+      "mcp": "外部 MCP",
+      "harness": "自有 MCP"
+    },
+    "extensionUnknown": "（工具清单未知，需在运行记录中查看实际调用）",
+    "capability": {
+      "available": "可用",
+      "deferred": "需 tool_search",
+      "hidden": "已隐藏",
+      "unknown": "未知",
+      "unavailable": "不可用",
+      "disabled": "已禁用"
+    },
+    "policy": {
+      "approval": "逐次审批",
+      "auto": "自动放行",
+      "denied": "拒绝"
+    },
+    "builtin": {
+      "read": "读取工作区文件（只读）",
+      "write": "写入工作区文件",
+      "edit": "编辑工作区文件",
+      "bash": "执行 shell 命令（受权限与审批约束）",
+      "tool_search": "Pi 因 deferred 暴露的 MCP 服务自动激活：搜索并声明未声明的工具"
+    }
   }
 }
