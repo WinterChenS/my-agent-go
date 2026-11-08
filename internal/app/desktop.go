@@ -1152,6 +1152,14 @@ func (d *Desktop) resolveInstallation(s Settings) (pi.PiInstallation, error) {
 	if path := strings.TrimSpace(s.PiPath); path != "" {
 		return resolveUserInstallation(s, path)
 	}
+	// 环境变量覆盖（ANVIL_PI_PATH / MYAGENT_PI_PATH），排在设置之后、托管副本之前。
+	//
+	// 为什么需要：预览包、CI、以及"我想先试一个不在 PATH 上的 Pi"这类场景，都不该
+	// 去改用户设置文件——settings.json 是用户资产，脚本改写它会在真实使用中丢配置。
+	// 优先级仍然确定：设置里显式选了路径就以设置为准，环境变量只是"没选时的默认"。
+	if path, _ := envLookup("PI_PATH"); path != "" {
+		return resolveUserInstallation(s, path)
+	}
 	return resolveActiveManagedInstallation(pi.ManagedRoot())
 }
 

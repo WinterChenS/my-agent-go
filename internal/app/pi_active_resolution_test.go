@@ -358,3 +358,39 @@ func TestDiscoverPiSeesManagedVersionAfterInstall(t *testing.T) {
 		t.Fatalf("没有用户路径时应选中托管安装，实际 %+v", disc.Selected)
 	}
 }
+
+// TestResolveInstallationEnvPathBetweenSettingsAndManaged 守新增的第三层优先级。
+//
+// 环境变量 ANVIL_PI_PATH（旧名 MYAGENT_PI_PATH）是"设置里没选时的默认"：
+// 它必须赢过托管副本，但**不能**盖过设置里显式选的路径——否则用户选了 A 却被
+// 环境变量改回 B，是那种"重启后又变回去"的隐蔽故障。
+func TestResolveInstallationEnvPathBetweenSettingsAndManaged(t *testing.T) {
+	d, root := newTestDesktop(t)
+	managedRoot := pi.ManagedRoot()
+	f := writeManagedInstall(t, managedRoot, "1.6.0", []byte("managed-pi-env"))
+	f.activate(t, "pi-active-env")
+
+	envPi := writeAppPiStub(t, filepath.Join(root, "env-pi"), appTestPiName())
+	t.Setenv("ANVIL_PI_PATH", envPi)
+
+	inst, err := d.resolveInstallation(d.Settings())
+	if err != nil {
+		t.Fatalf("环境变量路径有效时解析失败: %v", err)
+	}
+	if !appSamePath(t, inst.Executable, envPi) {
+		t.Fatalf("解析到的可执行体 = %q，期望环境变量指定的 %q", inst.Executable, envPi)
+	}
+
+	// 设置里显式选了一条 → 环境变量不得覆盖。
+	settingsPi := writeAppPiStub(t, filepath.Join(root, "settings-pi"), appTestPiName())
+	d.mu.Lock()
+	d.settings.PiPath = settingsPi
+	d.mu.Unlock()
+	inst, err = d.resolveInstallation(d.Settings())
+	if err != nil {
+		t.Fatalf("设置路径有效时解析失败: %v", err)
+	}
+	if !appSamePath(t, inst.Executable, settingsPi) {
+		t.Fatalf("设置里显式选择必须优先，实际 %q", inst.Executable)
+	}
+}
