@@ -35,8 +35,14 @@ import (
 // piDiscoveryRequest 组装一次发现请求（生产环境的真实字段来源）。
 func (d *Desktop) piDiscoveryRequest() pi.DiscoveryRequest {
 	s := d.Settings()
+	preferred := strings.TrimSpace(s.PiPath)
+	if preferred == "" {
+		// 与 resolveInstallation 同一优先级：设置没选时，环境变量是"默认之一"。
+		// 只让运行路径认它、发现路径不认，会出现"设置页说没检测到 Pi，但能跑"的矛盾。
+		preferred, _ = envLookup("PI_PATH")
+	}
 	req := pi.DiscoveryRequest{
-		Preferred: s.PiPath,
+		Preferred: preferred,
 		// 上次选定的 Pi（F07）：失效时由 F08 报成 missing-path 候选与诊断，
 		// 不静默消失、也不自动换成 PATH 上的另一个。
 		Saved:           s.PiSavedPath,
