@@ -24,11 +24,42 @@ const fake = vi.hoisted(() => ({
   installPi: null as unknown as (...a: any[]) => Promise<any>,
   cancelPiInstall: null as unknown as (...a: any[]) => Promise<any>,
   rollbackPi: null as unknown as (...a: any[]) => Promise<any>,
+  // MP1：模型维护现在挂在设置页，走的是 features/models 的绑定。
+  mList: null as unknown as (...a: any[]) => Promise<any>,
+  mSave: null as unknown as (...a: any[]) => Promise<any>,
+  mRemove: null as unknown as (...a: any[]) => Promise<any>,
+  mTest: null as unknown as (...a: any[]) => Promise<any>,
+  mSetActive: null as unknown as (...a: any[]) => Promise<any>,
+  mCurrent: null as unknown as (...a: any[]) => Promise<any>,
+  mDiscover: null as unknown as (...a: any[]) => Promise<any>,
+  mProbeProvider: null as unknown as (...a: any[]) => Promise<any>,
+  mImportModels: null as unknown as (...a: any[]) => Promise<any>,
+  mProviders: null as unknown as (...a: any[]) => Promise<any>,
+  mSaveProvider: null as unknown as (...a: any[]) => Promise<any>,
+  mDeleteProvider: null as unknown as (...a: any[]) => Promise<any>,
 }));
 
 const progress = vi.hoisted(() => ({
   emit: null as null | ((ev: any) => void),
   unsubscribe: vi.fn(),
+}));
+
+vi.mock("../models/api", () => ({
+  modelsApi: {
+    list: (...a: any[]) => fake.mList(...a),
+    save: (...a: any[]) => fake.mSave(...a),
+    remove: (...a: any[]) => fake.mRemove(...a),
+    test: (...a: any[]) => fake.mTest(...a),
+    setActive: (...a: any[]) => fake.mSetActive(...a),
+    current: (...a: any[]) => fake.mCurrent(...a),
+    discover: (...a: any[]) => fake.mDiscover(...a),
+    probeProvider: (...a: any[]) => fake.mProbeProvider(...a),
+    importModels: (...a: any[]) => fake.mImportModels(...a),
+    providers: (...a: any[]) => fake.mProviders(...a),
+    saveProvider: (...a: any[]) => fake.mSaveProvider(...a),
+    deleteProvider: (...a: any[]) => fake.mDeleteProvider(...a),
+  },
+  IMPORT_DEFAULTS: { contextWindow: 128000, maxOutput: 8192, inputKinds: ["text"] },
 }));
 
 vi.mock("./api", () => ({
@@ -153,6 +184,38 @@ beforeEach(() => {
     },
   }));
   fake.setActiveModel = vi.fn(async (ref: string) => ({ ref, deferred: false }));
+  fake.mList = vi.fn(async () => ({
+    items: [model()],
+    revision: 7,
+    options: { apis: ["openai-responses"], inputKinds: ["text"], thinkingLevels: ["off"] },
+  }));
+  fake.mCurrent = vi.fn(async () => ({
+    source: "resources",
+    ref: "model-1",
+    provider: "openai",
+    model: "gpt-5",
+    item: model(),
+    revision: 7,
+  }));
+  fake.mProviders = vi.fn(async () => ({ items: [], revision: 7 }));
+  fake.mTest = vi.fn(async () => ({
+    result: {
+      reachable: true,
+      toolCalling: "unknown",
+      vision: "unknown",
+      latencyMs: 42,
+      providerId: "openai",
+      modelId: "gpt-5",
+    },
+  }));
+  fake.mSetActive = vi.fn(async (ref: string) => ({ ref, deferred: false }));
+  fake.mDiscover = vi.fn(async () => ({ items: [] }));
+  fake.mProbeProvider = vi.fn(async () => ({ probe: null }));
+  fake.mImportModels = vi.fn(async () => ({ imported: [], updated: [], models: [], revision: 8 }));
+  fake.mSaveProvider = vi.fn(async () => ({ revision: 8 }));
+  fake.mDeleteProvider = vi.fn(async () => ({ revision: 8 }));
+  fake.mSave = vi.fn(async () => ({ revision: 8 }));
+  fake.mRemove = vi.fn(async () => ({ revision: 8 }));
   fake.agentProfileCeiling = vi.fn(async () => ({
     ceiling: {
       filesystem: "workspace",
@@ -279,14 +342,14 @@ describe("设置页 · 模型", () => {
 
     const row = await within(section).findByTestId("model-model-1");
     expect(row).toHaveTextContent("openai/gpt-5");
-    expect(row).toHaveTextContent(t("settings.model.credentialPresent"));
+    expect(row).toHaveTextContent(t("library.models.labels.credential", { ref: "cred-1" }));
     expect(within(section).getByTestId("model-current")).toHaveTextContent(
       t("settings.model.source.resources")
     );
   });
 
   it("连接测试显示真实延迟，失败时按 code 显示", async () => {
-    fake.testModel = vi.fn(async () => ({
+    fake.mTest = vi.fn(async () => ({
       result: {
         reachable: false,
         toolCalling: "unknown",
@@ -299,28 +362,32 @@ describe("设置页 · 模型", () => {
     }));
     render(<SettingsPage onNavigate={() => {}} />);
     const section = await screen.findByTestId("settings-model");
-    await userEvent.click(await within(section).findByRole("button", { name: t("settings.model.test") }));
+    await userEvent.click(
+      await within(section).findByRole("button", { name: t("library.models.actions.test") })
+    );
 
     const out = await within(section).findByTestId("model-test-model-1");
-    expect(out).toHaveTextContent(t("settings.model.unreachable"));
+    expect(out).toHaveTextContent(t("library.models.labels.unreachable"));
     expect(out).toHaveTextContent("PROVIDER_UNREACHABLE");
   });
 
   it("设为当前模型走真实绑定，deferred 时说明下次运行才生效", async () => {
-    fake.listModels = vi.fn(async () => ({
+    fake.mList = vi.fn(async () => ({
       items: [model(), model({ id: "model-2", providerId: "local", modelId: "qwen" })],
       revision: 7,
-      options: { apis: [], inputKinds: [], thinkingLevels: [] },
+      options: { apis: ["openai-responses"], inputKinds: ["text"], thinkingLevels: ["off"] },
     }));
-    fake.setActiveModel = vi.fn(async (ref: string) => ({ ref, deferred: true }));
+    fake.mSetActive = vi.fn(async (ref: string) => ({ ref, deferred: true }));
     render(<SettingsPage onNavigate={() => {}} />);
     const section = await screen.findByTestId("settings-model");
     await userEvent.click(
-      await within(section).findByRole("button", { name: t("settings.model.activate") })
+      await within(section).findByRole("button", { name: t("library.models.actions.setActive") })
     );
 
-    await waitFor(() => expect(fake.setActiveModel).toHaveBeenCalledWith("model-2"));
-    expect(await within(section).findByText(t("settings.model.deferred"))).toBeInTheDocument();
+    await waitFor(() => expect(fake.mSetActive).toHaveBeenCalledWith("model-2"));
+    expect(
+      await within(section).findByText(t("library.models.notices.deferred"))
+    ).toBeInTheDocument();
   });
 });
 

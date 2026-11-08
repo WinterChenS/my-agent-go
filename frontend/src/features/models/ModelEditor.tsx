@@ -8,14 +8,10 @@
 
 import { useState } from "react";
 import { PlugZap, Save, X } from "lucide-react";
-import { api } from "../../api";
-import type {
-  CallError,
-  ModelDefinition,
-  ModelOptions,
-  ModelProbeResponse,
-} from "../../types";
+import type { CallError, ModelDefinition, ModelOptions, ModelProbeResponse } from "../../types";
+import { formatError, t } from "../../i18n";
 import { toCallError } from "../../app/useBackend";
+import { modelsApi } from "./api";
 
 export interface ModelEditorProps {
   /** null 表示新建。 */
@@ -59,10 +55,10 @@ function initialForm(model: ModelDefinition | null, options: ModelOptions): Form
   };
 }
 
-const CAPABILITY_LABEL: Record<string, string> = {
-  unknown: "未测",
-  supported: "支持",
-  unsupported: "不支持",
+const CAPABILITY_KEYS: Record<string, string> = {
+  unknown: "library.models.editor.capabilityUnknown",
+  supported: "library.models.editor.capabilitySupported",
+  unsupported: "library.models.editor.capabilityUnsupported",
 };
 
 export function ModelEditor({ model, options, revision, onSaved, onClose }: ModelEditorProps) {
@@ -104,7 +100,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
     setError(null);
     setNotice(null);
     try {
-      const res = await api.saveModel(revision, buildDefinition(), secret);
+      const res = await modelsApi.save(revision, buildDefinition(), secret);
       if (res.error) {
         setError(res.error);
         return;
@@ -121,7 +117,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
   async function probeNow() {
     // 未保存的模型没有 ID 可测；先保存再测，避免"测的是屏幕上还没落盘的那份"。
     if (!model) {
-      setNotice("请先保存，再测试连接。测试用的是已保存的配置。");
+      setNotice(t("library.models.notices.saveBeforeTest"));
       return;
     }
     setProbing(true);
@@ -129,7 +125,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
     setNotice(null);
     setError(null);
     try {
-      const res = await api.testModel(model.id);
+      const res = await modelsApi.test(model.id);
       setProbe(res);
     } catch (e) {
       setError(toCallError(e));
@@ -144,42 +140,47 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
     <div className="space-y-3">
       {model !== null && (!model.providerId || !model.modelId) && (
         <p className="rounded border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-2 py-1 text-[10px] text-[color:var(--anvil-warning)]">
-          这是旧版本保存的形状（只有 provider/baseUrl/model）。请补齐 Provider 名与模型名后保存，保存后才会被编译进
-          models.json。
+          {t("library.models.editor.legacyWarning")}
         </p>
       )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field label="模型 ID" hint="唯一标识，小写字母/数字/.-_">
+        <Field label={t("library.models.editor.idLabel")} hint={t("library.models.editor.idHint")}>
           <input
-            aria-label="模型 ID"
+            aria-label={t("library.models.editor.idLabel")}
             value={form.id}
             onChange={(e) => set("id", e.target.value)}
             disabled={model !== null}
-            placeholder="m-demo"
+            placeholder={t("library.models.editor.idPlaceholder")}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
-        <Field label="Provider 名" hint="models.json 里的键名">
+        <Field
+          label={t("library.models.editor.providerLabel")}
+          hint={t("library.models.editor.providerHint")}
+        >
           <input
-            aria-label="Provider 名"
+            aria-label={t("library.models.editor.providerLabel")}
             value={form.providerId}
             onChange={(e) => set("providerId", e.target.value)}
-            placeholder="demo"
+            placeholder={t("library.models.editor.providerPlaceholder")}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
-        <Field label="模型名（发给 API）" hint="例如 deepseek-chat">
+        <Field
+          label={t("library.models.editor.modelIdLabel")}
+          hint={t("library.models.editor.modelIdHint")}
+        >
           <input
-            aria-label="模型名"
+            aria-label={t("library.models.editor.modelIdLabel")}
             value={form.modelId}
             onChange={(e) => set("modelId", e.target.value)}
-            placeholder="demo-model"
+            placeholder={t("library.models.editor.modelIdPlaceholder")}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
-        <Field label="API 类型" hint="来自后端白名单（已认证 Pi 的分发能力）">
+        <Field label={t("library.models.editor.apiLabel")} hint={t("library.models.editor.apiHint")}>
           <select
-            aria-label="API 类型"
+            aria-label={t("library.models.editor.apiLabel")}
             value={form.api}
             onChange={(e) => set("api", e.target.value)}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
@@ -191,28 +192,28 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             ))}
           </select>
         </Field>
-        <Field label="Base URL" hint="OpenAI 兼容端点，http/https">
+        <Field label={t("library.models.editor.baseUrlLabel")} hint={t("library.models.editor.baseUrlHint")}>
           <input
-            aria-label="Base URL"
+            aria-label={t("library.models.editor.baseUrlLabel")}
             value={form.baseUrl}
             onChange={(e) => set("baseUrl", e.target.value)}
-            placeholder="https://api.example.com/v1"
+            placeholder={t("library.models.editor.baseUrlPlaceholder")}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="上下文窗口">
+          <Field label={t("library.models.editor.contextLabel")}>
             <input
-              aria-label="上下文窗口"
+              aria-label={t("library.models.editor.contextLabel")}
               value={form.contextWindow}
               onChange={(e) => set("contextWindow", e.target.value)}
               inputMode="numeric"
               className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
             />
           </Field>
-          <Field label="最大输出">
+          <Field label={t("library.models.editor.maxOutputLabel")}>
             <input
-              aria-label="最大输出"
+              aria-label={t("library.models.editor.maxOutputLabel")}
               value={form.maxOutput}
               onChange={(e) => set("maxOutput", e.target.value)}
               inputMode="numeric"
@@ -223,22 +224,29 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field label="凭证引用" hint="密钥存在 OS 凭证库，这里只存引用名">
+        <Field
+          label={t("library.models.editor.credentialLabel")}
+          hint={t("library.models.editor.credentialHint")}
+        >
           <input
-            aria-label="凭证引用"
+            aria-label={t("library.models.editor.credentialLabel")}
             value={form.credentialRef}
             onChange={(e) => set("credentialRef", e.target.value)}
-            placeholder="cred-demo"
+            placeholder={t("library.models.editor.credentialPlaceholder")}
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
-        <Field label="API Key" hint="只写不读；留空表示不修改已保存的密钥">
+        <Field label={t("library.models.editor.secretLabel")} hint={t("library.models.editor.secretHint")}>
           <input
-            aria-label="API Key"
+            aria-label={t("library.models.editor.secretLabel")}
             type="password"
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
-            placeholder={model?.credentialRef ? "已保存（不回显）" : "输入后随保存写入凭证库"}
+            placeholder={
+              model?.credentialRef
+                ? t("library.models.editor.secretSavedPlaceholder")
+                : t("library.models.editor.secretPlaceholder")
+            }
             className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
@@ -246,8 +254,10 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
 
       <div className="flex flex-wrap items-center gap-3">
         <fieldset className="flex items-center gap-2">
-          <legend className="sr-only">输入类型</legend>
-          <span className="text-[11px] text-[color:var(--anvil-muted)]">输入</span>
+          <legend className="sr-only">{t("library.models.editor.inputLabel")}</legend>
+          <span className="text-[11px] text-[color:var(--anvil-muted)]">
+            {t("library.models.editor.inputLabel")}
+          </span>
           {options.inputKinds.map((kind) => (
             <label key={kind} className="flex items-center gap-1 text-[11px] text-[color:var(--anvil-foreground)]">
               <input
@@ -261,8 +271,10 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
           ))}
         </fieldset>
         <fieldset className="flex flex-wrap items-center gap-2">
-          <legend className="sr-only">思考等级</legend>
-          <span className="text-[11px] text-[color:var(--anvil-muted)]">思考</span>
+          <legend className="sr-only">{t("library.models.editor.thinkingLabel")}</legend>
+          <span className="text-[11px] text-[color:var(--anvil-muted)]">
+            {t("library.models.editor.thinkingLabel")}
+          </span>
           {options.thinkingLevels.map((lv) => (
             <label key={lv} className="flex items-center gap-1 text-[11px] text-[color:var(--anvil-foreground)]">
               <input
@@ -279,7 +291,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
 
       {error && (
         <p role="alert" className="text-[11px] text-[color:var(--anvil-danger)]">
-          <span className="font-mono text-[10px]">{error.code}</span> {error.message}
+          <span className="font-mono text-[10px]">{error.code}</span> {formatError(error)}
         </p>
       )}
       {notice && (
@@ -294,23 +306,25 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
           disabled={saving}
           className="flex items-center gap-1 rounded-md bg-[color:var(--anvil-accent)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-accent)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
-          <Save className="h-3 w-3" aria-hidden /> {saving ? "保存中…" : "保存"}
+          <Save className="h-3 w-3" aria-hidden />{" "}
+          {saving ? t("library.models.actions.saving") : t("library.models.actions.save")}
         </button>
         <button
           onClick={() => void probeNow()}
           disabled={probing}
           className="flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
-          <PlugZap className="h-3 w-3" aria-hidden /> {probing ? "测试中…" : "测试连接"}
+          <PlugZap className="h-3 w-3" aria-hidden />{" "}
+          {probing ? t("library.models.actions.testing") : t("library.models.actions.test")}
         </button>
         <button
           onClick={onClose}
           className="flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[11px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
-          <X className="h-3 w-3" aria-hidden /> 收起
+          <X className="h-3 w-3" aria-hidden /> {t("library.models.actions.close")}
         </button>
         <span className="text-[10px] text-[color:var(--anvil-muted)]">
-          连接测试会真实调用该模型，可能产生费用；只有点击时才会发送请求。
+          {t("library.models.notices.billing")}
         </span>
       </div>
 
@@ -321,21 +335,35 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
         >
           {probeError ? (
             <div className="text-[color:var(--anvil-danger)]">
-              <span className="font-mono text-[10px]">{probeError.code}</span>{" "}
-              {probeError.message}
+              <span className="font-mono text-[10px]">{probeError.code}</span> {formatError(probeError)}
+              {probeError.message ? (
+                <span className="ml-1 font-mono text-[10px] text-[color:var(--anvil-muted)]">
+                  {probeError.message}
+                </span>
+              ) : null}
               {probeError.retryable && (
-                <span className="ml-1 text-[color:var(--anvil-muted)]">（可重试）</span>
+                <span className="ml-1 text-[color:var(--anvil-muted)]">
+                  {t("library.models.editor.retryable")}
+                </span>
               )}
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-[color:var(--anvil-success)]">可达</span>
-              <span className="text-[color:var(--anvil-muted)]">{probe.result.latencyMs} ms</span>
-              <span>
-                工具调用：{CAPABILITY_LABEL[probe.result.toolCalling] ?? probe.result.toolCalling}
+              <span className="text-[color:var(--anvil-success)]">
+                {t("library.models.editor.reachable")}
+              </span>
+              <span className="text-[color:var(--anvil-muted)]">
+                {t("library.models.labels.reachable", { latency: probe.result.latencyMs })}
               </span>
               <span>
-                视觉：{CAPABILITY_LABEL[probe.result.vision] ?? probe.result.vision}
+                {t("library.models.editor.toolCalling", {
+                  state: t(CAPABILITY_KEYS[probe.result.toolCalling] ?? CAPABILITY_KEYS.unknown),
+                })}
+              </span>
+              <span>
+                {t("library.models.editor.vision", {
+                  state: t(CAPABILITY_KEYS[probe.result.vision] ?? CAPABILITY_KEYS.unknown),
+                })}
               </span>
             </div>
           )}

@@ -10,12 +10,12 @@ import { render, screen } from "@testing-library/react";
 import { ModelsSection } from "./ModelsSection";
 import type { ModelDefinition, ModelOptions } from "../../types";
 
-vi.mock("../../api", () => ({
-  api: {
-    setActiveModel: vi.fn(async () => ({ ref: "m-demo", deferred: false, error: null })),
-    deleteModel: vi.fn(async () => ({ revision: 2, error: null })),
-    saveModel: vi.fn(async () => ({ revision: 2, error: null })),
-    testModel: vi.fn(async () => ({ result: null, error: null })),
+vi.mock("./api", () => ({
+  modelsApi: {
+    test: vi.fn(async () => ({ result: null, error: null })),
+    setActive: vi.fn(async () => ({ ref: "m-demo", deferred: false, error: null })),
+    remove: vi.fn(async () => ({ revision: 2, error: null })),
+    save: vi.fn(async () => ({ revision: 2, error: null })),
   },
 }));
 

@@ -30,10 +30,10 @@ const existing: ModelDefinition = {
   thinkingLevels: null,
 };
 
-vi.mock("../../api", () => ({
-  api: {
-    saveModel: vi.fn(async () => ({ item: existing, revision: 2, error: null })),
-    testModel: vi.fn(async () => ({
+vi.mock("./api", () => ({
+  modelsApi: {
+    save: vi.fn(async () => ({ item: existing, revision: 2, error: null })),
+    test: vi.fn(async () => ({
       result: {
         reachable: true,
         toolCalling: "supported",
@@ -73,12 +73,12 @@ describe("ModelEditor", () => {
   });
 
   it("未保存时点测试连接只提示先保存，不发请求", async () => {
-    const { api } = await import("../../api");
+    const { modelsApi } = await import("./api");
     renderEditor(null);
 
     await userEvent.setup().click(screen.getByRole("button", { name: /测试连接/ }));
 
-    expect(api.testModel).not.toHaveBeenCalled();
+    expect(modelsApi.test).not.toHaveBeenCalled();
     expect(screen.getByRole("status")).toHaveTextContent("请先保存");
   });
 
@@ -90,8 +90,8 @@ describe("ModelEditor", () => {
   });
 
   it("401 被展示为鉴权失败，而不是笼统的连接失败", async () => {
-    const { api } = await import("../../api");
-    vi.mocked(api.testModel).mockResolvedValueOnce({
+    const { modelsApi } = await import("./api");
+    vi.mocked(modelsApi.test).mockResolvedValueOnce({
       result: {
         reachable: false,
         toolCalling: "unknown",
@@ -123,22 +123,22 @@ describe("ModelEditor", () => {
   });
 
   it("保存时密钥是独立入参，模型定义里没有密钥字段", async () => {
-    const { api } = await import("../../api");
+    const { modelsApi } = await import("./api");
     const onSaved = vi.fn();
     renderEditor(null, onSaved);
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("模型 ID"), "m-new");
     await user.type(screen.getByLabelText("Provider 名"), "newprov");
-    await user.type(screen.getByLabelText("模型名"), "new-model");
+    await user.type(screen.getByLabelText("模型名（发给 API）"), "new-model");
     await user.type(screen.getByLabelText("Base URL"), "https://api.example.com/v1");
     await user.type(screen.getByLabelText("凭证引用"), "cred-new");
     await user.type(screen.getByLabelText("API Key"), "sk-sentinel-123");
 
     await user.click(screen.getByRole("button", { name: /保存/ }));
 
-    await waitFor(() => expect(api.saveModel).toHaveBeenCalledTimes(1));
-    const [revision, def, secret] = vi.mocked(api.saveModel).mock.calls[0];
+    await waitFor(() => expect(modelsApi.save).toHaveBeenCalledTimes(1));
+    const [revision, def, secret] = vi.mocked(modelsApi.save).mock.calls[0];
     expect(revision).toBe(1);
     expect(secret).toBe("sk-sentinel-123");
     expect(def.id).toBe("m-new");
