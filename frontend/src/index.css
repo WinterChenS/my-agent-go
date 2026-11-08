@@ -345,6 +345,10 @@ kbd,
     /* DOM 顺序 = Tab 顺序（顶栏 → 侧栏 → 内容），视觉顺序由 grid-area 决定：
        原型的 DOM 是侧栏在前，但那样 Tab 会先走侧栏、顶栏搜索落到后面。 */
     grid-template-columns: var(--anvil-sidebar-w) minmax(0, 1fr);
+    /* 行高必须钉死：只写 grid-template-areas 时两行都是 auto，`align-content`
+       默认 stretch 会把剩余空间平分给两行——内容少的页面（工作台）首行就被撑到
+       397px，内容从页面中部开始，看起来"乱"。原型 .shell 是 52px + 1fr。 */
+    grid-template-rows: var(--anvil-topbar-h) minmax(0, 1fr);
     grid-template-areas:
       "sidebar topbar"
       "sidebar page";

@@ -368,6 +368,31 @@ export function checkLocaleParity() {
   return issues;
 }
 
+// ---------------------------------------------------------------- 版式契约
+
+/**
+ * 壳层网格必须钉死行高。
+ *
+ * 实测缺陷：`.anvil-shell` 只写 grid-template-areas 时两行都是 auto，
+ * `align-content` 默认 stretch 会把剩余空间平分——工作台首行被撑到 397px，
+ * 内容从窗口中部开始，看起来"乱"。原型 .shell 是 52px + minmax(0,1fr)。
+ */
+export function checkShellGrid(cssPath = join(REPO_ROOT, "frontend/src/index.css")) {
+  const css = readFileSync(cssPath, "utf8");
+  const start = css.indexOf(".anvil-shell {");
+  const end = css.indexOf(".anvil-shell[data-detail");
+  const block = start < 0 ? "" : css.slice(start, end > start ? end : start + 1200);
+  const issues = [];
+  if (!/grid-template-rows:\s*var\(--anvil-topbar-h\)\s+minmax\(0,\s*1fr\)/.test(block)) {
+    issues.push({
+      kind: "shell-grid",
+      file: "frontend/src/index.css",
+      detail: ".anvil-shell 缺少 grid-template-rows: var(--anvil-topbar-h) minmax(0,1fr)——两行 auto 会被 align-content 平分",
+    });
+  }
+  return issues;
+}
+
 // ---------------------------------------------------------------- 入口
 
 /** 跑全部检查，返回结构化结果（测试与 CLI 共用同一份判定）。 */
@@ -376,12 +401,18 @@ export function checkAll() {
   const baselineIssues = checkBaseline(problems);
   const errorIssues = checkErrorMessages();
   const parityIssues = checkLocaleParity();
+  const layoutIssues = checkShellGrid();
   return {
-    ok: baselineIssues.length === 0 && errorIssues.length === 0 && parityIssues.length === 0,
+    ok:
+      baselineIssues.length === 0 &&
+      errorIssues.length === 0 &&
+      parityIssues.length === 0 &&
+      layoutIssues.length === 0,
     copyViolations: problems,
     baselineIssues,
     errorIssues,
     parityIssues,
+    layoutIssues,
     counts: countByFile(problems),
     errorCodes: goErrorCodes(),
   };
