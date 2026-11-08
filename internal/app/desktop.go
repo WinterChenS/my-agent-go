@@ -952,9 +952,9 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		// 具体错误在记忆页可见。不能因为记忆故障就拦住聊天。
 		mem, memoryWS := d.memoryToolsForRuntime(ctx)
 		harness, err = harnessmcp.Start(ctx, harnessmcp.Options{
-			// 工具注册表只在这里与工具目录共用同一份构造（harnessTools），
+			// 工具注册表只在这里与工具目录共用同一份构造（harnessToolset），
 			// 两处各写一份会出现“目录里有、实际没注册”的偏差。
-			Tools:   harnessTools(s.Workspace, mem, memoryWS),
+			Tools:   d.harnessToolset(s.Workspace, mem, memoryWS),
 			Version: d.version(),
 		})
 		if err != nil {

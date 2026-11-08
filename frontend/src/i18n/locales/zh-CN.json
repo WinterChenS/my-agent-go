@@ -267,6 +267,24 @@
       "resolvedSession": "后端已批准本会话",
       "resolvedDeny": "后端已拒绝"
     },
+    "browserApproval": {
+      "title": "需要授权：浏览器写操作",
+      "origin": "目标站点",
+      "originUnknown": "未知（后端没有给出 origin）",
+      "action": "动作摘要",
+      "url": "页面地址",
+      "scope": "范围",
+      "scopeHint": "允许一次只放行这一条；本会话允许按工具生效（不是按站点），派发前后端仍会复核",
+      "arguments": "授权指纹里的调用参数",
+      "pendingHint": "在你答复之前不会派发任何输入；卡片只在你提交后、且后端读取结果里不再有这条时才消失。",
+      "resolveFailed": "提交失败：{reason}（卡片保留，可重试或等后端清理）",
+      "readFailed": "读取待审批失败：{reason}（这不等于没有待审批）",
+      "noteApproved": "已批准一次 {tool}（{origin}）：是否派发以工具结果为准",
+      "noteApprovedSession": "已允许本会话内的 {tool}（{origin}）：每次派发前后端仍会复核",
+      "noteDenied": "已拒绝 {tool}（{origin}）：没有派发任何输入",
+      "noteExpired": "审批已过期 {tool}（{origin}）：没有批准，未派发任何输入",
+      "noteRevoked": "审批已撤销 {tool}（{origin}）：没有派发任何输入"
+    },
     "clarification": {
       "title": "需要你回答",
       "question": "问题",
