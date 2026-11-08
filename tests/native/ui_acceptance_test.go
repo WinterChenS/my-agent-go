@@ -37,12 +37,15 @@ type u07Case struct {
 
 // requireObservation 保证用例由 native runner 执行（证据目录由它注入）。
 //
-// 为什么直接失败而不是跳过：U07 的结论只允许来自门禁证据。本地 focused 运行时
-// 没有证据目录，跑出来的"绿"没有任何东西可核对——那正是"看起来通过"的来源。
+// 为什么不产出证据就跳过：U07 的结论只允许来自门禁证据。focused 运行（`go test ./tests/native`）
+// 没有证据目录，跑出来的"绿"没有任何东西可核对——那正是"看起来通过"的来源。跳过时
+// 门禁不会因此变绿：runner 声明的 case 必须产出 observation.json 与 artifact，
+// 缺了就是 FAIL（writeExternalObservationOracle 的既有规则）。反过来，如果这里直接
+// Fatalf，整仓 `go test ./...` 会因为"没有以 runner 方式运行"而永远红——那不是产品缺陷。
 func requireObservation(t *testing.T) {
 	t.Helper()
 	if !observationEnabled() {
-		t.Fatalf("U07 用例必须由 `verify --suite=native` 执行（缺少 ANVIL_OBSERVATION_DIR）：本机 focused 运行不产出证据，不能作为结论")
+		t.Skipf("U07 用例必须由 `verify --suite=native` 执行（缺少 ANVIL_OBSERVATION_DIR）：focused 运行不产出证据，跳过；门禁仍要求本 case 的证据")
 	}
 }
 
