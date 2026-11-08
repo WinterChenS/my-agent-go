@@ -219,6 +219,57 @@ func (m Manifest) Entry(version, targetID string) (ManifestEntry, error) {
 		fmt.Sprintf("清单里没有 %s/%s（V1 只信任随二进制下发的清单）", version, targetID), false)
 }
 
+// InstallableEntry 是给设置页的一条清单条目：真实版本/目标/大小/哈希 + 是否可安装。
+//
+// Usable 的判据只能来自 Entry()（安装时真正用的那道闸），不能在这里另写一份：
+// 两处各判一次，迟早会出现"界面说能装、安装器说不行"。
+//
+// 不包含 URL：界面只需要版本/目标/大小/哈希来决定装哪个，下载地址是内部事实，
+// 不给用户一个"看起来可以换地址"的接口。
+type InstallableEntry struct {
+	Version   string `json:"version"`
+	TargetID  string `json:"targetId"`
+	AssetName string `json:"assetName"`
+	SizeBytes int64  `json:"sizeBytes"`
+	SHA256    string `json:"sha256"`
+	Signature string `json:"signature,omitempty"`
+	// Usable 为 false 时 UnavailableReason 必须说明原因（例如 sizeBytes 未测量）。
+	Usable            bool   `json:"usable"`
+	UnavailableReason string `json:"unavailableReason,omitempty"`
+}
+
+// InstallableEntries 把清单转成给界面的稳定列表（顺序同清单：版本升序、六目标顺序）。
+//
+// 两条纪律：
+//   - loader 不接受的条目（哈希/URL/资产名/sizeBytes 不合法）直接不列：
+//     列出来就是在建议用户装一个装不上、或者哈希对不上的包；
+//   - 条目合法但 sizeBytes 未测量（本清单里五个目标）必须显式标成不可用，
+//     并原样报 0 与原因。隐藏它会让人以为清单里没有这个目标；编造大小则会让下载器
+//     失去可核对的上界。
+func (m Manifest) InstallableEntries() []InstallableEntry {
+	out := make([]InstallableEntry, 0, len(m.Entries))
+	for _, e := range m.Entries {
+		if err := e.Validate(); err != nil {
+			continue
+		}
+		entry := InstallableEntry{
+			Version:   e.Version,
+			TargetID:  e.TargetID,
+			AssetName: e.AssetName,
+			SizeBytes: e.SizeBytes,
+			SHA256:    e.SHA256,
+			Signature: e.Signature,
+		}
+		if _, err := m.Entry(e.Version, e.TargetID); err != nil {
+			entry.UnavailableReason = err.Error()
+		} else {
+			entry.Usable = true
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 // Targets 返回清单里出现过的目标（按展示顺序）。
 func (m Manifest) Targets(version string) []string {
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")

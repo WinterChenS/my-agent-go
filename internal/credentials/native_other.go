@@ -2,7 +2,10 @@
 
 package credentials
 
-import "runtime"
+import (
+	"context"
+	"runtime"
+)
 
 // NewNativeStore 在尚未接入 OS 保护存储的平台返回明确的不可用错误。
 //
@@ -12,4 +15,15 @@ import "runtime"
 func NewNativeStore(root string) (Store, error) {
 	_ = root
 	return nil, unavailable("当前平台 " + runtime.GOOS + " 尚未接入 OS 保护存储")
+}
+
+// nativeBackend 表示本平台没有接入 OS 保护存储。
+const nativeBackend = BackendUnavailable
+
+// nativeSelfTest 在本平台上总是不可用（NewNativeStore 会先失败，这里只是兜底）。
+func nativeSelfTest(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return unavailable("当前平台 " + runtime.GOOS + " 尚未接入 OS 保护存储")
 }

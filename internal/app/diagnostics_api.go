@@ -65,6 +65,90 @@ type RunDetailsResult struct {
 	Error   *CallError             `json:"error,omitempty"`
 }
 
+// RunUsageListQuery 是跨 run 列表的查询（时间范围为 RFC3339，空表示不限）。
+type RunUsageListQuery struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	WorkspaceID string `json:"workspaceId"`
+	SessionID   string `json:"sessionId"`
+	Limit       int    `json:"limit"`
+	Offset      int    `json:"offset"`
+}
+
+// RunUsageListResult 是一页 run 记录。
+//
+// Availability 区分两件必须分开的事：
+//   - reported：查询真的做了（哪怕是 0 条）——“这段时间没有 run”，
+//   - unavailable：查询没做成（索引库不在、时间范围非法等）——“读不出来”，
+//     此时 Error 与 Note 说明原因。
+//
+// Items 恒为非 nil，否则序列化成 null，界面只能把 null 当成“没有数据”。
+type RunUsageListResult struct {
+	Availability string                  `json:"availability"`
+	Items        []diagnostics.RunRecord `json:"items"`
+	Total        int                     `json:"total"`
+	Limit        int                     `json:"limit"`
+	Offset       int                     `json:"offset"`
+	Note         string                  `json:"note,omitempty"`
+	Error        *CallError              `json:"error,omitempty"`
+}
+
+// ListRunUsage 分页列出范围内的 run（含 usage/预算/错误结论）。
+//
+// 分页与排序由 diagnostics 决定（updated_at DESC, run_id DESC），绑定层不重写。
+func (d *Desktop) ListRunUsage(q RunUsageListQuery) RunUsageListResult {
+	unavailable := func(err error) RunUsageListResult {
+		return RunUsageListResult{
+			Availability: contracts.UsageUnavailable,
+			Items:        []diagnostics.RunRecord{},
+			Limit:        q.Limit,
+			Offset:       q.Offset,
+			Note:         "读不出这一段时间的 run 记录（不是“没有记录”）：错误码与原因见 error",
+			Error:        toCallError(err),
+		}
+	}
+	from, err := parseOptionalTime(q.From)
+	if err != nil {
+		return unavailable(err)
+	}
+	to, err := parseOptionalTime(q.To)
+	if err != nil {
+		return unavailable(err)
+	}
+	svc, err := d.diagnosticsService()
+	if err != nil {
+		return unavailable(err)
+	}
+	list, err := svc.ListRunUsage(context.Background(), diagnostics.RunUsageQuery{
+		UsageRange: diagnostics.UsageRange{
+			From:        from,
+			To:          to,
+			WorkspaceID: strings.TrimSpace(q.WorkspaceID),
+			SessionID:   strings.TrimSpace(q.SessionID),
+		},
+		Limit:  q.Limit,
+		Offset: q.Offset,
+	})
+	if err != nil {
+		return unavailable(err)
+	}
+	items := list.Items
+	if items == nil {
+		items = []diagnostics.RunRecord{}
+	}
+	res := RunUsageListResult{
+		Availability: contracts.UsageReported,
+		Items:        items,
+		Total:        list.Total,
+		Limit:        list.Limit,
+		Offset:       list.Offset,
+	}
+	if list.Total == 0 {
+		res.Note = "这个范围内没有 run 记录（查询已执行）"
+	}
+	return res
+}
+
 // diagnosticsService 装配诊断服务（每次现装配：服务无状态，状态在库里）。
 func (d *Desktop) diagnosticsService() (*diagnostics.Service, error) {
 	db, err := d.indexDB()

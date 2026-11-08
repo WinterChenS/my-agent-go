@@ -8,6 +8,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -113,4 +114,69 @@ func unavailable(detail string) error {
 		"OS 凭证保护存储不可用，拒绝持久化凭证（不回退明文）: "+detail,
 		false,
 	)
+}
+
+// 凭证库后端名（设置页需要说清"用的是哪一套保护存储"）。
+//
+// 名字是稳定标识，不是给人看的句字：前端按它选文案，所以不能因为失败就写成
+// unknown——"不可用"与"不是 OS 凭证库"是两件事。
+const (
+	BackendWindowsCredentialManager = "windows-credential-manager"
+	BackendMacOSKeychain            = "macos-keychain"
+	BackendLinuxSecretService       = "linux-secret-service"
+	// BackendUnavailable 表示本平台没有接入 OS 保护存储（不在 V1 目标矩阵内）。
+	BackendUnavailable = "unavailable"
+)
+
+// Status 是 OS 凭证库可用性的结论。
+//
+// 只能有这三个字段：可用性、后端名、不可用原因。没有任何值字段、没有 ref 列表，
+// 也不把错误里的凭证内容带出去——凭证库的状态页不能成为泄漏面。
+type Status struct {
+	Available bool   `json:"available"`
+	Backend   string `json:"backend"`
+	// Detail 只在不可用时出现（不含秘密：来源是后端能力错误，不是凭证内容）。
+	Detail string `json:"detail,omitempty"`
+}
+
+// NativeBackend 返回本平台 OS 保护存储的后端名（不可用时为 BackendUnavailable）。
+func NativeBackend() string { return nativeBackend }
+
+// Probe 打开一次 OS 保护存储（含平台自检）。
+//
+// 返回的 error 就是"为什么不可用"：绑定层用 StatusFromOpen 把它转成结论，
+// 所以生产与测试走的是同一条判断路径，不会出现两份互相矛盾的结论。
+// 回退到内存库（MemStore）必须由调用方显式决定，Probe 只报告事实。
+func Probe(ctx context.Context, root string) (Store, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	store, err := NewNativeStore(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := nativeSelfTest(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// StatusFromOpen 把一次"打开 OS 凭证库"的结果转成可用性结论。
+//
+// 抽出来是为了让测试与生产走同一条判断：如果测试自己写一份"不可用"结论，
+// 那就只验证了测试自己。
+func StatusFromOpen(store Store, err error) Status {
+	if err != nil {
+		detail := err.Error()
+		var appErr *contracts.AppError
+		if errors.As(err, &appErr) && appErr != nil {
+			// 只取消息体：Cause/堆栈不进状态页（那里容易混进外部输入）。
+			detail = appErr.Message
+		}
+		return Status{Available: false, Backend: NativeBackend(), Detail: detail}
+	}
+	if store == nil {
+		return Status{Available: false, Backend: NativeBackend(), Detail: "凭证库打开没有返回可用句柄"}
+	}
+	return Status{Available: true, Backend: NativeBackend()}
 }

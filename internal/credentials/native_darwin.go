@@ -114,3 +114,11 @@ func describe(code int, err error) string {
 	}
 	return "security 退出码 " + strconv.Itoa(code)
 }
+
+// nativeBackend 是本平台 OS 保护存储的名字（设置页按它选文案）。
+const nativeBackend = BackendMacOSKeychain
+
+// nativeSelfTest 在 macOS 上不需要额外步骤：NewNativeStore 已经跑过
+// `security list-keychains`，Keychain 锁定/不可访问在那里就报不可用了。
+// 这里保留显式钩子而不是删掉调用点：三个平台的 Probe 走同一条路径。
+func nativeSelfTest(ctx context.Context) error { return ctx.Err() }
