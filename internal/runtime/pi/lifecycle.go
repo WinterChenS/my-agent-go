@@ -83,7 +83,10 @@ type PiCandidate struct {
 	// RuntimeHash 是 RuntimeExecutable 的 sha256。
 	RuntimeHash   string             `json:"runtimeHash"`
 	Compatibility CompatibilityState `json:"compatibility"`
-	Diagnostics   []string           `json:"diagnostics,omitempty"`
+	// ContractVerified 表示这个候选**真的跑完并通过**了六项契约探测。
+	// 快速发现（DiscoverFast）永远是 false：那只探测版本与指纹。
+	ContractVerified bool     `json:"contractVerified"`
+	Diagnostics      []string `json:"diagnostics,omitempty"`
 }
 
 // VersionProbe 是版本探测注入点（测试用）。nil 表示使用真实 Probe。
@@ -108,7 +111,26 @@ type DiscoveryRequest struct {
 	Policy          VersionPolicy
 	VersionProbe    VersionProbe
 	ProbeFunc       ProbeFunc
+	// SkipContractProbe 为 true 时**不**执行 F08-B 契约探测（快速发现路径）。
+	//
+	// 置 true 后连默认的 defaultContractProbe 也不会被装上：快速路径只回答
+	// “这个 Pi 能不能启动、版本与指纹是什么”，绝不 spawn 探测子进程。
+	// 结果的 Verification 会是 version_only，候选的 ContractVerified 恒为 false。
+	SkipContractProbe bool
 }
+
+// DiscoveryVerification 说明一次发现对“六项契约”验证到什么程度。
+//
+// 它回答的是“这个结果能当证据用吗”，不是“能不能启动”：
+// ready_compatible + version_only 表示可启动但契约未验证。
+type DiscoveryVerification string
+
+const (
+	// VerificationContractProbed：选中候选真的跑过并通过了六项契约探测。
+	VerificationContractProbed DiscoveryVerification = "contract_probed"
+	// VerificationVersionOnly：只探测了版本与指纹，契约**未**验证。
+	VerificationVersionOnly DiscoveryVerification = "version_only"
+)
 
 // DiscoveryResult 是发现结果：所有候选 + 选中项 + 总体状态。
 type DiscoveryResult struct {
@@ -116,6 +138,8 @@ type DiscoveryResult struct {
 	Selected    *PiCandidate       `json:"selected,omitempty"`
 	Candidates  []PiCandidate      `json:"candidates"`
 	Diagnostics []string           `json:"diagnostics,omitempty"`
+	// Verification 是这次发现对契约验证程度的诚实声明（见 DiscoveryVerification）。
+	Verification DiscoveryVerification `json:"verification"`
 }
 
 // Discover 收集所有来源的候选并按来源优先级排序，然后逐条判定兼容状态。
@@ -138,7 +162,7 @@ func Discover(ctx context.Context, req DiscoveryRequest) (DiscoveryResult, error
 	// ProbeFunc）必须真的在隔离 agentDir 里跑完整探测；注入 VersionProbe 的离线发现
 	// （测试）不启动任何进程，保持 F08-A 的可测性。
 	probe := req.ProbeFunc
-	if probe == nil && req.VersionProbe == nil {
+	if probe == nil && req.VersionProbe == nil && !req.SkipContractProbe {
 		probe = defaultContractProbe
 	}
 
@@ -201,6 +225,15 @@ func Discover(ctx context.Context, req DiscoveryRequest) (DiscoveryResult, error
 	default:
 		res.State = StateMissing
 		res.Diagnostics = append(res.Diagnostics, "未发现任何 Pi 候选")
+	}
+
+	// 6) 契约验证程度：只有选中候选真的跑完并通过探测才算 contract_probed。
+	//    其余（快速发现、低于最低版本、2.x、探测失败）都只能声称 version_only——
+	//    “本机能跑 --version”不是契约证据。
+	if res.Selected != nil && res.Selected.ContractVerified {
+		res.Verification = VerificationContractProbed
+	} else {
+		res.Verification = VerificationVersionOnly
 	}
 	return res, nil
 }
@@ -437,8 +470,9 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 	if len(probeDiags) > 0 {
 		c.Installation.Note = strings.Join(probeDiags, "; ")
 	}
-	compat, diags := classifyCompatibility(ctx, policy, version, c, probeDiags, probe)
+	compat, contractVerified, diags := classifyCompatibility(ctx, policy, version, c, probeDiags, probe)
 	c.Compatibility = compat
+	c.ContractVerified = contractVerified
 	c.Diagnostics = append(c.Diagnostics, diags...)
 	return c
 }
@@ -454,26 +488,29 @@ func resolveCandidate(ctx context.Context, c PiCandidate, req DiscoveryRequest, 
 //
 // 关键纪律：PreCertifiedHashes 是随发行包下发的白名单，默认空。
 // **未登记的可执行体哈希永远不可能变成 ready_verified**——本机跑通不是认证。
-func classifyCompatibility(ctx context.Context, policy VersionPolicy, version string, cand PiCandidate, probeDiags []string, probe ProbeFunc) (CompatibilityState, []string) {
+// 第二个返回值是“契约探测是否真的跑完并通过”：它是 readiness/验证结论的证据来源，
+// 与兼容状态分开（ready_compatible 既可能是“探测通过但哈希未登记”，
+// 也可能是“根本没跑契约探测”，界面不能把后者说成已验证）。
+func classifyCompatibility(ctx context.Context, policy VersionPolicy, version string, cand PiCandidate, probeDiags []string, probe ProbeFunc) (CompatibilityState, bool, []string) {
 	if version == "" {
 		diags := []string{"kind:\"version-probe-failed\" 版本探测失败，不得当作可用"}
 		diags = append(diags, probeDiags...)
-		return StateIncompatible, diags
+		return StateIncompatible, false, diags
 	}
 	ver, ok := parseSemver(version)
 	if !ok {
-		return StateIncompatible, []string{
+		return StateIncompatible, false, []string{
 			fmt.Sprintf("kind:\"unparsable-version\" 版本 %q 无法解析，按不兼容处理", version),
 		}
 	}
 	if ver[0] >= 2 {
-		return StateIncompatible, []string{
+		return StateIncompatible, false, []string{
 			fmt.Sprintf("kind:\"unsupported-major\" 版本 %s 属 2.x+，尚无签名清单，不静默放行；契约探测未执行（没有清单就没有可探测的契约）", version),
 		}
 	}
 	minVersion := minimumVersion(policy)
 	if minVer, ok := parseSemver(minVersion); ok && versionLess(ver, minVer) {
-		return StateUpgradeAvailable, []string{
+		return StateUpgradeAvailable, false, []string{
 			fmt.Sprintf("kind:\"upgrade-available\" 版本 %s 低于最低支持版本 %s；只能提示升级，不可选中；契约探测未执行（低于基线）", version, minVersion),
 		}
 	}
@@ -497,7 +534,7 @@ func classifyCompatibility(ctx context.Context, policy VersionPolicy, version st
 			out := []string{
 				"kind:\"contract-probe-failed\" 隔离契约探测未通过，按 incompatible 处理（不允许部分通过就放行）",
 			}
-			return StateIncompatible, append(out, failed...)
+			return StateIncompatible, false, append(out, failed...)
 		}
 		contractOK = true
 		diags = append(diags, failed...)
@@ -520,9 +557,9 @@ func classifyCompatibility(ctx context.Context, policy VersionPolicy, version st
 			"kind:\"unregistered-executable-hash\" 可执行体 SHA-256 不在预认证清单里；未登记的哈希永远不能 ready_verified")
 	}
 	if contractOK && versionCertified && hashRegistered {
-		return StateReadyVerified, diags
+		return StateReadyVerified, contractOK, diags
 	}
-	return StateReadyCompatible, diags
+	return StateReadyCompatible, contractOK, diags
 }
 
 // minimumVersion 取策略里的最低支持版本，缺省 1.5.0（基线 §3）。

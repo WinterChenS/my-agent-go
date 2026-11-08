@@ -85,6 +85,13 @@ export function PiSettings() {
   const [discovery, setDiscovery] = useState<PiDiscoveryResult | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
   const [selectError, setSelectError] = useState<CallError | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  /** 最近一次“验证契约”的结论：耗时与契约验证程度都来自后端事实 + 本地计时。 */
+  const [verified, setVerified] = useState<{
+    verification: string;
+    state: string;
+    elapsedMs: number;
+  } | null>(null);
 
   const [version, setVersion] = useState("");
   const [installing, setInstalling] = useState(false);
@@ -93,16 +100,52 @@ export function PiSettings() {
   const [result, setResult] = useState<PiInstallResult | null>(null);
   const [rollbacking, setRollbacking] = useState(false);
 
+  /**
+   * 列表用**快速发现**：只探测版本与指纹，不 spawn 契约探测。
+   *
+   * 挂载时跑完整发现会让设置页每次打开都卡十秒（用户实测）。这里的结论足够回答
+   * “本机有哪些 Pi、能不能启动、该装/该升级哪个”；“会不会说我们的协议”由用户
+   * 显式点「验证契约」回答，并在结果里标明耗时与验证程度。
+   */
   const discover = useCallback(async () => {
     setPhase("loading");
     setError(null);
+    // 快速发现刷新了列表，旧的验证结论就不再属于这份列表了。
+    setVerified(null);
     try {
-      const res = await settingsApi.discoverPi();
+      const res = await settingsApi.discoverPiFast();
       setDiscovery(res ?? null);
       setPhase("success");
     } catch (e) {
       setError(toCallError(e));
       setPhase("error");
+    }
+  }, []);
+
+  /**
+   * 显式完整验证：这是唯一会 spawn 真实 Pi 跑六项契约探测的产品动作。
+   *
+   * 必须显示耗时与结论：用户点之前知道它慢，点之后能看清“验证到了什么”。
+   */
+  const verifyContract = useCallback(async () => {
+    setVerifying(true);
+    setError(null);
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    try {
+      const res = await settingsApi.discoverPi();
+      const endedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+      setDiscovery(res ?? null);
+      setPhase("success");
+      setVerified({
+        verification: res?.verification ?? "version_only",
+        state: res?.state ?? "missing",
+        elapsedMs: Math.max(0, Math.round(endedAt - startedAt)),
+      });
+    } catch (e) {
+      setError(toCallError(e));
+      setPhase("error");
+    } finally {
+      setVerifying(false);
     }
   }, []);
 
@@ -123,7 +166,11 @@ export function PiSettings() {
     setSelectError(null);
     try {
       const res = await settingsApi.selectPi(candidate.installation.id);
-      if (res) setDiscovery(res);
+      if (res) {
+        setDiscovery(res);
+        // 选择走的是快速发现：这份结果的契约状态是“未验证”，旧的验证结论不再适用。
+        setVerified(null);
+      }
     } catch (e) {
       setSelectError(toCallError(e));
     } finally {
@@ -181,11 +228,52 @@ export function PiSettings() {
   return (
     <SettingsSection id="pi" titleKey="settings.pi.title" hintKey="settings.pi.hint" state={phase}>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={BUTTON_CLASS} disabled={phase === "loading"} onClick={() => void discover()}>
+        <button
+          type="button"
+          className={BUTTON_CLASS}
+          disabled={phase === "loading" || verifying}
+          onClick={() => void discover()}
+        >
           {phase === "loading" ? t("settings.pi.discovering") : t("settings.pi.discover")}
+        </button>
+        <button
+          type="button"
+          className={BUTTON_CLASS}
+          disabled={phase === "loading" || verifying}
+          onClick={() => void verifyContract()}
+        >
+          {verifying ? t("settings.pi.verifying") : t("settings.pi.verify")}
         </button>
         {discovery?.state ? <StatePill state={discovery.state} testId="pi-discovery-state" /> : null}
       </div>
+
+      <p className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
+        {t("settings.pi.verifyHint")}
+      </p>
+
+      {discovery && discovery.verification !== "contract_probed" ? (
+        <p
+          data-testid="pi-fast-hint"
+          className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]"
+        >
+          {t("settings.pi.fastHint")}
+        </p>
+      ) : null}
+
+      {verified ? (
+        <p
+          data-testid="pi-verify-result"
+          data-verification={verified.verification}
+          data-elapsed-ms={verified.elapsedMs}
+          className="text-[10px] leading-relaxed text-[color:var(--anvil-foreground)]"
+        >
+          {t("settings.pi.verifyResult", {
+            state: stateLabel(verified.state),
+            verification: domainLabel("settings.pi.verification", verified.verification),
+            ms: verified.elapsedMs,
+          })}
+        </p>
+      ) : null}
 
       {selectError ? <AsyncState phase="error" error={selectError} /> : null}
 
@@ -231,6 +319,15 @@ export function PiSettings() {
                     </span>
                     <span className="text-[10px] text-[color:var(--anvil-muted)]">
                       {domainLabel("settings.pi.distribution", c.distribution)}
+                    </span>
+                    <span
+                      data-testid="pi-contract"
+                      data-verified={c.contractVerified ? "true" : "false"}
+                      className="text-[10px] text-[color:var(--anvil-muted)]"
+                    >
+                      {c.contractVerified
+                        ? t("settings.pi.contractVerified")
+                        : t("settings.pi.contractUnverified")}
                     </span>
                     {selected ? (
                       <span data-testid="pi-selected" className="text-[10px] text-[color:var(--anvil-success)]">

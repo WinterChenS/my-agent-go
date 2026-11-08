@@ -69,14 +69,21 @@ export interface PiCandidate {
   runtimeExecutable: string;
   runtimeHash: string;
   compatibility: PiCompatibilityState | string;
+  /** 这个候选**真的跑完并通过**了六项契约探测（快速发现恒为 false）。 */
+  contractVerified?: boolean;
   diagnostics?: string[] | null;
 }
+
+/** 这次发现对契约验证到什么程度（与 internal/runtime/pi 的 DiscoveryVerification 对应）。 */
+export type PiDiscoveryVerification = "contract_probed" | "version_only";
 
 export interface PiDiscoveryResult {
   state: PiCompatibilityState | string;
   selected?: PiCandidate | null;
   candidates: PiCandidate[] | null;
   diagnostics?: string[] | null;
+  /** contract_probed = 选中候选跑过六项契约探测；version_only = 只探测了版本与指纹。 */
+  verification?: PiDiscoveryVerification | string;
 }
 
 /** 一次安装/回滚/取消的权威结果（字段与 internal/piinstall.Result 对应）。 */
@@ -150,7 +157,13 @@ export const settingsApi = {
     Call.ByName(`${FQN}.AgentProfileCeiling`, workspaceId),
 
   // ---- Pi 生命周期（F08 / F06）----
+  /**
+   * 完整发现：每个可用候选都会跑六项隔离契约探测（spawn 真实 Pi，单个候选秒级）。
+   * 只给用户显式的“验证契约”动作用，不要挂在页面挂载上。
+   */
   discoverPi: (): Promise<PiDiscoveryResult> => Call.ByName(`${FQN}.DiscoverPi`),
+  /** 快速发现：只探测版本与指纹，不跑契约探测（挂载/列表用）。 */
+  discoverPiFast: (): Promise<PiDiscoveryResult> => Call.ByName(`${FQN}.DiscoverPiFast`),
   selectPi: (installationId: string): Promise<PiDiscoveryResult> =>
     Call.ByName(`${FQN}.SelectPi`, installationId),
   /** 只给版本：下载地址与哈希来自随二进制下发的受信清单，UI 不能给 URL。 */

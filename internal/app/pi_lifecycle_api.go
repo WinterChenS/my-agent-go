@@ -51,8 +51,23 @@ func (d *Desktop) piDiscoveryRequest() pi.DiscoveryRequest {
 }
 
 // DiscoverPi 探测本机所有 Pi 候选（PI_DISC01/02）。只读，不改 PATH、不改外部文件。
+//
+// 这是**完整**发现：每个可用候选都会跑六项隔离契约探测（spawn 真实 Pi，单个候选
+// 本机实测约 10s）。因此它只适合用户显式点“验证契约”的动作，不适合挂载时调用；
+// 挂载/列表走 DiscoverPiFast。
 func (d *Desktop) DiscoverPi() (pi.DiscoveryResult, error) {
 	return pi.Discover(context.Background(), d.piDiscoveryRequest())
+}
+
+// DiscoverPiFast 是挂载与列表用的快速发现：只做 --version 版本探测 + 路径/指纹解析，
+// 不 spawn 任何契约探测子进程。
+//
+// 承诺：候选的真实路径、来源、版本、发行形式、指纹与“能不能启动”的判定。
+// 不承诺：这个二进制会不会说我们的协议。因此结果里 Verification=version_only、
+// 每个候选的 ContractVerified=false，状态最高 ready_compatible；要升级到
+// contract_probed 必须由用户显式跑 DiscoverPi（设置页“验证契约”）。
+func (d *Desktop) DiscoverPiFast() (pi.DiscoveryResult, error) {
+	return pi.DiscoverFast(context.Background(), d.piDiscoveryRequest())
 }
 
 // SelectPi 在已发现候选里选择指定 installationID；不在候选里或不可用则报错，绝不静默回退。
@@ -64,7 +79,10 @@ func (d *Desktop) DiscoverPi() (pi.DiscoveryResult, error) {
 //     正在跑的 run 连根拔掉，新选择与其它配置一样在下一个 run 生效；
 //   - 写盘失败就是没生效：返回错误，并且不把这次 Selected 当作已落地结果交出去。
 func (d *Desktop) SelectPi(installationID string) (pi.DiscoveryResult, error) {
-	res, err := d.DiscoverPi()
+	// 选择用快速发现：点一下“选用”不该再等每个候选的六项契约探测（本机实测 10s+）。
+	// 契约验证由设置页的显式“验证契约”动作负责，不在选择路径上：选择只回答
+	// “下次跑的时候用哪个二进制”，不假装验证过它的协议。
+	res, err := d.DiscoverPiFast()
 	if err != nil {
 		return res, err
 	}

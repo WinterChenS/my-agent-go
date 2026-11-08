@@ -20,6 +20,9 @@ const fake = vi.hoisted(() => ({
   setActiveModel: null as unknown as (...a: any[]) => Promise<any>,
   agentProfileCeiling: null as unknown as (...a: any[]) => Promise<any>,
   discoverPi: null as unknown as (...a: any[]) => Promise<any>,
+  // FIX1-B：设置页挂载走快速发现。这里默认委托给同一个 discoverPi 替身，
+  // 这样每个用例只要摆好“后端事实”，不必重复配两遍。
+  discoverPiFast: null as unknown as (...a: any[]) => Promise<any>,
   selectPi: null as unknown as (...a: any[]) => Promise<any>,
   installPi: null as unknown as (...a: any[]) => Promise<any>,
   cancelPiInstall: null as unknown as (...a: any[]) => Promise<any>,
@@ -231,6 +234,7 @@ beforeEach(() => {
     unavailableFields: [],
   }));
   fake.discoverPi = vi.fn(async () => discovery());
+  fake.discoverPiFast = (...a: any[]) => fake.discoverPi(...a);
   fake.selectPi = vi.fn(async () => discovery());
   fake.installPi = vi.fn(async () => ({
     state: "rollback_available",

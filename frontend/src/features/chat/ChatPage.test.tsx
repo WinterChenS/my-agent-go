@@ -10,7 +10,7 @@
 // “看起来对”的 UiState——那样测的就不是事件驱动的行为了。
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { t } from "../../i18n";
 import { initialState, reduce, type UiState } from "../../runState";
@@ -61,7 +61,7 @@ vi.mock("../history/api", () => ({
 }));
 
 import { ChatPage } from "./ChatPage";
-import type { BrowserApprovalBackend, BrowserApprovalItem } from "./browserApproval";
+import { browserApprovalApi, type BrowserApprovalBackend, type BrowserApprovalItem } from "./browserApproval";
 
 // ---------------------------------------------------------------- 事件 fixture
 
@@ -926,6 +926,86 @@ describe("浏览器写动作审批（M1）", () => {
     const card = document.querySelector("[data-browser-approval-card='bapr-1']") as HTMLElement;
     expect(card.getAttribute("data-submitted")).toBe("false");
     expect(within(card).getByRole("button", { name: t("chat.approval.once") })).toBeEnabled();
+  });
+
+  it("产品装配不传 prop 时也轮询真实绑定：答复走 ResolveBrowserApproval", async () => {
+    // 用户实测的“每次都等 60 秒后被拒绝”就出在这里：如果页面必须靠上层传 prop
+    // 才会轮询，而 App.tsx 不传，待审批卡片永远不会出现。
+    // 这条测试**故意不传** browserApprovals，证明 ChatPage 自己就用默认绑定。
+    const user = userEvent.setup();
+    const pendingSpy = vi
+      .spyOn(browserApprovalApi, "pending")
+      .mockResolvedValue([browserApprovalFixture()]);
+    const resolveSpy = vi.spyOn(browserApprovalApi, "resolve").mockResolvedValue(undefined);
+
+    render(
+      <ShellProvider value={shellValue(stateFrom([]))}>
+        <ChatPage
+          onNavigate={() => undefined}
+          route={routeFor("sess-1")}
+          // 不传 browserApprovals
+          browserApprovalPollMs={0}
+          readiness={READINESS_BACKEND}
+        />
+      </ShellProvider>
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    expect(pendingSpy).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: t("chat.approval.once") }));
+    await waitFor(() => expect(resolveSpy).toHaveBeenCalledWith("bapr-1", "once"));
+    // 答复之后立刻重读一次（不做乐观移除）。
+    expect(pendingSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    resolveSpy.mockRestore();
+    pendingSpy.mockRestore();
+  });
+
+  it("一次只允许一个读取在飞：轮询周期内的多次渲染不会重复请求", async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const backend: BrowserApprovalBackend = {
+      pending: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          release = () => resolve([browserApprovalFixture()]);
+        });
+      },
+      resolve: async () => undefined,
+    };
+
+    const ui = stateFrom([]);
+    const view = (marker: number) => (
+      <ShellProvider value={shellValue(ui, { input: String(marker) })}>
+        <ChatPage
+          onNavigate={() => undefined}
+          route={routeFor("sess-1")}
+          browserApprovals={backend}
+          browserApprovalPollMs={5}
+          readiness={READINESS_BACKEND}
+        />
+      </ShellProvider>
+    );
+
+    const { rerender } = render(view(0));
+    await waitFor(() => expect(calls).toBe(1));
+
+    // 读取还挂着的时候反复渲染 + 等两个轮询周期：不许再发第二个请求。
+    rerender(view(1));
+    rerender(view(2));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    expect(calls).toBe(1);
+
+    release();
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    // 读取落地之后轮询继续（不是"一次就停"）。
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(2));
   });
 
   it("别的会话的 run 在本页时不显示浏览器审批", async () => {

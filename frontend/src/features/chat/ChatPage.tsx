@@ -121,9 +121,17 @@ export interface ReadinessBackend {
   discoverPi(): Promise<PiDiscoveryResult | null>;
 }
 
-/** 产品里用的真实探测：DiscoverPi 只读，不改 PATH、不写设置。 */
+/**
+ * 产品里用的真实探测。
+ *
+ * 用**快速发现**而不是 DiscoverPi：完整发现会对每个可用候选跑六项契约探测
+ * （spawn 真实 Pi，本机实测单个候选 10s+），挂在页面挂载上就是“每次启动都
+ * 卡在 Pi 连接”。快速发现只探测版本与指纹，返回同样的 DiscoveryResult，
+ * 并用 verification=version_only 说明“契约未验证”。
+ * 要验证契约由设置页的显式动作触发（见 PiSettings 的“验证契约”）。
+ */
 const defaultReadinessBackend: ReadinessBackend = {
-  discoverPi: () => settingsApi.discoverPi(),
+  discoverPi: () => settingsApi.discoverPiFast(),
 };
 
 export function ChatPage({
@@ -448,13 +456,15 @@ export function ChatPage({
   /**
    * 输入区为什么不能发送（null = 可以）。
    *
-   * 检查中与有阻塞分开说："还没检查完"不是"你缺东西"。
+   * 只有**已得出否定结论**才阻塞：检查还在飞的时候不阻塞输入。
+   * 理由（2026-11-08 用户实测）：挂载时把输入区锁住等探测，用户看到的就是
+   * “页面卡住、什么都不能做”。检查本身是异步的，结论到达前用户完全可以先写。
+   * “正在检查”仍会以一条轻量状态显示（checkingHint），不伪装成“缺东西”。
    */
-  const blockedHint = checkingReadiness
-    ? t("chat.composer.checkingReadiness")
-    : readinessReport && !readinessReport.ready
-      ? t("chat.composer.blocked")
-      : null;
+  const blockedHint =
+    readinessReport && !readinessReport.ready ? t("chat.composer.blocked") : null;
+  const checkingHint =
+    checkingReadiness && readinessReport === null ? t("chat.composer.checkingReadiness") : null;
 
   // 没有任何会话 id：沿用 U01 的空态（不自动建会话）。
   if (!sessionId) {
@@ -734,6 +744,7 @@ export function ChatPage({
           permission={permission}
           sendError={shell.actionError}
           blockedHint={blockedHint}
+          checkingHint={checkingHint}
           fixture={fixture}
         />
       </div>

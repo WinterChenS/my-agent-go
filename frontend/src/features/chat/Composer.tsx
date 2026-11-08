@@ -68,6 +68,13 @@ export interface ComposerProps {
    * 而不是一个变灰就完事的按钮。
    */
   blockedHint?: string | null;
+  /**
+   * 发送前提还在检查时的轻量状态（UX 回归修复）。
+   *
+   * 与 blockedHint 分开：这只是在说“还在算”，不是“你缺东西”，
+   * 因此**不**禁用输入区——挂载时锁住输入会让页面看起来卡死。
+   */
+  checkingHint?: string | null;
   /** 内置 fixture（脚本化回放）标记；null = 用的是真实 provider。 */
   fixture?: FixtureSignal | null;
 }
@@ -95,6 +102,7 @@ export function Composer({
   permission,
   sendError,
   blockedHint = null,
+  checkingHint = null,
   fixture = null,
 }: ComposerProps) {
   const [pathInput, setPathInput] = useState("");
@@ -414,6 +422,12 @@ export function Composer({
       {stopRequested ? (
         <p data-composer-readonly="" className="text-[10px] text-[color:var(--anvil-muted)]">
           {t("chat.composer.stopRequested")}
+        </p>
+      ) : null}
+
+      {checkingHint !== null ? (
+        <p data-composer-checking="" role="status" className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
+          {checkingHint}
         </p>
       ) : null}
 

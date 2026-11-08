@@ -1065,6 +1065,17 @@
       "hint": "本机所有 Pi 候选、安装与回滚都由宿主管理；外部 Pi 不会被覆盖或改动。",
       "discover": "重新探测",
       "discovering": "正在探测…",
+      "verify": "验证契约",
+      "verifying": "正在验证契约…",
+      "verifyHint": "「验证契约」会启动隔离探测进程逐项检查协议（本机约 10 秒）；列表与启动检查只用快速发现，不跑契约探测。",
+      "verifyResult": "验证完成：{state}（契约：{verification}，耗时 {ms} ms）",
+      "fastHint": "列表来自快速发现：只探测版本与指纹，未执行六项契约探测；要确认这个 Pi 会说我们的协议，请点「验证契约」。",
+      "contractVerified": "契约已验证",
+      "contractUnverified": "契约未验证",
+      "verification": {
+        "contract_probed": "已验证",
+        "version_only": "未验证"
+      },
       "emptyTitle": "没有发现任何 Pi",
       "emptyHint": "可以安装受信清单里的版本，或把 Pi 放到 PATH 上后重新探测。",
       "version": "版本",

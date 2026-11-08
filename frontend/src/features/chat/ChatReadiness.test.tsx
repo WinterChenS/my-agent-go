@@ -336,6 +336,62 @@ describe("对话页发送前提", () => {
     expect(onSendToSession).not.toHaveBeenCalled();
   });
 
+  it("检查还在飞时不锁输入：只显示轻量“检测中”，结论到达后才按事实阻塞", async () => {
+    const user = userEvent.setup();
+    // 可控的发现 Promise：先让页面挂载完成，再决定结论什么时候到。
+    let release: (value: PiDiscoveryResult) => void = () => undefined;
+    const pending = new Promise<PiDiscoveryResult>((resolve) => {
+      release = resolve;
+    });
+    const discoverPi = vi.fn(() => pending);
+    const onSendToSession = vi.fn();
+    renderPage(
+      shellValue({ input: "", onSendToSession }),
+      { discoverPi } as unknown as ReadinessBackend
+    );
+
+    // 检查在飞：输入区必须可用（页面不能被一次探测卡死），并且有一条轻量状态。
+    const input = (await waitFor(() => {
+      const el = screen.getByLabelText(t("chat.composer.placeholder"));
+      return el as HTMLTextAreaElement;
+    }));
+    await waitFor(() => expect(discoverPi).toHaveBeenCalled());
+    expect(input.disabled).toBe(false);
+    const checking = document.querySelector("[data-composer-checking]") as HTMLElement;
+    expect(checking).not.toBeNull();
+    expect(checking.textContent).toBe(t("chat.composer.checkingReadiness"));
+    // “还没检查完”不是“你缺东西”：此时不该出现阻塞文案。
+    expect(document.querySelector("[data-composer-blocked]")).toBeNull();
+
+    // 结论到达（没有 Pi）：这时才按事实阻塞输入并给出可读解释。
+    release(MISSING_DISCOVERY);
+    await waitFor(() => expect(document.querySelector("[data-composer-blocked]")).not.toBeNull());
+    expect(document.querySelector("[data-composer-checking]")).toBeNull();
+    expect((screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement).disabled).toBe(true);
+    // 用户点禁用后的发送按钮不发请求。
+    await user.click(screen.getByRole("button", { name: t("chat.composer.send") }));
+    expect(onSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("readiness 用快速发现（不跑契约探测）也照样能判定可发送", async () => {
+    // 快速发现的形状：verification=version_only、候选 contractVerified=false，
+    // 但状态是 ready_compatible —— 判定层不该因此把用户挡在门外。
+    const fast = readinessBackend({
+      state: "ready_compatible",
+      selected: candidate({ compatibility: "ready_compatible", contractVerified: false }),
+      candidates: [candidate({ compatibility: "ready_compatible", contractVerified: false })],
+      diagnostics: [],
+      verification: "version_only",
+    });
+    renderPage(shellValue({ input: "可以发" }), fast.readiness);
+
+    await waitFor(() => expect(fast.discoverPi).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelector("[data-readiness-panel]")).toBeNull());
+    const input = screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(false);
+    expect(document.querySelector("[data-composer-blocked]")).toBeNull();
+  });
+
   it("Pi 存在但低于最低版本：原因里写清版本与升级路径", async () => {
     const old = candidate({
       installation: {
