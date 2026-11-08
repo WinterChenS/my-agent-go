@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { Layout } from "./Layout";
 import { navGroups } from "./navigation";
 import { t } from "../i18n";
+import { readContract } from "../design/tokens.files.mjs";
 
 type LayoutArgs = Parameters<typeof Layout>[0];
 
@@ -113,5 +114,60 @@ describe("Layout", () => {
   it("主内容区域有来自导航文案的可访问名称", () => {
     renderLayout({ current: "agents" });
     expect(screen.getByRole("main", { name: t("nav.agents") })).toBeInTheDocument();
+  });
+});
+
+// D1：外壳的几何与结构来自原型（docs/ui/Agent-客户端产品原型 的 studio.css）。
+//
+// 这里的断言分两层：
+//   1. DOM 层：品牌头、两组导航、历史容器、页脚容器、主内容、详情栏都在，且
+//      详情栏随开关出现/消失（结构不能靠"看起来有"）；
+//   2. 源码层：外壳的版式值确实来自令牌（`--anvil-sidebar-w` / `--anvil-topbar-h`），
+//      而不是组件里另写一个 236px / 52px。jsdom 不算样式，所以读 CSS 文本是
+//      唯一诚实的判据；真实像素由 D1 的 shell-diff 证据（1366×768 / 1440×900）给出。
+describe("外壳版式（D1）", () => {
+  const { indexCss } = readContract();
+
+  it("侧栏宽度与顶栏高度来自原型令牌，且几何真的消费它们", () => {
+    expect(indexCss).toContain("--anvil-sidebar-w: 236px;");
+    expect(indexCss).toContain("--anvil-topbar-h: 52px;");
+    expect(indexCss).toContain("grid-template-columns: var(--anvil-sidebar-w) minmax(0, 1fr);");
+    expect(indexCss).toContain("height: var(--anvil-topbar-h);");
+    expect(indexCss).toContain("padding: 0 20px;");
+  });
+
+  it("品牌头、两组导航、历史、页脚、主内容与详情栏都在结构里", () => {
+    const { container } = renderLayout();
+    expect(container.querySelector('[data-shell-region="sidebar"]')).not.toBeNull();
+    expect(container.querySelector('[data-shell-region="topbar"]')).not.toBeNull();
+    expect(container.querySelector('[data-shell-region="history"]')).not.toBeNull();
+    expect(container.querySelector('[data-shell-region="footer"]')).not.toBeNull();
+    expect(container.querySelector('[data-shell-region="page"]')).not.toBeNull();
+    // 详情栏默认关闭：占位栏不能凭空出现。
+    expect(container.querySelector('[data-shell-region="detail"]')).toBeNull();
+
+    // 品牌头显示产品名与副标题，而不是把 logo 当装饰。
+    const brand = screen.getByRole("button", { name: t("app.name") });
+    expect(brand).toHaveTextContent(t("app.name"));
+    expect(brand).toHaveTextContent(t("shell.brandSub"));
+
+    // 两组导航：主入口组有标签，工具组是可展开的组标题。
+    expect(screen.getByText(t("nav.startLabel"))).toBeInTheDocument();
+    expect(screen.getByText(t("nav.toolsLabel"))).toBeInTheDocument();
+  });
+
+  it("详情栏打开时作为外壳的第三列出现", () => {
+    const { container } = renderLayout({ rightOpen: true });
+    expect(container.querySelector('[data-shell-region="detail"]')).not.toBeNull();
+    expect(container.querySelector(".anvil-shell")).toHaveAttribute("data-detail", "open");
+    expect(indexCss).toContain(
+      "grid-template-columns: var(--anvil-sidebar-w) minmax(0, 1fr) var(--anvil-detail-w);"
+    );
+  });
+
+  it("焦点环与卡片圆角走令牌，焦点环来自 accent", () => {
+    expect(indexCss).toContain("outline: 2px solid var(--anvil-focus);");
+    expect(indexCss).toContain("outline-offset: 2px;");
+    expect(indexCss).toContain("--anvil-radius: var(--anvil-r-md);");
   });
 });

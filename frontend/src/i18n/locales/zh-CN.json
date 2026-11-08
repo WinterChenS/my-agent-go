@@ -146,7 +146,8 @@
       "runs": "本次运行的事件序列",
       "observability": "查看用量、run 链路与诊断导出。"
     },
-    "observability": "观测"
+    "observability": "观测",
+    "startLabel": "开始"
   },
   "shell": {
     "piStatus": "Pi 状态",
@@ -175,7 +176,13 @@
     "confirmDelete": "确认删除这个会话？",
     "showDetails": "展开详情栏",
     "hideDetails": "收起详情栏",
-    "toggleTools": "展开或收起工具与自动化"
+    "toggleTools": "展开或收起工具与自动化",
+    "brandSub": "本地智能体客户端",
+    "workspaceRoot": "工作区",
+    "projectSessions": "项目会话",
+    "projectMeta": "{count} 个会话 · {path}",
+    "piAgent": "Pi Agent",
+    "retryHistory": "重试"
   },
   "workbench": {
     "title": "工作台",

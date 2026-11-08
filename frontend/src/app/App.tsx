@@ -14,7 +14,7 @@ import type { ApprovalChoice, ApprovalItem, CallError, Settings } from "../types
 import { isLocale, onLocaleChange, setLocale, storeLocalePreference, t } from "../i18n";
 import { applyTheme, currentMedia, isThemePreference, storeThemePreference } from "../theme/theme";
 import { settingsApi } from "../features/settings/api";
-import { StatusBadge } from "../components/status/StatusBadge";
+import { RuntimeFooter } from "../components/shell/RuntimeFooter";
 import { historyApi } from "../features/history/api";
 import { chatApi, type ChatClarificationResponse } from "../features/chat/api";
 import { HistorySidebar } from "../features/history/HistorySidebar";
@@ -359,7 +359,6 @@ function Shell() {
   }, [ui.phase, busy]);
 
   const Page = match.spec.component;
-  const piVersion = backend.status?.piVersion ?? "";
   const workspace = backend.currentWorkspace;
 
   return (
@@ -383,24 +382,12 @@ function Shell() {
           />
         }
         footer={
-          <div className="space-y-0.5 text-[11px] text-[color:var(--anvil-muted)]">
-            <div className="flex items-center gap-1.5">
-              <span>{t("shell.piStatus")}</span>
-              {piVersion ? (
-                <span className="font-mono text-[10px] text-[color:var(--anvil-foreground)]">{piVersion}</span>
-              ) : (
-                <>
-                  <StatusBadge status="unavailable" />
-                  <span className="truncate">{t("shell.piMissing")}</span>
-                </>
-              )}
-            </div>
-            <div className="truncate" title={workspace?.canonicalPath ?? ""}>
-              {t("shell.workspaceLabel")}
-              {" · "}
-              {workspace?.name ?? t("shell.noWorkspace")}
-            </div>
-          </div>
+          <RuntimeFooter
+            status={backend.status}
+            workspace={workspace}
+            onOpenRuntime={() => navigate("/settings")}
+            onOpenWorkspace={() => navigate("/settings")}
+          />
         }
         rightOpen={rightOpen}
         onToggleRight={() => setRightOpen((v) => !v)}
