@@ -195,7 +195,7 @@ interface FakeBrowserApprovals {
   pollMs: number;
   pending: BrowserApprovalItem[];
   resolved: { approvalId: string; choice: string }[];
-  failResolve: Error | null;
+  failResolve: CallError | null;
 }
 
 function fakeBrowserApprovals(
@@ -210,8 +210,9 @@ function fakeBrowserApprovals(
     backend: {
       pending: async () => fake.pending,
       resolve: async (approvalId, choice) => {
-        if (fake.failResolve) throw fake.failResolve;
+        if (fake.failResolve) return fake.failResolve;
         fake.resolved.push({ approvalId, choice });
+        return null;
       },
     },
   };
@@ -911,7 +912,7 @@ describe("浏览器写动作审批（M1）", () => {
   it("提交失败时把原因留在卡片上，卡片不消失", async () => {
     const user = userEvent.setup();
     const browser = fakeBrowserApprovals([browserApprovalFixture()]);
-    browser.failResolve = new Error("CONFIG_MISSING: 浏览器授权服务不可用：审批无法答复");
+    browser.failResolve = { code: "CONFIG_MISSING", message: "浏览器授权服务不可用：审批无法答复", retryable: false };
     renderPage(stateFrom([]), {}, browser);
 
     await waitFor(() =>

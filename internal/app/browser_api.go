@@ -990,15 +990,24 @@ func (d *Desktop) PendingBrowserApprovals() []BrowserApprovalView {
 // ResolveBrowserApproval 答复一条浏览器审批（once/session_scope/deny）。
 //
 // 答复只是结论；真正放行仍要过策略服务与派发前复查（可能已经过期/被接管）。
-func (d *Desktop) ResolveBrowserApproval(approvalID, choice string) error {
+// 返回值是结构化结果而不是裸 error。
+//
+// 为什么：Wails 把裸 error 只序列化成一句消息（有时干脆是 runtime 层的
+// "call failed"），前端拿不到 Code，就没法区分"已过期/已撤销/参数变了/根本没这条"。
+// 本仓库的绑定层约定就是返回 DTO（见 UpdateBrowserSlot 返回 *CallError），
+// 这里对齐同一口径——也让"确认授权会报错"这类问题能直接看到错误码。
+func (d *Desktop) ResolveBrowserApproval(approvalID, choice string) *CallError {
 	st := d.browserAuthorizationState()
 	if st == nil {
-		return contracts.NewAppError(contracts.CodeConfigMissing,
-			"浏览器授权服务不可用", false)
+		return toCallError(contracts.NewAppError(contracts.CodeConfigMissing,
+			"浏览器授权服务不可用", false))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), browserActionTimeout)
 	defer cancel()
-	return st.Resolve(ctx, approvalID, choice)
+	if err := st.Resolve(ctx, approvalID, choice); err != nil {
+		return toCallError(err)
+	}
+	return nil
 }
 
 // BrowserState 是面板的读入口。永远返回结构化结果，不抛异常。

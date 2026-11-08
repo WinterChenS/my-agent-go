@@ -66,7 +66,8 @@ export interface BrowserApprovalItem {
 /** 绑定通道的形状（测试注入替身，不 mock Wails runtime）。 */
 export interface BrowserApprovalBackend {
   pending(): Promise<BrowserApprovalItem[] | null | undefined>;
-  resolve(approvalId: string, choice: BrowserApprovalChoice): Promise<void>;
+  /** 返回结构化错误（null = 已答复）。绑定层不再用裸 error，见 Go 侧注释。 */
+  resolve(approvalId: string, choice: BrowserApprovalChoice): Promise<CallError | null | undefined>;
 }
 
 export const browserApprovalApi: BrowserApprovalBackend = {
@@ -295,12 +296,16 @@ export function useBrowserApprovals(options: UseBrowserApprovalsOptions = {}): B
       // 卡片本身不移动。先标再发请求，也让"提交后排队的读取结果"能认出结论来源。
       dispatch({ type: "submitted", approvalId: item.approvalId, choice });
       void api.resolve(item.approvalId, choice).then(
-        () => {
+        (failure) => {
+          if (failure) {
+            // 结构化失败：可能是"已过期/已撤销/参数变了/根本没这条"。
+            dispatch({ type: "resolve_failed", approvalId: item.approvalId, error: failure });
+          }
           // 移除仍然只能来自后端读取结果（见 observed 分支）。
           refresh();
         },
         (err: unknown) => {
-          // 失败时要保留原因（可能是"已过期/已撤销"），并立刻重读对齐后端事实。
+          // 绑定调用本身失败（Wails runtime 层）：同样保留原因并重读。
           dispatch({ type: "resolve_failed", approvalId: item.approvalId, error: toCallError(err) });
           refresh();
         }

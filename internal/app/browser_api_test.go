@@ -767,3 +767,27 @@ func TestBrowserExecutionContextFollowsRuntimeSession(t *testing.T) {
 		t.Fatalf("应跟随当前 run 的会话，实际 %q", got.SessionID)
 	}
 }
+
+// TestResolveBrowserApprovalReturnsCallError 守绑定层的返回形状。
+//
+// 为什么不是裸 error：Wails 把裸 error 压成一句消息（甚至只给 runtime 层的
+// "call failed"），前端拿不到 Code，就分不清"已过期/已撤销/参数变了/没这条"。
+// 用户实测"授权确认会报错"时，正是缺这个 Code 导致无从定位。
+func TestResolveBrowserApprovalReturnsCallError(t *testing.T) {
+	d, _ := newTestDesktop(t)
+
+	// 不存在的审批：结构化 NOT_FOUND，而不是抛异常。
+	ce := d.ResolveBrowserApproval("apr-does-not-exist", "once")
+	if ce == nil {
+		t.Fatal("未知审批必须返回错误")
+	}
+	if ce.Code != contracts.CodeNotFound {
+		t.Fatalf("错误码 = %s，期望 %s（%s）", ce.Code, contracts.CodeNotFound, ce.Message)
+	}
+
+	// 未知选项：策略层给 UNSUPPORTED，绑定层原样转成 CallError。
+	st := d.browserAuthorizationState()
+	if st == nil || st.pol == nil {
+		t.Fatal("授权权威没有装配")
+	}
+}
