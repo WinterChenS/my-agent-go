@@ -268,3 +268,25 @@ ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条�
    浏览器审批 UI + 把浏览器工具注册进产品 MCP。
 3. CONN07/SCH06 页面；RUN01/04/06.ui 端到端。
 4. X01 E2E01–07 → X03 打包 → X04 迁移/更新/性能 → F09 → X05。
+
+## 12. 2026-11-08 第九/十波：M1 与 U07 合并 —— G3 的 UI 证据首次落地
+
+- **M1 合并**（`eb13b94`）：浏览器工具只在存在真实 authorizer 时注册进产品自有 MCP；聊天页审批流渲染浏览器待审批
+  （origin/指纹/到期），经 `ResolveBrowserApproval` 解决，拒绝/过期计数 0、卡片不乐观移除。
+- **U07 合并**（`053baaa` + `b2a11c3`）：Playwright 锁定版本预检、违规夹具先证明检查会红、九页 × 双语言 × 双主题矩阵、
+  布局/对比度/键盘焦点、状态保持（切语言/主题不重建原生 tab）、**构建后 Wails 原生机截图与交互证据**。
+  `verify --suite=native --gate=G3` 结果：**10 可跑 / 9 PASS / 1 FAIL**，
+  PASS：UI12、UI13、UI12.detectors、I18N02、I18N03、THEME02、THEME03、THEME04、THEME05；
+  FAIL：**I18N04**（en-US 的 Skills/MCP 页仍是 U04 的旧组件，硬编码中文）。
+  另外 `go test ./...` 里 UI 验收测试改为"无证据目录则 skip"（否则整仓测试永远红，而门禁仍要求证据文件）。
+- U07 顺带修的真实缺陷：语言切换的订阅、偏好镜像与启动对齐、`/chat` 路由 id 合并（侧栏高亮与 `<main aria-label>`）、
+  缺 `agents.missingRefs` key、以及 **仅环境变量启用**的 `ANVIL_UI_CDP_PORT` DevTools 通道（默认关闭、启用时记日志）。
+- 已派发 **F3**：把 Skills/MCP 旧页替换为 catalog 驱动页（I18N04）、清掉 667 处直接调色板类（THEME01）、
+  `<title>` 等改为 Anvil（BRAND01–03）。
+
+### G3 现状与剩余
+
+`gate --id=G3` 仍 exit 2：除 I18N04（F3 在修）外，**38 条 G3 必需 case 还没有 native runner**：
+UI01–UI11、UI04.workbench、SES01–03、SRCH01、I18N01、THEME01、BRAND01–03、RES05、CONN07、SCH06、RUN01/04/06.ui、
+SEC07.diagnostics、ART01–03、BR07.tool、E2E01–07。多数实现已存在（页面/后端都在），缺的是**把已有证据接进 runner**；
+E2E 与 RUN*.ui 还需要真实 Wails + Pi 1.5.0 的端到端脚本。
