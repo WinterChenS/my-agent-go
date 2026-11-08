@@ -460,3 +460,39 @@ func requireCode(t *testing.T, err error, code string) {
 		t.Fatalf("期望 %s，实际 %s（%s）", code, appErr.Code, appErr.Message)
 	}
 }
+
+// TestBrowserToolsAreNotGatedByNetworkPermission 守一条实测踩到的产品缺陷：
+//
+// 浏览器工具是**产品内代理**（只操作已挂载的 WebView2，写动作还要人工审批），
+// 模型拿它们不能发起任意出网请求。用通用"网络权限"拦它们，等于把浏览器能力整体
+// 关掉——用户看到"未获授权：当前有效配置未授予网络权限"，而面板明明可用。
+//
+// 真正的任意出网工具（http/fetch/web）继续受网络权限约束（下一条断言）。
+func TestBrowserToolsAreNotGatedByNetworkPermission(t *testing.T) {
+	svc := New(Options{Permissions: config.Permissions{Filesystem: "workspace", Network: false, Shell: false}})
+	exec := contracts.ExecutionContext{WorkspaceID: "ws-1", SessionID: "sess-1", RunID: "run-1", ConfigRevision: 1}
+
+	// 浏览器读：不因网络权限被 deny。
+	res, err := svc.Authorize(context.Background(), exec, ToolCall{
+		ID: "c-tabs", Name: "browser_tabs", Source: SourceHarnessMCP, Origin: "user",
+		Arguments: jsonArgs(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("Authorize(browser_tabs): %v", err)
+	}
+	if res.Decision == DecisionDeny && strings.Contains(res.Reason, "网络权限") {
+		t.Fatalf("浏览器工具不应被网络权限拒绝: %+v", res)
+	}
+
+	// 任意出网工具仍然受限（证明不是把网络权限整体关掉）。
+	fetchRes, err := svc.Authorize(context.Background(), exec, ToolCall{
+		ID: "c-fetch", Name: "fetch_url", Source: SourceHarnessMCP, Origin: "user",
+		Arguments: jsonArgs(`{"url":"http://example.com"}`),
+	})
+	if err != nil {
+		t.Fatalf("Authorize(fetch_url): %v", err)
+	}
+	if fetchRes.Decision != DecisionDeny || !strings.Contains(fetchRes.Reason, "网络权限") {
+		t.Fatalf("fetch_url 在未授予网络权限时必须 deny 并说明原因: %+v", fetchRes)
+	}
+}

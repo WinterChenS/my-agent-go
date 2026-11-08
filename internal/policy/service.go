@@ -276,10 +276,20 @@ func (s *Service) violatesPermission(call ToolCall) (string, bool) {
 	if needShell && !s.perm.Shell {
 		return "当前有效配置未授予 shell 权限", true
 	}
-	needNetwork := strings.Contains(name, "http") || strings.Contains(name, "fetch") ||
-		strings.Contains(name, "browser") || strings.Contains(name, "web")
-	if needNetwork && !s.perm.Network {
-		return "当前有效配置未授予网络权限", true
+	// 浏览器工具不走通用"网络权限"闸门：它们是**产品内代理**能力。
+	//
+	// 理由（2026-11-08 实测踩到）：模型调用 browser_tabs/browser_act 时，真正的出口是
+	// 本进程的 browser.Service——它只操作已经挂载的 WebView2、按 origin/navigationId
+	// 校验、写动作还要走 BrowserPolicyAuthorizer（默认 ask，人工批准）。模型拿这些
+	// 工具**不能**发起任意出网请求，所以用"网络权限"拦它们只会把一个产品能力整体
+	// 关掉：用户看到的是"未获授权：当前有效配置未授予网络权限"，而浏览器面板明明可用。
+	// 真正需要网络权限的是 http/fetch/web 这类任意出网工具，它们在下面继续受限。
+	if !isBrowserTool(name) {
+		needNetwork := strings.Contains(name, "http") || strings.Contains(name, "fetch") ||
+			strings.Contains(name, "web")
+		if needNetwork && !s.perm.Network {
+			return "当前有效配置未授予网络权限", true
+		}
 	}
 	needWrite := name == "write" || name == "edit" || name == "apply_patch"
 	if needWrite {
@@ -290,6 +300,11 @@ func (s *Service) violatesPermission(call ToolCall) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isBrowserTool 判断是否是产品内代理的浏览器工具（浏览器能力有自己的授权路径）。
+func isBrowserTool(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "browser_")
 }
 
 func (s *Service) hasSessionGrant(sessionID, key, toolName string) bool {

@@ -78,6 +78,10 @@ type policyHarnessOptions struct {
 	// PinnedBinding 用生产构造函数 NewBrowserPolicyAuthorizer 装配，并把执行身份
 	// 钉在 run binding 上（T1 的真实接线路径）。
 	PinnedBinding bool
+	// PolicyDeny 让策略层直接拒绝（不签发审批）。浏览器工具不再受“网络权限”
+	// 约束（它们是产品内代理，2026-11-08 修正），所以“策略拒绝”这条用例必须
+	// 用真正的拒绝，而不是把 Network 设成 false 来借道。
+	PolicyDeny bool
 	// BrokenAuthorizer 装一个 Gate 为空的授权器（装配错误）。
 	// 它必须是"默认拒绝"，绝不能退化成放行。
 	BrokenAuthorizer bool
@@ -146,6 +150,10 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 	//   - BrokenAuthorizer：装配错误（没有策略服务），必须默认拒绝；
 	//   - 其余：用例直接构造（与 B05 既有写法一致）。
 	var authz *BrowserPolicyAuthorizer
+	gate := BrowserPolicyGate(pol)
+	if opts.PolicyDeny {
+		gate = denyingGate{inner: pol}
+	}
 	switch {
 	case opts.BrokenAuthorizer:
 		authz = &BrowserPolicyAuthorizer{
@@ -155,7 +163,7 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 	case opts.PinnedBinding:
 		built, berr := NewBrowserPolicyAuthorizer(BrowserAuthorizerOptions{
 			Binding:      &BrowserAuthorizationBinding{Exec: exec},
-			Gate:         pol,
+			Gate:         gate,
 			Guard:        browser.TokenGuard{TTL: ttl},
 			ApprovalWait: 5 * time.Second,
 			PollInterval: 2 * time.Millisecond,
@@ -167,7 +175,7 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 		authz = built
 	default:
 		authz = &BrowserPolicyAuthorizer{
-			Gate:         pol,
+			Gate:         gate,
 			Guard:        browser.TokenGuard{TTL: ttl},
 			ApprovalWait: 5 * time.Second,
 			PollInterval: 2 * time.Millisecond,
@@ -205,6 +213,28 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 	h.tab = tab
 	h.snap = snap
 	return h
+}
+
+// denyingGate 是"策略层直接拒绝"的注入实现：不签发审批、只给结论。
+//
+// 与 DenyAll 的区别：DenyAll 是用户点了"拒绝"，本类型是策略在签发审批之前就拒绝
+// （例如越权/通道不允许），两者都要证明"没有任何输入被派发"。
+type denyingGate struct{ inner BrowserPolicyGate }
+
+func (g denyingGate) Authorize(context.Context, contracts.ExecutionContext, policy.ToolCall) (policy.Result, error) {
+	return policy.Result{Decision: policy.DecisionDeny, Reason: "策略拒绝（用例注入）"}, nil
+}
+
+func (g denyingGate) Pending(ctx context.Context, id string) (policy.ApprovalRequest, error) {
+	return g.inner.Pending(ctx, id)
+}
+
+func (g denyingGate) ValidateBinding(ctx context.Context, exec contracts.ExecutionContext, id string, call policy.ToolCall) error {
+	return g.inner.ValidateBinding(ctx, exec, id, call)
+}
+
+func (g denyingGate) RevokeApproval(ctx context.Context, id string) error {
+	return g.inner.RevokeApproval(ctx, id)
 }
 
 // waitApprovals 等到至少 n 条审批出现（Manual 用例用它确定"现在卡在等人工"）。
@@ -290,7 +320,7 @@ func browserToolsByName(t *testing.T, tools []Tool, name string) Tool {
 func TestBrowserToolDeniedLeavesCounterZero(t *testing.T) {
 	t.Run("策略拒绝", func(t *testing.T) {
 		// Network=false 时策略服务直接 deny（浏览器工具属于网络能力）。
-		h := newPolicyHarness(t, policyHarnessOptions{Network: false})
+		h := newPolicyHarness(t, policyHarnessOptions{Network: false, PolicyDeny: true})
 		ref := h.backend.RefOf(h.tab, "name")
 
 		text, isErr := browserCall(t, h, BrowserToolAct, map[string]any{
