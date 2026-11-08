@@ -1,5 +1,0 @@
---- FAIL: TestBrowserBridgeExecProviderFollowsCurrentRun (0.00s)
-    browser_api_test.go:729: 切换身份后应看到 agent 的 tab "scripted-tab-1"，实际 []
-FAIL
-FAIL	my-agent-go/internal/app	0.021s
-FAIL

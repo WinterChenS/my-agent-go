@@ -1,3 +1,0 @@
-# my-agent-go/internal/resources
-# [my-agent-go/internal/resources]
-vet.exe: internal\resources\skill_dryrun_test.go:39:41: undefined: DryRunSandbox

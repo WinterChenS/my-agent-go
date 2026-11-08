@@ -1,5 +1,0 @@
---- FAIL: TestListMemoriesReportsUnavailableNotEmpty (0.04s)
-    memory_api_test.go:332: 库打不开时必须报不可用，实际 {Available:true ReasonCode: Detail:}
-FAIL
-FAIL	my-agent-go/internal/app	0.071s
-FAIL
