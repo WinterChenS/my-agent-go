@@ -39,8 +39,11 @@ type policyHarness struct {
 	tab        browser.TabID
 	snap       browser.Snapshot
 	approvals  []policy.ApprovalRequest
-	mu         sync.Mutex
-	clock      *testClock
+	// calls 是待审批调用的原始形参：答复时用它校验指纹（与 policybridge 同一口径），
+	// Manual 用例靠它把"用户答复"精确地打在某一条审批上。
+	calls map[string]policy.ToolCall
+	mu    sync.Mutex
+	clock *testClock
 }
 
 type testClock struct {
@@ -62,10 +65,24 @@ func (c *testClock) Advance(d time.Duration) {
 
 // policyHarnessOptions 让用例按需改策略权限与许可有效期。
 type policyHarnessOptions struct {
-	Network   bool
-	TokenTTL  time.Duration
-	AutoAllow bool
-	DenyAll   bool
+	Network  bool
+	TokenTTL time.Duration
+	// ApprovalTTL 是策略审批本身的有效期（0 用 1 分钟）。过期路径必须用**真实
+	// 流逝时间**验证，不能用假时钟把审批"拨"过期。
+	ApprovalTTL time.Duration
+	AutoAllow   bool
+	DenyAll     bool
+	// Manual 为 true 时不自动答复审批：用例自己决定何时、以什么结论答复。
+	// 用来证明"等待期间 counter 恒为 0"与"换 origin 后必须重新审批"。
+	Manual bool
+	// PinnedBinding 用生产构造函数 NewBrowserPolicyAuthorizer 装配，并把执行身份
+	// 钉在 run binding 上（T1 的真实接线路径）。
+	PinnedBinding bool
+	// BrokenAuthorizer 装一个 Gate 为空的授权器（装配错误）。
+	// 它必须是"默认拒绝"，绝不能退化成放行。
+	BrokenAuthorizer bool
+	// NoAuthorizer 完全不装授权器：服务层必须拒绝写动作。
+	NoAuthorizer bool
 }
 
 // newPolicyHarness 起 fixture + scripted backend + 真策略服务 + MCP 服务。
@@ -81,39 +98,40 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 
 	// 时钟不注入：许可过期的判定必须用**真实流逝时间**，否则"过期"用例会退化成
 	// "把一个假时钟往前拨一下"，证明不了"排队期间许可真的失效"。
+	approvalTTL := opts.ApprovalTTL
+	if approvalTTL <= 0 {
+		approvalTTL = time.Minute
+	}
 	pol := policy.New(policy.Options{
 		Permissions: config.Permissions{Filesystem: "workspace", Network: opts.Network},
-		ApprovalTTL: time.Minute,
+		ApprovalTTL: approvalTTL,
 	})
 
 	ttl := opts.TokenTTL
 	if ttl <= 0 {
 		ttl = time.Minute
 	}
-	authz := &BrowserPolicyAuthorizer{
-		Gate:         pol,
-		Guard:        browser.TokenGuard{TTL: ttl},
-		ApprovalWait: 5 * time.Second,
-		PollInterval: 2 * time.Millisecond,
-	}
-
 	exec := contracts.ExecutionContext{
 		WorkspaceID: "ws-b05", SessionID: "sess-browser", RunID: "run-browser",
 		ConfigRevision: 1, ControlGeneration: 1,
 	}
 
 	h := &policyHarness{
-		backend: backend, fixture: fixture, policy: pol,
-		authorizer: authz, exec: exec,
+		backend: backend, fixture: fixture, policy: pol, exec: exec,
+		calls: map[string]policy.ToolCall{},
 	}
 
-	// 审批回复：默认自动批准一次（模拟用户点"允许一次"）；DenyAll 时拒绝。
-	// 真实路径上这一步是 UI 通过 policybridge 的 resolve 端点做的；这里直接调
-	// 策略服务，语义相同（结论仍然只在策略服务里落地，工具参数碰不到它）。
-	authz.OnPending = func(p policy.ApprovalRequest, call policy.ToolCall) {
+	// 审批回复：默认自动批准一次（模拟用户点"允许一次"）；DenyAll 时拒绝；
+	// Manual 时把结论留给用例。真实路径上这一步是 UI 通过 resolve 端点做的；
+	// 这里直接调策略服务，语义相同（结论仍然只在策略服务里落地，工具参数碰不到它）。
+	onPending := func(p policy.ApprovalRequest, call policy.ToolCall) {
 		h.mu.Lock()
 		h.approvals = append(h.approvals, p)
+		h.calls[p.ID] = call
 		h.mu.Unlock()
+		if opts.Manual {
+			return
+		}
 		choice := policy.ApprovalOnce
 		if opts.DenyAll {
 			choice = policy.ApprovalDeny
@@ -123,11 +141,49 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 		}()
 	}
 
-	svc, err := browser.NewService(browser.ServiceOptions{
+	// 三条装配路径各自代表一种真实处境：
+	//   - PinnedBinding：生产接线（构造函数 + run binding 身份）；
+	//   - BrokenAuthorizer：装配错误（没有策略服务），必须默认拒绝；
+	//   - 其余：用例直接构造（与 B05 既有写法一致）。
+	var authz *BrowserPolicyAuthorizer
+	switch {
+	case opts.BrokenAuthorizer:
+		authz = &BrowserPolicyAuthorizer{
+			ApprovalWait: 5 * time.Second, PollInterval: 2 * time.Millisecond,
+		}
+		authz.OnPending = onPending
+	case opts.PinnedBinding:
+		built, berr := NewBrowserPolicyAuthorizer(BrowserAuthorizerOptions{
+			Binding:      &BrowserAuthorizationBinding{Exec: exec},
+			Gate:         pol,
+			Guard:        browser.TokenGuard{TTL: ttl},
+			ApprovalWait: 5 * time.Second,
+			PollInterval: 2 * time.Millisecond,
+			OnPending:    onPending,
+		})
+		if berr != nil {
+			t.Fatalf("NewBrowserPolicyAuthorizer: %v", berr)
+		}
+		authz = built
+	default:
+		authz = &BrowserPolicyAuthorizer{
+			Gate:         pol,
+			Guard:        browser.TokenGuard{TTL: ttl},
+			ApprovalWait: 5 * time.Second,
+			PollInterval: 2 * time.Millisecond,
+		}
+		authz.OnPending = onPending
+	}
+	h.authorizer = authz
+
+	svcOpts := browser.ServiceOptions{
 		Backend:       backend,
-		Authorizer:    authz,
 		ActionTimeout: 3 * time.Second,
-	})
+	}
+	if !opts.NoAuthorizer {
+		svcOpts.Authorizer = authz
+	}
+	svc, err := browser.NewService(svcOpts)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -149,6 +205,41 @@ func newPolicyHarness(t *testing.T, opts policyHarnessOptions) *policyHarness {
 	h.tab = tab
 	h.snap = snap
 	return h
+}
+
+// waitApprovals 等到至少 n 条审批出现（Manual 用例用它确定"现在卡在等人工"）。
+func (h *policyHarness) waitApprovals(t *testing.T, n int) []policy.ApprovalRequest {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		got := append([]policy.ApprovalRequest(nil), h.approvals...)
+		h.mu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("等待 %d 条审批超时", n)
+	return nil
+}
+
+// approvalCall 返回待审批调用的原始形参（答复时必须原样带回去）。
+func (h *policyHarness) approvalCall(t *testing.T, id string) policy.ToolCall {
+	t.Helper()
+	h.mu.Lock()
+	call, ok := h.calls[id]
+	h.mu.Unlock()
+	if !ok {
+		t.Fatalf("没有登记审批 %s 的原始形参", id)
+	}
+	return call
+}
+
+// resolveApproval 以**登记时的原始形参**答复一条审批。
+func (h *policyHarness) resolveApproval(t *testing.T, id string, choice policy.ApprovalChoice) error {
+	t.Helper()
+	return h.policy.ResolveApproval(context.Background(), id, choice, h.approvalCall(t, id))
 }
 
 // callTool 发一次 tools/call 并解析成（文本, isError）。

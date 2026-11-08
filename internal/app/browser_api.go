@@ -27,6 +27,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -34,7 +35,10 @@ import (
 	"time"
 
 	"my-agent-go/internal/browser"
+	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/harnessmcp"
+	"my-agent-go/internal/policy"
 )
 
 const (
@@ -711,8 +715,9 @@ func (d *Desktop) browserBridge() *BrowserBridge {
 // 是同一个值）。还没跑过任何一轮时它是空的，面板就如实显示"没有 tab"：那是真的，
 // 不是读不到。
 //
-// 不传 ConfigRevision/ControlGeneration：本版没有任何东西按它们授权面板动作；
-// 写动作的授权点在 browser.Authorizer（BR07.tool 接线时在那里取真值）。
+// 不传 ConfigRevision/ControlGeneration：面板自己的动作（tab/导航/接管）不经
+// browser.Authorizer；写动作的身份来自服务端绑定的 run（MCP 工具的 binding），
+// 不由这个面板身份代劳。两者都用会话隔离，但授权判据不在这里。
 func (d *Desktop) BrowserExecutionContext() contracts.ExecutionContext {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -720,6 +725,266 @@ func (d *Desktop) BrowserExecutionContext() contracts.ExecutionContext {
 		WorkspaceID: defaultWorkspaceID,
 		SessionID:   contracts.SessionID(d.runtimeSessionID),
 	}
+}
+
+// ---------- 写动作授权（BR07.tool / T1） ----------
+//
+// 为什么需要这一层而不是让工具或前端自己判：
+//   - 工具是“模型能碰到的面”，不能当授权点；
+//   - 前端只能上报“用户在对话框里点了什么”，不能决定结论；
+//   - 策略服务（internal/policy）是唯一权威，它已经实现了参数指纹、会话许可、
+//     配置 revision/控制代的绑定与一次性许可的原子领取。
+//
+// 这里持有的是一套**只服务浏览器写动作**的策略权威：它只接收
+// harnessmcp.BrowserPolicyAuthorizer 发出的 browser_act 调用，不承载 Pi 的其它工具
+// （那些走 run 自己的策略端点，权限来自 effectivePermissions）。因此这里显式
+// 开启 network：基线对浏览器 click/fill/key 的默认口径是“逐次审批”，不是“硬拒”；
+// 真正的门槛是每一次的 ask/审批结论。
+//
+// 默认拒绝是硬的：没有策略服务、装配失败、没人答复、答复过期/拒绝，都到不了派发。
+
+type browserAuthorizationOptions struct {
+	// ApprovalTTL 是审批本身的有效期（与基线 60 秒对齐）。
+	ApprovalTTL time.Duration
+	// TokenTTL 是已授权动作在队列里等待派发的有效期。
+	TokenTTL time.Duration
+	// ApprovalWait 是等人工答复的上限；超时即撤销并拒绝。
+	ApprovalWait time.Duration
+	// PollInterval 是等待期间的轮询间隔。
+	PollInterval time.Duration
+}
+
+func defaultBrowserAuthorizationOptions() browserAuthorizationOptions {
+	return browserAuthorizationOptions{
+		ApprovalTTL:  browser.DefaultApprovalTTL,
+		TokenTTL:     browser.DefaultApprovalTTL,
+		ApprovalWait: 60 * time.Second,
+		PollInterval: 20 * time.Millisecond,
+	}
+}
+
+// browserAuthorization 是浏览器写动作的授权权威（策略服务 + 审批队列）。
+type browserAuthorization struct {
+	// pol 是唯一权威。authz 为 nil 表示装配失败（那时代码路径必须保持默认拒绝）。
+	pol   *policy.Service
+	authz *harnessmcp.BrowserPolicyAuthorizer
+	// buildErr 记录装配失败的原因（诊断/日志用），不改变“默认拒绝”的结论。
+	buildErr error
+
+	mu      sync.Mutex
+	pending map[string]policy.ApprovalRequest
+	// calls 是待审批调用的原始形参：答复时用它校验指纹，答复方不能借同一条
+	// 审批调换参数（与 policybridge 的 handleResolve 同一口径）。
+	calls map[string]policy.ToolCall
+}
+
+// newBrowserAuthorization 装配一套浏览器授权权威。
+//
+// 装配失败（策略服务建不出来 / 授权器构造拒绝）时返回的 state 里 authz 为 nil；
+// 调用方必须把 nil 传给 browser.Service，让它保持默认拒绝，而不是换一个宽容的替身。
+func newBrowserAuthorization(opts browserAuthorizationOptions) *browserAuthorization {
+	if opts.ApprovalTTL <= 0 {
+		opts.ApprovalTTL = browser.DefaultApprovalTTL
+	}
+	if opts.TokenTTL <= 0 {
+		opts.TokenTTL = browser.DefaultApprovalTTL
+	}
+	if opts.ApprovalWait <= 0 {
+		opts.ApprovalWait = 60 * time.Second
+	}
+	if opts.PollInterval <= 0 {
+		opts.PollInterval = 20 * time.Millisecond
+	}
+	pol := policy.New(policy.Options{
+		// 只服务浏览器写动作的独立权威：见本节头部的说明。
+		Permissions: config.Permissions{Filesystem: "workspace", Network: true},
+		ApprovalTTL: opts.ApprovalTTL,
+	})
+	s := &browserAuthorization{
+		pol:     pol,
+		pending: map[string]policy.ApprovalRequest{},
+		calls:   map[string]policy.ToolCall{},
+	}
+	authz, err := harnessmcp.NewBrowserPolicyAuthorizer(harnessmcp.BrowserAuthorizerOptions{
+		Gate:         pol,
+		Guard:        browser.TokenGuard{TTL: opts.TokenTTL},
+		ApprovalWait: opts.ApprovalWait,
+		PollInterval: opts.PollInterval,
+		OnPending:    s.remember,
+	})
+	if err != nil {
+		// 不构造替身、不改成“总是同意”：保持 authz=nil，让写动作硬失败。
+		s.buildErr = err
+		return s
+	}
+	s.authz = authz
+	return s
+}
+
+func (s *browserAuthorization) remember(p policy.ApprovalRequest, call policy.ToolCall) {
+	s.mu.Lock()
+	s.pending[p.ID] = p
+	s.calls[p.ID] = call
+	s.mu.Unlock()
+}
+
+// Authorizer 返回装好的授权器；nil 表示装配失败（写动作应保持默认拒绝）。
+func (s *browserAuthorization) Authorizer() browser.Authorizer {
+	if s == nil || s.authz == nil {
+		return nil
+	}
+	return s.authz
+}
+
+// Resolve 以**登记时的原始形参**答复一条审批。
+func (s *browserAuthorization) Resolve(ctx context.Context, approvalID, choice string) error {
+	if s == nil || s.pol == nil {
+		return contracts.NewAppError(contracts.CodeConfigMissing,
+			"浏览器授权服务不可用：审批无法答复", false)
+	}
+	s.mu.Lock()
+	call, ok := s.calls[approvalID]
+	s.mu.Unlock()
+	if !ok {
+		return contracts.NewAppError(contracts.CodeNotFound,
+			"没有待审批的浏览器调用: "+approvalID, false)
+	}
+	if err := s.pol.ResolveApproval(ctx, approvalID, policy.ApprovalChoice(choice), call); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delete(s.pending, approvalID)
+	delete(s.calls, approvalID)
+	s.mu.Unlock()
+	return nil
+}
+
+// PendingApprovals 返回当前待审批（已过期/已撤销的顺手清掉）。
+func (s *browserAuthorization) PendingApprovals() []BrowserApprovalView {
+	if s == nil || s.pol == nil {
+		return nil
+	}
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.pending))
+	for id := range s.pending {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+	sort.Strings(ids)
+
+	out := make([]BrowserApprovalView, 0, len(ids))
+	for _, id := range ids {
+		p, err := s.pol.Pending(context.Background(), id)
+		if err != nil {
+			// 已失效：不能继续展示一条永远批不了的审批。
+			s.mu.Lock()
+			delete(s.pending, id)
+			delete(s.calls, id)
+			s.mu.Unlock()
+			continue
+		}
+		view := BrowserApprovalView{
+			ApprovalID:    p.ID,
+			SessionID:     p.SessionID,
+			RunID:         p.RunID,
+			ToolName:      p.ToolName,
+			Arguments:     p.Arguments,
+			ExpiresAtUnix: p.ExpiresAtUnix,
+		}
+		var args browserApprovalArguments
+		if len(p.Arguments) > 0 && json.Unmarshal(p.Arguments, &args) == nil {
+			view.TabID = args.TabID
+			view.Kind = args.Kind
+			view.Origin = args.Origin
+			view.URL = args.URL
+			view.NavigationID = args.NavigationID
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// BrowserApprovalView 是待审批的浏览器写动作（面板/审批框可展示的事实）。
+//
+// 不带 ArgsHash 之类的内部指纹：那可以拿来伪造绑定；Arguments 是给用户看的原始参数。
+type BrowserApprovalView struct {
+	ApprovalID string              `json:"approvalId"`
+	SessionID  contracts.SessionID `json:"sessionId"`
+	RunID      contracts.RunID     `json:"runId"`
+	ToolName   string              `json:"toolName"`
+	TabID      string              `json:"tabId"`
+	Kind       string              `json:"kind"`
+	// Origin 与 NavigationID 从授权指纹里解出来：用户批的是“这个站点/这个文档”的这次动作。
+	Origin        string          `json:"origin"`
+	URL           string          `json:"url"`
+	NavigationID  string          `json:"navigationId"`
+	Arguments     json.RawMessage `json:"arguments"`
+	ExpiresAtUnix int64           `json:"expiresAtUnix"`
+}
+
+// browserApprovalArguments 是授权指纹里展示需要的字段（只读视图，不参与判定）。
+type browserApprovalArguments struct {
+	TabID        string `json:"tabId"`
+	Kind         string `json:"kind"`
+	Origin       string `json:"origin"`
+	URL          string `json:"url"`
+	NavigationID string `json:"navigationId"`
+}
+
+// browserAuthorizations 按 Desktop 存一套授权权威。
+//
+// 与 browserBridges 同一个理由：Desktop 的结构体字段在 desktop.go（不在本任务的
+// 改动范围内），而 Desktop 是进程级单例，这里每个 Desktop 一条记录即可。
+var browserAuthorizations sync.Map // map[*Desktop]*browserAuthorization
+
+// browserAuthorizationState 返回本 Desktop 的授权权威（懒加载、进程内唯一）。
+func (d *Desktop) browserAuthorizationState() *browserAuthorization {
+	if v, ok := browserAuthorizations.Load(d); ok {
+		return v.(*browserAuthorization)
+	}
+	built := newBrowserAuthorization(defaultBrowserAuthorizationOptions())
+	actual, _ := browserAuthorizations.LoadOrStore(d, built)
+	return actual.(*browserAuthorization)
+}
+
+// BrowserAuthorizer 返回浏览器写动作的授权器（cmd/myagent 用它装 browser.Service）。
+//
+// 返回 nil 表示装配失败：调用方必须把 nil 交给 browser.Service（它会拒绝所有写动作），
+// 绝不能换成“总是同意”的替身。
+func (d *Desktop) BrowserAuthorizer() browser.Authorizer {
+	st := d.browserAuthorizationState()
+	if st.Authorizer() == nil {
+		reason := "策略/审批装配失败"
+		if st.buildErr != nil {
+			reason += "：" + st.buildErr.Error()
+		}
+		d.setLastErr("浏览器写动作授权不可用（" + reason + "）：写动作保持默认拒绝")
+		return nil
+	}
+	return st.Authorizer()
+}
+
+// PendingBrowserApprovals 列出待人工答复的浏览器写动作。
+func (d *Desktop) PendingBrowserApprovals() []BrowserApprovalView {
+	st := d.browserAuthorizationState()
+	if st == nil {
+		return nil
+	}
+	return st.PendingApprovals()
+}
+
+// ResolveBrowserApproval 答复一条浏览器审批（once/session_scope/deny）。
+//
+// 答复只是结论；真正放行仍要过策略服务与派发前复查（可能已经过期/被接管）。
+func (d *Desktop) ResolveBrowserApproval(approvalID, choice string) error {
+	st := d.browserAuthorizationState()
+	if st == nil {
+		return contracts.NewAppError(contracts.CodeConfigMissing,
+			"浏览器授权服务不可用", false)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), browserActionTimeout)
+	defer cancel()
+	return st.Resolve(ctx, approvalID, choice)
 }
 
 // BrowserState 是面板的读入口。永远返回结构化结果，不抛异常。
