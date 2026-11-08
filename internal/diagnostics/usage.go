@@ -138,6 +138,33 @@ type CostUsage struct {
 	UnknownRuns  int      `json:"unknownRuns"`
 }
 
+// 跨 run 列表的分页边界。
+//
+// Limit<=0 用默认值，超过 MaxRunUsageLimit 夹到上限；回显的 Limit 是实际生效值，
+// 调用方据此判断"我要 500 条其实只给了 200 条"，而不是自己去猜。
+const (
+	DefaultRunUsageLimit = 50
+	MaxRunUsageLimit     = 200
+)
+
+// RunUsageQuery 是跨 run 列表的查询：范围条件与 usage 汇总共用 UsageRange。
+type RunUsageQuery struct {
+	UsageRange
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
+
+// RunUsageList 是一页 run 记录。
+//
+// Items 恒为非 nil：查询成功但没有匹配记录就是"空列表"（Total=0），
+// 与"读不出来"（返回 error）是两件事，不能都写成 nil/空。
+type RunUsageList struct {
+	Items  []RunRecord `json:"items"`
+	Total  int         `json:"total"`
+	Limit  int         `json:"limit"`
+	Offset int         `json:"offset"`
+}
+
 // UsageSummary 是一段范围内的 usage 结论。
 type UsageSummary struct {
 	Availability   string     `json:"availability"`
@@ -301,8 +328,11 @@ func joinNotes(current, extra string) string {
 	return current + "；" + extra
 }
 
-// readRunUsage 按范围读 run_usage 行。
-func (s *Service) readRunUsage(ctx context.Context, r UsageRange) ([]runUsageRow, error) {
+// usageWhere 把范围条件翻成 SQL 片段。
+//
+// 汇总、总数与分页页共用它：三处各写一份条件，迟早会出现
+// "总数是 7、列表只有 3 条"这种没人解释得清的结果。
+func usageWhere(r UsageRange) (string, []any) {
 	where := []string{"1 = 1"}
 	args := []any{}
 	if r.From != nil {
@@ -327,9 +357,14 @@ func (s *Service) readRunUsage(ctx context.Context, r UsageRange) ([]runUsageRow
 			args = append(args, id)
 		}
 	}
+	return strings.Join(where, " AND "), args
+}
 
+// readRunUsage 按范围读 run_usage 行。
+func (s *Service) readRunUsage(ctx context.Context, r UsageRange) ([]runUsageRow, error) {
+	clause, args := usageWhere(r)
 	rows, err := s.db.SQL().QueryContext(ctx,
-		`SELECT `+runUsageColumns+` FROM run_usage WHERE `+strings.Join(where, " AND ")+
+		`SELECT `+runUsageColumns+` FROM run_usage WHERE `+clause+
 			` ORDER BY updated_at DESC, run_id DESC`, args...)
 	if err != nil {
 		return nil, contracts.NewAppError(contracts.CodeInternal, "读取 usage 记录失败: "+err.Error(), true)
@@ -346,6 +381,62 @@ func (s *Service) readRunUsage(ctx context.Context, r UsageRange) ([]runUsageRow
 	}
 	if err := rows.Err(); err != nil {
 		return nil, contracts.NewAppError(contracts.CodeInternal, "usage 记录结果异常: "+err.Error(), true)
+	}
+	return out, nil
+}
+
+// ListRunUsage 分页列出范围内的 run 记录。
+//
+// 排序键固定为 (updated_at DESC, run_id DESC)：同一时刻的记录由 run_id 决定先后，
+// 与插入的物理顺序无关；否则翻页会出现同一行既在第一页又在第二页。
+// 没有匹配记录时返回空列表（Items 非 nil、Total=0），不是错误。
+func (s *Service) ListRunUsage(ctx context.Context, q RunUsageQuery) (RunUsageList, error) {
+	out := RunUsageList{Items: []RunRecord{}, Limit: q.Limit, Offset: q.Offset}
+	if s == nil {
+		return out, contracts.NewAppError(contracts.CodeInternal, "诊断服务未初始化", false)
+	}
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	if q.Offset < 0 || q.Limit < 0 {
+		return out, contracts.NewAppError(contracts.CodeInvalidInput,
+			fmt.Sprintf("分页参数不合法: limit=%d offset=%d（不能为负）", q.Limit, q.Offset), false)
+	}
+	limit := q.Limit
+	if limit == 0 {
+		limit = DefaultRunUsageLimit
+	}
+	if limit > MaxRunUsageLimit {
+		limit = MaxRunUsageLimit
+	}
+	out.Limit = limit
+
+	clause, args := usageWhere(q.UsageRange)
+	if err := s.db.SQL().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM run_usage WHERE `+clause, args...).Scan(&out.Total); err != nil {
+		return out, contracts.NewAppError(contracts.CodeInternal, "统计 run 记录失败: "+err.Error(), true)
+	}
+
+	// args 切片要重新拼：count 的 args 不能被分页参数污染（否则下次调用条件会变）。
+	pageArgs := make([]any, 0, len(args)+2)
+	pageArgs = append(pageArgs, args...)
+	pageArgs = append(pageArgs, limit, q.Offset)
+	rows, err := s.db.SQL().QueryContext(ctx,
+		`SELECT `+runUsageColumns+` FROM run_usage WHERE `+clause+
+			` ORDER BY updated_at DESC, run_id DESC LIMIT ? OFFSET ?`, pageArgs...)
+	if err != nil {
+		return out, contracts.NewAppError(contracts.CodeInternal, "读取 run 列表失败: "+err.Error(), true)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		row, scanErr := scanRunUsage(rows)
+		if scanErr != nil {
+			return out, scanErr
+		}
+		out.Items = append(out.Items, recordFromRow(row))
+	}
+	if err := rows.Err(); err != nil {
+		return out, contracts.NewAppError(contracts.CodeInternal, "run 列表结果异常: "+err.Error(), true)
 	}
 	return out, nil
 }
