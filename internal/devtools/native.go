@@ -701,6 +701,11 @@ func taskForNativeCase(id string) string {
 	switch {
 	case strings.HasPrefix(id, "BR"):
 		return "B00-B07"
+	// U07 的 UI/I18N/THEME 验收（可访问性、视觉回归、真机 UI）归 U07，
+	// 不要落到 B07/C06：那会让"谁欠这条证据"在追踪表里对不上。
+	case strings.HasPrefix(id, "UI12"), strings.HasPrefix(id, "UI13"),
+		strings.HasPrefix(id, "I18N"), strings.HasPrefix(id, "THEME"):
+		return "U07"
 	case strings.HasPrefix(id, "UI"):
 		return "B07/C06"
 	}
