@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
@@ -87,6 +89,13 @@ type Service struct {
 	mcpDiagnoseRun func(ctx context.Context, spec mcpCommand) (mcpListOutput, error)
 	// harnessTools 是自有 MCP 的工具清单（由绑定层注入，避免 resources 依赖 harnessmcp）。
 	harnessTools []ToolDescriptor
+
+	// MP1：自动发现与显式探测的注入点。零值时用默认的回环矩阵与 1.5s 超时、
+	// 系统拨号器；测试替换它们来验证边界（不回环、超时、并联）。
+	discoveryTargets []DiscoveryTarget
+	discoveryTimeout time.Duration
+	probeTimeout     time.Duration
+	dialer           func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Option 调整 Service 的可选依赖。
@@ -195,6 +204,10 @@ var secretKeyPattern = regexp.MustCompile(`(?i)^(api[-_]?key|secret|token|passwo
 var credentialRefPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // List 返回用户层里的全部模型定义。
+//
+// baseUrl/api 留空的模型在这里就按供应商解析后返回：界面要显示的是
+// "这个模型实际会打到哪"，不是一份需要用户自己在脑子里合并的配置。
+// 派生结果不落盘——保存的仍然是留空的那份，供应商改了它才会跟着变。
 func (s *Service) List(ctx context.Context) (Set, error) {
 	doc, err := s.store.Load(ctx, config.KeyUser)
 	if err != nil {
@@ -204,7 +217,11 @@ func (s *Service) List(ctx context.Context) (Set, error) {
 	if err != nil {
 		return Set{}, err
 	}
-	return Set{Items: items, Revision: doc.Revision}, nil
+	records, err := decodeProviders(doc.Body)
+	if err != nil {
+		return Set{}, err
+	}
+	return Set{Items: resolveProviders(items, records), Revision: doc.Revision}, nil
 }
 
 // Get 读取单条模型定义。
@@ -227,7 +244,17 @@ func (s *Service) Get(ctx context.Context, id string) (ModelDefinition, error) {
 // 保存成功而凭证写入失败会留下一个"引用了不存在凭证"的模型，
 // 用户看到保存成功却启动不了。
 func (s *Service) Save(ctx context.Context, expectedRevision uint64, def ModelDefinition, secret string) (contracts.ConfigDocument, error) {
-	normalized, err := normalizeDefinition(def)
+	// 供应商要先读出来：模型可以把 baseUrl/api 留空交给供应商提供，
+	// 校验必须对着解析后的值做，否则一条继承来的合法模型会被判成"baseUrl 为空"。
+	doc, err := s.store.Load(ctx, config.KeyUser)
+	if err != nil {
+		return contracts.ConfigDocument{}, err
+	}
+	records, err := decodeProviders(doc.Body)
+	if err != nil {
+		return contracts.ConfigDocument{}, err
+	}
+	normalized, err := normalizeDefinitionWithProviders(def, records)
 	if err != nil {
 		return contracts.ConfigDocument{}, err
 	}
@@ -253,7 +280,7 @@ func (s *Service) Save(ctx context.Context, expectedRevision uint64, def ModelDe
 		}
 	}
 
-	doc, err := s.store.Load(ctx, config.KeyUser)
+	doc, err = s.store.Load(ctx, config.KeyUser)
 	if err != nil {
 		return contracts.ConfigDocument{}, err
 	}
@@ -318,6 +345,8 @@ func (s *Service) CompilePiModels(ctx context.Context) (PiModels, error) {
 	if err != nil {
 		return PiModels{}, err
 	}
+	// List 已经把供应商的 baseUrl/api 解析进每条模型；这里不再做第二次合并，
+	// models.json 的 provider 分组仍然只由 compilePiModels 一处决定。
 	return compilePiModels(set.Items, func(m ModelDefinition) (string, string, error) {
 		if m.CredentialRef == "" {
 			return "", "", nil

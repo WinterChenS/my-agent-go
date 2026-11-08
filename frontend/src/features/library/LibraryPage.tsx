@@ -19,7 +19,6 @@ import {
   type SkillLinkInspection,
 } from "./api";
 import { SkillImportDialog } from "./SkillImportDialog";
-
 type Tab = "skills" | "agents" | "mcp";
 
 export interface LibraryPageProps {
