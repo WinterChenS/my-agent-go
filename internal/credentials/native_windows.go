@@ -167,3 +167,35 @@ func writeFileAtomic(path string, data []byte) error {
 	}
 	return nil
 }
+
+// nativeBackend 是本平台 OS 保护存储的名字（设置页按它选文案）。
+const nativeBackend = BackendWindowsCredentialManager
+
+// credStoreProbePlain 是 DPAPI 往返自检的固定载荷。
+//
+// 它是**公开常量**，不含任何用户数据：自检只证明"这台机器/这个用户能加解密"，
+// 不往用户凭证库里写任何东西（写探测项本身就是污染）。
+const credStoreProbePlain = "anvil/credentials/probe/v1"
+
+// nativeSelfTest 做一次不落盘的 DPAPI 往返，确认保护存储真的能用。
+//
+// NewNativeStore 在 Windows 上只做了目录检查：dpapi 失效（配置文件漫游被禁、
+// 用户作用域密钥不可用）时，单看"目录建好了"会误报可用，用户第一次保存凭证
+// 才发现失败。
+func nativeSelfTest(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sealed, err := protect([]byte(credStoreProbePlain))
+	if err != nil {
+		return err
+	}
+	plain, err := unprotect(sealed)
+	if err != nil {
+		return err
+	}
+	if string(plain) != credStoreProbePlain {
+		return unavailable("DPAPI 往返自检结果与输入不一致")
+	}
+	return nil
+}

@@ -119,3 +119,11 @@ func (s *nativeStore) Delete(ctx context.Context, ref string) error {
 	}
 	return unavailable("删除 Secret Service 条目失败（secret-tool 退出码 " + strconv.Itoa(code) + "）")
 }
+
+// nativeBackend 是本平台 OS 保护存储的名字（设置页按它选文案）。
+const nativeBackend = BackendLinuxSecretService
+
+// nativeSelfTest 在 Linux 上不需要额外步骤：NewNativeStore 已经用 secret-tool
+// 对 Secret Service 做过一次 lookup 探活，缺 libsecret/D-Bus 在那里就报不可用。
+// 这里保留显式钩子而不是删掉调用点：三个平台的 Probe 走同一条路径。
+func nativeSelfTest(ctx context.Context) error { return ctx.Err() }

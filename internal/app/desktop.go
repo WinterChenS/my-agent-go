@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,6 +165,16 @@ type Desktop struct {
 	piInstallSvc      *piinstall.InstallService
 	piInstallOverride func(*piinstall.InstallService)
 
+	// credStoreProbe 是 OS 凭证库的唯一探测入口（生产 = credentials.Probe）。
+	// 测试注入一个打不开的探测，用来证明"不可用"路径给出稳定错误码；生产恒为 nil。
+	credStoreProbe func(context.Context, string) (credentials.Store, error)
+
+	// settingsMu 串行化 settings.json 的读-比-写（CAS）。
+	//
+	// 写者不止一个：SaveSettings / SaveSettingsWithRevision / persistPiSelection。
+	// 不在同一把锁里做"读 revision 再写"，两个写者就会都以为自己是最新的。
+	settingsMu sync.Mutex
+
 	// rtMu 串行化运行时构建/重建，避免两次 Start 同时建出两个 Pi 运行时。
 	rtMu sync.Mutex
 	// runtimeKey 描述当前运行时的模型来源；模型或配置变了就要重建。
@@ -246,9 +258,81 @@ func (d *Desktop) SetEmitter(fn func(contracts.Event)) {
 
 func (d *Desktop) settingsPath() string { return filepath.Join(d.root, "settings.json") }
 
+// readSettingsFile 读 settings.json 的原始字节；文件不存在返回 (nil, nil)。
+//
+// 返回字节而不是结构：CAS 凭据是从**文件内容**派生的（见 settingsRevisionOf），
+// 所以读与写必须用同一份字节，不能一边读结构一边读文件。
+func (d *Desktop) readSettingsFile() ([]byte, error) {
+	raw, err := os.ReadFile(d.settingsPath())
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取 settings.json 失败: %w", err)
+	}
+	return raw, nil
+}
+
+// settingsRevisionOf 把磁盘上的设置字节折算成 CAS 凭据。
+//
+// 为什么不是"文件里存一个递增计数"：写 settings.json 的入口不止一个
+// （SaveSettings / SaveSettingsWithRevision / 选 Pi / 用户手工编辑 / 品牌迁移）。
+// 任何一个忘了加一，另一个拿着旧凭据的写者就会静默覆盖它。
+// 内容派生的凭据不需要任何写者配合：文件一变，旧凭据自然失效。
+//
+// 0 保留给"没有这个文件"；非空文件永远不会得到 0（碰撞概率 2^-64）。
+func settingsRevisionOf(raw []byte) uint64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write(raw)
+	rev := h.Sum64()
+	if rev == 0 {
+		rev = 1
+	}
+	return rev
+}
+
+// writeSettings 原子写出设置（tmp → fsync → rename）。
+//
+// 不用 os.WriteFile：写到一半崩溃会留下半个 JSON，下次启动就要求用户重配。
+// rename 在同一目录内是原子的，所以崩溃只会留下 .tmp 残片。
+func (d *Desktop) writeSettings(s Settings) (uint64, error) {
+	raw, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return 0, err
+	}
+	path := d.settingsPath()
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return 0, fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return 0, fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return 0, fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return 0, fmt.Errorf("写 settings.json 失败: %w", err)
+	}
+	return settingsRevisionOf(raw), nil
+}
+
 func (d *Desktop) loadSettings() (Settings, error) {
 	s := defaultSettings(d.root)
-	if raw, err := os.ReadFile(d.settingsPath()); err == nil {
+	raw, err := d.readSettingsFile()
+	if err != nil {
+		return s, err
+	}
+	if len(raw) > 0 {
 		// 用户已保存的设置优先；解析失败不静默丢弃，交由调用方看到错误。
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return s, fmt.Errorf("解析 settings.json 失败: %w", err)
@@ -307,14 +391,84 @@ func (d *Desktop) Settings() Settings {
 	return d.settings
 }
 
+// SettingsResult 是带 CAS 凭据的设置读写结果。
+//
+// Revision 是 settings.json 内容的并发凭据（没有文件为 0）。它不是一个递增序号：
+// 任何写入（包括手工编辑与其它入口）都会换掉它，CAS 只需要"相等/不等"。
+type SettingsResult struct {
+	Settings Settings   `json:"settings"`
+	Revision uint64     `json:"revision"`
+	Error    *CallError `json:"error,omitempty"`
+}
+
+// SettingsWithRevision 从磁盘读设置并带出 CAS 凭据。
+//
+// 与 GetPreferences 同一纪律：每次现读磁盘，不缓存——配置允许外部编辑，
+// 缓存与磁盘不一致时没人说得清哪个是真相。
+// 注意：读出来的值已应用环境变量覆盖（与 Settings()/Status 同口径）；
+// 把整份快照写回去会把本次进程的环境值固化进用户配置文件，这是旧 SaveSettings 已有的行为，
+// 本轮不改变它，但界面应只改用户真正编辑过的字段。
+func (d *Desktop) SettingsWithRevision() SettingsResult {
+	d.settingsMu.Lock()
+	raw, err := d.readSettingsFile()
+	d.settingsMu.Unlock()
+	if err != nil {
+		return SettingsResult{Settings: d.Settings(), Error: toCallError(err)}
+	}
+	s := defaultSettings(d.root)
+	if len(raw) > 0 {
+		if uerr := json.Unmarshal(raw, &s); uerr != nil {
+			return SettingsResult{Settings: d.Settings(),
+				Revision: settingsRevisionOf(raw),
+				Error: toCallError(contracts.NewAppError(contracts.CodeInternal,
+					"设置文件内容不是合法 JSON", false).
+					WithOperation("settings.get").WithCause(uerr.Error()))}
+		}
+	}
+	applyEnvOverrides(&s)
+	return SettingsResult{Settings: s, Revision: settingsRevisionOf(raw)}
+}
+
+// SaveSettingsWithRevision 以 CAS 保存设置：expectedRevision 必须等于当前文件的凭据。
+//
+// 拒绝条件（不建目录、不写文件、不改内存）：
+//   - 凭据不一致（另一个窗口/另一个入口先写了）→ CONFIG_CONFLICT，
+//     并把磁盘上的当前凭据回带，调用方可重读后重试；
+//   - 工作目录为空 → INVALID_INPUT。
+//
+// 成功时与 SaveSettings 一样会丢弃旧 RunService（设置变了，下一次 Start 重建运行时）。
+func (d *Desktop) SaveSettingsWithRevision(expectedRevision uint64, s Settings) SettingsResult {
+	rev, err := d.saveSettings(s, &expectedRevision)
+	if err != nil {
+		return SettingsResult{Settings: d.Settings(), Revision: rev, Error: toCallError(err)}
+	}
+	d.resetRuntime()
+	d.mu.Lock()
+	cur := d.settings
+	d.mu.Unlock()
+	return SettingsResult{Settings: cur, Revision: rev}
+}
+
 // SaveSettings 持久化设置并丢弃旧的 RunService（下次 Start 用新配置重建）。
 //
 // 它会关闭运行时，因此会中断正在跑的 run。只改"下一次运行用哪个模型"时
 // 不要走这里——用 persistSettings（SetActiveModel 就是这么做的）。
+//
+// 这是不检查 revision 的旧入口（保持既有语义不变）。它写出的内容同样会换掉 CAS 凭据，
+// 否则它就成了绕过 CAS 的后门：拿着旧凭据的写者会把旧入口的修改悄悄覆盖掉。
 func (d *Desktop) SaveSettings(s Settings) error {
-	if err := d.persistSettings(s); err != nil {
+	if _, err := d.saveSettings(s, nil); err != nil {
 		return err
 	}
+	d.resetRuntime()
+	return nil
+}
+
+// resetRuntime 丢弃旧 RunService（下一次 ensureRuntime 用新设置重建）。
+//
+// 关闭失败不向上报：运行时已经不再可用，关闭错误改变不了这个事实；
+// 报出去反而会让"设置已保存"变成一个看起来失败的操作。
+func (d *Desktop) resetRuntime() {
 	d.mu.Lock()
 	old := d.svc
 	d.svc = nil
@@ -322,7 +476,6 @@ func (d *Desktop) SaveSettings(s Settings) error {
 	if old != nil {
 		_ = old.Close(context.Background())
 	}
-	return nil
 }
 
 // persistSettings 只落盘并更新内存里的设置，不动正在跑的运行时。
@@ -330,28 +483,93 @@ func (d *Desktop) SaveSettings(s Settings) error {
 // 模型切换走这条路：运行中换模型不能把当前这一轮连根拔掉，
 // 新配置由 ensureRuntime 的签名比较在空闲时生效（MOD04 的安全点）。
 func (d *Desktop) persistSettings(s Settings) error {
+	_, err := d.saveSettings(s, nil)
+	return err
+}
+
+// saveSettings 是设置落盘的**唯一**写点（含 CAS），返回写入后的凭据。
+//
+// expected 为 nil 表示不检查 revision（旧 SaveSettings / 内部只改一字段的写者）。
+// 非 nil 且与磁盘不一致时返回 CONFIG_CONFLICT：不建目录、不写文件、不改内存，
+// 让调用方先去重读（静默覆盖另一份编辑比报一个错难查得多）。
+func (d *Desktop) saveSettings(s Settings, expected *uint64) (uint64, error) {
+	// 先做无副作用的入参校验："空工作目录"不是冲突，不应该被 revision 报错盖掉。
 	if strings.TrimSpace(s.Workspace) == "" {
-		return fmt.Errorf("工作目录不能为空")
+		return 0, contracts.NewAppError(contracts.CodeInvalidInput, "工作目录不能为空", false).
+			WithOperation("settings.save")
 	}
+
+	d.settingsMu.Lock()
+	defer d.settingsMu.Unlock()
+
+	raw, err := d.readSettingsFile()
+	if err != nil {
+		return 0, err
+	}
+	current := settingsRevisionOf(raw)
+	if expected != nil && *expected != current {
+		return current, contracts.NewAppError(contracts.CodeConfigConflict,
+			fmt.Sprintf("设置已被别的入口改过（凭据不一致：期望 %d，实际 %d），拒绝覆盖",
+				*expected, current), false).
+			WithParams(map[string]string{
+				"expected": strconv.FormatUint(*expected, 10),
+				"actual":   strconv.FormatUint(current, 10),
+			}).
+			WithOperation("settings.save")
+	}
+
 	abs, err := filepath.Abs(s.Workspace)
 	if err != nil {
-		return fmt.Errorf("工作目录无法绝对化: %w", err)
+		return current, fmt.Errorf("工作目录无法绝对化: %w", err)
 	}
 	s.Workspace = abs
 	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return fmt.Errorf("创建工作目录失败: %w", err)
+		return current, fmt.Errorf("创建工作目录失败: %w", err)
 	}
-	raw, err := json.MarshalIndent(s, "", "  ")
+
+	next, err := d.writeSettings(s)
 	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(d.settingsPath(), raw, 0o600); err != nil {
-		return fmt.Errorf("写 settings.json 失败: %w", err)
+		return current, err
 	}
 	d.mu.Lock()
 	d.settings = s
 	d.mu.Unlock()
-	return nil
+	return next, nil
+}
+
+// CredentialStoreStatusResult 是 OS 凭证库的可用性结论（不含任何秘密）。
+//
+// 设置页用它回答"我的密钥存在哪、能不能安全保存"。不可用时 Backend 仍是平台真实后端名，
+// Detail 说明原因，Error 给稳定错误码 CREDENTIAL_STORE_UNAVAILABLE；不会返回任何凭证内容，
+// 也不暗示回退到明文（本产品没有明文回退，只有显式的会话内存库）。
+type CredentialStoreStatusResult struct {
+	Available bool       `json:"available"`
+	Backend   string     `json:"backend"`
+	Detail    string     `json:"detail,omitempty"`
+	Error     *CallError `json:"error,omitempty"`
+}
+
+// CredentialStoreStatus 探测 OS 凭证库是否可用。
+//
+// 只探测能力，不写探测凭证（往用户凭证库里写测试项本身就是污染）。
+// 探测失败一律报 CREDENTIAL_STORE_UNAVAILABLE：对调用方而言问题只有一个
+// ——"现在不能安全地保存凭证"，具体原因在 Detail 里。
+func (d *Desktop) CredentialStoreStatus() CredentialStoreStatusResult {
+	d.mu.Lock()
+	probe := d.credStoreProbe
+	d.mu.Unlock()
+	if probe == nil {
+		probe = credentials.Probe
+	}
+	store, err := probe(context.Background(), filepath.Join(d.root, "credentials"))
+	st := credentials.StatusFromOpen(store, err)
+	res := CredentialStoreStatusResult{Available: st.Available, Backend: st.Backend, Detail: st.Detail}
+	if !st.Available {
+		res.Error = toCallError(contracts.NewAppError(contracts.CodeCredentialStoreUnavailable,
+			"OS 凭证保护存储不可用，凭证不会落盘（不回退明文）: "+st.Detail, false).
+			WithOperation("credentials.status"))
+	}
+	return res
 }
 
 // effectivePermissions 是权限上限的唯一计算点。
