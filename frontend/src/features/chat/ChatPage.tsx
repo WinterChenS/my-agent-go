@@ -9,14 +9,21 @@
 // 骨架（D2b）来自原型 `docs/ui/Agent-客户端产品原型/chat.html` +
 // `assets/studio.css` 873–900 / 1086–1200：
 //
+//   壳层顶栏 .anvil-shell-topbar（52px，唯一一条页头带）
+//     └─ [data-topbar-slot]（D2c：ChatPage 把页头 portal 进来）
+//          └─ .achat-topbar-head（标题/副行/右侧动作）
 //   .achat（.chat-page：flex 列、min-height:0）
-//     ├─ .achat-head（页头：标题/副行/右侧动作）
+//     ├─ .achat-notice（重命名/删除确认/导出结果/动作错误，有才出现）
 //     └─ .achat-layout（.chat-layout：grid minmax(0,1fr) 0 → open 时 1fr 400px）
 //          ├─ .achat-thread-col（.thread-col）
 //          │    ├─ .achat-thread（.thread：padding 22px 0 8px，唯一滚动区）
 //          │    │    └─ .achat-thread-inner（max-width 760 / padding 0 26px / gap 26px）
 //          │    └─ .achat-composer-wrap（padding 10px 26px 14px）
 //          └─ .achat-rail（.rail：400px 由 grid 给，head 42px）
+//
+// 为什么页头不在页面里（D2c）：原型只有**一个** 52px 顶头，它在 `.topbar` 里。
+// 页面自己再画一条 `.achat-head`，整页就比原型低 52px，看着像两个头叠着
+// （改前实测 thread.top=104，原型 52）。所以页头长度借壳层那一条，且不画回退带。
 //
 // 几个刻意的选择：
 //   - 重命名/置顶/归档/删除一律带 expectedRevision，冲突显示 CONFIG_CONFLICT 并给重新读取，
@@ -30,6 +37,7 @@
 //     如实显示 unavailable 与原因，而不是画一个假的标签页。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Download,
   Folder,
@@ -47,6 +55,7 @@ import type { ClarificationItem, UiApproval } from "../../runState";
 import type { ApprovalChoice } from "../../types";
 import { clarificationsOf } from "../../runState";
 import { useShell } from "../../app/shell";
+import { useTopbarSlot } from "../../app/topbarSlot";
 import type { PageProps } from "../../app/navigation";
 import { toCallError } from "../../app/useBackend";
 import { historyApi, type HistorySession } from "../history/api";
@@ -174,6 +183,9 @@ export function ChatPage({
   readiness,
 }: ChatPageProps) {
   const shell = useShell();
+  // 页头长在壳层 52px 顶栏里（D2c）：借用插槽，不在页面里再画一条 52px 的带子。
+  const topbar = useTopbarSlot();
+  const topbarClaimToken = useRef({});
   const sessionId = route?.params.id ?? "";
   const narrow = useNarrowLayout();
 
@@ -192,7 +204,7 @@ export function ChatPage({
   const [locale, setLocaleState] = useState(() => getLocale());
 
   const messagesRef = useRef<HTMLDivElement | null>(null);
-  const headRef = useRef<HTMLElement | null>(null);
+  const headRef = useRef<HTMLDivElement | null>(null);
 
   /**
    * 当前这次运行是否属于本页面这个会话。
@@ -533,6 +545,23 @@ export function ChatPage({
     setLocaleState(next);
   }, []);
 
+  /**
+   * 页头是不是真的存在：与下面三个提前返回逐一对应（空态 / 加载 / 读失败都没有页头）。
+   *
+   * 为什么不直接“渲染了就占用”：钩子不能在提前返回之后调用；用这个布尔值代
+   * 替路由声明占用，才不会在空态里把壳层的标题拿掉、却什么也不递上去。
+   */
+  const headVisible =
+    Boolean(sessionId) && !(sessionLoading && !session) && !(sessionError && !session);
+
+  // 占用壳层顶栏（D2c）：占用期间壳层让出 crumb / 搜索 / 状态区。
+  useEffect(() => {
+    if (!topbar.element) return;
+    const token = topbarClaimToken.current;
+    topbar.claim(token, headVisible);
+    return () => topbar.claim(token, false);
+  }, [topbar, headVisible]);
+
   // 没有任何会话 id：沿用 U01 的空态（不自动建会话）。
   if (!sessionId) {
     return (
@@ -585,404 +614,413 @@ export function ChatPage({
   const projectName = shell.currentWorkspace?.name ?? "";
   const projectPath = shell.currentWorkspace?.canonicalPath ?? "";
 
-  return (
-    <div className="achat" data-chat-page="">
-      {/* ---------------- 页头 ---------------- */}
-      <header className="achat-head" data-chat-head="" ref={headRef}>
-        <div className="achat-head-main">
-          <div className="achat-title">
-            <h1 data-session-title="">{title}</h1>
-            <StatusBadge status={runStateBadge(shell.ui.phase)} />
-            {session?.pinned ? (
-              <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.pinnedBadge")}</span>
-            ) : null}
-            {session?.archived ? (
-              <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.archivedBadge")}</span>
-            ) : null}
-          </div>
-          <div className="achat-subline">
-            <span className="achat-project-mark" data-chat-project-mark="">
-              <Folder size={10} aria-hidden />
-              {projectName || t("chat.composer.noProject")}
-            </span>
-            <span className="achat-subline-sep" aria-hidden>
-              /
-            </span>
-            <span className="achat-subline-mono">{modelLabel || t("common.unknown")}</span>
-            <span className="achat-subline-sep" aria-hidden>
-              /
-            </span>
-            <span className="achat-subline-mono">
-              {t("chat.composer.thinking")}
-              {" · "}
-              {t("chat.composer.thinkingUnknown")}
-            </span>
-            <span className="achat-subline-sep" aria-hidden>
-              /
-            </span>
-            <span className="achat-subline-mono">
-              {t("chat.composer.permission")}
-              {" · "}
-              {permissionHeadline(permission)}
-            </span>
-          </div>
+  // 页头内容：portal 进壳层 52px 顶栏的插槽（app/topbarSlot.tsx）。
+  // 拿不到插槽（页面不在壳层里）时整段不渲染——退回页内自带页头就又会多出一条带子。
+  const head = (
+    <div className="achat-topbar-head" data-chat-head="" ref={headRef}>
+      <div className="achat-head-main">
+        <div className="achat-title">
+          <h1 data-session-title="">{title}</h1>
+          <StatusBadge status={runStateBadge(shell.ui.phase)} />
+          {session?.pinned ? (
+            <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.pinnedBadge")}</span>
+          ) : null}
+          {session?.archived ? (
+            <span className="achat-badge achat-badge-mono">{t("chat.sessionActions.archivedBadge")}</span>
+          ) : null}
         </div>
-
-        <div className="achat-head-actions">
-          {clarificationCount > 0 ? (
-            <button
-              type="button"
-              data-chat-clarification-badge=""
-              className="achat-badge achat-badge-accent"
-              onClick={() => locateSelector("[data-clarification-card]")}
-              title={t("chat.head.clarificationsHint")}
-            >
-              <MessageSquare size={11} aria-hidden />
-              {t("chat.head.pendingClarifications", { count: clarificationCount })}
-            </button>
-          ) : null}
-          {approvalCount > 0 ? (
-            <button
-              type="button"
-              data-chat-approval-badge=""
-              className="achat-badge achat-badge-warn"
-              onClick={() => locateSelector("[data-approval-card],[data-browser-approval-card]")}
-              title={t("chat.head.approvalsHint")}
-            >
-              <i className="achat-dot" aria-hidden />
-              {t("chat.head.pendingApprovals", { count: approvalCount })}
-            </button>
-          ) : null}
-
-          <span className="achat-badge" style={{ gap: 3, padding: "0 5px" }}>
-            <Globe size={12} aria-hidden style={{ color: "var(--anvil-muted)" }} />
-            <select
-              aria-label={t("locale.label")}
-              value={locale}
-              onChange={(e) => switchLocale(e.target.value)}
-              style={{
-                border: 0,
-                background: "transparent",
-                color: "inherit",
-                fontSize: 10.5,
-                outline: "none",
-                cursor: "pointer",
-              }}
-            >
-              {SUPPORTED_LOCALES.map((code) => (
-                <option key={code} value={code}>
-                  {t(`locale.${code}`)}
-                </option>
-              ))}
-            </select>
+        <div className="achat-subline">
+          <span className="achat-project-mark" data-chat-project-mark="">
+            <Folder size={10} aria-hidden />
+            {projectName || t("chat.composer.noProject")}
           </span>
-
-          {/* 导出：一个按钮 + 三个格式（原型的导出对话框在这里是一层菜单） */}
-          <div className="achat-menu-anchor">
-            <button
-              type="button"
-              className="achat-btn achat-btn-sm"
-              aria-haspopup="menu"
-              aria-expanded={menu === "export"}
-              onClick={() => setMenu((m) => (m === "export" ? null : "export"))}
-            >
-              <Download size={13} aria-hidden />
-              {t("chat.export.label")}
-            </button>
-            {menu === "export" ? (
-              <div
-                className="achat-menu"
-                role="menu"
-                aria-label={t("chat.export.label")}
-                style={{ right: 0, top: "calc(100% + 5px)" }}
-              >
-                {EXPORT_FORMATS.map(({ format, labelKey }) => (
-                  <button
-                    key={format}
-                    type="button"
-                    role="menuitem"
-                    disabled={exporting !== null}
-                    onClick={() => void exportSession(format)}
-                    className="achat-menu-item"
-                  >
-                    {t("chat.export.label")}
-                    {" · "}
-                    {t(labelKey)}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <ContextPanelToggle open={panelOpen} narrow={narrow} onToggle={() => setPanelOpen((v) => !v)} />
-
-          {/* 更多：重命名 / 置顶 / 归档 / 重放 / 删除 */}
-          <div className="achat-menu-anchor">
-            <button
-              type="button"
-              className="achat-iconbtn"
-              aria-haspopup="menu"
-              aria-expanded={menu === "more"}
-              aria-label={t("chat.head.more")}
-              title={t("chat.head.more")}
-              onClick={() => setMenu((m) => (m === "more" ? null : "more"))}
-            >
-              <MoreHorizontal size={16} aria-hidden />
-            </button>
-            {menu === "more" ? (
-              <div
-                className="achat-menu"
-                role="menu"
-                aria-label={t("chat.head.more")}
-                style={{ right: 0, top: "calc(100% + 5px)" }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="achat-menu-item"
-                  onClick={() => {
-                    setRenaming(true);
-                    setMenu(null);
-                  }}
-                >
-                  {t("chat.sessionActions.rename")}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="achat-menu-item"
-                  onClick={() => {
-                    setMenu(null);
-                    void togglePin();
-                  }}
-                >
-                  {session?.pinned ? t("chat.sessionActions.unpin") : t("chat.sessionActions.pin")}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="achat-menu-item"
-                  onClick={() => {
-                    setMenu(null);
-                    void toggleArchive();
-                  }}
-                >
-                  {session?.archived ? t("chat.sessionActions.unarchive") : t("chat.sessionActions.archive")}
-                </button>
-                {shell.ui.runId ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="achat-menu-item"
-                    onClick={() => {
-                      setMenu(null);
-                      shell.onReplayRun(
-                        shell.ui.runId as string,
-                        shell.ui.lastSeqByRun[shell.ui.runId as string] ?? 0
-                      );
-                    }}
-                  >
-                    {t("chat.replay")}
-                  </button>
-                ) : null}
-                <div className="achat-menu-separator" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="achat-menu-item"
-                  data-danger="true"
-                  onClick={() => {
-                    setConfirmingDelete(true);
-                    setMenu(null);
-                  }}
-                >
-                  {t("chat.sessionActions.delete")}
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <span className="achat-subline-sep" aria-hidden>
+            /
+          </span>
+          <span className="achat-subline-mono">{modelLabel || t("common.unknown")}</span>
+          <span className="achat-subline-sep" aria-hidden>
+            /
+          </span>
+          <span className="achat-subline-mono">
+            {t("chat.composer.thinking")}
+            {" · "}
+            {t("chat.composer.thinkingUnknown")}
+          </span>
+          <span className="achat-subline-sep" aria-hidden>
+            /
+          </span>
+          <span className="achat-subline-mono">
+            {t("chat.composer.permission")}
+            {" · "}
+            {permissionHeadline(permission)}
+          </span>
         </div>
-      </header>
+      </div>
 
-      {/* 页头下方的状态区：重命名 / 删除确认 / 导出结果 / 动作错误 */}
-      {renaming || confirmingDelete || exporting || exportError || exportResult || actionError ? (
-        <div className="achat-head-notice" data-chat-head-notice="">
-          {renaming ? (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
-              <label htmlFor="session-title-input" className="sr-only">
-                {t("chat.sessionActions.renamePlaceholder")}
-              </label>
-              <input
-                id="session-title-input"
-                value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
-                placeholder={t("chat.sessionActions.renamePlaceholder")}
-                className="achat-attachment-input"
-                style={{ maxWidth: 320 }}
-              />
-              <button type="button" onClick={() => void saveTitle()} className="achat-btn achat-btn-sm">
-                {t("chat.sessionActions.save")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRenaming(false);
-                  setDraftTitle(session?.title ?? "");
-                }}
-                className="achat-btn achat-btn-sm achat-btn-ghost"
-              >
-                {t("chat.sessionActions.cancel")}
-              </button>
-            </div>
-          ) : null}
+      <div className="achat-head-actions">
+        {clarificationCount > 0 ? (
+          <button
+            type="button"
+            data-chat-clarification-badge=""
+            className="achat-badge achat-badge-accent"
+            onClick={() => locateSelector("[data-clarification-card]")}
+            title={t("chat.head.clarificationsHint")}
+          >
+            <MessageSquare size={11} aria-hidden />
+            {t("chat.head.pendingClarifications", { count: clarificationCount })}
+          </button>
+        ) : null}
+        {approvalCount > 0 ? (
+          <button
+            type="button"
+            data-chat-approval-badge=""
+            className="achat-badge achat-badge-warn"
+            onClick={() => locateSelector("[data-approval-card],[data-browser-approval-card]")}
+            title={t("chat.head.approvalsHint")}
+          >
+            <i className="achat-dot" aria-hidden />
+            {t("chat.head.pendingApprovals", { count: approvalCount })}
+          </button>
+        ) : null}
 
-          {confirmingDelete ? (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
-              <span className="achat-hint achat-hint-danger">{t("chat.sessionActions.deleteConfirm")}</span>
-              <button
-                type="button"
-                onClick={() => void removeSession()}
-                className="achat-btn achat-btn-sm achat-btn-danger"
-              >
-                {t("chat.sessionActions.confirm")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                className="achat-btn achat-btn-sm achat-btn-ghost"
-              >
-                {t("chat.sessionActions.cancel")}
-              </button>
-            </div>
-          ) : null}
+        <span className="achat-badge" style={{ gap: 3, padding: "0 5px" }}>
+          <Globe size={12} aria-hidden style={{ color: "var(--anvil-muted)" }} />
+          <select
+            aria-label={t("locale.label")}
+            value={locale}
+            onChange={(e) => switchLocale(e.target.value)}
+            style={{
+              border: 0,
+              background: "transparent",
+              color: "inherit",
+              fontSize: 10.5,
+              outline: "none",
+              cursor: "pointer",
+            }}
+          >
+            {SUPPORTED_LOCALES.map((code) => (
+              <option key={code} value={code}>
+                {t(`locale.${code}`)}
+              </option>
+            ))}
+          </select>
+        </span>
 
-          {exporting ? <span className="achat-hint">{t("chat.export.writing")}</span> : null}
-          {exportError ? (
-            <span role="alert" className="achat-hint achat-hint-danger">
-              {t("chat.export.failed", { code: exportError.code })}
-            </span>
-          ) : null}
-          {exportResult ? (
-            <dl data-export-result="" style={{ margin: 0, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
-              <div>
-                <dt className="inline">{t("chat.export.done")} · {t("chat.export.path")}：</dt>
-                <dd data-export-path="" className="inline achat-mono" style={{ color: "var(--anvil-foreground)" }}>
-                  {exportResult.path}
-                </dd>
-              </div>
-              <div>
-                <dt className="inline">{t("chat.export.bytes")}：</dt>
-                <dd className="inline">
-                  {formatBytes(exportResult.bytes)}
+        {/* 导出：一个按钮 + 三个格式（原型的导出对话框在这里是一层菜单） */}
+        <div className="achat-menu-anchor">
+          <button
+            type="button"
+            className="achat-btn achat-btn-sm"
+            aria-haspopup="menu"
+            aria-expanded={menu === "export"}
+            onClick={() => setMenu((m) => (m === "export" ? null : "export"))}
+          >
+            <Download size={13} aria-hidden />
+            {t("chat.export.label")}
+          </button>
+          {menu === "export" ? (
+            <div
+              className="achat-menu"
+              role="menu"
+              aria-label={t("chat.export.label")}
+              style={{ right: 0, top: "calc(100% + 5px)" }}
+            >
+              {EXPORT_FORMATS.map(({ format, labelKey }) => (
+                <button
+                  key={format}
+                  type="button"
+                  role="menuitem"
+                  disabled={exporting !== null}
+                  onClick={() => void exportSession(format)}
+                  className="achat-menu-item"
+                >
+                  {t("chat.export.label")}
                   {" · "}
-                  {t("chat.export.redactions", { count: exportResult.redactions })}
-                </dd>
-              </div>
-              <div>
-                <dt className="inline">{t("chat.export.sha256")}：</dt>
-                <dd className="inline achat-mono">{exportResult.sha256}</dd>
-              </div>
-            </dl>
-          ) : null}
-
-          {actionError ? (
-            <div data-session-action-error="" role="alert" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              <span className="achat-hint achat-hint-danger">{formatError(actionError)}</span>
-              <span className="achat-mono" style={{ fontSize: 10.5 }}>
-                {actionError.code}
-              </span>
-              {actionError.code === "CONFIG_CONFLICT" ? (
-                <>
-                  <span className="achat-hint">{t("chat.sessionActions.conflict")}</span>
-                  <span className="achat-hint">{t("chat.sessionActions.conflictHint")}</span>
-                  <button
-                    type="button"
-                    onClick={() => void loadSession()}
-                    className="achat-btn achat-btn-sm"
-                  >
-                    {t("chat.sessionActions.reload")}
-                  </button>
-                </>
-              ) : null}
+                  {t(labelKey)}
+                </button>
+              ))}
             </div>
           ) : null}
         </div>
-      ) : null}
 
-      {/* ---------------- 主体：线程列 + 右栏 ---------------- */}
-      <div
-        className="achat-layout"
-        data-chat-layout=""
-        data-rail={panelOpen ? "open" : "closed"}
-        id="chat-layout"
-      >
-        <div className="achat-thread-col" data-chat-thread-col="">
-          <div className="achat-thread" data-chat-thread="" ref={messagesRef}>
-            <div className="achat-thread-inner" data-thread-inner="">
-              {runBelongsToPage ? null : (
-                <p data-other-session-run="" className="achat-hint achat-hint-warn">
-                  {t("chat.otherSessionRun")}
-                </p>
-              )}
-              <MessageList
-                ui={runBelongsToPage ? shell.ui : shellValueWithoutRun(shell.ui)}
-                onDecide={onDecide}
-                onClarify={onClarify}
-                canRespond={shell.ui.runId !== null}
-                onRetry={lastUserText ? retry : undefined}
-                browserApprovals={runBelongsToPage ? browserPending : undefined}
-                modelLabel={modelLabel}
-              />
-              {readinessReport && readinessReport.blockers.length > 0 ? (
-                <ReadinessPanel
-                  report={readinessReport}
-                  checking={checkingReadiness}
-                  onNavigate={onNavigate}
-                  onRecheck={() => void runReadinessCheck()}
-                />
+        <ContextPanelToggle open={panelOpen} narrow={narrow} onToggle={() => setPanelOpen((v) => !v)} />
+
+        {/* 更多：重命名 / 置顶 / 归档 / 重放 / 删除 */}
+        <div className="achat-menu-anchor">
+          <button
+            type="button"
+            className="achat-iconbtn"
+            aria-haspopup="menu"
+            aria-expanded={menu === "more"}
+            aria-label={t("chat.head.more")}
+            title={t("chat.head.more")}
+            onClick={() => setMenu((m) => (m === "more" ? null : "more"))}
+          >
+            <MoreHorizontal size={16} aria-hidden />
+          </button>
+          {menu === "more" ? (
+            <div
+              className="achat-menu"
+              role="menu"
+              aria-label={t("chat.head.more")}
+              style={{ right: 0, top: "calc(100% + 5px)" }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="achat-menu-item"
+                onClick={() => {
+                  setRenaming(true);
+                  setMenu(null);
+                }}
+              >
+                {t("chat.sessionActions.rename")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="achat-menu-item"
+                onClick={() => {
+                  setMenu(null);
+                  void togglePin();
+                }}
+              >
+                {session?.pinned ? t("chat.sessionActions.unpin") : t("chat.sessionActions.pin")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="achat-menu-item"
+                onClick={() => {
+                  setMenu(null);
+                  void toggleArchive();
+                }}
+              >
+                {session?.archived ? t("chat.sessionActions.unarchive") : t("chat.sessionActions.archive")}
+              </button>
+              {shell.ui.runId ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="achat-menu-item"
+                  onClick={() => {
+                    setMenu(null);
+                    shell.onReplayRun(
+                      shell.ui.runId as string,
+                      shell.ui.lastSeqByRun[shell.ui.runId as string] ?? 0
+                    );
+                  }}
+                >
+                  {t("chat.replay")}
+                </button>
               ) : null}
+              <div className="achat-menu-separator" />
+              <button
+                type="button"
+                role="menuitem"
+                className="achat-menu-item"
+                data-danger="true"
+                onClick={() => {
+                  setConfirmingDelete(true);
+                  setMenu(null);
+                }}
+              >
+                {t("chat.sessionActions.delete")}
+              </button>
             </div>
-          </div>
-
-          <Composer
-            sessionId={sessionId}
-            value={shell.input}
-            onChange={shell.onInput}
-            onSend={sendWhenReady}
-            onStop={shell.onStop}
-            stopRequested={shell.ui.stopRequested === true}
-            busy={shell.busy}
-            modelLabel={modelLabel}
-            profile={null}
-            skills={shell.skills}
-            permission={permission}
-            sendError={shell.actionError}
-            blockedHint={blockedHint}
-            checkingHint={checkingHint}
-            fixture={fixture}
-            projectName={projectName}
-            projectPath={projectPath}
-          />
+          ) : null}
         </div>
-
-        {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建）。
-            浏览器分区挂真实面板：宽窄切换只改 aside 的 class，面板与原生槽位节点
-            位置不变，因此不会被卸载/重建（挂载计数断言在 ContextPanel.test 里）。 */}
-        <ContextPanel
-          runId={shell.ui.runId ?? ""}
-          browserSlot={
-            <BrowserPanel
-              // 停止按钮只在“这一页确实有一轮在跑”时出现：别的会话的 run 不能
-              // 从这个页面被停掉（那也是“点了就停”的假动作）。
-              canStop={runBelongsToPage && shell.busy}
-              onStop={shell.onStop}
-            />
-          }
-          onLocateTurn={locateTurn}
-          open={panelOpen}
-          onToggle={() => setPanelOpen((v) => !v)}
-        />
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {/* 页头在壳层顶栏里（portal），页面里不再占一条 52px 的带子。 */}
+      {topbar.element ? createPortal(head, topbar.element) : null}
+
+      <div className="achat" data-chat-page="">
+
+        {/* 页头下方的状态区：重命名 / 删除确认 / 导出结果 / 动作错误 */}
+        {renaming || confirmingDelete || exporting || exportError || exportResult || actionError ? (
+          <div className="achat-notice" data-chat-head-notice="">
+            {renaming ? (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                <label htmlFor="session-title-input" className="sr-only">
+                  {t("chat.sessionActions.renamePlaceholder")}
+                </label>
+                <input
+                  id="session-title-input"
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  placeholder={t("chat.sessionActions.renamePlaceholder")}
+                  className="achat-attachment-input"
+                  style={{ maxWidth: 320 }}
+                />
+                <button type="button" onClick={() => void saveTitle()} className="achat-btn achat-btn-sm">
+                  {t("chat.sessionActions.save")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenaming(false);
+                    setDraftTitle(session?.title ?? "");
+                  }}
+                  className="achat-btn achat-btn-sm achat-btn-ghost"
+                >
+                  {t("chat.sessionActions.cancel")}
+                </button>
+              </div>
+            ) : null}
+
+            {confirmingDelete ? (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                <span className="achat-hint achat-hint-danger">{t("chat.sessionActions.deleteConfirm")}</span>
+                <button
+                  type="button"
+                  onClick={() => void removeSession()}
+                  className="achat-btn achat-btn-sm achat-btn-danger"
+                >
+                  {t("chat.sessionActions.confirm")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="achat-btn achat-btn-sm achat-btn-ghost"
+                >
+                  {t("chat.sessionActions.cancel")}
+                </button>
+              </div>
+            ) : null}
+
+            {exporting ? <span className="achat-hint">{t("chat.export.writing")}</span> : null}
+            {exportError ? (
+              <span role="alert" className="achat-hint achat-hint-danger">
+                {t("chat.export.failed", { code: exportError.code })}
+              </span>
+            ) : null}
+            {exportResult ? (
+              <dl data-export-result="" style={{ margin: 0, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
+                <div>
+                  <dt className="inline">{t("chat.export.done")} · {t("chat.export.path")}：</dt>
+                  <dd data-export-path="" className="inline achat-mono" style={{ color: "var(--anvil-foreground)" }}>
+                    {exportResult.path}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline">{t("chat.export.bytes")}：</dt>
+                  <dd className="inline">
+                    {formatBytes(exportResult.bytes)}
+                    {" · "}
+                    {t("chat.export.redactions", { count: exportResult.redactions })}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline">{t("chat.export.sha256")}：</dt>
+                  <dd className="inline achat-mono">{exportResult.sha256}</dd>
+                </div>
+              </dl>
+            ) : null}
+
+            {actionError ? (
+              <div data-session-action-error="" role="alert" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <span className="achat-hint achat-hint-danger">{formatError(actionError)}</span>
+                <span className="achat-mono" style={{ fontSize: 10.5 }}>
+                  {actionError.code}
+                </span>
+                {actionError.code === "CONFIG_CONFLICT" ? (
+                  <>
+                    <span className="achat-hint">{t("chat.sessionActions.conflict")}</span>
+                    <span className="achat-hint">{t("chat.sessionActions.conflictHint")}</span>
+                    <button
+                      type="button"
+                      onClick={() => void loadSession()}
+                      className="achat-btn achat-btn-sm"
+                    >
+                      {t("chat.sessionActions.reload")}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ---------------- 主体：线程列 + 右栏 ---------------- */}
+        <div
+          className="achat-layout"
+          data-chat-layout=""
+          data-rail={panelOpen ? "open" : "closed"}
+          id="chat-layout"
+        >
+          <div className="achat-thread-col" data-chat-thread-col="">
+            <div className="achat-thread" data-chat-thread="" ref={messagesRef}>
+              <div className="achat-thread-inner" data-thread-inner="">
+                {runBelongsToPage ? null : (
+                  <p data-other-session-run="" className="achat-hint achat-hint-warn">
+                    {t("chat.otherSessionRun")}
+                  </p>
+                )}
+                <MessageList
+                  ui={runBelongsToPage ? shell.ui : shellValueWithoutRun(shell.ui)}
+                  onDecide={onDecide}
+                  onClarify={onClarify}
+                  canRespond={shell.ui.runId !== null}
+                  onRetry={lastUserText ? retry : undefined}
+                  browserApprovals={runBelongsToPage ? browserPending : undefined}
+                  modelLabel={modelLabel}
+                />
+                {readinessReport && readinessReport.blockers.length > 0 ? (
+                  <ReadinessPanel
+                    report={readinessReport}
+                    checking={checkingReadiness}
+                    onNavigate={onNavigate}
+                    onRecheck={() => void runReadinessCheck()}
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            <Composer
+              sessionId={sessionId}
+              value={shell.input}
+              onChange={shell.onInput}
+              onSend={sendWhenReady}
+              onStop={shell.onStop}
+              stopRequested={shell.ui.stopRequested === true}
+              busy={shell.busy}
+              modelLabel={modelLabel}
+              profile={null}
+              skills={shell.skills}
+              permission={permission}
+              sendError={shell.actionError}
+              blockedHint={blockedHint}
+              checkingHint={checkingHint}
+              fixture={fixture}
+              projectName={projectName}
+              projectPath={projectPath}
+            />
+          </div>
+
+          {/* 右栏：宽窗常驻，窄窗为抽屉（同一棵树，不重建）。
+              浏览器分区挂真实面板：宽窄切换只改 aside 的 class，面板与原生槽位节点
+              位置不变，因此不会被卸载/重建（挂载计数断言在 ContextPanel.test 里）。 */}
+          <ContextPanel
+            runId={shell.ui.runId ?? ""}
+            browserSlot={
+              <BrowserPanel
+                // 停止按钮只在“这一页确实有一轮在跑”时出现：别的会话的 run 不能
+                // 从这个页面被停掉（那也是“点了就停”的假动作）。
+                canStop={runBelongsToPage && shell.busy}
+                onStop={shell.onStop}
+              />
+            }
+            onLocateTurn={locateTurn}
+            open={panelOpen}
+            onToggle={() => setPanelOpen((v) => !v)}
+          />
+        </div>
+      </div>
+    </>
   );
 }

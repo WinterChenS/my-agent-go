@@ -140,6 +140,11 @@ describe("外壳版式（D1）", () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-shell-region="sidebar"]')).not.toBeNull();
     expect(container.querySelector('[data-shell-region="topbar"]')).not.toBeNull();
+    // D2c：顶栏里有一个给路由用的插槽容器；没路由占用时壳层自己的标题照旧。
+    const topbar = container.querySelector('[data-shell-region="topbar"]') as HTMLElement;
+    expect(topbar.querySelector("[data-topbar-slot]")).not.toBeNull();
+    expect(topbar.getAttribute("data-topbar-claimed")).toBe("false");
+    expect(topbar).toHaveTextContent(t("shell.workspaceRoot"));
     expect(container.querySelector('[data-shell-region="history"]')).not.toBeNull();
     expect(container.querySelector('[data-shell-region="footer"]')).not.toBeNull();
     expect(container.querySelector('[data-shell-region="page"]')).not.toBeNull();

@@ -16,6 +16,8 @@ import { t } from "../../i18n";
 import { initialState, reduce, type UiState } from "../../runState";
 import type { CallError, ProductEvent } from "../../types";
 import { ShellProvider, type ShellValue } from "../../app/shell";
+import { Layout } from "../../app/Layout";
+import { readContract } from "../../design/tokens.files.mjs";
 import { BrowserOcclusionProvider } from "../../app/BrowserOcclusionCoordinator";
 import { browserApi } from "../browser/api";
 import { browserStateFixture } from "../browser/testFixtures";
@@ -171,15 +173,29 @@ function shellValue(ui: UiState, overrides: Partial<ShellValue> = {}): ShellValu
 
 function renderPage(ui: UiState, overrides: Partial<ShellValue> = {}, browser?: FakeBrowserApprovals) {
   const value = shellValue(ui, overrides);
+  // D2c：页头由 ChatPage portal 进壳层顶栏的插槽，所以页面必须与壳层一起渲染。
+  // 单独渲染 ChatPage 量不到“整个路由只有一个 header”，那正是本任务的验收点。
   return render(
     <ShellProvider value={value}>
-      <ChatPage
+      <Layout
+        status={null}
+        current="chat"
         onNavigate={() => undefined}
-        route={routeFor("sess-1")}
-        browserApprovals={browser?.backend}
-        browserApprovalPollMs={browser?.pollMs ?? 0}
-        readiness={READINESS_BACKEND}
-      />
+        search={<input aria-label={t("search.title")} />}
+        history={<div data-shell-history-fixture="" />}
+        footer={<div data-shell-footer-fixture="" />}
+        right={<div data-shell-right-fixture="" />}
+        rightOpen={false}
+        onToggleRight={() => undefined}
+      >
+        <ChatPage
+          onNavigate={() => undefined}
+          route={routeFor("sess-1")}
+          browserApprovals={browser?.backend}
+          browserApprovalPollMs={browser?.pollMs ?? 0}
+          readiness={READINESS_BACKEND}
+        />
+      </Layout>
     </ShellProvider>
   );
 }
@@ -1043,15 +1059,18 @@ describe("ChatPage 骨架（D2b）", () => {
     });
   });
 
-  it("容器链：page → head → layout(rail=open) → thread-col → thread → thread-inner → composer", async () => {
+  it("容器链：页头在壳层顶栏插槽里 → layout(rail=open) → thread-col → thread → thread-inner → composer", async () => {
     renderPage(stateFrom([ev("message.delta", { text: "先跑一下测试" })]));
     await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
 
     const page = document.querySelector("[data-chat-page]") as HTMLElement;
     expect(page).not.toBeNull();
 
-    const head = page.querySelector("[data-chat-head]") as HTMLElement;
+    // D2c：页头不再是页面里的一条带子，而是壳层 52px 顶栏插槽里的内容。
+    const topbar = document.querySelector('[data-shell-region="topbar"]') as HTMLElement;
+    const head = topbar.querySelector("[data-chat-head]") as HTMLElement;
     const layout = page.querySelector("[data-chat-layout]") as HTMLElement;
+    expect(topbar.querySelector("[data-topbar-slot]")).not.toBeNull();
     expect(head).not.toBeNull();
     expect(layout).not.toBeNull();
     // 页头在布局之前（原型的 chat-head-main 在 .chat-layout 之上）。
@@ -1285,5 +1304,71 @@ describe("ChatPage 骨架（D2b）", () => {
     // 遮罩是一层覆盖层，不接管控制权：点它等于收起
     await user.click(document.querySelector("[data-rail-scrim]") as HTMLElement);
     await waitFor(() => expect(rail.getAttribute("data-open")).toBe("false"));
+  });
+});
+
+// ---------------------------------------------------------------- 页头在壳层顶栏里（D2c）
+//
+// 缺陷：原型 chat.html 只有一个 52px 的页头（`.topbar` 里的 chat-head-main +
+// chat-head-actions）；我们却在页面里又画了一条 `.achat-head`，于是整页比原型低
+// 52px、看起来是两个头叠着（chat-diff 实测 thread.top=104，原型 52）。
+//
+// 这一组守两件事，且都是"删掉第二带之后才成立的"：
+//   1. chat 路由的文档里只有一个 <header>，它就是壳层顶栏，页头内容在它里面；
+//   2. 旧的页头带类名与页内 <header> 都不再存在（页头是搬走了，不是复制了）。
+// 像素（顶栏 52、thread.top 52）由 `chat-diff.mjs` 在构建产物上实测并出
+// `chat-head-diff.json`；jsdom 不算布局，所以这里只认令牌与结构。
+describe("对话页页头（D2c）", () => {
+  it("chat 路由只有一个 header：就是壳层 52px 顶栏，页头内容在它里面", async () => {
+    renderPage(stateFrom([ev("message.delta", { text: "先跑一下测试" })]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    const headers = document.querySelectorAll("header");
+    expect(headers).toHaveLength(1);
+
+    const header = headers[0] as HTMLElement;
+    // 就是壳层顶栏本身，不是页面里另画的一条。
+    expect(header).toBe(document.querySelector('[data-shell-region="topbar"]'));
+    expect(header.className).toContain("anvil-shell-topbar");
+    // 占用标记：壳层已让出自己的 crumb/搜索/状态区（一条带子只装一套页头）。
+    expect(header.getAttribute("data-topbar-claimed")).toBe("true");
+
+    const head = header.querySelector("[data-chat-head]") as HTMLElement;
+    expect(head).not.toBeNull();
+    expect(head.querySelector("[data-session-title]")?.textContent).toBe("验收会话");
+    // 页头没有被简化：语言选择、导出、右栏开关、更多都还在这个头里。
+    expect(head.querySelector(`select[aria-label="${t("locale.label")}"]`)).not.toBeNull();
+    expect(within(head).getByRole("button", { name: t("chat.head.more") })).toBeInTheDocument();
+    expect(within(head).getByRole("button", { name: t("chat.context.closePanel") })).toBeInTheDocument();
+
+    // 页面里没有第二个头：布局直接跟着顶栏（几何由 chat-head-diff.json 量）。
+    expect(document.querySelector("[data-chat-page] header")).toBeNull();
+
+    // 52px 的判据在源码层：顶栏高度消费令牌，令牌就是原型值。
+    const { indexCss } = readContract();
+    expect(indexCss).toContain("--anvil-topbar-h: 52px;");
+    expect(indexCss).toContain("height: var(--anvil-topbar-h);");
+    // 占用标记同时挂在壳层上：它驱动“第一行钉在 52px”的网格行定义
+    // （否则 auto 行会平分剩余空间，页面就不紧贴顶栏）。
+    expect(document.querySelector(".anvil-shell")?.getAttribute("data-topbar-claimed")).toBe("true");
+  });
+
+  it("旧的页头带不再存在：.achat-head 与页内 header 都没了，页头钩子只出现一次", async () => {
+    renderPage(stateFrom([]));
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+
+    // 旧的 52px 带子（min-height:52px + border-bottom）已删除。
+    expect(document.querySelector(".achat-head")).toBeNull();
+    // 页头是搬进顶栏，不是复制：钩子只有一个。
+    expect(document.querySelectorAll("[data-chat-head]")).toHaveLength(1);
+    expect(
+      document.querySelector('[data-shell-region="topbar"] [data-chat-head]')
+    ).not.toBeNull();
+    // 页面区域里也没有任何 header（空态/加载/错误态同样不画页内页头）。
+    expect(document.querySelectorAll("[data-shell-region='page'] header")).toHaveLength(0);
+
+    // 提示条（重命名/导出结果/错误）仍在页面里：它本来就不是页头，也不再叫 head。
+    expect(document.querySelector(".achat-notice")).toBeNull(); // 没有动作时不该出现
+    expect(document.querySelector("[data-chat-head-notice]")).toBeNull();
   });
 });

@@ -38,16 +38,18 @@
   flex: 1;
 }
 
-/* 页头（原型在 .topbar 里：chat-head-main + chat-head-actions） */
-.achat-head {
-  flex: none;
+/* 页头（原型在 .topbar 里：chat-head-main + chat-head-actions）。
+
+   D2c：页头本体由 ChatPage 用 portal 渲进壳层顶栏的插槽
+   （`.anvil-topbar-slot` → `[data-chat-head]`），所以这里**没有**高度/边框/背景：
+   那 52px 和那条分隔线属于 `.anvil-shell-topbar`（一条带子，不是两条）。
+   `.achat-head` 这个带子类名已删除，测试会断言它不再出现。 */
+.achat-topbar-head {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 6px 20px;
-  border-bottom: 1px solid var(--anvil-border);
-  background: var(--anvil-background);
+  min-width: 0;
 }
 .achat-head-main {
   min-width: 0;
@@ -102,8 +104,9 @@
   flex: none;
 }
 
-/* 页头动作里要出错信息时：横幅跨整行，不挤进 52px 的动作行 */
-.achat-head-notice {
+/* 页头动作里要出错信息时：横幅跨整行，不挤进 52px 的动作行。
+   页头搬进壳层顶栏后，这里是页面里的第一条（在 .achat-layout 之上）。 */
+.achat-notice {
   flex: none;
   display: flex;
   flex-direction: column;
@@ -1475,9 +1478,6 @@ button.achat-badge:hover {
 }
 
 @media (max-width: 620px) {
-  .achat-head {
-    padding: 6px 12px;
-  }
   .achat-thread-inner,
   .achat-composer-wrap {
     padding-left: 16px;

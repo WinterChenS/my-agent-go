@@ -9,8 +9,12 @@
 // 历史 → 主内容"，视口里的左右位置由 grid-template-areas 决定，两者可以分开。
 //
 // 本组件只渲染壳，不判断业务状态：搜索、历史、页脚都从上层传入。
+//
+// 顶栏是"一条 52px 的带子"（D2c）：路由需要自己的页头（对话页的标题/副行/动作）时，
+// 用 `useTopbarSlot()` 把内容 portal 进 `[data-topbar-slot]` 并 claim 占用，壳层随即
+// 让出自己的 crumb / 搜索 / 状态区；没路由占用时保持原样（外壳自己的标题）。
 
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   Bot,
@@ -29,6 +33,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { navGroups, type RouteId } from "./navigation";
+import { TopbarSlotProvider, type TopbarSlot } from "./topbarSlot";
 import type { Status } from "../types";
 import { t } from "../i18n";
 
@@ -88,6 +93,19 @@ export function Layout({
   const [toolsOpen, setToolsOpen] = useState(true);
   const mainRef = useRef<HTMLElement | null>(null);
 
+  // 顶栏插槽（D2c）：路由可以把自己的页头渲进这条 52px 的带子里，而不是在页面里
+  // 再画一条。占用期间壳层让出自己的 crumb / 搜索 / 状态区——一个头里不能装两套内容。
+  const [topbarElement, setTopbarElement] = useState<HTMLDivElement | null>(null);
+  const [topbarClaimedBy, setTopbarClaimedBy] = useState<object | null>(null);
+  const claimTopbar = useCallback((token: object, claimed: boolean) => {
+    setTopbarClaimedBy((current) => (claimed ? token : current === token ? null : current));
+  }, []);
+  const topbarSlot = useMemo<TopbarSlot>(
+    () => ({ element: topbarElement, claim: claimTopbar }),
+    [topbarElement, claimTopbar]
+  );
+  const topbarClaimed = topbarClaimedBy !== null;
+
   const renderNavItem = (item: { id: RouteId; path: string; labelKey: string; hintKey: string }) => {
     const active = item.id === current;
     const Icon = NAV_ICONS[item.id] ?? Layers;
@@ -110,51 +128,78 @@ export function Layout({
   const currentLabel = groups.flatMap((g) => g.items).find((i) => i.id === current);
   const pageTitle = currentLabel ? t(currentLabel.labelKey) : t("app.name");
 
+  /**
+   * 右栏开关。对话页占用顶栏后仍然要能关掉已经打开的详情栏——
+   * 那是壳层唯一能收起它的控件，藏起来等于让人关不掉。
+   */
+  const detailToggle = (
+    <button
+      type="button"
+      onClick={onToggleRight}
+      className="anvil-iconbtn"
+      aria-pressed={rightOpen}
+      aria-label={rightOpen ? t("shell.hideDetails") : t("shell.showDetails")}
+      title={rightOpen ? t("shell.hideDetails") : t("shell.showDetails")}
+    >
+      {rightOpen ? (
+        <PanelRightClose className="h-4 w-4" aria-hidden />
+      ) : (
+        <PanelRightOpen className="h-4 w-4" aria-hidden />
+      )}
+    </button>
+  );
+
   return (
-    <div className="anvil-shell" data-detail={rightOpen ? "open" : "closed"} data-shell-region="shell">
-      <header className="anvil-shell-topbar" role="banner" data-shell-region="topbar">
-        <div className="anvil-topbar-crumb">
-          <span>{t("shell.workspaceRoot")}</span>
-          <span className="sep" aria-hidden>
-            /
-          </span>
-          <strong>{pageTitle}</strong>
-        </div>
+    <div
+      className="anvil-shell"
+      data-detail={rightOpen ? "open" : "closed"}
+      data-shell-region="shell"
+      data-topbar-claimed={topbarClaimed ? "true" : "false"}
+    >
+      <header
+        className="anvil-shell-topbar"
+        role="banner"
+        data-shell-region="topbar"
+        data-topbar-claimed={topbarClaimed ? "true" : "false"}
+      >
+        {topbarClaimed ? null : (
+          <>
+            <div className="anvil-topbar-crumb">
+              <span>{t("shell.workspaceRoot")}</span>
+              <span className="sep" aria-hidden>
+                /
+              </span>
+              <strong>{pageTitle}</strong>
+            </div>
 
-        <div className="anvil-topbar-search">{search}</div>
+            <div className="anvil-topbar-search">{search}</div>
 
-        <div className="anvil-topbar-spacer" />
+            <div className="anvil-topbar-spacer" />
 
-        <div className="flex shrink-0 items-center gap-3 text-[11px] text-[color:var(--anvil-muted)]">
-          {phaseLabel && (
-            <span className="flex items-center gap-1.5" aria-live="polite">
-              <span className={`h-1.5 w-1.5 rounded-full ${phaseLabel.tone}`} aria-hidden />
-              {phaseLabel.label}
-            </span>
-          )}
-          {/* 只有在真的读到后端事实时才显示；读不到就什么都不显示——
-              顶栏排三个"未知"既不提供信息，也和原型的顶栏不一样。 */}
-          {status?.platform ? <span className="hidden truncate lg:inline">{status.platform}</span> : null}
-          {status?.provider || status?.model ? (
-            <span className="hidden truncate xl:inline">
-              {status.provider ?? t("common.unknown")} / {status.model ?? t("common.unknown")}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={onToggleRight}
-            className="anvil-iconbtn"
-            aria-pressed={rightOpen}
-            aria-label={rightOpen ? t("shell.hideDetails") : t("shell.showDetails")}
-            title={rightOpen ? t("shell.hideDetails") : t("shell.showDetails")}
-          >
-            {rightOpen ? (
-              <PanelRightClose className="h-4 w-4" aria-hidden />
-            ) : (
-              <PanelRightOpen className="h-4 w-4" aria-hidden />
-            )}
-          </button>
-        </div>
+            <div className="flex shrink-0 items-center gap-3 text-[11px] text-[color:var(--anvil-muted)]">
+              {phaseLabel && (
+                <span className="flex items-center gap-1.5" aria-live="polite">
+                  <span className={`h-1.5 w-1.5 rounded-full ${phaseLabel.tone}`} aria-hidden />
+                  {phaseLabel.label}
+                </span>
+              )}
+              {/* 只有在真的读到后端事实时才显示；读不到就什么都不显示——
+                  顶栏排三个"未知"既不提供信息，也和原型的顶栏不一样。 */}
+              {status?.platform ? <span className="hidden truncate lg:inline">{status.platform}</span> : null}
+              {status?.provider || status?.model ? (
+                <span className="hidden truncate xl:inline">
+                  {status.provider ?? t("common.unknown")} / {status.model ?? t("common.unknown")}
+                </span>
+              ) : null}
+              {detailToggle}
+            </div>
+          </>
+        )}
+
+        <div className="anvil-topbar-slot" data-topbar-slot="" ref={setTopbarElement} />
+
+        {/* 占领期间的详情栏开关：见 detailToggle 的注释。 */}
+        {topbarClaimed && rightOpen ? detailToggle : null}
       </header>
 
       <aside className="anvil-sidebar" aria-label={t("nav.primaryLabel")} data-shell-region="sidebar">
@@ -221,7 +266,8 @@ export function Layout({
       </aside>
 
       <main ref={mainRef} className="anvil-page" aria-label={pageTitle} data-shell-region="page">
-        {children}
+        {/* 路由在页面里取顶栏插槽（D2c）：插槽节点本身在顶栏里，Provider 只包页面。 */}
+        <TopbarSlotProvider value={topbarSlot}>{children}</TopbarSlotProvider>
       </main>
 
       {rightOpen && (

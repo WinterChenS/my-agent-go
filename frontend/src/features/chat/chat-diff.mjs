@@ -41,6 +41,11 @@ const APP_ORIGIN = process.env.CHAT_DIFF_APP_ORIGIN || "http://127.0.0.1:4190";
 const DEBUG = process.argv.includes("--debug");
 const outArg = process.argv.find((a) => a.startsWith("--out="));
 const OUT = outArg ? resolve(outArg.slice("--out=".length)) : join(REPO, ".tmp", "d2b-evidence");
+// D2c：给出"改前"那次实测的目录时，额外写 chat-head-diff.json（改前/改后/原型 的 .thread top）。
+const headDiffArg = process.argv.find((a) => a.startsWith("--head-diff-before="));
+const headDiffBefore = headDiffArg
+  ? resolve(headDiffArg.slice("--head-diff-before=".length))
+  : null;
 
 // 浏览器位置：优先环境变量，其次工程内的 .tools/pw-browsers（与 D1 的证据脚本同一约定）。
 // 用 executablePath 显式指定而不是只设环境变量：ESM 的 import 在模块体之前求值，
@@ -443,6 +448,14 @@ const MEASURE = `(spec) => {
 
   const threadS = style(spec.thread);
   out.threadPaddingTop = threadS ? px(threadS.paddingTop) : null;
+
+  // D2c：页头只允许有一条 52px 的带子。量线程的顶边（= 顶栏总高），以及
+  // 文档里有几个 <header>、几个页头钩子。原型里这里是 52：.topbar 之后就是 .thread。
+  out.threadTop = el(spec.thread) ? round(el(spec.thread).getBoundingClientRect().top) : null;
+  out.topbarHeight = el(spec.topbar) ? round(el(spec.topbar).getBoundingClientRect().height) : null;
+  out.headerCount = document.querySelectorAll("header").length;
+  out.headerClasses = Array.from(document.querySelectorAll("header")).map((h) => h.className);
+  out.headHookCount = spec.head ? document.querySelectorAll(spec.head).length : null;
   out.threadPaddingBottom = threadS ? px(threadS.paddingBottom) : null;
   out.threadPaddingLeft = threadS ? px(threadS.paddingLeft) : null;
 
@@ -498,6 +511,8 @@ async function measure(page, spec) {
 }
 
 const APP_SPEC = {
+  topbar: '[data-shell-region="topbar"]',
+  head: "[data-chat-head]",
   layout: "[data-chat-layout]",
   thread: "[data-chat-thread]",
   threadInner: "[data-thread-inner]",
@@ -510,6 +525,8 @@ const APP_SPEC = {
 };
 
 const PROTO_SPEC = {
+  topbar: ".topbar",
+  head: ".chat-head-main",
   layout: ".chat-layout",
   thread: ".thread",
   threadInner: ".thread-inner",
@@ -523,6 +540,8 @@ const PROTO_SPEC = {
 
 /** 逐项对比：原型是基准，app 是实测。 */
 const REGIONS = [
+  "threadTop",
+  "topbarHeight",
   "threadInnerMaxWidth",
   "threadInnerPaddingLeft",
   "threadInnerPaddingRight",
@@ -542,6 +561,31 @@ const REGIONS = [
   "bubblePaddingLeft",
   "bubbleFontSize",
 ];
+
+/**
+ * 结构判据（D2c）：chat 路由只允许有一个 header，它就是这个顶栏；页头钩子只出现一次，
+ * 而且线程紧贴在顶栏下面（threadTop == topbarHeight）。这三项与像素无关，所以不放进
+ * REGIONS（那是原型 vs app 的数字对比），单独判并让脚本同样非零退出。
+ */
+function checkStructure(app) {
+  const sameTop =
+    typeof app.threadTop === "number" &&
+    typeof app.topbarHeight === "number" &&
+    Math.abs(app.threadTop - app.topbarHeight) <= TOLERANCE_PX;
+  return {
+    headerCount: app.headerCount,
+    headerClasses: app.headerClasses,
+    headHookCount: app.headHookCount,
+    threadTop: app.threadTop,
+    topbarHeight: app.topbarHeight,
+    checks: {
+      oneHeader: app.headerCount === 1,
+      oneHeadHook: app.headHookCount === 1,
+      threadRightBelowTopbar: sameTop,
+    },
+    pass: app.headerCount === 1 && app.headHookCount === 1 && sameTop,
+  };
+}
 
 function compare(proto, app) {
   const rows = [];
@@ -703,6 +747,7 @@ ${text.slice(0, 1200)}`);
       },
       app: { railState, ...appValues },
       prototype: protoValues,
+      structure: checkStructure(appValues),
       regions: compare(protoValues, appValues),
     });
 
@@ -714,9 +759,14 @@ ${text.slice(0, 1200)}`);
   protoServer.close();
 
   report.unhandledMethods = Array.from(unhandled);
-  const failed = report.rows.flatMap((row) =>
-    row.regions.filter((r) => !r.pass).map((r) => `${row.viewport.width}x${row.viewport.height} ${r.region}`)
-  );
+  const failed = report.rows.flatMap((row) => [
+    ...row.regions
+      .filter((r) => !r.pass)
+      .map((r) => `${row.viewport.width}x${row.viewport.height} ${r.region}`),
+    ...Object.entries(row.structure.checks)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => `${row.viewport.width}x${row.viewport.height} structure:${name}`),
+  ]);
   report.failedRegions = failed;
 
   writeFileSync(join(OUT, "chat-diff.json"), JSON.stringify(report, null, 2) + "\n");
@@ -727,12 +777,90 @@ ${text.slice(0, 1200)}`);
       `[chat-diff] ${row.viewport.width}x${row.viewport.height}: ${row.regions.length - bad.length}/${row.regions.length} 项在 ${TOLERANCE_PX}px 内`
     );
     for (const r of bad) console.log(`  Δ ${r.region}: 原型 ${r.prototype} / app ${r.app}（${r.delta}）`);
+    const s = row.structure;
+    console.log(
+      `[chat-diff] 结构: header=${s.headerCount}（${s.headerClasses.map((c) => c || "(无类名)").join(" + ")}） head 钩子=${s.headHookCount} thread.top=${s.threadTop} 顶栏=${s.topbarHeight} → ${s.pass ? "PASS" : "FAIL"}`
+    );
   }
+
+  // D2c：与"改前"那一次实测（另一个 --out 目录）合成本任务的专门证据。
+  if (headDiffBefore) {
+    writeHeadDiff(report, headDiffBefore);
+  }
+
   if (report.unhandledMethods.length) {
     console.log(`[chat-diff] 未登记的绑定方法（fixture 缺口）：${report.unhandledMethods.join(", ")}`);
   }
   console.log(`[chat-diff] 证据写在 ${OUT}`);
   process.exit(failed.length === 0 ? 0 : 1);
+}
+
+/**
+ * `chat-head-diff.json`（D2c 证据）：同一视口下，改前 / 改后 / 原型的 thread.top。
+ *
+ * 为什么要求一个 --head-diff-before 目录：
+ * "改前"的数字必须是真跑出来的（当时的 build + 当时的组件），不能手写；
+ * 这里只负责把两次实测摆到一起算差，而不是让报告里出现推演数字。
+ */
+function writeHeadDiff(after, beforeDir) {
+  const beforePath = join(beforeDir, "chat-diff.json");
+  if (!existsSync(beforePath)) {
+    console.error(`[chat-diff] --head-diff-before 目录里没有 chat-diff.json：${beforePath}`);
+    process.exitCode = 2;
+    return;
+  }
+  const before = JSON.parse(readFileSync(beforePath, "utf8"));
+  const pick = (row) => ({
+    threadTop: row.app.threadTop,
+    topbarHeight: row.app.topbarHeight,
+    headerCount: row.app.headerCount,
+    headHookCount: row.app.headHookCount,
+  });
+  const viewports = after.rows.map((row) => {
+    const tag = `${row.viewport.width}x${row.viewport.height}`;
+    const pre = before.rows.find((r) => `${r.viewport.width}x${r.viewport.height}` === tag);
+    const preValues = pre ? pick(pre) : null;
+    const postValues = pick(row);
+    return {
+      viewport: row.viewport,
+      before: preValues,
+      after: postValues,
+      prototype: { threadTop: row.prototype.threadTop, topbarHeight: row.prototype.topbarHeight },
+      delta: {
+        threadTopBeforeMinusPrototype:
+          preValues && row.prototype.threadTop !== null
+            ? Math.round((preValues.threadTop - row.prototype.threadTop) * 10) / 10
+            : null,
+        threadTopAfterMinusPrototype:
+          postValues.threadTop !== null && row.prototype.threadTop !== null
+            ? Math.round((postValues.threadTop - row.prototype.threadTop) * 10) / 10
+            : null,
+      },
+      pass:
+        preValues !== null &&
+        postValues.headerCount === 1 &&
+        postValues.headHookCount === 1 &&
+        row.prototype.threadTop !== null &&
+        Math.abs(postValues.threadTop - row.prototype.threadTop) <= TOLERANCE_PX,
+    };
+  });
+  const out = {
+    task: "D2c",
+    kind: "chat-head-diff",
+    generatedAt: new Date().toISOString(),
+    question: "对话页的页头是不是就长在壳层 52px 顶栏里：.thread 的 top 是否等于原型渲染值 52，文档里是否只剩一个 header",
+    beforeRun: { dir: beforeDir, generatedAt: before.generatedAt },
+    afterRun: { dir: OUT, generatedAt: after.generatedAt },
+    tolerance: { px: TOLERANCE_PX },
+    viewports,
+    pass: viewports.every((v) => v.pass),
+  };
+  writeFileSync(join(OUT, "chat-head-diff.json"), JSON.stringify(out, null, 2) + "\n");
+  console.log(
+    `[chat-head-diff] ${out.pass ? "PASS" : "FAIL"}：${viewports
+      .map((v) => `${v.viewport.width}x${v.viewport.height} thread.top ${v.before?.threadTop} → ${v.after.threadTop}（原型 ${v.prototype.threadTop}）`)
+      .join("；")}`
+  );
 }
 
 main().catch((e) => {
