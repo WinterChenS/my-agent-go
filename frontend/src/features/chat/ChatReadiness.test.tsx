@@ -402,6 +402,32 @@ describe("对话页发送前提", () => {
     await waitFor(() => expect(harness.discoverPi.mock.calls.length).toBeGreaterThan(before));
   });
 
+  it("内置 fixture + 活着的端点：不阻塞发送，只打徽标（脚本化回放）", async () => {
+    // 这条守住"一键演示"路径：run-fixture.bat 会把 baseUrl 指向一个真实监听的
+    // 本地 fixture 端点。它当然不是真模型，所以徽标必须显示；但把它也当阻塞项，
+    // 就等于自己把整条链路演示挡死（2026-11-08 实测）。
+    const harness = readinessBackend(READY_DISCOVERY);
+    const liveSettings: Settings = { ...FIXTURE_SETTINGS, baseUrl: "http://127.0.0.1:64648/v1" };
+    const onSendToSession = vi.fn();
+    const user = userEvent.setup();
+    renderPage(
+      shellValue({
+        settings: liveSettings,
+        currentModel: { ...FIXTURE_MODEL, source: "settings" },
+        input: "hi",
+        onSendToSession,
+      }),
+      harness.readiness
+    );
+
+    await waitFor(() => expect(document.querySelector("[data-fixture-badge]")).not.toBeNull());
+    expect(document.querySelector("[data-readiness-panel]")).toBeNull();
+    const input = screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: t("chat.composer.send") }));
+    await waitFor(() => expect(onSendToSession).toHaveBeenCalled());
+  });
+
   it("内置 fixture 显示徽标；换成真 provider 后消失", async () => {
     const harness = readinessBackend(READY_DISCOVERY);
     const fixtureShell = shellValue({ settings: FIXTURE_SETTINGS, currentModel: FIXTURE_MODEL, input: "hi" });

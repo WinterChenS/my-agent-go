@@ -192,7 +192,11 @@ function evaluateModel(input: ReadinessInput): ReadinessBlocker | null {
   if (!model || model.source === "none" || (provider === "" && modelId === "")) {
     return blocker("model", "MODEL_MISSING", {}, "model");
   }
-  if (fixtureSignal(model, input.settings)) {
+  // 内置 fixture：**端点还活着就允许发送**，只打徽标（脚本化回放）。
+  // 只有端点本身是占位（:0 之类，客户端永远连不上）才阻塞——否则"用本地
+  // fixture 验证整条链路"这条路径会被自己的阻塞面板挡死（2026-11-08 实测：
+  // run-fixture.bat 起的一键演示因此发不出消息）。
+  if (fixtureSignal(model, input.settings) && isPlaceholderEndpoint(input.settings?.baseUrl ?? "")) {
     return blocker("model", "MODEL_FIXTURE", { provider, model: modelId }, "model");
   }
   // 旧字段兜底路径（settings）才会用到 baseUrl；资源库里的端点由模型定义给出。
