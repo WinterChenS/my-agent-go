@@ -336,7 +336,70 @@
       "rejectedReason": "{code}: {message}",
       "noAttachments": "No attachments yet",
       "skillPick": "Pick a managed Skill to attach",
-      "resolveFailed": "Attachment resolution failed: {code}"
+      "resolveFailed": "Attachment resolution failed: {code}",
+      "blocked": "Sending is disabled: the requirements listed above are not all satisfied yet.",
+      "checkingReadiness": "Checking send requirements (Pi / workspace / model)…",
+      "fixtureBadge": "fixture",
+      "fixtureHint": "Built-in fixture: replies are replayed from a script, not produced by a real model."
+    },
+    "readiness": {
+      "title": "Cannot send yet: {count} requirement(s) unsatisfied",
+      "hint": "Everything listed below is backend fact. This block re-checks automatically after you change something, and disappears once all of it is satisfied.",
+      "jump": "Open {section}",
+      "recheck": "Check again",
+      "checking": "Checking…",
+      "section": {
+        "pi": "Settings · Pi runtime",
+        "permissions": "Settings · Permissions (workspace)",
+        "model": "Settings · Model"
+      },
+      "codes": {
+        "PI_MISSING": {
+          "title": "No usable Pi",
+          "detail": "No Pi was found: no selected path, and none on PATH or in the common locations.",
+          "next": "Install a version from the trusted manifest in Settings · Pi, or put Pi on PATH and discover again, then confirm with Select."
+        },
+        "PI_TOO_OLD": {
+          "title": "Pi is below the minimum supported version",
+          "detail": "Current {version}, minimum required {minimum}.",
+          "next": "Upgrade to {minimum} or newer in Settings · Pi; an older version cannot be used to send."
+        },
+        "PI_UNUSABLE": {
+          "title": "The Pi candidate is not usable",
+          "detail": "Current candidate {version} ({state}): {path}",
+          "next": "Pick a usable candidate and press Select, or upgrade first; an unusable candidate is never adopted silently."
+        },
+        "PI_UNKNOWN": {
+          "title": "Cannot confirm whether Pi is usable",
+          "detail": "Discovery failed: {code}. Nothing is allowed through without a probe result.",
+          "next": "Press Check again; if it keeps failing, open Settings · Pi to inspect the candidates and diagnostics."
+        },
+        "WORKSPACE_MISSING": {
+          "title": "No workspace registered",
+          "detail": "There is no usable workspace right now.",
+          "next": "Add a workspace in Settings · Permissions and trust it explicitly."
+        },
+        "WORKSPACE_UNTRUSTED": {
+          "title": "The workspace is not trusted",
+          "detail": "Workspace {path} is not trusted.",
+          "next": "Trust it in Settings · Permissions: no command may run in an untrusted workspace."
+        },
+        "MODEL_MISSING": {
+          "title": "No usable model",
+          "detail": "No model is selected from the library, and the legacy provider / model fields are empty.",
+          "next": "Define a model in Settings · Model and make it current."
+        },
+        "MODEL_FIXTURE": {
+          "title": "The built-in fixture is active (scripted replay)",
+          "detail": "provider {provider} / model {model}: replies are replayed from a script, not produced by a real model.",
+          "next": "Pick a model from a real provider in Settings · Model; use the fixture only to self-check the pipeline."
+        },
+        "MODEL_ENDPOINT": {
+          "title": "The model endpoint is a placeholder",
+          "detail": "Endpoint {baseUrl} uses port 0: a client can never connect to it.",
+          "next": "Enter a real endpoint in Settings · Model, or pick a library model that already has one."
+        }
+      }
     },
     "context": {
       "title": "Context",
@@ -801,6 +864,7 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Runtime settings, the Pi runtime and application updates are managed here.",
+    "jumpNotice": "Jumped to {section}: the requirements listed in chat are completed here.",
     "general": {
       "title": "General",
       "hint": "Language and theme only affect the interface; they never interrupt a running session.",
@@ -871,6 +935,9 @@
       "hash": "Hash",
       "select": "Select",
       "selected": "Selected",
+      "confirmHint": "Candidates were detected but none is selected yet: pressing Select is the confirmation. The host never picks an external binary for you.",
+      "recommended": "Recommended",
+      "recommendedHint": "The most usable candidate according to the backend; you still have to press Select.",
       "installTitle": "Install and upgrade",
       "installHint": "Only versions in the trusted manifest shipped with this binary are downloaded; the UI never supplies a URL or hash.",
       "installVersion": "Version",

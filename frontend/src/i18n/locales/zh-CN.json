@@ -336,7 +336,70 @@
       "rejectedReason": "{code}：{message}",
       "noAttachments": "还没有附件",
       "skillPick": "选择一个已托管的 Skill 作为附件",
-      "resolveFailed": "附件解析失败：{code}"
+      "resolveFailed": "附件解析失败：{code}",
+      "blocked": "发送已禁用：上面列出的前提还没全部满足。",
+      "checkingReadiness": "正在检查发送前提（Pi / 工作区 / 模型）…",
+      "fixtureBadge": "fixture",
+      "fixtureHint": "内置 fixture：回复按脚本回放，不是真实模型。"
+    },
+    "readiness": {
+      "title": "还不能发送：{count} 项前提未满足",
+      "hint": "下面是这次发送缺的东西，全部来自后端事实。改完会自动重新检查，全部满足后这块会消失。",
+      "jump": "去{section}",
+      "recheck": "重新检查",
+      "checking": "正在检查…",
+      "section": {
+        "pi": "设置 · Pi 运行时",
+        "permissions": "设置 · 权限（工作区）",
+        "model": "设置 · 模型"
+      },
+      "codes": {
+        "PI_MISSING": {
+          "title": "没有可用的 Pi",
+          "detail": "没有发现任何 Pi：既没有选定路径，PATH 与常见位置里也没有。",
+          "next": "在设置 · Pi 里安装受信清单里的版本，或把 Pi 放到 PATH 后重新探测，再点「选用」确认。"
+        },
+        "PI_TOO_OLD": {
+          "title": "Pi 版本低于最低支持版本",
+          "detail": "当前 {version}，最低需要 {minimum}。",
+          "next": "在设置 · Pi 里升级到 {minimum} 或更新的版本；旧版本不能用来发送。"
+        },
+        "PI_UNUSABLE": {
+          "title": "Pi 候选不可用",
+          "detail": "当前候选 {version}（{state}）：{path}",
+          "next": "换一个可用的候选再点「选用」，或先升级；不可用的候选不会被静默采用。"
+        },
+        "PI_UNKNOWN": {
+          "title": "无法确认 Pi 是否可用",
+          "detail": "探测失败：{code}。没有探测结论时不放行。",
+          "next": "点「重新检查」重试；仍然失败就去设置 · Pi 看候选与诊断。"
+        },
+        "WORKSPACE_MISSING": {
+          "title": "没有登记工作区",
+          "detail": "当前没有可用的工作区。",
+          "next": "在设置 · 权限里添加一个工作区，并进行一次显式信任。"
+        },
+        "WORKSPACE_UNTRUSTED": {
+          "title": "工作区尚未信任",
+          "detail": "工作区 {path} 尚未信任。",
+          "next": "在设置 · 权限里信任它：未信任的工作区不允许执行任何命令。"
+        },
+        "MODEL_MISSING": {
+          "title": "没有可用的模型",
+          "detail": "既没有从资源库选模型，旧字段里的 provider / model 也是空的。",
+          "next": "在设置 · 模型里定义模型并设为当前。"
+        },
+        "MODEL_FIXTURE": {
+          "title": "当前是内置 fixture（脚本化回放）",
+          "detail": "provider {provider} / 模型 {model}：回复按脚本回放，不是真实模型。",
+          "next": "在设置 · 模型里选一个真实 provider 的模型设为当前；只有在自检链路时才用 fixture。"
+        },
+        "MODEL_ENDPOINT": {
+          "title": "模型端点是占位地址",
+          "detail": "端点 {baseUrl} 的端口是 0：客户端永远连不上。",
+          "next": "在设置 · 模型里写一个真实端点，或从资源库选一个已定义端点的模型。"
+        }
+      }
     },
     "context": {
       "title": "上下文",
@@ -801,6 +864,7 @@
   "settings": {
     "title": "设置",
     "subtitle": "运行参数、Pi 运行时与应用更新都以此处为准。",
+    "jumpNotice": "已定位到{section}：对话页列出的前提需要在这里完成。",
     "general": {
       "title": "通用",
       "hint": "语言与主题只影响界面显示，不中断正在进行的运行。",
@@ -871,6 +935,9 @@
       "hash": "指纹",
       "select": "选用",
       "selected": "已选用",
+      "confirmHint": "探测到候选但还没有选用：点「选用」才会确认，宿主不会替你选外部二进制。",
+      "recommended": "推荐",
+      "recommendedHint": "后端算出的最可用候选；仍需你点「选用」确认。",
       "installTitle": "安装与升级",
       "installHint": "只会下载随二进制下发的受信清单里的版本；地址与哈希不由界面提供。",
       "installVersion": "版本",

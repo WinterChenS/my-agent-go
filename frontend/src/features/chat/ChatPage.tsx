@@ -26,8 +26,12 @@ import type { ClarificationItem, UiApproval } from "../../runState";
 import type { ApprovalChoice } from "../../types";
 import { useShell } from "../../app/shell";
 import type { PageProps } from "../../app/navigation";
+import { toCallError } from "../../app/useBackend";
 import { historyApi, type HistorySession } from "../history/api";
+import { settingsApi, type PiDiscoveryResult } from "../settings/api";
 import { Composer, type PermissionSummary } from "./Composer";
+import { ReadinessPanel } from "./ReadinessPanel";
+import { evaluateReadiness, fixtureSignal, type ReadinessReport } from "./readiness";
 import { BrowserPanel } from "../browser/BrowserPanel";
 import { ContextPanel, ContextPanelToggle, useNarrowLayout } from "./ContextPanel";
 import { MessageList } from "./MessageList";
@@ -98,13 +102,36 @@ export interface ChatPageProps extends PageProps {
   browserApprovals?: BrowserApprovalBackend;
   /** 浏览器审批的轮询间隔（毫秒）；<=0 关闭轮询（测试手动驱动）。 */
   browserApprovalPollMs?: number;
+  /**
+   * 发送前提的探测通道（UX1）：产品里用 DiscoverPi；测试注入替身。
+   *
+   * 与浏览器审批同一个理由：探一次 Pi 是跨进程动作，测试不该依赖 Wails runtime。
+   */
+  readiness?: ReadinessBackend;
 }
+
+/** 发送前提检查需要的一个只读能力（只探测，不改变任何设置）。 */
+export interface ReadinessBackend {
+  /**
+   * 只读探测：返回后端候选（不改设置、不改 PATH）。
+   *
+   * 写成方法签名而不是箭头函数类型：`() => Promise<X>` 里的 `>Promise<`
+   * 会被 UI 文案扫描器当成一段 JSX 文本。
+   */
+  discoverPi(): Promise<PiDiscoveryResult | null>;
+}
+
+/** 产品里用的真实探测：DiscoverPi 只读，不改 PATH、不写设置。 */
+const defaultReadinessBackend: ReadinessBackend = {
+  discoverPi: () => settingsApi.discoverPi(),
+};
 
 export function ChatPage({
   onNavigate,
   route,
   browserApprovals,
   browserApprovalPollMs,
+  readiness,
 }: ChatPageProps) {
   const shell = useShell();
   const sessionId = route?.params.id ?? "";
@@ -148,6 +175,44 @@ export function ChatPage({
     enabled: runBelongsToPage,
     pollIntervalMs: browserApprovalPollMs,
   });
+
+  /**
+   * 发送前提（UX1）：挂载时与每次发送前各检查一次。
+   *
+   * 为什么要重新探测而不是只信挂载时那份快照：Pi 被删、工作区被撤销信任、
+   * 模型被换掉都发生在页面还开着的时候；拿旧结论放行，用户会看到又一次
+   * "点了才知道发不出去"。
+   *
+   * 判定只读不写：这里不替用户选中任何外部二进制，也不后台改设置。
+   */
+  const readinessBackend = readiness ?? defaultReadinessBackend;
+  const [readinessReport, setReadinessReport] = useState<ReadinessReport | null>(null);
+  const [checkingReadiness, setCheckingReadiness] = useState(true);
+
+  const runReadinessCheck = useCallback(async (): Promise<ReadinessReport> => {
+    setCheckingReadiness(true);
+    let discovery: PiDiscoveryResult | null = null;
+    let discoveryError: ReturnType<typeof toCallError> | null = null;
+    try {
+      discovery = (await readinessBackend.discoverPi()) ?? null;
+    } catch (e) {
+      discoveryError = toCallError(e);
+    }
+    const next = evaluateReadiness({
+      discovery,
+      discoveryError,
+      currentWorkspace: shell.currentWorkspace,
+      currentModel: shell.currentModel,
+      settings: shell.settings,
+    });
+    setReadinessReport(next);
+    setCheckingReadiness(false);
+    return next;
+  }, [readinessBackend, shell.currentWorkspace, shell.currentModel, shell.settings]);
+
+  useEffect(() => {
+    void runReadinessCheck();
+  }, [runReadinessCheck]);
 
   /**
    * 读取会话行（标题、是否置顶/归档、revision）。
@@ -345,6 +410,38 @@ export function ChatPage({
     },
     [shell]
   );
+
+  /**
+   * 发送：先重新检查一遍前提，再交给后端。
+   *
+   * 输入区在未就绪时本来就是禁用的，这里是第二道闸：结论过期（刚刚有东西
+   * 被删/被撤销信任）时，用户的这句话不会被丢给一次注定失败的调用。
+   */
+  const sendWhenReady = useCallback(
+    async (text: string, attachmentIds: string[]) => {
+      const fresh = await runReadinessCheck();
+      if (!fresh.ready) return;
+      shell.onSendToSession(sessionId, text, attachmentIds);
+    },
+    [runReadinessCheck, shell, sessionId]
+  );
+
+  /** 内置 fixture 的标记独立于探测结果：探测失败时也要说清现在是什么模型。 */
+  const fixture = useMemo(
+    () => fixtureSignal(shell.currentModel, shell.settings),
+    [shell.currentModel, shell.settings]
+  );
+
+  /**
+   * 输入区为什么不能发送（null = 可以）。
+   *
+   * 检查中与有阻塞分开说："还没检查完"不是"你缺东西"。
+   */
+  const blockedHint = checkingReadiness
+    ? t("chat.composer.checkingReadiness")
+    : readinessReport && !readinessReport.ready
+      ? t("chat.composer.blocked")
+      : null;
 
   // 没有任何会话 id：沿用 U01 的空态（不自动建会话）。
   if (!sessionId) {
@@ -601,11 +698,20 @@ export function ChatPage({
           />
         </div>
 
+        {readinessReport && readinessReport.blockers.length > 0 ? (
+          <ReadinessPanel
+            report={readinessReport}
+            checking={checkingReadiness}
+            onNavigate={onNavigate}
+            onRecheck={() => void runReadinessCheck()}
+          />
+        ) : null}
+
         <Composer
           sessionId={sessionId}
           value={shell.input}
           onChange={shell.onInput}
-          onSend={(text, attachmentIds) => shell.onSendToSession(sessionId, text, attachmentIds)}
+          onSend={sendWhenReady}
           onStop={shell.onStop}
           stopRequested={shell.ui.stopRequested === true}
           busy={shell.busy}
@@ -614,6 +720,8 @@ export function ChatPage({
           skills={shell.skills}
           permission={permission}
           sendError={shell.actionError}
+          blockedHint={blockedHint}
+          fixture={fixture}
         />
       </div>
 
