@@ -1,0 +1,5 @@
+--- FAIL: TestHarnessBrowserToolsNeedBothServiceAndAuthorizer (0.08s)
+    browser_tools_registration_test.go:108: 没有授权器时注册了浏览器工具 [browser_tabs browser_open_tab browser_observe browser_act browser_close_tab]：写动作必然被拒，工具不该出现
+FAIL
+FAIL	my-agent-go/internal/app	0.097s
+FAIL

@@ -1,0 +1,11 @@
+--- FAIL: TestHarnessBrowserToolsNeedBothServiceAndAuthorizer (0.12s)
+    browser_tools_registration_test.go:123: 注册的浏览器工具 = []，期望 [browser_tabs browser_open_tab browser_observe browser_act browser_close_tab]
+--- FAIL: TestHarnessBrowserActToolApprovesThenDispatchesExactlyOnce (0.04s)
+    browser_tools_registration_test.go:188: 自有 MCP 里没有注册 browser_act（当前：[harness_probe]）
+--- FAIL: TestHarnessBrowserActToolDenyLeavesCounterZero (0.05s)
+    browser_tools_registration_test.go:272: 自有 MCP 里没有注册 browser_act（当前：[harness_probe]）
+--- FAIL: TestHarnessBrowserActToolExpiryLeavesCounterZeroWithReason (0.04s)
+    browser_tools_registration_test.go:309: 自有 MCP 里没有注册 browser_act（当前：[harness_probe]）
+FAIL
+FAIL	my-agent-go/internal/app	0.272s
+FAIL

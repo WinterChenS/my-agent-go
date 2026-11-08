@@ -267,6 +267,24 @@
       "resolvedSession": "The backend allowed it for this session",
       "resolvedDeny": "The backend denied it"
     },
+    "browserApproval": {
+      "title": "Permission required: browser write",
+      "origin": "Target origin",
+      "originUnknown": "unknown (the backend reported no origin)",
+      "action": "Action summary",
+      "url": "Page URL",
+      "scope": "Scope",
+      "scopeHint": "Allow once covers this action only; allow for this session applies per tool (not per site), and the backend still rechecks before dispatch",
+      "arguments": "Call arguments in the authorization fingerprint",
+      "pendingHint": "No input is dispatched until you answer; the card only disappears after you submit and the backend no longer reports it.",
+      "resolveFailed": "Submit failed: {reason} (the card stays; retry or wait for the backend to clear it)",
+      "readFailed": "Reading pending approvals failed: {reason} (this is not the same as having none)",
+      "noteApproved": "Allowed {tool} once ({origin}): whether it was dispatched is reported by the tool result",
+      "noteApprovedSession": "Allowed {tool} for this session ({origin}): the backend still rechecks every dispatch",
+      "noteDenied": "Denied {tool} ({origin}): no input was dispatched",
+      "noteExpired": "Approval expired for {tool} ({origin}): it was not allowed and no input was dispatched",
+      "noteRevoked": "Approval revoked for {tool} ({origin}): no input was dispatched"
+    },
     "clarification": {
       "title": "Your answer is needed",
       "question": "Question",

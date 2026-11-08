@@ -9,7 +9,7 @@
 //   - 不把 assistant 文本里的问句猜成澄清（澄清只来自 clarification.requested）；
 //   - 不把失败画成成功（失败横幅 + 终局结论分开显示）。
 
-import { t } from "../../i18n";
+import { formatError, t } from "../../i18n";
 import {
   clarificationsOf,
   settledOf,
@@ -20,6 +20,8 @@ import {
 } from "../../runState";
 import type { ApprovalChoice } from "../../types";
 import { ApprovalCard } from "./ApprovalCard";
+import { BrowserApprovalCard } from "./BrowserApprovalCard";
+import type { BrowserApprovalHandle, BrowserApprovalNote } from "./browserApproval";
 import { ClarificationCard } from "./ClarificationCard";
 import type { ChatClarificationResponse } from "./api";
 import type { ClarificationItem } from "../../runState";
@@ -34,6 +36,14 @@ export interface MessageListProps {
   /** 上一轮失败后重试（重发最后一条用户消息）。没有可重试内容时为 undefined。 */
   onRetry?: () => void;
   onClearError?: () => void;
+  /**
+   * 浏览器写动作的待审批（M1）。
+   *
+   * 它是**另一条通道**：来源是 PendingBrowserApprovals 的读取结果，结论走
+   * ResolveBrowserApproval，与 run 的 approval.request/resolved 不共用。
+   * 页面不属于当前 run 时由 ChatPage 传入 undefined（不显示别的会话的审批）。
+   */
+  browserApprovals?: BrowserApprovalHandle;
 }
 
 /** 错误码 → 下一步提示。未知错误码只说“按错误码排查”，不猜原因。 */
@@ -115,6 +125,28 @@ export function RunErrorBanner({
 }
 
 /**
+ * 一条浏览器审批“为什么没了”的文案。
+ *
+ * 卡片消失必须带原因：过期/撤销是“没有批准、没有派发”，而拒绝是用户的结论。
+ * 让卡片默默消失就等于用“什么都没发生”表达一个安全结论。
+ */
+function browserApprovalNoteText(note: BrowserApprovalNote): string {
+  const params = { tool: note.toolName, origin: note.origin };
+  switch (note.kind) {
+    case "approved":
+      return note.choice === "session_scope"
+        ? t("chat.browserApproval.noteApprovedSession", params)
+        : t("chat.browserApproval.noteApproved", params);
+    case "denied":
+      return t("chat.browserApproval.noteDenied", params);
+    case "expired":
+      return t("chat.browserApproval.noteExpired", params);
+    default:
+      return t("chat.browserApproval.noteRevoked", params);
+  }
+}
+
+/**
  * 后端对一条审批的结论文案。
  *
  * 卡片消失必须伴随一句“为什么”：后端拒绝时往往带理由（例如这一轮已经结束），
@@ -170,12 +202,22 @@ export function MessageList({
   canRespond,
   onRetry,
   onClearError,
+  browserApprovals,
 }: MessageListProps) {
   const approvals = ui.approvals;
   const clarifications = clarificationsOf(ui);
   const settled = settledOf(ui);
+  const browserItems = browserApprovals?.items ?? [];
+  const browserNotes = browserApprovals?.notes ?? [];
 
-  if (ui.messages.length === 0 && approvals.length === 0 && clarifications.length === 0 && !ui.error) {
+  if (
+    ui.messages.length === 0 &&
+    approvals.length === 0 &&
+    clarifications.length === 0 &&
+    browserItems.length === 0 &&
+    browserNotes.length === 0 &&
+    !ui.error
+  ) {
     return (
       <div className="flex h-full items-center justify-center px-4 py-10 text-center">
         <div>
@@ -225,6 +267,39 @@ export function MessageList({
       {approvals.map((item) => (
         <ApprovalCard key={item.approvalId} item={item} onDecide={onDecide} disabled={!canRespond} />
       ))}
+      {/* 浏览器写动作：另一条通道（读取 + ResolveBrowserApproval），所以单独一组。
+          卡片只在后端读取结果里不再有这条时消失，原因写在下面的结论行里。 */}
+      {browserItems.length > 0 ? (
+        <div data-browser-approvals="" className="space-y-2">
+          {browserItems.map((item) => (
+            <BrowserApprovalCard
+              key={item.approvalId}
+              item={item}
+              submitted={browserApprovals?.submitted[item.approvalId]}
+              error={browserApprovals?.errors[item.approvalId] ?? null}
+              onDecide={(target, choice) => browserApprovals?.decide(target, choice)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {browserNotes.map((note) => (
+        <p
+          key={`${note.approvalId}:${note.kind}`}
+          data-browser-approval-note={note.kind}
+          className="text-[10px] text-[color:var(--anvil-muted)]"
+        >
+          {browserApprovalNoteText(note)}
+        </p>
+      ))}
+      {browserApprovals?.hint ? (
+        <p
+          data-browser-approval-read-failed={browserApprovals.hint.code}
+          role="alert"
+          className="text-[10px] text-[color:var(--anvil-danger)]"
+        >
+          {t("chat.browserApproval.readFailed", { reason: formatError(browserApprovals.hint) })}
+        </p>
+      ) : null}
       {clarifications.map((item) => (
         <ClarificationCard key={item.requestId} item={item} onSubmit={onClarify} disabled={!canRespond} />
       ))}

@@ -13,6 +13,8 @@ import (
 	"context"
 	"strings"
 
+	"my-agent-go/internal/browser"
+	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/harnessmcp"
 	"my-agent-go/internal/memory"
 	"my-agent-go/internal/resources"
@@ -77,7 +79,7 @@ func (d *Desktop) mcpService() (*resources.Service, error) {
 	s := d.Settings()
 	svc.SetWorkspaceRoot(s.Workspace)
 	mem, memoryWS := d.memoryToolsForRuntime(context.Background())
-	svc.SetHarnessTools(harnessToolDescriptors(workspaceOf(s), mem, memoryWS))
+	svc.SetHarnessTools(d.harnessToolDescriptors(workspaceOf(s), mem, memoryWS))
 	env := resources.MCPDiagnoseEnv{}
 	if inst, ierr := d.resolveInstallation(s); ierr == nil {
 		env.Executable = inst.Executable
@@ -89,22 +91,39 @@ func (d *Desktop) mcpService() (*resources.Service, error) {
 
 func workspaceOf(s Settings) string { return strings.TrimSpace(s.Workspace) }
 
-// harnessTools 是自有 MCP 的工具注册表。
+// harnessTools 是自有 MCP 工具注册表的构造核心（探针 + 记忆 + 传入的额外工具）。
 //
-// 唯一的注册点：ensureRuntime 用它启动服务，工具目录用它生成条目。
-// 两处各写一份会出现"目录里有、实际没注册"（或反过来）的偏差。
-func harnessTools(workspace string, mem *memory.Service, memoryWorkspaceID string) []harnessmcp.Tool {
+// 生产装配不直接调它：ensureRuntime（真的启动服务）与 mcpService（工具目录）都走
+// harnessToolset / harnessToolDescriptors 这两个方法，两处各写一份会出现
+// "目录里有、实际没注册"（或反过来）的偏差。
+//
+// extra 是"只在能力真的可用时才存在"的工具（当前是浏览器）。它们由调用方按
+// 装配事实决定要不要给，本函数不猜。
+func harnessTools(workspace string, mem *memory.Service, memoryWorkspaceID string, extra ...harnessmcp.Tool) []harnessmcp.Tool {
 	tools := []harnessmcp.Tool{harnessmcp.ProbeTool(workspace)}
 	// 记忆不可用（无服务或无工作区 ID）时不注册记忆工具：
 	// 工具目录与实际注册必须一致，不能"目录里有、调用必然失败"。
 	if mem != nil && strings.TrimSpace(memoryWorkspaceID) != "" {
 		tools = append(tools, harnessmcp.MemoryTools(mem, memoryWorkspaceID)...)
 	}
+	tools = append(tools, extra...)
 	return tools
 }
 
-func harnessToolDescriptors(workspace string, mem *memory.Service, memoryWorkspaceID string) []resources.ToolDescriptor {
-	tools := harnessTools(workspace, mem, memoryWorkspaceID)
+// harnessToolset 是这台 Desktop 此刻应注册的全部自有 MCP 工具。
+//
+// ensureRuntime（真的启动服务）与 mcpService（工具目录）都走它：一处决定
+// "注册什么"，两处看到同一份结果。
+func (d *Desktop) harnessToolset(workspace string, mem *memory.Service, memoryWorkspaceID string) []harnessmcp.Tool {
+	return harnessTools(workspace, mem, memoryWorkspaceID, d.harnessBrowserTools()...)
+}
+
+func (d *Desktop) harnessToolDescriptors(workspace string, mem *memory.Service, memoryWorkspaceID string) []resources.ToolDescriptor {
+	return harnessToolDescriptors(workspace, mem, memoryWorkspaceID, d.harnessBrowserTools()...)
+}
+
+func harnessToolDescriptors(workspace string, mem *memory.Service, memoryWorkspaceID string, extra ...harnessmcp.Tool) []resources.ToolDescriptor {
+	tools := harnessTools(workspace, mem, memoryWorkspaceID, extra...)
 	out := make([]resources.ToolDescriptor, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, resources.ToolDescriptor{
@@ -115,6 +134,125 @@ func harnessToolDescriptors(workspace string, mem *memory.Service, memoryWorkspa
 		})
 	}
 	return out
+}
+
+// ---------- 浏览器工具（M1：注册进自有 MCP） ----------
+
+// harnessBrowserTools 返回此刻应注册进自有 MCP 的浏览器工具。
+//
+// 两个条件同时成立才注册，缺一条就一个都不注册（不是"注册了再返回失败"）：
+//   - 桥接层里有真的 *browser.Service —— 原生宿主没装上的平台，工具必然失败；
+//   - Desktop 能给出真的授权器 —— 装配失败时 browser.Service 会拒绝所有写动作，
+//     browser_act 就成了一个注定失败的工具。
+//
+// 目录（ListTools）与实际注册（ensureRuntime → harnessmcp.Start）读的都是它，
+// 因此不会出现"目录里有、实际没注册"的分叉。
+func (d *Desktop) harnessBrowserTools() []harnessmcp.Tool {
+	if d.browserBridge().Service() == nil {
+		return nil
+	}
+	if d.BrowserAuthorizer() == nil {
+		// 装配失败的原因由 BrowserAuthorizer 写进 lastErr（界面可见），这里只做不注册。
+		return nil
+	}
+	return harnessmcp.BrowserTools(browserMCPController{desktop: d}, harnessmcp.BrowserToolsOptions{})
+}
+
+// browserMCPController 是自有 MCP 的浏览器工具控制器。
+//
+// 为什么不直接把 *browser.Service 交给 harnessmcp.BrowserTools：那个构造函数在**注册时**
+// 把执行身份（contracts.ExecutionContext）捕获进每个工具的闭包，而自有 MCP 服务是
+// 应用级单例（桌面宿主只启动一次），注册时捕获的身份到后面就不是"此刻的身份"了——
+// tab 的归属按会话过滤，身份一旧，面板和模型看到的就不是同一批 tab。
+//
+// 所以这里把工具闭包里那份可能过期的身份**忽略**，每次调用按服务端事实重新解析：
+//   - 服务来自 Desktop 当前的桥接层（装配发生在窗口挂载之后，晚于工具注册）；
+//   - 身份来自 d.BrowserExecutionContext()，与右侧面板同一份来源。
+//
+// 模型改不了这两项：工具参数里出现 sessionId/runId/approvalId/confirmed 之类的键是
+// 硬错误（browser_tools.go 的 forbiddenArgKeys），前端也拿不到这份身份。
+//
+// 已知限制（M1 报告里写明）：自有 MCP 传输层没有 per-run 的执行身份通道，一次 MCP
+// 调用无法被归到某一个 run；这里用的是运行时会话（runtimeSessionID），与面板一致。
+// 正确的形状是让工具在调用时拿到本次 run 的 ExecutionBinding（harnessmcp 的
+// BrowserToolsOptions 增加一个 ExecProvider），那要改 internal/harnessmcp，不在 M1 的
+// 改动范围内，因此不在这里发明第三种身份来源。
+type browserMCPController struct {
+	desktop *Desktop
+}
+
+// resolve 返回这次调用要用的服务与执行身份。
+func (c browserMCPController) resolve() (*browser.Service, contracts.ExecutionContext, error) {
+	svc := c.desktop.browserBridge().Service()
+	if svc == nil {
+		return nil, contracts.ExecutionContext{}, contracts.NewAppError(contracts.CodeUnsupported,
+			"没有装配原生浏览器宿主：浏览器工具此刻不可用（本次没有派发任何动作）", false)
+	}
+	return svc, c.desktop.BrowserExecutionContext(), nil
+}
+
+func (c browserMCPController) Capabilities() browser.CapabilitySet {
+	if svc := c.desktop.browserBridge().Service(); svc != nil {
+		return svc.Capabilities()
+	}
+	return browser.CapabilitySet{}
+}
+
+func (c browserMCPController) OpenTab(ctx context.Context, _ contracts.ExecutionContext, opts browser.TabOptions) (browser.TabID, error) {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return "", err
+	}
+	return svc.OpenTab(ctx, exec, opts)
+}
+
+func (c browserMCPController) Observe(ctx context.Context, _ contracts.ExecutionContext, tab browser.TabID, opts browser.ObserveOptions) (browser.Snapshot, error) {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return browser.Snapshot{}, err
+	}
+	return svc.Observe(ctx, exec, tab, opts)
+}
+
+func (c browserMCPController) Execute(ctx context.Context, _ contracts.ExecutionContext, tab browser.TabID, action browser.Action) (browser.ActionResult, error) {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return browser.ActionResult{}, err
+	}
+	return svc.Execute(ctx, exec, tab, action)
+}
+
+func (c browserMCPController) CloseTab(ctx context.Context, _ contracts.ExecutionContext, tab browser.TabID) error {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return err
+	}
+	return svc.CloseTab(ctx, exec, tab)
+}
+
+func (c browserMCPController) TabInfo(_ contracts.ExecutionContext, tab browser.TabID) (browser.TabInfo, error) {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return browser.TabInfo{}, err
+	}
+	return svc.TabInfo(exec, tab)
+}
+
+func (c browserMCPController) Control(_ contracts.ExecutionContext, tab browser.TabID) (browser.ControlState, error) {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return browser.ControlState{}, err
+	}
+	return svc.Control(exec, tab)
+}
+
+// Tabs 让 browser_tabs 工具能看到 tab 列表（harnessmcp 用类型断言探测这个能力）。
+func (c browserMCPController) Tabs(_ contracts.ExecutionContext) []browser.TabID {
+	svc, exec, err := c.resolve()
+	if err != nil {
+		return nil
+	}
+	return svc.Tabs(exec)
 }
 
 // compileMCP 是"当前配置下应写进 mcp.json 的服务"的唯一入口。

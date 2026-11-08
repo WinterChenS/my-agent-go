@@ -668,6 +668,20 @@ func (b *BrowserBridge) State() BrowserStateResult {
 	return out
 }
 
+// Service 返回桥接层持有的浏览器服务（只读；nil 表示本进程没有装配原生宿主）。
+//
+// M1 用它决定“要不要把浏览器工具注册进自有 MCP”：没有服务时注册出来的工具
+// 必然失败，那种工具不该出现在模型面前（与 CapabilitySet 的纪律一致）。
+// 这里只暴露读的能力面，原生句柄仍然只活在 browser.BrowserSurface/Service 以下。
+func (b *BrowserBridge) Service() *browser.Service {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.svc
+}
+
 func (b *BrowserBridge) overlayNamesLocked() []string {
 	names := make([]string, 0, len(b.overlays))
 	for name := range b.overlays {

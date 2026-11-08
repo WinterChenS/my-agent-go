@@ -61,6 +61,7 @@ vi.mock("../history/api", () => ({
 }));
 
 import { ChatPage } from "./ChatPage";
+import type { BrowserApprovalBackend, BrowserApprovalItem } from "./browserApproval";
 
 // ---------------------------------------------------------------- 事件 fixture
 
@@ -168,13 +169,77 @@ function shellValue(ui: UiState, overrides: Partial<ShellValue> = {}): ShellValu
   };
 }
 
-function renderPage(ui: UiState, overrides: Partial<ShellValue> = {}) {
+function renderPage(ui: UiState, overrides: Partial<ShellValue> = {}, browser?: FakeBrowserApprovals) {
   const value = shellValue(ui, overrides);
   return render(
     <ShellProvider value={value}>
-      <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} />
+      <ChatPage
+        onNavigate={() => undefined}
+        route={routeFor("sess-1")}
+        browserApprovals={browser?.backend}
+        browserApprovalPollMs={browser?.pollMs ?? 0}
+      />
     </ShellProvider>
   );
+}
+
+/**
+ * 浏览器审批的替身：pending() 返回可变的后端事实，resolve() 只记录调用。
+ *
+ * 故意不在这里自动移除条目：移除必须来自 pending() 的变化（后端事实），
+ * 那正是本文件要守的纪律。
+ */
+interface FakeBrowserApprovals {
+  backend: BrowserApprovalBackend;
+  pollMs: number;
+  pending: BrowserApprovalItem[];
+  resolved: { approvalId: string; choice: string }[];
+  failResolve: Error | null;
+}
+
+function fakeBrowserApprovals(
+  initial: BrowserApprovalItem[] = [],
+  pollMs = 5
+): FakeBrowserApprovals {
+  const fake: FakeBrowserApprovals = {
+    pending: initial,
+    pollMs,
+    resolved: [],
+    failResolve: null,
+    backend: {
+      pending: async () => fake.pending,
+      resolve: async (approvalId, choice) => {
+        if (fake.failResolve) throw fake.failResolve;
+        fake.resolved.push({ approvalId, choice });
+      },
+    },
+  };
+  return fake;
+}
+
+function browserApprovalFixture(overrides: Partial<BrowserApprovalItem> = {}): BrowserApprovalItem {
+  return {
+    approvalId: "bapr-1",
+    sessionId: "sess-runtime-1",
+    runId: "run-1",
+    toolName: "browser_act",
+    tabId: "tab-1",
+    kind: "click",
+    origin: "http://127.0.0.1:45123",
+    url: "http://127.0.0.1:45123/form",
+    navigationId: "nav-7",
+    arguments: {
+      tabId: "tab-1",
+      kind: "click",
+      snapshotId: "snap-1",
+      ref: "e3",
+      origin: "http://127.0.0.1:45123",
+      url: "http://127.0.0.1:45123/form",
+      navigationId: "nav-7",
+    },
+    expiresAtUnix: Math.floor(Date.now() / 1000) + 60,
+    ...overrides,
+  };
 }
 
 /** 最小 RouteMatch：ChatPage 只读 id 参数。 */
@@ -678,3 +743,164 @@ describe("ChatPage 右栏浏览器面板", () => {
 });
 
 
+
+// ---------------------------------------------------------------- 浏览器审批（M1）
+
+describe("浏览器写动作审批（M1）", () => {
+  it("在审批流里渲染工具名、目标 origin、动作摘要、范围与到期时间", async () => {
+    const browser = fakeBrowserApprovals([browserApprovalFixture()]);
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    const card = document.querySelector("[data-browser-approval-card='bapr-1']") as HTMLElement;
+
+    expect(within(card).getByText("browser_act")).toBeInTheDocument();
+    // 目标站点：用户批的是"这个 origin"的这次动作。
+    const origin = card.querySelector("[data-browser-approval-origin]") as HTMLElement;
+    expect(origin.getAttribute("data-browser-approval-origin")).toBe("http://127.0.0.1:45123");
+    // 动作摘要：kind/ref + 文档身份（navigationId 变了，旧审批不再成立）。
+    const summary = card.querySelector("[data-browser-approval-summary]") as HTMLElement;
+    expect(summary.textContent).toContain("click");
+    expect(summary.textContent).toContain("ref=e3");
+    expect(summary.textContent).toContain("nav=nav-7");
+    // 范围与到期时间都是用户判断"批多久、到什么时候"所需的事实。
+    const scope = card.querySelector("[data-browser-approval-scope]") as HTMLElement;
+    expect(scope.textContent).toBe(t("chat.browserApproval.scopeHint"));
+    expect(card.querySelector("[data-browser-approval-expires]")).not.toBeNull();
+    // 三个结论按钮都在，且文案来自 catalog。
+    expect(within(card).getByRole("button", { name: t("chat.approval.once") })).toBeEnabled();
+    expect(within(card).getByRole("button", { name: t("chat.approval.session") })).toBeEnabled();
+    expect(within(card).getByRole("button", { name: t("chat.approval.deny") })).toBeEnabled();
+  });
+
+  it("点击只提交结论：后端仍列出这条时卡片留在原地并标已提交", async () => {
+    const user = userEvent.setup();
+    // pollMs=0：只做挂载时的第一次读取，之后没有新的后端事实。
+    //
+    // "提交不得乐观移除"这条语义由 browserApproval.test.ts 的归约器用例确定地守住：
+    // 提交后紧跟着一次重读（decide() 里的 refresh）会把"乐观移除 + 重读"重新拉回
+    // 同样的可见状态，所以组件测试在这里只能断言可见事实（卡片在、标已提交、无结论行）。
+    const browser = fakeBrowserApprovals([browserApprovalFixture()], 0);
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    await user.click(screen.getByRole("button", { name: t("chat.approval.once") }));
+
+    // 结论确实提交给后端了（once）。
+    await waitFor(() => expect(browser.resolved).toEqual([{ approvalId: "bapr-1", choice: "once" }]));
+    // 关键：后端没有任何新事实 → 卡片必须留在原地，只标"已提交"。
+    const card = document.querySelector("[data-browser-approval-card='bapr-1']") as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.getAttribute("data-submitted")).toBe("true");
+    expect(card.textContent).toContain(t("chat.approval.submitted"));
+    expect(within(card).getByRole("button", { name: t("chat.approval.once") })).toBeDisabled();
+    // 也还没有任何"结论"行：结论只能来自后端事实变化。
+    expect(document.querySelector("[data-browser-approval-note]")).toBeNull();
+    expect(browser.resolved).toHaveLength(1);
+  });
+
+  it("后端不再列出这条之后才移除，并留下已批准的原因", async () => {
+    const user = userEvent.setup();
+    const browser = fakeBrowserApprovals([browserApprovalFixture()], 5);
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    await user.click(screen.getByRole("button", { name: t("chat.approval.once") }));
+    await waitFor(() => expect(browser.resolved).toHaveLength(1));
+
+    // 后端事实变化（不再待审批）之后才移除，并留下原因。
+    browser.pending = [];
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).toBeNull()
+    );
+    const note = document.querySelector("[data-browser-approval-note='approved']") as HTMLElement;
+    expect(note).not.toBeNull();
+    expect(note.textContent).toContain("browser_act");
+    expect(note.textContent).toContain("http://127.0.0.1:45123");
+  });
+
+  it("拒绝之后卡片消失并写明没有派发任何输入", async () => {
+    const user = userEvent.setup();
+    const browser = fakeBrowserApprovals([browserApprovalFixture()]);
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    await user.click(screen.getByRole("button", { name: t("chat.approval.deny") }));
+    await waitFor(() => expect(browser.resolved).toEqual([{ approvalId: "bapr-1", choice: "deny" }]));
+
+    // 后端已不再列这条：卡片消失，并且必须说明"没有派发任何输入"。
+    browser.pending = [];
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).toBeNull()
+    );
+    const note = document.querySelector("[data-browser-approval-note='denied']") as HTMLElement;
+    expect(note).not.toBeNull();
+    expect(note.textContent).toContain(t("chat.browserApproval.noteDenied", {
+      tool: "browser_act",
+      origin: "http://127.0.0.1:45123",
+    }));
+  });
+
+  it("过期消失时给出原因，而不是让卡片默默消失", async () => {
+    const expired = browserApprovalFixture({
+      expiresAtUnix: Math.floor(Date.now() / 1000) - 1,
+    });
+    const browser = fakeBrowserApprovals([expired]);
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    // 后端把过期条目清掉（PendingApprovals 会顺手清理）。
+    browser.pending = [];
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-note='expired']")).not.toBeNull()
+    );
+    const note = document.querySelector("[data-browser-approval-note='expired']") as HTMLElement;
+    expect(note.textContent).toContain(t("chat.browserApproval.noteExpired", {
+      tool: "browser_act",
+      origin: "http://127.0.0.1:45123",
+    }));
+    // 过期不是"已批准"：不能出现批准结论。
+    expect(document.querySelector("[data-browser-approval-note='approved']")).toBeNull();
+  });
+
+  it("提交失败时把原因留在卡片上，卡片不消失", async () => {
+    const user = userEvent.setup();
+    const browser = fakeBrowserApprovals([browserApprovalFixture()]);
+    browser.failResolve = new Error("CONFIG_MISSING: 浏览器授权服务不可用：审批无法答复");
+    renderPage(stateFrom([]), {}, browser);
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-card='bapr-1']")).not.toBeNull()
+    );
+    await user.click(screen.getByRole("button", { name: t("chat.approval.once") }));
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-browser-approval-error='CONFIG_MISSING']")).not.toBeNull()
+    );
+    // 失败之后卡片仍然在（可以重试），并且标成"未提交"。
+    const card = document.querySelector("[data-browser-approval-card='bapr-1']") as HTMLElement;
+    expect(card.getAttribute("data-submitted")).toBe("false");
+    expect(within(card).getByRole("button", { name: t("chat.approval.once") })).toBeEnabled();
+  });
+
+  it("别的会话的 run 在本页时不显示浏览器审批", async () => {
+    const browser = fakeBrowserApprovals([browserApprovalFixture()]);
+    const ui = stateFrom([]);
+    // activeSessionId 指向另一个会话：本页不能替它批准任何东西。
+    renderPage({ ...ui, activeSessionId: "sess-elsewhere" }, {}, browser);
+
+    await waitFor(() => expect(screen.getByText("验收会话")).toBeInTheDocument());
+    expect(document.querySelector("[data-browser-approval-card]")).toBeNull();
+    expect(browser.resolved).toHaveLength(0);
+  });
+});

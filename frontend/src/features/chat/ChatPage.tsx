@@ -31,6 +31,7 @@ import { Composer, type PermissionSummary } from "./Composer";
 import { BrowserPanel } from "../browser/BrowserPanel";
 import { ContextPanel, ContextPanelToggle, useNarrowLayout } from "./ContextPanel";
 import { MessageList } from "./MessageList";
+import { useBrowserApprovals, type BrowserApprovalBackend } from "./browserApproval";
 import { chatApi, type ChatClarificationResponse, type ChatExportFormat, type ChatExportResult } from "./api";
 import type { UiState } from "../../runState";
 
@@ -89,7 +90,22 @@ const EXPORT_FORMATS: { format: ChatExportFormat; labelKey: string }[] = [
   { format: "json", labelKey: "chat.export.json" },
 ];
 
-export function ChatPage({ onNavigate, route }: PageProps) {
+export interface ChatPageProps extends PageProps {
+  /**
+   * 浏览器审批通道（M1）。产品里用默认的绑定；测试注入替身。
+   * 抽成参数而不是模块级 mock：测的是组件行为，不是我对 Wails runtime 的伪造。
+   */
+  browserApprovals?: BrowserApprovalBackend;
+  /** 浏览器审批的轮询间隔（毫秒）；<=0 关闭轮询（测试手动驱动）。 */
+  browserApprovalPollMs?: number;
+}
+
+export function ChatPage({
+  onNavigate,
+  route,
+  browserApprovals,
+  browserApprovalPollMs,
+}: ChatPageProps) {
   const shell = useShell();
   const sessionId = route?.params.id ?? "";
   const narrow = useNarrowLayout();
@@ -117,6 +133,21 @@ export function ChatPage({ onNavigate, route }: PageProps) {
    */
   const runBelongsToPage =
     shell.ui.activeSessionId == null || shell.ui.activeSessionId === sessionId;
+
+  /**
+   * 浏览器写动作的待审批（M1）。
+   *
+   * 它是读取式通道（后端没有对应的产品事件），所以这里轮询；页面不属于当前 run 时
+   * 不轮询也不展示：在别人的会话页上批准一条自己没看见的浏览器点击是最坏的一种错。
+   *
+   * 为什么不能只看 runId：浏览器审批的 sessionId 是运行时会话（runtimeSessionID），
+   * 不是 C06 的会话 id，两者没有可信的映射，前端不能自己编一个。
+   */
+  const browserPending = useBrowserApprovals({
+    api: browserApprovals,
+    enabled: runBelongsToPage,
+    pollIntervalMs: browserApprovalPollMs,
+  });
 
   /**
    * 读取会话行（标题、是否置顶/归档、revision）。
@@ -566,6 +597,7 @@ export function ChatPage({ onNavigate, route }: PageProps) {
             onClarify={onClarify}
             canRespond={shell.ui.runId !== null}
             onRetry={lastUserText ? retry : undefined}
+            browserApprovals={runBelongsToPage ? browserPending : undefined}
           />
         </div>
 
