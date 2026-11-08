@@ -61,27 +61,27 @@ export function DetailPanel({ ui, status, workspace, phaseMeta, onGoRuns }: Deta
           <>
             <div className="mb-1 flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 rounded-full ${phaseMeta.tone}`} aria-hidden />
-              <span className="text-[color:var(--anvil-foreground)]">{phaseMeta.label}</span>
+              <span className="text-[color:var(--anvil-fg-2)]">{phaseMeta.label}</span>
             </div>
             <p className="break-all font-mono text-[10px] text-[color:var(--anvil-muted)]">{ui.runId}</p>
             <dl className="mt-1.5 space-y-0.5 text-[10px] text-[color:var(--anvil-muted)]">
               <div className="flex justify-between">
                 <dt>事件序号</dt>
-                <dd className="font-mono text-[color:var(--anvil-muted)]">{seq}</dd>
+                <dd className="font-mono text-[color:var(--anvil-fg-2)]">{seq}</dd>
               </div>
               <div className="flex justify-between">
                 <dt>工具完成 / 失败</dt>
-                <dd className="font-mono text-[color:var(--anvil-muted)]">
+                <dd className="font-mono text-[color:var(--anvil-fg-2)]">
                   {ok} / {failed}
                 </dd>
               </div>
               <div className="flex justify-between">
                 <dt>工具执行中</dt>
-                <dd className="font-mono text-[color:var(--anvil-muted)]">{running}</dd>
+                <dd className="font-mono text-[color:var(--anvil-fg-2)]">{running}</dd>
               </div>
               <div className="flex justify-between">
                 <dt>待授权</dt>
-                <dd className="font-mono text-[color:var(--anvil-muted)]">{ui.approvals.length}</dd>
+                <dd className="font-mono text-[color:var(--anvil-fg-2)]">{ui.approvals.length}</dd>
               </div>
             </dl>
             <button
@@ -103,7 +103,7 @@ export function DetailPanel({ ui, status, workspace, phaseMeta, onGoRuns }: Deta
         <dl className="space-y-0.5 text-[10px]">
           <div>
             <dt className="text-[color:var(--anvil-muted)]">provider / model</dt>
-            <dd className="break-all text-[color:var(--anvil-muted)]">
+            <dd className="break-all text-[color:var(--anvil-fg-2)]">
               {status?.provider ?? "—"} / {status?.model ?? "—"}
             </dd>
           </div>

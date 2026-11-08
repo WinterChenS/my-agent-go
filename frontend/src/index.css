@@ -1,27 +1,52 @@
 @import "tailwindcss";
 
 /*
- * 语义颜色与尺度 token（U00）。
+ * 设计令牌与应用外壳（D1）。
  *
- * 规则：组件只用语义名（background / surface / foreground / muted / border /
- * accent / success / warning / danger / focus / overlay），不直接写颜色值。
- * 直接写 `text-slate-400` 的后果是深色主题下对比度失控，而且没人知道
- * 那个值当初是为了配哪一套背景。
+ * 来源：`docs/ui/Agent-客户端产品原型/`（9 个 HTML + assets/studio.css + assets/pages.css）。
+ * DESIGN-HANDOFF.md 把这份导出定义为**视觉契约**："match the exported pixels"。
+ *
+ * 三条规则，改这里之前先读：
+ *
+ * 1. 颜色只有一套来源：`frontend/src/design/tokens.ts` 里的 `PROTO_LIGHT` 逐字保存
+ *    studio.css 的 OKLCH 值。本文件的 `--anvil-*` 是同一批颜色的 sRGB 投影，
+ *    `tokens.test.ts` 会解析两边的文本，任一侧改动而另一侧没跟上就红。
+ *
+ * 2. 为什么投影成 sRGB 而不是直接写 oklch()：`tests/native/uiaudit.js`（U07 门禁，
+ *    只读）用 parseColor() 读 `--anvil-*` 与元素计算色，只认 hex/rgb()/rgba()；
+ *    Chromium 把 oklch() 的计算值序列化成 `oklch(...)`，于是 tokenContrast() 得到
+ *    ratio=null，G3 的对比度断言报"无法解析颜色"。也就是说：为了一行 CSS 的写法
+ *    丢掉整条对比度门禁。契约值仍是 OKLCH（tokens.ts 逐字），CSS 只是投影。
+ *    修门禁的解析器属于 `tests/**`（不在 D1 的改动范围），见 D1 报告的 concerns。
+ *
+ * 3. 组件只用语义名（background / surface / foreground / muted / border / accent /
+ *    success / warning / danger / focus / overlay）。直接写 `text-slate-400` 的后果是
+ *    深色主题下对比度失控，而且没人知道那个值当初是为了配哪一套背景。
  *
  * `data-theme` 永远是 light 或 dark（"跟随系统"由 theme.ts 在挂载前解析）。
  */
 @theme inline {
   --color-background: var(--anvil-background);
   --color-surface: var(--anvil-surface);
+  --color-surface-2: var(--anvil-surface-2);
+  --color-surface-3: var(--anvil-surface-3);
   --color-surface-raised: var(--anvil-surface-raised);
   --color-foreground: var(--anvil-foreground);
+  --color-fg-2: var(--anvil-fg-2);
   --color-muted: var(--anvil-muted);
   --color-border: var(--anvil-border);
+  --color-border-strong: var(--anvil-border-strong);
   --color-accent: var(--anvil-accent);
+  --color-accent-hover: var(--anvil-accent-hover);
   --color-accent-surface: var(--anvil-accent-surface);
+  --color-accent-soft: var(--anvil-accent-soft);
+  --color-on-accent: var(--anvil-on-accent);
   --color-success: var(--anvil-success);
+  --color-success-soft: var(--anvil-success-soft);
   --color-warning: var(--anvil-warning);
+  --color-warning-soft: var(--anvil-warning-soft);
   --color-danger: var(--anvil-danger);
+  --color-danger-soft: var(--anvil-danger-soft);
   --color-focus: var(--anvil-focus);
   --color-overlay: var(--anvil-overlay);
 
@@ -29,75 +54,245 @@
   --radius-anvil-lg: var(--anvil-radius-lg);
 
   --shadow-anvil: var(--anvil-shadow);
+  --shadow-anvil-sm: var(--anvil-shadow-sm);
+  --shadow-anvil-lg: var(--anvil-shadow-lg);
+
+  --font-sans: var(--anvil-font-body);
+  --font-display: var(--anvil-font-display);
+  --font-mono: var(--anvil-font-mono);
 }
 
 :root {
-  /* 尺度：两套主题共用（换主题不该改变布局密度）。 */
-  --anvil-radius: 8px;
-  --anvil-radius-lg: 14px;
+  /* ==========================================================================
+     几何与字体（与主题无关：换主题不改变布局密度）
+     值逐字取自 studio.css 的 --r-* / --sidebar-w / .sidebar / .topbar / .page-inner。
+     ========================================================================== */
+  --anvil-r-xs: 4px;
+  --anvil-r-sm: 6px;
+  --anvil-r-md: 8px;
+  --anvil-r-lg: 12px;
+  --anvil-radius: var(--anvil-r-md);
+  --anvil-radius-lg: var(--anvil-r-lg);
+
+  --anvil-sidebar-w: 236px;
+  --anvil-detail-w: 288px;
+  --anvil-topbar-h: 52px;
+  --anvil-page-max: 1240px;
+  --anvil-page-pad-y: 26px;
+  --anvil-page-pad-x: 28px;
+  --anvil-page-pad-b: 56px;
   --anvil-space-unit: 4px;
-  --anvil-font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+
+  --anvil-font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --anvil-font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --anvil-font-mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
   --anvil-motion-fast: 120ms;
-  --anvil-motion-base: 180ms;
-  --anvil-shadow: 0 1px 2px rgb(15 18 24 / 0.08), 0 8px 24px rgb(15 18 24 / 0.06);
+  --anvil-motion-base: 140ms;
+  --anvil-motion-slow: 200ms;
+  --anvil-ease: ease;
 
-  /* 配色：浅色主题。 */
-  --anvil-background: #f6f7f9;
-  --anvil-surface: #eef0f4;
-  --anvil-surface-raised: #ffffff;
-  --anvil-foreground: #16181d;
-  --anvil-muted: #5b6270;
-  --anvil-border: #d5d9e0;
-  --anvil-accent: #1f5fd0;
-  --anvil-accent-border: #b9cdf0;
-  --anvil-accent-surface: #e7eefc;
-  --anvil-success: #1a7f4b;
-  --anvil-success-border: #b3e0c6;
-  --anvil-success-surface: #e6f6ec;
-  --anvil-warning: #8a5a00;
-  --anvil-warning-border: #eccf94;
-  --anvil-warning-surface: #fdf3e0;
-  --anvil-danger: #b32020;
-  --anvil-danger-border: #efb9b9;
-  --anvil-danger-surface: #fdeaea;
-  --anvil-focus: #1f5fd0;
-  --anvil-overlay: rgb(15 18 24 / 0.08);
+  --anvil-shadow-sm: 0 1px 2px color-mix(in oklab, var(--anvil-foreground) 5%, transparent);
+  --anvil-shadow-md: 0 1px 3px color-mix(in oklab, var(--anvil-foreground) 7%, transparent),
+    0 8px 24px -12px color-mix(in oklab, var(--anvil-foreground) 18%, transparent);
+  --anvil-shadow-lg: 0 24px 60px -24px color-mix(in oklab, var(--anvil-foreground) 30%, transparent),
+    0 2px 6px color-mix(in oklab, var(--anvil-foreground) 6%, transparent);
+  --anvil-shadow: var(--anvil-shadow-md);
+
+  /* ==========================================================================
+     颜色：浅色主题
+     每行左侧是原型 studio.css 的 OKLCH 原文（逐字，见 design/tokens.ts），
+     右侧是同一颜色的 sRGB 序列化（原因见文件头第 2 条）。
+     原型没定义的语义名（--anvil-*-border / --anvil-overlay）用原型的 color-mix 公式派生。
+     ========================================================================== */
+
+  /* bg · oklch(99% 0.002 240) */
+  --anvil-background: rgb(251 252 253);
+  /* surface-2 · oklch(97.4% 0.004 250) */
+  --anvil-surface: rgb(244 247 249);
+  /* surface-2（同 --anvil-surface，保留别名给页面语义用） */
+  --anvil-surface-2: var(--anvil-surface);
+  /* surface-3 · oklch(95.6% 0.005 250) */
+  --anvil-surface-3: rgb(238 241 244);
+  /* surface · oklch(100% 0 0) */
+  --anvil-surface-raised: rgb(255 255 255);
+  /* fg · oklch(18% 0.012 250) */
+  --anvil-foreground: rgb(14 18 23);
+  --anvil-fg: var(--anvil-foreground);
+  /* fg-2 · oklch(33% 0.012 250) */
+  --anvil-fg-2: rgb(49 54 59);
+  /* muted · oklch(54% 0.012 250) */
+  --anvil-muted: rgb(106 111 118);
+  /* border · oklch(92% 0.005 250) */
+  --anvil-border: rgb(226 229 232);
+  /* border-strong · oklch(85.5% 0.007 250) */
+  --anvil-border-strong: rgb(204 208 212);
+  /* accent · oklch(58% 0.18 255) */
+  --anvil-accent: rgb(23 121 225);
+  /* accent-hover · oklch(52% 0.18 255) */
+  --anvil-accent-hover: rgb(0 102 205);
+  /* accent-soft · oklch(96% 0.02 255) */
+  --anvil-accent-soft: rgb(233 243 255);
+  --anvil-accent-surface: var(--anvil-accent-soft);
+  /* on-accent · oklch(99% 0 0) */
+  --anvil-on-accent: rgb(252 252 252);
+  /* success · oklch(56% 0.13 152) */
+  --anvil-success: rgb(38 137 76);
+  /* success-soft · oklch(96.5% 0.03 152) */
+  --anvil-success-soft: rgb(229 250 234);
+  --anvil-success-surface: var(--anvil-success-soft);
+  /* warn · oklch(58% 0.12 72) */
+  --anvil-warn: rgb(165 109 15);
+  /* warn-soft · oklch(97% 0.04 78) */
+  --anvil-warn-soft: rgb(255 243 216);
+  --anvil-warning: var(--anvil-warn);
+  --anvil-warning-surface: var(--anvil-warn-soft);
+  /* danger · oklch(55% 0.17 25) */
+  --anvil-danger: rgb(193 60 59);
+  /* danger-soft · oklch(96.5% 0.025 25) */
+  --anvil-danger-soft: rgb(255 237 235);
+  --anvil-danger-surface: var(--anvil-danger-soft);
+
+  --anvil-focus: var(--anvil-accent);
+
+  /* 派生：原型没有单独定义，按原型 `.badge-*` 的 color-mix 比例算。 */
+  --anvil-accent-border: color-mix(in oklab, var(--anvil-accent) 22%, transparent);
+  --anvil-success-border: color-mix(in oklab, var(--anvil-success) 24%, transparent);
+  --anvil-warning-border: color-mix(in oklab, var(--anvil-warning) 26%, transparent);
+  --anvil-danger-border: color-mix(in oklab, var(--anvil-danger) 24%, transparent);
+  --anvil-overlay: color-mix(in oklab, var(--anvil-foreground) 45%, transparent);
 }
 
+/*
+ * 颜色：深色主题。
+ *
+ * 原型**没有**深色块（studio.css 只有一份 :root，全文没有 prefers-color-scheme /
+ * data-theme），所以这一块是推导值：色相与彩度沿用原型同名 token，明度取锚点表
+ * （design/tokens.ts 的 DARK_LIGHTNESS）。tokens.test.ts 锁定：C/H 与浅色一致、
+ * L 与锚点一致、明度顺序与浅色一致、关键配色对达到 WCAG AA。
+ * 原型将来补了深色块，那条测试会红，提示把锚点换成契约值。
+ */
 [data-theme="dark"] {
-  --anvil-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+  /* bg → oklch(14% 0.002 240) */
+  --anvil-background: rgb(8 9 10);
+  /* surface-2 → oklch(15.5% 0.004 250) */
+  --anvil-surface: rgb(11 12 14);
+  --anvil-surface-2: var(--anvil-surface);
+  /* surface-3 → oklch(22% 0.005 250) */
+  --anvil-surface-3: rgb(25 27 29);
+  /* surface → oklch(18% 0 0) */
+  --anvil-surface-raised: rgb(18 18 18);
+  /* fg → oklch(95% 0.012 250) */
+  --anvil-foreground: rgb(233 239 246);
+  --anvil-fg: var(--anvil-foreground);
+  /* fg-2 → oklch(82% 0.012 250) */
+  --anvil-fg-2: rgb(190 197 204);
+  /* muted → oklch(66% 0.012 250) */
+  --anvil-muted: rgb(141 147 153);
+  /* border → oklch(27% 0.005 250) */
+  --anvil-border: rgb(37 39 41);
+  /* border-strong → oklch(35% 0.007 250) */
+  --anvil-border-strong: rgb(56 59 62);
+  /* accent → oklch(68% 0.18 255) */
+  --anvil-accent: rgb(62 152 255);
+  /* accent-hover → oklch(74% 0.18 255) */
+  --anvil-accent-hover: rgb(82 172 255);
+  /* accent-soft → oklch(26% 0.02 255) */
+  --anvil-accent-soft: rgb(30 37 46);
+  --anvil-accent-surface: var(--anvil-accent-soft);
+  /* on-accent → oklch(99% 0 0) */
+  --anvil-on-accent: rgb(252 252 252);
+  /* success → oklch(72% 0.13 152) */
+  --anvil-success: rgb(94 188 123);
+  /* success-soft → oklch(24% 0.03 152) */
+  --anvil-success-soft: rgb(20 35 24);
+  --anvil-success-surface: var(--anvil-success-soft);
+  /* warn → oklch(76% 0.12 72) */
+  --anvil-warn: rgb(224 164 84);
+  /* warn-soft → oklch(26% 0.04 78) */
+  --anvil-warn-soft: rgb(47 33 12);
+  --anvil-warning: var(--anvil-warn);
+  --anvil-warning-surface: var(--anvil-warn-soft);
+  /* danger → oklch(70% 0.17 25) */
+  --anvil-danger: rgb(246 109 103);
+  /* danger-soft → oklch(25% 0.025 25) */
+  --anvil-danger-soft: rgb(45 29 28);
+  --anvil-danger-surface: var(--anvil-danger-soft);
 
-  --anvil-background: #0f1218;
-  --anvil-surface: #171b22;
-  --anvil-surface-raised: #1e232c;
-  --anvil-foreground: #e6e9ee;
-  --anvil-muted: #98a1b0;
-  --anvil-border: #2a303a;
-  --anvil-accent: #8ab4ff;
-  --anvil-accent-border: #33507e;
-  --anvil-accent-surface: #1a2536;
-  --anvil-success: #6fdc9b;
-  --anvil-success-border: #2c5a41;
-  --anvil-success-surface: #14261c;
-  --anvil-warning: #f0c274;
-  --anvil-warning-border: #5c4622;
-  --anvil-warning-surface: #2a2113;
-  --anvil-danger: #ff9a9a;
-  --anvil-danger-border: #6b2b2b;
-  --anvil-danger-surface: #2a1616;
-  --anvil-focus: #8ab4ff;
-  --anvil-overlay: rgb(0 0 0 / 0.35);
+  --anvil-focus: var(--anvil-accent);
+
+  --anvil-accent-border: color-mix(in oklab, var(--anvil-accent) 22%, transparent);
+  --anvil-success-border: color-mix(in oklab, var(--anvil-success) 24%, transparent);
+  --anvil-warning-border: color-mix(in oklab, var(--anvil-warning) 26%, transparent);
+  --anvil-danger-border: color-mix(in oklab, var(--anvil-danger) 24%, transparent);
+  --anvil-overlay: color-mix(in oklab, var(--anvil-foreground) 45%, transparent);
 }
+
+/* ==========================================================================
+   基础排版（取自 studio.css 的 body / h1–h4 / code / ::selection / focus）
+   ========================================================================== */
 
 :root {
-  font-family: var(--anvil-font-sans);
+  font-family: var(--anvil-font-body);
   background-color: var(--anvil-background);
   color: var(--anvil-foreground);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
   background-color: var(--anvil-background);
+  color: var(--anvil-foreground);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--anvil-font-display);
+  margin: 0;
+  letter-spacing: 0;
+  font-weight: 560;
+}
+
+h1 {
+  font-size: 26px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+h3 {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+h4 {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+p {
+  margin: 0;
+}
+
+code,
+kbd,
+.mono {
+  font-family: var(--anvil-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+}
+
+::selection {
+  background: var(--anvil-accent-soft);
   color: var(--anvil-foreground);
 }
 
@@ -105,6 +300,29 @@ body {
 :focus-visible {
   outline: 2px solid var(--anvil-focus);
   outline-offset: 2px;
+  border-radius: var(--anvil-r-xs);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--anvil-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--anvil-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--anvil-muted);
+  background-clip: content-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -113,5 +331,772 @@ body {
   *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ==========================================================================
+   外壳（几何与结构逐条对应 studio.css 的 .shell / .sidebar / .brand /
+   .nav-* / .sidebar-history* / .runtime-mini / .user-chip / .topbar / .page）
+   ========================================================================== */
+
+@layer components {
+  .anvil-shell {
+    display: grid;
+    /* DOM 顺序 = Tab 顺序（顶栏 → 侧栏 → 内容），视觉顺序由 grid-area 决定：
+       原型的 DOM 是侧栏在前，但那样 Tab 会先走侧栏、顶栏搜索落到后面。 */
+    grid-template-columns: var(--anvil-sidebar-w) minmax(0, 1fr);
+    grid-template-areas:
+      "sidebar topbar"
+      "sidebar page";
+    height: 100vh;
+    overflow: hidden;
+    background: var(--anvil-background);
+    color: var(--anvil-foreground);
+  }
+
+  .anvil-shell[data-detail="open"] {
+    grid-template-columns: var(--anvil-sidebar-w) minmax(0, 1fr) var(--anvil-detail-w);
+    grid-template-areas:
+      "sidebar topbar detail"
+      "sidebar page detail";
+  }
+
+  .anvil-sidebar {
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--anvil-surface);
+    border-right: 1px solid var(--anvil-border);
+    padding: 14px 10px 10px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .anvil-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 8px 14px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--anvil-r-sm);
+  }
+
+  .anvil-brand:hover {
+    background: var(--anvil-surface-3);
+  }
+
+  .anvil-brand-mark {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    background: var(--anvil-foreground);
+    color: var(--anvil-background);
+    border-radius: 7px;
+    flex: none;
+  }
+
+  .anvil-brand-copy {
+    min-width: 0;
+  }
+
+  .anvil-brand-name {
+    display: block;
+    font-family: var(--anvil-font-display);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  .anvil-brand-sub {
+    display: block;
+    font-size: 10.5px;
+    color: var(--anvil-muted);
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+  }
+
+  .anvil-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* 可收缩 + 自己滚：11 个入口（原型把这 6 个收进 hover flyout，我们保留
+       可点的入口，见 D1 报告）在 600px 高的窗口里放不下。允许导航滚动，
+       才能保证页脚（Pi 状态/工作区）不被挤出视口——那是可达性问题，不只是好看。 */
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .anvil-nav-group {
+    margin-top: 12px;
+  }
+
+  .anvil-nav-label {
+    display: block;
+    width: 100%;
+    font-size: 10.5px;
+    color: var(--anvil-muted);
+    letter-spacing: 0.08em;
+    padding: 0 8px 6px;
+    font-weight: 500;
+    text-align: left;
+    border: 0;
+    background: transparent;
+  }
+
+  .anvil-nav-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .anvil-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px;
+    border-radius: var(--anvil-r-sm);
+    color: var(--anvil-fg-2);
+    font-size: 13px;
+    line-height: 1.4;
+    border: 1px solid transparent;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background var(--anvil-motion-base) var(--anvil-ease),
+      color var(--anvil-motion-base) var(--anvil-ease),
+      border-color var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-nav-item svg {
+    flex: none;
+    color: var(--anvil-muted);
+    transition: color var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-nav-item:hover {
+    background: var(--anvil-surface-3);
+    color: var(--anvil-fg);
+  }
+
+  .anvil-nav-item:hover svg {
+    color: var(--anvil-fg-2);
+  }
+
+  .anvil-nav-item[aria-current="page"] {
+    background: var(--anvil-surface-raised);
+    border-color: var(--anvil-border);
+    color: var(--anvil-fg);
+    font-weight: 550;
+    box-shadow: var(--anvil-shadow-sm);
+  }
+
+  .anvil-nav-item[aria-current="page"] svg {
+    color: var(--anvil-fg);
+  }
+
+  .anvil-nav-caret {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    transition: transform var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-nav-toggle[aria-expanded="true"] .anvil-nav-caret {
+    transform: rotate(90deg);
+  }
+
+  .anvil-shell-topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 20px;
+    height: var(--anvil-topbar-h);
+    flex: none;
+    border-bottom: 1px solid var(--anvil-border);
+    background: color-mix(in oklab, var(--anvil-background) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(12px);
+    position: relative;
+    z-index: 20;
+  }
+
+  .anvil-topbar-crumb {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--anvil-muted);
+    white-space: nowrap;
+  }
+
+  .anvil-topbar-crumb .sep {
+    color: var(--anvil-border-strong);
+  }
+
+  .anvil-topbar-crumb strong {
+    color: var(--anvil-fg);
+    font-weight: 580;
+  }
+
+  .anvil-topbar-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 320px;
+  }
+
+  .anvil-topbar-spacer {
+    margin-left: auto;
+  }
+
+  .anvil-page {
+    grid-area: page;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--anvil-background);
+  }
+
+  .anvil-detail {
+    grid-area: detail;
+    min-height: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--anvil-border);
+    background: var(--anvil-surface-raised);
+  }
+
+  .anvil-iconbtn {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--anvil-r-sm);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--anvil-muted);
+    cursor: pointer;
+    flex: none;
+    transition:
+      background var(--anvil-motion-base) var(--anvil-ease),
+      color var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-iconbtn:hover {
+    background: var(--anvil-surface-3);
+    color: var(--anvil-fg);
+  }
+
+  .anvil-iconbtn[aria-pressed="true"] {
+    background: var(--anvil-surface-3);
+    color: var(--anvil-fg);
+  }
+
+  /* ---------- 侧栏历史（studio.css 的 .sidebar-history* / .history-*） ---------- */
+
+  .anvil-sidebar-history {
+    display: flex;
+    flex-direction: column;
+    /* basis 0 + min-height：有空间就让给历史（导航不被压缩），
+       窗口太矮时由 min-height 兜底、导航改为自己滚。 */
+    min-height: 96px;
+    margin-top: 15px;
+    padding-top: 12px;
+    border-top: 1px solid var(--anvil-border);
+    flex: 1 1 0;
+  }
+
+  .anvil-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px 6px;
+    font-size: 10.5px;
+    color: var(--anvil-muted);
+    letter-spacing: 0.06em;
+  }
+
+  .anvil-history-search {
+    height: 28px;
+    margin: 0 5px 7px;
+    padding: 0 7px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--anvil-border);
+    border-radius: var(--anvil-r-sm);
+    background: var(--anvil-surface-raised);
+    color: var(--anvil-muted);
+  }
+
+  .anvil-history-search:focus-within {
+    border-color: var(--anvil-border-strong);
+    box-shadow: 0 0 0 2px var(--anvil-surface-3);
+  }
+
+  .anvil-history-search select {
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font-size: 11px;
+    color: var(--anvil-fg-2);
+  }
+
+  .anvil-history-scroll {
+    /* flex:1 + min-height:0 是"滚自己的内容、不把页脚顶掉"的必要条件：
+       少了 flex:1 时列表按内容高度撑开，页脚会被推到视口外面。 */
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 2px;
+  }
+
+  .anvil-history-section-label {
+    padding: 7px 8px 4px;
+    font-size: 9.5px;
+    color: var(--anvil-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .anvil-history-personal-label {
+    margin-top: 7px;
+    padding-top: 10px;
+    border-top: 1px solid var(--anvil-border);
+  }
+
+  .anvil-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .anvil-history-project {
+    margin-bottom: 2px;
+  }
+
+  .anvil-project-head {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) 14px;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: var(--anvil-r-sm);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    color: var(--anvil-fg-2);
+  }
+
+  .anvil-project-head:hover {
+    background: var(--anvil-surface-3);
+  }
+
+  .anvil-project-icon {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--anvil-border);
+    border-radius: 5px;
+    background: var(--anvil-surface-raised);
+    color: var(--anvil-fg-2);
+  }
+
+  .anvil-project-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 550;
+  }
+
+  .anvil-project-meta {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9px;
+    color: var(--anvil-muted);
+    margin-top: 1px;
+  }
+
+  .anvil-project-caret {
+    display: grid;
+    place-items: center;
+    color: var(--anvil-muted);
+    transition: transform var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-project-head[aria-expanded="true"] .anvil-project-caret {
+    transform: rotate(90deg);
+  }
+
+  .anvil-project-sessions {
+    list-style: none;
+    margin: 0 0 0 10px;
+    padding: 0 0 0 7px;
+    border-left: 1px solid var(--anvil-border);
+  }
+
+  .anvil-history-row {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    border-radius: var(--anvil-r-sm);
+  }
+
+  .anvil-history-row:hover {
+    background: var(--anvil-surface-3);
+  }
+
+  .anvil-history-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: var(--anvil-r-sm);
+    min-width: 0;
+    color: var(--anvil-fg-2);
+    flex: 1;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .anvil-history-row:hover .anvil-history-item {
+    background: transparent;
+  }
+
+  .anvil-history-item[aria-current="page"] {
+    background: var(--anvil-surface-raised);
+    color: var(--anvil-fg);
+  }
+
+  .anvil-history-icon {
+    width: 14px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    flex: none;
+    color: var(--anvil-muted);
+  }
+
+  .anvil-history-row[data-pinned="true"] .anvil-history-icon {
+    color: var(--anvil-accent);
+  }
+
+  .anvil-history-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .anvil-history-title {
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .anvil-history-meta {
+    display: block;
+    font-size: 9.5px;
+    color: var(--anvil-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .anvil-history-actions {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding-right: 4px;
+    opacity: 0;
+    transition: opacity var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-history-row:hover .anvil-history-actions,
+  .anvil-history-row:focus-within .anvil-history-actions {
+    opacity: 1;
+  }
+
+  /* 键盘聚焦的个体也要露出来：只靠 row 的 focus-within 在某些浏览器里
+     会因为按钮自身获得焦点而闪一下，直接给按钮补一条。 */
+  .anvil-history-actions:focus-within {
+    opacity: 1;
+  }
+
+  .anvil-history-action {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: 0;
+    border-radius: var(--anvil-r-xs);
+    background: transparent;
+    color: var(--anvil-muted);
+    cursor: pointer;
+  }
+
+  .anvil-history-action:hover {
+    background: var(--anvil-surface-raised);
+    color: var(--anvil-fg);
+  }
+
+  .anvil-history-action[data-danger="true"]:hover {
+    color: var(--anvil-danger);
+  }
+
+  .anvil-history-more {
+    width: 100%;
+    border: 1px solid var(--anvil-border);
+    border-radius: var(--anvil-r-sm);
+    background: var(--anvil-surface-raised);
+    color: var(--anvil-fg-2);
+    font-size: 11px;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+
+  .anvil-history-more:hover {
+    background: var(--anvil-surface-3);
+  }
+
+  .anvil-history-more:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ---------- 侧栏底部：Pi 运行时 + 工作区（.runtime-mini / .user-chip） ---------- */
+
+  .anvil-sidebar-foot {
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--anvil-border);
+    flex: none;
+  }
+
+  .anvil-runtime {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: var(--anvil-r-sm);
+    margin-bottom: 3px;
+    color: var(--anvil-fg-2);
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .anvil-runtime:hover {
+    background: var(--anvil-surface-3);
+    color: var(--anvil-fg);
+  }
+
+  .anvil-runtime-icon {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--anvil-r-sm);
+    background: var(--anvil-foreground);
+    color: var(--anvil-background);
+    font-family: var(--anvil-font-display);
+    font-size: 12px;
+    font-weight: 600;
+    flex: none;
+  }
+
+  .anvil-runtime-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .anvil-runtime-name {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 550;
+    line-height: 1.3;
+  }
+
+  .anvil-runtime-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9.5px;
+    color: var(--anvil-muted);
+    margin-top: 2px;
+  }
+
+  .anvil-runtime-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--anvil-success);
+    flex: none;
+  }
+
+  .anvil-runtime-dot[data-missing="true"] {
+    background: var(--anvil-danger);
+  }
+
+  .anvil-user-chip {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    border-radius: var(--anvil-r-sm);
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--anvil-motion-base) var(--anvil-ease);
+  }
+
+  .anvil-user-chip:hover {
+    background: var(--anvil-surface-3);
+  }
+
+  .anvil-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--anvil-surface-3);
+    border: 1px solid var(--anvil-border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--anvil-fg-2);
+    flex: none;
+  }
+
+  .anvil-user-name {
+    display: block;
+    font-size: 12.5px;
+    line-height: 1.25;
+    color: var(--anvil-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .anvil-user-meta {
+    display: block;
+    font-size: 10.5px;
+    color: var(--anvil-muted);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* ==========================================================================
+   矮窗口（≤820px 高）：整块侧栏自己滚。
+ 
+   为什么不能在矮窗口里保留"导航固定 + 历史独立滚"：11 个入口 + 品牌 + 页脚 +
+   历史在 600–768px 高里放不下。任何一个子块溢出自己的盒子，它的按钮矩形就会
+   盖住下面的兄弟按钮——U07 的 overlap 审计判的是几何，不认"被 overflow 裁掉了"。
+   所以矮窗口把导航与历史放进同一个滚动流：内容按顺序排、整体滚动，
+   既不裁也不叠。高的窗口（≥900px）仍保持原型的"历史独立滚"。
+   ========================================================================== */
+
+@media (max-height: 820px) {
+  .anvil-sidebar {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .anvil-nav {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .anvil-sidebar-history {
+    flex: none;
+    min-height: 0;
+  }
+
+  .anvil-history-scroll {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .anvil-sidebar-foot {
+    flex: none;
+  }
+}
+
+/* ==========================================================================
+   矮窗口（≤720px 高）的紧凑外壳。
+ 
+   为什么需要：侧栏里 11 个导航入口（原型把这 6 个收进 hover flyout）在 720px
+   高的窗口里会比可用高度多出 9px，多出来的部分一旦被裁掉，按钮的矩形就会盖到
+   页脚上——可达性审计会判成 overlap。原型自己的答案是 hover flyout / 60px 图标栏，
+   但 U07 的验收要求九个入口的文案同时可见可点（e2e 只读，不可改），
+   所以这里保留结构、只压密度：行高 34→27、页脚 40→34，历史区保住 116px。
+   ========================================================================== */
+
+@media (max-height: 720px) {
+  .anvil-brand {
+    padding: 2px 8px 8px;
+  }
+
+  .anvil-nav-item {
+    padding: 4px 8px;
+    font-size: 12.5px;
+  }
+
+  .anvil-nav-label {
+    padding: 0 8px 4px;
+  }
+
+  .anvil-nav-group {
+    margin-top: 8px;
+  }
+
+  .anvil-sidebar-history {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .anvil-runtime,
+  .anvil-user-chip {
+    padding: 4px 8px;
+  }
+
+  .anvil-sidebar-foot {
+    margin-top: 6px;
+    padding-top: 8px;
   }
 }

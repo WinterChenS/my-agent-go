@@ -146,7 +146,8 @@
       "runs": "The event stream of this run",
       "observability": "Inspect usage, run chains and diagnostics export."
     },
-    "observability": "Observability"
+    "observability": "Observability",
+    "startLabel": "Start"
   },
   "shell": {
     "piStatus": "Pi status",
@@ -175,7 +176,13 @@
     "confirmDelete": "Delete this session?",
     "showDetails": "Show details panel",
     "hideDetails": "Hide details panel",
-    "toggleTools": "Expand or collapse tools & automation"
+    "toggleTools": "Expand or collapse tools & automation",
+    "brandSub": "Local agent client",
+    "workspaceRoot": "Workspace",
+    "projectSessions": "Project chats",
+    "projectMeta": "{count} chats · {path}",
+    "piAgent": "Pi Agent",
+    "retryHistory": "Retry"
   },
   "workbench": {
     "title": "Workbench",
