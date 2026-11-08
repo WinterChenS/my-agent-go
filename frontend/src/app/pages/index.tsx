@@ -12,10 +12,8 @@ import { AsyncState } from "../../components/states/AsyncState";
 import { StatusBadge } from "../../components/status/StatusBadge";
 import { formatError, t } from "../../i18n";
 import type { CallError } from "../../types";
-import { SkillsSection } from "../../features/skills/SkillsSection";
-import { ExtensionsSection } from "../../features/skills/ExtensionsSection";
-import { MCPSection } from "../../features/mcp/MCPSection";
-import { ToolsSection } from "../../features/tools/ToolsSection";
+import { SkillsPage as SkillsPageView } from "../../features/skills/SkillsPage";
+import { McpPage } from "../../features/mcp/McpPage";
 import { RunsView } from "../../features/runs/RunsView";
 import { WorkbenchView } from "../../features/workbench/WorkbenchView";
 import { useShell } from "../shell";
@@ -41,12 +39,17 @@ export { AgentsPage } from "../../features/agents/AgentsPage";
 
 // ---------------------------------------------------------------- Skill / MCP / 资源库
 
-/** Skill 页：托管技能 + 扩展（真实启停与试运行仍由 C03 服务判定）。 */
+/**
+ * Skill 页：托管技能 + 扩展（真实启停与试运行仍由 C03 服务判定）。
+ *
+ * 页面本体在 features/skills/SkillsPage：那里只接收壳层读到的真实值，
+ * 自己不复制一份后端状态；这一层只做接线。
+ */
 export function SkillsPage() {
   const shell = useShell();
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-4 py-5">
-      <SkillsSection
+      <SkillsPageView
         skills={shell.skills}
         revision={shell.skillRevision}
         pending={shell.skillsPending}
@@ -54,11 +57,8 @@ export function SkillsPage() {
         runtimeSkills={shell.status?.runtimeSkills ?? []}
         workspaceId={shell.currentWorkspace?.id ?? ""}
         onChanged={shell.refreshSkills}
-      />
-      <ExtensionsSection
         extensions={shell.extensions}
-        revision={shell.extensionRevision}
-        onChanged={shell.refreshSkills}
+        extensionRevision={shell.extensionRevision}
       />
     </div>
   );
@@ -68,8 +68,7 @@ export function SkillsPage() {
 export function MCPPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-4 py-5">
-      <MCPSection />
-      <ToolsSection />
+      <McpPage />
     </div>
   );
 }

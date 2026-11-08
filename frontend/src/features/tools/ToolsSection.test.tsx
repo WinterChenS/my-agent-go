@@ -5,11 +5,12 @@
 //   - hidden / 已禁用 / 未知都不会显示成"可用"；
 //   - 空 / 加载 / 失败三态可分辨。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolsSection } from "./ToolsSection";
 import type { ToolDescriptor, ToolListResult } from "../../types";
+import { DEFAULT_LOCALE, setLocale, t } from "../../i18n";
 
 function tool(over: Partial<ToolDescriptor> = {}): ToolDescriptor {
   return {
@@ -51,6 +52,10 @@ vi.mock("../../api", () => ({
 describe("ToolsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
   });
 
   it("加载中显示加载态", async () => {
@@ -144,6 +149,27 @@ describe("ToolsSection", () => {
     render(<ToolsSection />);
     expect(await screen.findByText("需 tool_search")).toBeInTheDocument();
     expect(screen.getByText("可用")).toBeInTheDocument();
+  });
+
+  it("内置工具的描述来自 catalog，第三方工具描述原样显示", async () => {
+    const { api } = await import("../../api");
+    // 后端给的中文描述（internal/resources/tools.go）在 en-US 下必须被 catalog 顶掉，
+    // 否则英文界面里会直接出现中文工具说明。
+    const backendText = "读取工作区文件（只读）";
+    vi.mocked(api.tools).mockResolvedValueOnce(
+      toolsResult([
+        tool({ name: "read", source: "builtin", description: backendText }),
+        tool({ name: "harness_probe", source: "harness", description: "自有探针" }),
+      ])
+    );
+    setLocale("en-US");
+    render(<ToolsSection />);
+    await screen.findByText("harness_probe");
+
+    expect(screen.getByText(t("tools.builtin.read"))).toBeInTheDocument();
+    expect(screen.queryByText(backendText)).not.toBeInTheDocument();
+    // 第三方（harness/MCP）的描述是原文，不翻译。
+    expect(screen.getByText("自有探针")).toBeInTheDocument();
   });
 
   it("刷新会重新读取工具目录", async () => {

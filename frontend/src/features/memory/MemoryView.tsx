@@ -248,8 +248,8 @@ export function MemoryView() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-5">
       <header className="mb-3">
-        <h2 className="text-sm font-medium text-slate-200">记忆</h2>
-        <p className="mt-0.5 text-[11px] text-slate-500">
+        <h2 className="text-sm font-medium text-[color:var(--anvil-foreground)]">记忆</h2>
+        <p className="mt-0.5 text-[11px] text-[color:var(--anvil-muted)]">
           跨会话保留的上下文。项目之间互相隔离，不会把 A 项目的记忆带进 B 项目；
           用户级条目在所有项目可见。
         </p>
@@ -266,7 +266,7 @@ export function MemoryView() {
       ) : (
         <div className="space-y-4">
           {/* 检索 */}
-          <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <section className="rounded-xl border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] p-3">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -275,7 +275,7 @@ export function MemoryView() {
               className="flex items-end gap-2"
             >
               <label className="min-w-0 flex-1">
-                <span className="mb-1 block text-[11px] text-slate-400">搜索记忆</span>
+                <span className="mb-1 block text-[11px] text-[color:var(--anvil-muted)]">搜索记忆</span>
                 <input
                   aria-label="搜索记忆"
                   value={query}
@@ -284,13 +284,13 @@ export function MemoryView() {
                     if (shortQuery) setShortQuery(null);
                   }}
                   placeholder="例如：数据库连接池"
-                  className="w-full rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-400/60 focus:outline-none"
+                  className="w-full rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1.5 text-xs text-[color:var(--anvil-foreground)] placeholder:text-[color:var(--anvil-muted)] focus:border-[color:var(--anvil-accent-border)] focus:outline-none"
                 />
               </label>
               <button
                 type="submit"
                 disabled={searching}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-white/5 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1.5 text-xs text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50"
               >
                 <Search className="h-3.5 w-3.5" aria-hidden />
                 {searching ? "检索中…" : "搜索"}
@@ -299,33 +299,33 @@ export function MemoryView() {
                 <button
                   type="button"
                   onClick={clearSearch}
-                  className="rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/5"
+                  className="rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1.5 text-xs text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
                 >
                   清空检索
                 </button>
               )}
             </form>
             {shortQuery && (
-              <p role="alert" className="mt-2 text-xs text-amber-300">
+              <p role="alert" className="mt-2 text-xs text-[color:var(--anvil-warning)]">
                 {shortQuery}
               </p>
             )}
             {results && !shortQuery && (
-              <p className="mt-2 text-[11px] text-slate-500">
+              <p className="mt-2 text-[11px] text-[color:var(--anvil-muted)]">
                 检索命中 {results.length} 条（只含已生效且未过期；候选与已删除不参与）。
               </p>
             )}
           </section>
 
           {/* 范围开关 */}
-          <section aria-label="注入范围" className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-            <h3 className="mb-2 text-[11px] font-medium text-slate-300">注入范围</h3>
+          <section aria-label="注入范围" className="rounded-xl border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] p-3">
+            <h3 className="mb-2 text-[11px] font-medium text-[color:var(--anvil-foreground)]">注入范围</h3>
             <ul className="space-y-1.5">
               {scopes.map((s) => (
                 <li key={s.scope} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-slate-300">
+                  <span className="text-[color:var(--anvil-foreground)]">
                     {SCOPE_LABEL[s.scope]}{" "}
-                    <span className={s.enabled ? "text-emerald-300" : "text-slate-500"}>
+                    <span className={s.enabled ? "text-[color:var(--anvil-success)]" : "text-[color:var(--anvil-muted)]"}>
                       {s.enabled ? "注入开启" : "注入已关闭"}
                     </span>
                   </span>
@@ -333,7 +333,7 @@ export function MemoryView() {
                     type="button"
                     disabled={busyId === `scope:${s.scope}`}
                     onClick={() => void toggleScope(s)}
-                    className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5 disabled:opacity-50"
+                    className="rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50"
                   >
                     {s.enabled ? "关闭注入" : "开启注入"}
                   </button>
@@ -345,16 +345,16 @@ export function MemoryView() {
           {/* 列表 */}
           <section aria-label="记忆列表">
             <div className="mb-1.5 flex items-center justify-between">
-              <h3 className="text-[11px] font-medium text-slate-300">
+              <h3 className="text-[11px] font-medium text-[color:var(--anvil-foreground)]">
                 {results ? "检索结果" : "全部记忆"}
-                <span className="ml-1.5 text-slate-500">
+                <span className="ml-1.5 text-[color:var(--anvil-muted)]">
                   {visible.length} 条，可用 {activeCount} 条
                 </span>
               </h3>
               <button
                 type="button"
                 onClick={() => void exportMemories()}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
+                className="inline-flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)]"
               >
                 <Download className="h-3 w-3" aria-hidden />
                 导出
@@ -390,24 +390,24 @@ export function MemoryView() {
           </section>
 
           {/* 新建 */}
-          <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-            <h3 className="mb-2 text-[11px] font-medium text-slate-300">新建记忆</h3>
+          <section className="rounded-xl border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] p-3">
+            <h3 className="mb-2 text-[11px] font-medium text-[color:var(--anvil-foreground)]">新建记忆</h3>
             <textarea
               aria-label="记忆内容"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               rows={3}
               placeholder="例如：数据库连接池上限为二十"
-              className="w-full rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-400/60 focus:outline-none"
+              className="w-full rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1.5 text-xs text-[color:var(--anvil-foreground)] placeholder:text-[color:var(--anvil-muted)] focus:border-[color:var(--anvil-accent-border)] focus:outline-none"
             />
             <div className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="text-[11px] text-slate-400">
+              <label className="text-[11px] text-[color:var(--anvil-muted)]">
                 类型
                 <select
                   aria-label="记忆类型"
                   value={kind}
                   onChange={(e) => setKind(e.target.value)}
-                  className="ml-1 rounded-md border border-white/10 bg-slate-950/60 px-1.5 py-1 text-xs text-slate-200"
+                  className="ml-1 rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-1.5 py-1 text-xs text-[color:var(--anvil-foreground)]"
                 >
                   {KIND_OPTIONS.map((k) => (
                     <option key={k} value={k}>
@@ -416,13 +416,13 @@ export function MemoryView() {
                   ))}
                 </select>
               </label>
-              <label className="text-[11px] text-slate-400">
+              <label className="text-[11px] text-[color:var(--anvil-muted)]">
                 范围
                 <select
                   aria-label="记忆范围"
                   value={scope}
                   onChange={(e) => setScope(e.target.value as MemoryScope)}
-                  className="ml-1 rounded-md border border-white/10 bg-slate-950/60 px-1.5 py-1 text-xs text-slate-200"
+                  className="ml-1 rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-1.5 py-1 text-xs text-[color:var(--anvil-foreground)]"
                 >
                   <option value="workspace">项目级（仅当前项目）</option>
                   <option value="user">用户级（跨项目）</option>
@@ -432,40 +432,40 @@ export function MemoryView() {
                 type="button"
                 disabled={saving}
                 onClick={() => void saveMemory()}
-                className="inline-flex items-center gap-1 rounded-md bg-sky-500/90 px-2.5 py-1.5 text-xs font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md bg-[color:var(--anvil-accent)] px-2.5 py-1.5 text-xs font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-accent)] disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden />
                 {saving ? "保存中…" : "保存记忆"}
               </button>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2 text-[11px] text-[color:var(--anvil-muted)]">
               显式保存直接生效。密钥类文本会被拒绝：请把凭证放进凭证库，不要把工具日志原文存成记忆。
             </p>
           </section>
 
           {notice && (
-            <p role="status" className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-slate-300">
+            <p role="status" className="rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-2.5 py-1.5 text-[11px] text-[color:var(--anvil-foreground)]">
               {notice}
             </p>
           )}
 
           {exported && (
-            <section className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+            <section className="rounded-xl border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] p-3">
               <div className="mb-1.5 flex items-center justify-between">
-                <h3 className="text-[11px] font-medium text-slate-300">
+                <h3 className="text-[11px] font-medium text-[color:var(--anvil-foreground)]">
                   导出内容（{exported.count} 条，仅本地）
                 </h3>
                 <button
                   type="button"
                   onClick={() => setExported(null)}
-                  className="rounded-md border border-white/10 px-2 py-0.5 text-[11px] text-slate-400 hover:bg-white/5"
+                  className="rounded-md border border-[color:var(--anvil-border)] px-2 py-0.5 text-[11px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
                 >
                   收起
                 </button>
               </div>
               <pre
                 aria-label="记忆导出 JSON"
-                className="max-h-64 overflow-auto rounded-md bg-black/40 p-2 text-[11px] leading-relaxed text-slate-300"
+                className="max-h-64 overflow-auto rounded-md bg-[color:var(--anvil-surface)] p-2 text-[11px] leading-relaxed text-[color:var(--anvil-foreground)]"
               >
                 {exported.json}
               </pre>
@@ -497,37 +497,37 @@ function MemoryRow({
   const expired = isExpired(item);
   const candidate = item.status === "candidate";
   return (
-    <li className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
+    <li className="rounded-lg border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-2.5 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="break-words text-xs text-slate-200">{item.content}</p>
+          <p className="break-words text-xs text-[color:var(--anvil-foreground)]">{item.content}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-            <span className="rounded bg-white/5 px-1.5 py-0.5 text-slate-400">
+            <span className="rounded bg-[color:var(--anvil-surface)] px-1.5 py-0.5 text-[color:var(--anvil-muted)]">
               {SCOPE_LABEL[item.scope]}
             </span>
-            <span className="rounded bg-white/5 px-1.5 py-0.5 text-slate-400">
+            <span className="rounded bg-[color:var(--anvil-surface)] px-1.5 py-0.5 text-[color:var(--anvil-muted)]">
               {KIND_LABEL[item.kind] ?? item.kind}
             </span>
             {candidate && (
-              <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-300">
+              <span className="rounded bg-[color:var(--anvil-warning-surface)] px-1.5 py-0.5 text-[color:var(--anvil-warning)]">
                 候选 · 未注入
               </span>
             )}
             {item.status === "active" && !expired && (
-              <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-emerald-300">
+              <span className="rounded bg-[color:var(--anvil-success-surface)] px-1.5 py-0.5 text-[color:var(--anvil-success)]">
                 已生效
               </span>
             )}
             {expired && (
-              <span className="rounded bg-rose-400/10 px-1.5 py-0.5 text-rose-300">
+              <span className="rounded bg-[color:var(--anvil-danger-surface)] px-1.5 py-0.5 text-[color:var(--anvil-danger)]">
                 已过期 · 不注入
               </span>
             )}
-            <span className="text-slate-500">
+            <span className="text-[color:var(--anvil-muted)]">
               来源会话：{item.sourceSessionId || "未记录"}
             </span>
             {item.expiresAt && (
-              <span className="text-slate-500">过期时间：{item.expiresAt}</span>
+              <span className="text-[color:var(--anvil-muted)]">过期时间：{item.expiresAt}</span>
             )}
           </div>
         </div>
@@ -537,7 +537,7 @@ function MemoryRow({
               type="button"
               disabled={busy}
               onClick={onConfirm}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-400/30 px-1.5 py-1 text-[11px] text-emerald-200 hover:bg-emerald-400/10 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-[color:var(--anvil-success-border)] px-1.5 py-1 text-[11px] text-[color:var(--anvil-success)] hover:bg-[color:var(--anvil-success-surface)] disabled:opacity-50"
             >
               <Check className="h-3 w-3" aria-hidden />
               确认
@@ -549,14 +549,14 @@ function MemoryRow({
                 type="button"
                 disabled={busy}
                 onClick={onDelete}
-                className="rounded-md bg-rose-500/90 px-1.5 py-1 text-[11px] font-medium text-slate-950 hover:bg-rose-400 disabled:opacity-50"
+                className="rounded-md bg-[color:var(--anvil-danger)] px-1.5 py-1 text-[11px] font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-danger)] disabled:opacity-50"
               >
                 确认删除
               </button>
               <button
                 type="button"
                 onClick={onCancelDelete}
-                className="rounded-md border border-white/10 px-1.5 py-1 text-[11px] text-slate-400 hover:bg-white/5"
+                className="rounded-md border border-[color:var(--anvil-border)] px-1.5 py-1 text-[11px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
               >
                 取消
               </button>
@@ -566,7 +566,7 @@ function MemoryRow({
               type="button"
               aria-label={`删除记忆 ${item.id}`}
               onClick={onAskDelete}
-              className="inline-flex items-center gap-1 rounded-md border border-white/10 px-1.5 py-1 text-[11px] text-slate-400 hover:bg-white/5"
+              className="inline-flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-1.5 py-1 text-[11px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)]"
             >
               <Trash2 className="h-3 w-3" aria-hidden />
               删除

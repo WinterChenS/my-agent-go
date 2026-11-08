@@ -19,10 +19,8 @@ import { api } from "../../api";
 import { toCallError } from "../../app/useBackend";
 import { ProfileEditor } from "../profiles/ProfileEditor";
 import { ModelsSection } from "../models/ModelsSection";
-import { SkillsSection } from "../skills/SkillsSection";
-import { ExtensionsSection } from "../skills/ExtensionsSection";
-import { MCPSection } from "../mcp/MCPSection";
-import { ToolsSection } from "../tools/ToolsSection";
+import { SkillsPage } from "../skills/SkillsPage";
+import { McpPage } from "../mcp/McpPage";
 import { EmptyState } from "../../components/StateViews";
 
 export interface ResourcesViewProps {
@@ -103,7 +101,7 @@ export function ResourcesView({
         onChanged={onModelsChanged}
       />
 
-      <SkillsSection
+      <SkillsPage
         skills={skills}
         revision={skillRevision}
         pending={skillsPending}
@@ -111,32 +109,28 @@ export function ResourcesView({
         runtimeSkills={runtimeSkills}
         workspaceId={workspaceId}
         onChanged={onSkillsChanged}
-      />
-
-      <ExtensionsSection
         extensions={extensions}
-        revision={extensionRevision}
-        onChanged={onSkillsChanged}
+        extensionRevision={extensionRevision}
       />
 
       <section>
         <header className="mb-2 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium text-slate-200">配置档</h2>
-            <p className="mt-0.5 text-[11px] text-slate-500">
+            <h2 className="text-sm font-medium text-[color:var(--anvil-foreground)]">配置档</h2>
+            <p className="mt-0.5 text-[11px] text-[color:var(--anvil-muted)]">
               一次会话用哪套模型与工具策略。引用不存在的资源会被拒绝保存。
             </p>
           </div>
           <button
             onClick={() => setEditing(null)}
-            className="flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+            className="flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
           >
             <Plus className="h-3 w-3" aria-hidden /> 新建
           </button>
         </header>
 
         {loadError && (
-          <p role="alert" className="mb-2 text-[11px] text-rose-300">
+          <p role="alert" className="mb-2 text-[11px] text-[color:var(--anvil-danger)]">
             <span className="font-mono text-[10px]">{loadError.code}</span> {loadError.message}
           </p>
         )}
@@ -152,16 +146,16 @@ export function ResourcesView({
             {profiles.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center gap-2 rounded-md border border-white/10 bg-[#141922] px-2.5 py-2"
+                className="flex items-center gap-2 rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] px-2.5 py-2"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate text-[12px] text-slate-200">{p.name || p.id}</span>
-                    <span className="shrink-0 rounded bg-white/5 px-1 py-0.5 font-mono text-[9px] text-slate-500">
+                    <span className="truncate text-[12px] text-[color:var(--anvil-foreground)]">{p.name || p.id}</span>
+                    <span className="shrink-0 rounded bg-[color:var(--anvil-surface)] px-1 py-0.5 font-mono text-[9px] text-[color:var(--anvil-muted)]">
                       rev {p.revision}
                     </span>
                   </div>
-                  <div className="truncate text-[10px] text-slate-600">
+                  <div className="truncate text-[10px] text-[color:var(--anvil-muted)]">
                     {p.modelRef || "未指定模型"} · 文件 {p.toolPolicy.filesystem}
                     {p.toolPolicy.shell ? " · shell" : ""}
                   </div>
@@ -169,7 +163,7 @@ export function ResourcesView({
                 <button
                   onClick={() => void openExisting(p)}
                   disabled={loadingId === p.id}
-                  className="rounded border border-white/10 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-white/5 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                  className="rounded border border-[color:var(--anvil-border)] px-2 py-0.5 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
                 >
                   {loadingId === p.id ? "读取中…" : "编辑"}
                 </button>
@@ -179,14 +173,14 @@ export function ResourcesView({
         )}
 
         {editing !== undefined && (
-          <div className="mt-3 rounded-lg border border-white/10 bg-[#141922] p-3">
+          <div className="mt-3 rounded-lg border border-[color:var(--anvil-border)] bg-[color:var(--anvil-surface)] p-3">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-[12px] font-medium text-slate-200">
+              <h3 className="text-[12px] font-medium text-[color:var(--anvil-foreground)]">
                 {editing ? `编辑 ${editing.name || editing.id}` : "新建配置档"}
               </h3>
               <button
                 onClick={close}
-                className="text-[11px] text-slate-500 hover:text-slate-300"
+                className="text-[11px] text-[color:var(--anvil-muted)] hover:text-[color:var(--anvil-foreground)]"
               >
                 收起
               </button>
@@ -204,9 +198,7 @@ export function ResourcesView({
         )}
       </section>
 
-      <MCPSection />
-
-      <ToolsSection />
+      <McpPage />
     </div>
   );
 }

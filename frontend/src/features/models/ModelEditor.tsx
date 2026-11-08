@@ -143,7 +143,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
   return (
     <div className="space-y-3">
       {model !== null && (!model.providerId || !model.modelId) && (
-        <p className="rounded border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-[10px] text-amber-300/90">
+        <p className="rounded border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-2 py-1 text-[10px] text-[color:var(--anvil-warning)]">
           这是旧版本保存的形状（只有 provider/baseUrl/model）。请补齐 Provider 名与模型名后保存，保存后才会被编译进
           models.json。
         </p>
@@ -156,7 +156,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             onChange={(e) => set("id", e.target.value)}
             disabled={model !== null}
             placeholder="m-demo"
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <Field label="Provider 名" hint="models.json 里的键名">
@@ -165,7 +165,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             value={form.providerId}
             onChange={(e) => set("providerId", e.target.value)}
             placeholder="demo"
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <Field label="模型名（发给 API）" hint="例如 deepseek-chat">
@@ -174,7 +174,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             value={form.modelId}
             onChange={(e) => set("modelId", e.target.value)}
             placeholder="demo-model"
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <Field label="API 类型" hint="来自后端白名单（已认证 Pi 的分发能力）">
@@ -182,7 +182,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             aria-label="API 类型"
             value={form.api}
             onChange={(e) => set("api", e.target.value)}
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           >
             {options.apis.map((v) => (
               <option key={v} value={v}>
@@ -197,7 +197,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             value={form.baseUrl}
             onChange={(e) => set("baseUrl", e.target.value)}
             placeholder="https://api.example.com/v1"
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <div className="grid grid-cols-2 gap-2">
@@ -207,7 +207,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
               value={form.contextWindow}
               onChange={(e) => set("contextWindow", e.target.value)}
               inputMode="numeric"
-              className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+              className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
             />
           </Field>
           <Field label="最大输出">
@@ -216,7 +216,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
               value={form.maxOutput}
               onChange={(e) => set("maxOutput", e.target.value)}
               inputMode="numeric"
-              className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+              className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
             />
           </Field>
         </div>
@@ -229,7 +229,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             value={form.credentialRef}
             onChange={(e) => set("credentialRef", e.target.value)}
             placeholder="cred-demo"
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
         <Field label="API Key" hint="只写不读；留空表示不修改已保存的密钥">
@@ -239,7 +239,7 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
             placeholder={model?.credentialRef ? "已保存（不回显）" : "输入后随保存写入凭证库"}
-            className="w-full rounded border border-white/10 bg-[#0f141b] px-2 py-1 text-[12px] text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
+            className="w-full rounded border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1 text-[12px] text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--anvil-focus)]"
           />
         </Field>
       </div>
@@ -247,9 +247,9 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
       <div className="flex flex-wrap items-center gap-3">
         <fieldset className="flex items-center gap-2">
           <legend className="sr-only">输入类型</legend>
-          <span className="text-[11px] text-slate-500">输入</span>
+          <span className="text-[11px] text-[color:var(--anvil-muted)]">输入</span>
           {options.inputKinds.map((kind) => (
-            <label key={kind} className="flex items-center gap-1 text-[11px] text-slate-300">
+            <label key={kind} className="flex items-center gap-1 text-[11px] text-[color:var(--anvil-foreground)]">
               <input
                 type="checkbox"
                 checked={form.inputKinds.includes(kind)}
@@ -262,9 +262,9 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
         </fieldset>
         <fieldset className="flex flex-wrap items-center gap-2">
           <legend className="sr-only">思考等级</legend>
-          <span className="text-[11px] text-slate-500">思考</span>
+          <span className="text-[11px] text-[color:var(--anvil-muted)]">思考</span>
           {options.thinkingLevels.map((lv) => (
-            <label key={lv} className="flex items-center gap-1 text-[11px] text-slate-300">
+            <label key={lv} className="flex items-center gap-1 text-[11px] text-[color:var(--anvil-foreground)]">
               <input
                 type="checkbox"
                 checked={form.thinkingLevels.includes(lv)}
@@ -278,12 +278,12 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
       </div>
 
       {error && (
-        <p role="alert" className="text-[11px] text-rose-300">
+        <p role="alert" className="text-[11px] text-[color:var(--anvil-danger)]">
           <span className="font-mono text-[10px]">{error.code}</span> {error.message}
         </p>
       )}
       {notice && (
-        <p role="status" className="text-[11px] text-amber-300">
+        <p role="status" className="text-[11px] text-[color:var(--anvil-warning)]">
           {notice}
         </p>
       )}
@@ -292,24 +292,24 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
         <button
           onClick={() => void save()}
           disabled={saving}
-          className="flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-sky-500 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
+          className="flex items-center gap-1 rounded-md bg-[color:var(--anvil-accent)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--anvil-background)] hover:bg-[color:var(--anvil-accent)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <Save className="h-3 w-3" aria-hidden /> {saving ? "保存中…" : "保存"}
         </button>
         <button
           onClick={() => void probeNow()}
           disabled={probing}
-          className="flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-white/5 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          className="flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[11px] text-[color:var(--anvil-foreground)] hover:bg-[color:var(--anvil-surface)] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <PlugZap className="h-3 w-3" aria-hidden /> {probing ? "测试中…" : "测试连接"}
         </button>
         <button
           onClick={onClose}
-          className="flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-400 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          className="flex items-center gap-1 rounded-md border border-[color:var(--anvil-border)] px-2.5 py-1 text-[11px] text-[color:var(--anvil-muted)] hover:bg-[color:var(--anvil-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
         >
           <X className="h-3 w-3" aria-hidden /> 收起
         </button>
-        <span className="text-[10px] text-slate-500">
+        <span className="text-[10px] text-[color:var(--anvil-muted)]">
           连接测试会真实调用该模型，可能产生费用；只有点击时才会发送请求。
         </span>
       </div>
@@ -317,20 +317,20 @@ export function ModelEditor({ model, options, revision, onSaved, onClose }: Mode
       {probe && (
         <div
           role="status"
-          className="rounded-md border border-white/10 bg-[#0f141b] px-2.5 py-2 text-[11px] text-slate-300"
+          className="rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2.5 py-2 text-[11px] text-[color:var(--anvil-foreground)]"
         >
           {probeError ? (
-            <div className="text-rose-300">
+            <div className="text-[color:var(--anvil-danger)]">
               <span className="font-mono text-[10px]">{probeError.code}</span>{" "}
               {probeError.message}
               {probeError.retryable && (
-                <span className="ml-1 text-slate-500">（可重试）</span>
+                <span className="ml-1 text-[color:var(--anvil-muted)]">（可重试）</span>
               )}
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-emerald-300">可达</span>
-              <span className="text-slate-500">{probe.result.latencyMs} ms</span>
+              <span className="text-[color:var(--anvil-success)]">可达</span>
+              <span className="text-[color:var(--anvil-muted)]">{probe.result.latencyMs} ms</span>
               <span>
                 工具调用：{CAPABILITY_LABEL[probe.result.toolCalling] ?? probe.result.toolCalling}
               </span>
@@ -357,8 +357,8 @@ function Field({
   return (
     <label className="block">
       <span className="mb-0.5 flex items-baseline gap-1">
-        <span className="text-[11px] text-slate-400">{label}</span>
-        {hint && <span className="truncate text-[9px] text-slate-600">{hint}</span>}
+        <span className="text-[11px] text-[color:var(--anvil-muted)]">{label}</span>
+        {hint && <span className="truncate text-[9px] text-[color:var(--anvil-muted)]">{hint}</span>}
       </span>
       {children}
     </label>
