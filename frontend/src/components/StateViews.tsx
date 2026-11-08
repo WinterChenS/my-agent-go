@@ -7,13 +7,14 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Loader2, ShieldAlert } from "lucide-react";
 import type { CallError } from "../types";
+import { t } from "../i18n";
 
-export function LoadingState({ label = "加载中…" }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-[color:var(--anvil-muted)]">
       <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
       <p className="text-xs" role="status" aria-live="polite">
-        {label}
+        {label ?? t("state.loading")}
       </p>
     </div>
   );
@@ -66,7 +67,7 @@ export function ErrorState({
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--anvil-danger)]" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-[color:var(--anvil-fg)]">
-            {title ?? "操作失败"}
+            {title ?? t("state.errorTitle")}
             <span className="ml-2 rounded border border-[color:var(--anvil-danger-border)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--anvil-danger)]">
               {error.code}
             </span>
@@ -79,7 +80,7 @@ export function ErrorState({
               onClick={onRetry}
               className="mt-2.5 rounded-md border border-[color:var(--anvil-danger-border)] px-2.5 py-1 text-xs text-[color:var(--anvil-danger)] hover:bg-[color:var(--anvil-danger-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)]"
             >
-              重试
+              {t("common.retry")}
             </button>
           )}
         </div>
@@ -106,7 +107,7 @@ export function NoPermissionState({
       <div className="flex items-start gap-2">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--anvil-warning)]" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[color:var(--anvil-fg)]">需要先完成一步</p>
+          <p className="text-sm font-medium text-[color:var(--anvil-fg)]">{t("state.permissionDeniedTitle")}</p>
           <p className="mt-1 break-words text-xs leading-relaxed text-[color:var(--anvil-fg-2)]">{message}</p>
           {action && <div className="mt-2.5">{action}</div>}
         </div>
