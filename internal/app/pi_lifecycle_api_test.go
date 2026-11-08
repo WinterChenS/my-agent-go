@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"my-agent-go/internal/runtime/pi"
 )
@@ -514,4 +516,90 @@ func appStandaloneTarget() string {
 		arch = "x64"
 	}
 	return goos + "-" + arch
+}
+
+// FIX1-B：装配层的快速发现。
+//
+// 用户实测的启动等待来自 DiscoverPi：它会对每个可用候选跑六项契约探测（本机单个
+// 候选 10.7s）。挂载/列表走 DiscoverPiFast；契约探测只在用户显式动作里跑。
+// 这里用注入的 ProbeFunc 计数证明"快速路径一次也没 spawn 契约探测"，而不是靠
+// 耗时去猜；同时证明 SelectPi 也不再顺带跑完整探测。
+func TestDiscoverPiFastSkipsContractProbeButFullDiscoveryRunsIt(t *testing.T) {
+	d, root := newTestDesktop(t)
+	name := appTestPiName()
+	dir := filepath.Join(root, "cand")
+	writeAppPiStub(t, dir, name)
+
+	var probeCalls int32
+	const probeDelay = 2 * time.Second
+	d.piRequestOverride = func(req pi.DiscoveryRequest) pi.DiscoveryRequest {
+		req.Preferred = dir
+		req.ManagedRoot = ""
+		req.PathEnv = nil
+		req.CommonLocations = nil
+		req.VersionProbe = func(context.Context, pi.PiInstallation) (string, []string) {
+			return "1.5.0", nil
+		}
+		req.ProbeFunc = func(context.Context, pi.PiCandidate) (bool, []string) {
+			atomic.AddInt32(&probeCalls, 1)
+			time.Sleep(probeDelay)
+			return true, nil
+		}
+		return req
+	}
+
+	start := time.Now()
+	fast, err := d.DiscoverPiFast()
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("DiscoverPiFast: %v", err)
+	}
+	if got := atomic.LoadInt32(&probeCalls); got != 0 {
+		t.Fatalf("DiscoverPiFast 执行了 %d 次契约探测，期望 0 次", got)
+	}
+	if elapsed >= probeDelay {
+		t.Fatalf("DiscoverPiFast 耗时 %s ≥ 探针耗时 %s：探针真的被跑了", elapsed, probeDelay)
+	}
+	if fast.Verification != pi.VerificationVersionOnly {
+		t.Fatalf("快速发现的 verification = %q，期望 %q", fast.Verification, pi.VerificationVersionOnly)
+	}
+	if fast.Selected == nil {
+		t.Fatalf("快速发现应选中可启动的候选: state=%s diagnostics=%v", fast.State, fast.Diagnostics)
+	}
+	if fast.Selected.ContractVerified {
+		t.Fatal("快速发现不得声称契约已验证")
+	}
+	if fast.Selected.Compatibility != pi.StateReadyCompatible {
+		t.Fatalf("未跑契约探测时最高只能 ready_compatible，实际 %q", fast.Selected.Compatibility)
+	}
+
+	// 选一个 Pi 也不该再等完整探测：它走的是快速发现。
+	selectedID := fast.Candidates[0].Installation.ID
+	sel, err := d.SelectPi(selectedID)
+	if err != nil {
+		t.Fatalf("SelectPi: %v", err)
+	}
+	if got := atomic.LoadInt32(&probeCalls); got != 0 {
+		t.Fatalf("SelectPi 执行了 %d 次契约探测，期望 0 次（选择不是验证动作）", got)
+	}
+	if sel.Selected == nil || sel.Selected.Installation.ID != selectedID {
+		t.Fatalf("SelectPi 没有选中同一条候选: %+v", sel.Selected)
+	}
+
+	// 显式完整发现仍然真的跑契约探测，并把结论升级成 contract_probed。
+	full, err := d.DiscoverPi()
+	if err != nil {
+		t.Fatalf("DiscoverPi: %v", err)
+	}
+	// 同一真实路径可能从两个来源（preferred/saved）各解析一次再去重，所以只断言
+	// "确实跑了"，不把次数钉成 1（那是去重顺序的实现细节，不是本任务的承诺）。
+	if got := atomic.LoadInt32(&probeCalls); got < 1 {
+		t.Fatalf("完整发现执行了 %d 次契约探测，期望至少 1 次", got)
+	}
+	if full.Verification != pi.VerificationContractProbed {
+		t.Fatalf("完整发现的 verification = %q，期望 %q", full.Verification, pi.VerificationContractProbed)
+	}
+	if full.Selected == nil || !full.Selected.ContractVerified {
+		t.Fatalf("完整发现应标记契约已验证: %+v", full.Selected)
+	}
 }

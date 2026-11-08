@@ -1065,6 +1065,17 @@
       "hint": "The host manages every Pi candidate, install and rollback on this machine; an external Pi is never overwritten or modified.",
       "discover": "Discover again",
       "discovering": "Discovering…",
+      "verify": "Verify contract",
+      "verifying": "Verifying contract…",
+      "verifyHint": "Verify contract spawns an isolated probe that checks the protocol item by item (about 10 s on this machine). The list and the startup check only use fast discovery, which never runs the contract probe.",
+      "verifyResult": "Verification finished: {state} (contract: {verification}, took {ms} ms)",
+      "fastHint": "The list comes from fast discovery: only the version and fingerprints were probed, the six contract checks did not run. Press Verify contract to confirm this Pi speaks our protocol.",
+      "contractVerified": "Contract verified",
+      "contractUnverified": "Contract not verified",
+      "verification": {
+        "contract_probed": "verified",
+        "version_only": "not verified"
+      },
       "emptyTitle": "No Pi found",
       "emptyHint": "Install a version from the trusted manifest, or put Pi on PATH and discover again.",
       "version": "Version",

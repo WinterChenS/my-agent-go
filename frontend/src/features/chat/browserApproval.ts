@@ -255,8 +255,38 @@ export function useBrowserApprovals(options: UseBrowserApprovalsOptions = {}): B
     // 不是"连当前状态都不要看"。
     refresh();
     if (pollMs <= 0) return;
-    const timer = setInterval(refresh, pollMs);
-    return () => clearInterval(timer);
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const start = () => {
+      if (timer === null) timer = setInterval(refresh, pollMs);
+    };
+
+    // 页面在后台时暂停轮询：隐藏的窗口里没人会看卡片，每秒一次跨进程调用只是
+    // 白烧 CPU。回到前台时立刻补一次，不用等满一个周期才知道结论。
+    // 挂载时的那一次读取不受影响：这一页有没有待审批，总得先知道。
+    const doc = typeof document === "undefined" ? null : document;
+    const onVisibility = () => {
+      if (!doc) return;
+      if (doc.hidden) {
+        stop();
+        return;
+      }
+      refresh();
+      start();
+    };
+    if (!doc || !doc.hidden) start();
+    doc?.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stop();
+      doc?.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [enabled, pollMs, refresh]);
 
   const decide = useCallback(

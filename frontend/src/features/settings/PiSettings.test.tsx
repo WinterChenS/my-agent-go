@@ -14,6 +14,7 @@ import { setLocale, t } from "../../i18n";
 
 const fake = vi.hoisted(() => ({
   discoverPi: null as unknown as (...a: any[]) => Promise<any>,
+  discoverPiFast: null as unknown as (...a: any[]) => Promise<any>,
   selectPi: null as unknown as (...a: any[]) => Promise<any>,
   installPi: vi.fn(),
   cancelPiInstall: vi.fn(),
@@ -51,6 +52,32 @@ function candidate(overrides: Record<string, any> = {}) {
 }
 
 beforeEach(() => {
+  // 挂载用快速发现（FIX1-B）：只探版本与指纹，verification=version_only。
+  fake.discoverPiFast = vi.fn(async () => ({
+    state: "ready_compatible",
+    selected: null,
+    candidates: [
+      candidate({ contractVerified: false }),
+      candidate({
+        installation: {
+          id: "path:1.4.0",
+          executable: "C:/tools/pi/pi.exe",
+          origin: "external",
+          architecture: "x86_64",
+          runnable: true,
+          version: "1.4.0",
+        },
+        origin: "path",
+        launcherPath: "C:/tools/pi/pi.exe",
+        runtimeExecutable: "C:/tools/pi/pi.exe",
+        compatibility: "upgrade_available",
+        contractVerified: false,
+      }),
+    ],
+    diagnostics: [],
+    verification: "version_only",
+  }));
+  // 完整发现：显式“验证契约”才走这条，契约探测通过。
   fake.discoverPi = vi.fn(async () => ({
     state: "ready_compatible",
     selected: null,
@@ -72,6 +99,7 @@ beforeEach(() => {
       }),
     ],
     diagnostics: [],
+    verification: "contract_probed",
   }));
   fake.selectPi = vi.fn(async () => ({
     state: "ready_compatible",
@@ -120,6 +148,39 @@ describe("设置 · Pi 候选", () => {
     await user.click(within(ready).getByRole("button", { name: t("settings.pi.select") }));
 
     await waitFor(() => expect(fake.selectPi).toHaveBeenCalledWith("managed:1.5.0"));
+  });
+
+  it("挂载走快速发现：不跑完整契约探测，并在界面上标明契约未验证", async () => {
+    render(<PiSettings />);
+
+    await screen.findByTestId("pi-candidates");
+    // 挂载只允许调用快速发现；完整发现（会 spawn 真实 Pi）不许被挂载触发。
+    expect(fake.discoverPiFast).toHaveBeenCalledTimes(1);
+    expect(fake.discoverPi).not.toHaveBeenCalled();
+
+    expect(screen.getByTestId("pi-fast-hint").textContent).toBe(t("settings.pi.fastHint"));
+    const contract = within(screen.getByTestId("pi-candidate-managed:1.5.0")).getByTestId("pi-contract");
+    expect(contract.getAttribute("data-verified")).toBe("false");
+    expect(contract.textContent).toBe(t("settings.pi.contractUnverified"));
+  });
+
+  it("「验证契约」才跑完整发现，并显示耗时与验证结论", async () => {
+    const user = userEvent.setup();
+    render(<PiSettings />);
+
+    await screen.findByTestId("pi-candidates");
+    await user.click(screen.getByRole("button", { name: t("settings.pi.verify") }));
+
+    await waitFor(() => expect(fake.discoverPi).toHaveBeenCalledTimes(1));
+    const result = await screen.findByTestId("pi-verify-result");
+    expect(result.getAttribute("data-verification")).toBe("contract_probed");
+    // 耗时是本地计时，只要它是可解析的非负整数（不去卡某个具体毫秒数）。
+    const elapsed = Number(result.getAttribute("data-elapsed-ms"));
+    expect(Number.isInteger(elapsed)).toBe(true);
+    expect(elapsed).toBeGreaterThanOrEqual(0);
+    expect(result.textContent).toContain(t("settings.pi.verification.contract_probed"));
+    // 验证之后列表就是完整发现的事实，快速发现的提示必须消失。
+    expect(screen.queryByTestId("pi-fast-hint")).toBeNull();
   });
 
   it("低于最低版本的候选不能被选用（只能升级）", async () => {

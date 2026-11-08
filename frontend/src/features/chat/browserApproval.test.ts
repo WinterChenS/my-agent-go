@@ -4,11 +4,14 @@
 // 立刻消失、读失败算不算"没有待审批"。组件测试没法稳定覆盖这些——一次轮询就能把
 // "乐观移除"掩盖掉（卡片消失又会因为后端仍然列出而重新出现），所以直接断言归约结果。
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   actionSummary,
   initialBrowserApprovalState,
   reduceBrowserApprovals,
+  useBrowserApprovals,
+  type BrowserApprovalBackend,
   type BrowserApprovalItem,
 } from "./browserApproval";
 
@@ -144,5 +147,95 @@ describe("浏览器审批归约器", () => {
     expect(summary).toContain("nav=nav-7");
     // 首行摘要不进用户输入的正文（卡片下方仍显示完整参数）。
     expect(summary).not.toContain("s3cr3t");
+  });
+});
+
+// ---------------------------------------------------------------- 轮询通道（FIX1-A）
+//
+// 用户实测的症状是"每次浏览器写动作都等满 60 秒被拒绝"：探测在等一条没人看见的
+// 审批。轮询通道必须真的在跑，而且不能在后台空转。
+
+describe("浏览器审批轮询通道", () => {
+  /** 页面可见性在 jsdom 里是只读的，按需求覆写/还原。 */
+  function setHidden(hidden: boolean) {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+  }
+
+  afterEach(() => {
+    // 还原成 jsdom 默认（可见），避免污染同文件里的其它用例。
+    delete (document as unknown as { hidden?: boolean }).hidden;
+  });
+
+  it("页面在后台时暂停轮询，回到前台立刻补一次并继续", async () => {
+    let calls = 0;
+    const api: BrowserApprovalBackend = {
+      pending: async () => {
+        calls += 1;
+        return [item()];
+      },
+      resolve: async () => undefined,
+    };
+
+    setHidden(true);
+    const { result, unmount } = renderHook(() =>
+      useBrowserApprovals({ api, pollIntervalMs: 10 })
+    );
+
+    // 挂载时那一次读取不受可见性影响：先知道"有没有待审批"。
+    await waitFor(() => expect(calls).toBe(1));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    // 后台：定时器不启动，等几个周期也不再发请求。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    expect(calls).toBe(1);
+
+    // 回到前台：立刻补一次（不等下一个周期），然后定时轮询继续。
+    setHidden(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(3));
+
+    unmount();
+  });
+
+  it("同一时刻只有一个读取在飞，迟到的渲染不会叠加请求", async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const api: BrowserApprovalBackend = {
+      pending: () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          release = () => resolve([item()]);
+        });
+      },
+      resolve: async () => undefined,
+    };
+
+    setHidden(false);
+    const { rerender, unmount } = renderHook(() =>
+      useBrowserApprovals({ api, pollIntervalMs: 5 })
+    );
+    await waitFor(() => expect(calls).toBe(1));
+
+    rerender();
+    rerender();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    // 第一次读取还挂着：轮询不许再发。
+    expect(calls).toBe(1);
+
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(2));
+    unmount();
   });
 });
