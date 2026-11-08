@@ -74,9 +74,34 @@ describe("resolveRoute", () => {
     expect(resolveRoute("/SETTINGS").spec.id).toBe("settings");
   });
 
-  it("每个路由只对应一个页面 id（不会两条规则抢同一路径）", () => {
-    const ids = new Set(ROUTES.map((r) => r.id));
-    expect(ids.size).toBe(ROUTES.length);
+  it("每条规则独占一个路径，且一个页面 id 只对应一个组件", () => {
+    // 路径唯一：两条规则抢同一路径会让"当前是哪一页"取决于顺序。
+    const patterns = new Set(ROUTES.map((r) => r.pattern));
+    expect(patterns.size).toBe(ROUTES.length);
+
+    // 页面 id 与组件一一对应。
+    //
+    // 允许**两条规则共用一个 id**，前提是它们就是同一个页面：`/chat` 与
+    // `/chat/:id` 都是对话页（U07 把 chat-index 合并成 chat，否则侧栏在对话页
+    // 不高亮、<main aria-label> 退回应用名）。不允许的是"同一 id 挂两个不同
+    // 组件"或"同一组件挂两个不同 id"——那说明路由表里有重复页面。
+    const componentById = new Map<string, unknown>();
+    const idByComponent = new Map<unknown, string>();
+    for (const route of ROUTES) {
+      const known = componentById.get(route.id);
+      if (known !== undefined) {
+        expect(known, `id ${route.id} 挂了两个不同组件`).toBe(route.component);
+      } else {
+        componentById.set(route.id, route.component);
+      }
+      const knownId = idByComponent.get(route.component);
+      if (knownId !== undefined) {
+        expect(knownId, `组件 ${route.pattern} 挂了两个不同 id`).toBe(route.id);
+      } else {
+        idByComponent.set(route.component, route.id);
+      }
+    }
+
     const solved = REQUIRED_PATTERNS.map((p) => resolveRoute(concrete(p)).spec.id);
     expect(new Set(solved).size).toBe(REQUIRED_PATTERNS.length);
   });

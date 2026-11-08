@@ -11,7 +11,9 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { api, onRunEvent } from "../api";
 import { initialState, reduce } from "../runState";
 import type { ApprovalChoice, ApprovalItem, CallError, Settings } from "../types";
-import { t } from "../i18n";
+import { isLocale, onLocaleChange, setLocale, storeLocalePreference, t } from "../i18n";
+import { applyTheme, currentMedia, isThemePreference, storeThemePreference } from "../theme/theme";
+import { settingsApi } from "../features/settings/api";
 import { StatusBadge } from "../components/status/StatusBadge";
 import { historyApi } from "../features/history/api";
 import { chatApi, type ChatClarificationResponse } from "../features/chat/api";
@@ -49,6 +51,40 @@ export default function App({ initialPath }: { initialPath?: string } = {}) {
 function Shell() {
   const { match, navigate } = useRouter();
   const backend = useBackend();
+
+  // 语言是模块级状态，改它不会自动重渲染：这里订阅一次，切换语言后整棵树重画。
+  // 没有这行，"设置里切到英文"只会换掉设置页自己那几行文案。
+  const [, rerenderForLocale] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => onLocaleChange(rerenderForLocale), []);
+
+  // 启动后把后端偏好对齐到界面。
+  //
+  // 首屏用的是本地镜像（main.tsx 在挂载前应用，避免闪一帧系统语言/浅色），
+  // 但权威值在磁盘上的 Preferences 里：换了机器、清了浏览器存储、或者上次是
+  // 另一台设备写的偏好时，两者会不一致，必须以磁盘为准。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await settingsApi.getPreferences();
+        if (cancelled || !res || res.error || !res.preferences) return;
+        const { locale, theme } = res.preferences;
+        if (isLocale(locale)) {
+          setLocale(locale);
+          storeLocalePreference(locale);
+        }
+        if (isThemePreference(theme)) {
+          storeThemePreference(theme);
+          applyTheme(theme, currentMedia());
+        }
+      } catch {
+        // 偏好读不到时保留本地镜像：读失败不该把界面语言/主题清空。
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [ui, runDispatch] = useReducer(reduce, initialState);
   const [input, setInput] = useState("");

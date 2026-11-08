@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CallError, Preferences } from "../../types";
-import { isLocale, setLocale, t } from "../../i18n";
+import { isLocale, setLocale, storeLocalePreference, t } from "../../i18n";
 import { currentMedia, isThemePreference, storeThemePreference, applyTheme } from "../../theme/theme";
 import { AsyncState } from "../../components/states/AsyncState";
 import { toCallError } from "../../app/useBackend";
@@ -65,6 +65,7 @@ export function GeneralSettings() {
       const locale = isLocale(draft.locale) ? draft.locale : "zh-CN";
       const theme = isThemePreference(draft.theme) ? draft.theme : "system";
       setLocale(locale);
+      storeLocalePreference(locale);
       storeThemePreference(theme);
       applyTheme(theme, currentMedia());
       // 持久化 + 重载：保存后重新读后端，确认磁盘上确实是这一版。

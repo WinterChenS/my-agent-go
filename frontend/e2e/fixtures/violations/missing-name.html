@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- 故意违规夹具：交互控件没有可访问名称（unnamed-control）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: missing accessible name</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      button:focus-visible { outline: 2px solid #1f5fd0; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <h1>缺少可访问名称</h1>
+    <button id="no-name"></button>
+    <button id="icon-only"><span aria-hidden="true">×</span></button>
+    <button id="named" aria-label="关闭对话框">关闭</button>
+  </body>
+</html>

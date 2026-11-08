@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,13 +93,45 @@ func main() {
 //   - UI 自动化（agent-desktop 的 accessibility tree）能定位到 DOM 元素，
 //     而不是只看到一个空的 "Chrome Legacy Window"。
 //
+// ANVIL_UI_CDP_PORT（旧名 MYAGENT_UI_CDP_PORT 仍可用）是**证据通道**：
+// 指定端口后给主 WebView2 打开 DevTools 协议。U07 的 UI12/UI13/I18N*/THEME*
+// native 用例要用它在**构建后的应用**里读布局、可访问性树、对比度并截图——
+// 那是 Playwright 渲染同一个 React 页面证明不了的东西（见 U07 计划 Step 6）。
+//
+// 为什么必须走应用参数而不是 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS：Wails 自己会
+// 追加 `--disable-features=msSmartScreenProtection`，只要 AdditionalBrowserArgs
+// 非空，WebView2 就忽略那个环境变量（2026-11-08 实测：端口没起来）。
+//
+// 默认关闭，且只接受 1–65535 的端口号：远程调试端口会暴露整个渲染进程，
+// 不能靠"反正没人设"来当安全边界。开启时打一行日志，现场有据可查。
+//
 // 默认关闭：它会增加渲染进程的常驻开销，普通使用不需要。
 func windowsOptions() application.WindowsOptions {
 	opts := application.WindowsOptions{}
 	if v, _ := app.EnvLookup("UI_A11Y"); v == "1" || strings.EqualFold(v, "true") {
-		opts.AdditionalBrowserArgs = []string{"--force-renderer-accessibility"}
+		opts.AdditionalBrowserArgs = append(opts.AdditionalBrowserArgs, "--force-renderer-accessibility")
+	}
+	if port, ok := cdpPort(); ok {
+		opts.AdditionalBrowserArgs = append(opts.AdditionalBrowserArgs,
+			fmt.Sprintf("--remote-debugging-port=%d", port))
+		log.Printf("UI 证据通道已开启：主窗口 DevTools 协议监听 127.0.0.1:%d（ANVIL_UI_CDP_PORT）", port)
 	}
 	return opts
+}
+
+// cdpPort 解析 ANVIL_UI_CDP_PORT。非法值不静默忽略成"用默认端口"，
+// 而是当作未设置并打一行日志：静默降级会让证据脚本连不上却看不出原因。
+func cdpPort() (int, bool) {
+	v, _ := app.EnvLookup("UI_CDP_PORT")
+	if v == "" {
+		return 0, false
+	}
+	port, err := strconv.Atoi(v)
+	if err != nil || port < 1 || port > 65535 {
+		log.Printf("忽略非法的 ANVIL_UI_CDP_PORT=%q：必须是 1–65535 的端口号", v)
+		return 0, false
+	}
+	return port, true
 }
 
 // appRoot 返回应用数据根目录，并在首次启动时执行 MyAgent → Anvil 迁移。

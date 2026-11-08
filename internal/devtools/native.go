@@ -248,6 +248,141 @@ func nativeCases() []nativeCase {
 				"unsupported-surfaces.json", "trusted-only.json", "counters.json",
 			}},
 		},
+		// ── U07：可访问性、视觉回归与真机 UI 验收（G3） ──
+		//
+		// 与 BR01–BR10 的分工：那些是浏览器/原生视图的**能力**（父子窗口、缩放、
+		// 句柄趋势…），这里是**产品界面**的验收：九页在五档窗口里的布局、可访问性、
+		// 两语言两主题、以及切换时不丢状态。
+		//
+		// 所有 U07 用例都跑构建后的 Wails 应用（npm build → go build → 启动真进程），
+		// 页面事实来自它的 WebView2（DevTools 协议），窗口事实来自 Win32，
+		// 状态事实来自 Go API 与磁盘。Playwright 预检不产出门禁证据。
+		{
+			// UI12：880×600 至 1920×1080 五档窗口 × 九页无裁剪/重叠/不可达，
+			// 客户区尺寸与 GetDpiForWindow/devicePixelRatio 三方一致，
+			// WindowFromPoint 证明没有原生视图遮挡客户区。
+			ID:      "UI12",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07UI12WindowMatrix$"}},
+			Limitation: "本机为 96 DPI（系统缩放 100%）：Windows 150%/200% 缩放、macOS Retina、" +
+				"Linux X11/Wayland 均未验证（见 ADR 0005 与 U07 报告）。五档窗口为真实 SetWindowPos + GetClientRect 收敛。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"window-facts.jsonl",
+				"screenshots/ui12-workbench-880x600.png", "screenshots/ui12-settings-1920x1080.png",
+			}},
+		},
+		{
+			// UI13：可访问名称、WCAG AA 对比度、键盘可见焦点、真实渲染器的可访问性树。
+			ID:      "UI13",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07UI13Accessibility$"}},
+			Limitation: "键盘焦点用 CDP Input.dispatchKeyEvent 走真实 Tab 序列（渲染器进入键盘模态）；" +
+				"读屏软件本体未接入。审批风险态（waiting_approval 卡片）需要一次真实 run，" +
+				"本机缺 Pi 1.5.0 无法产生，改用 warning/danger 语义 token 的对比度作为该状态色彩基线。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"focus-order.jsonl", "token-contrast.jsonl",
+			}},
+		},
+		{
+			// I18N02：走设置页切语言 → 即时生效、持久化（API + 磁盘）、不重载、不丢状态。
+			ID:      "I18N02",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07I18N02LocaleSwitch$"}},
+			Limitation: "用户/模型/工具原文不被翻译这一条，用全局搜索草稿（含中文与西里尔字母）验证；" +
+				"一次真实 Pi 会话里的用户消息原文未覆盖（缺 Pi 1.5.0）。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"preferences-after-locale.json",
+			}},
+		},
+		{
+			// I18N03：错误 code+参数走 catalog、日期/数字/体积按 locale 格式化。
+			ID:      "I18N03",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07I18N03Formatting$"}},
+			Limitation: "费用（formatCost）需要 provider 的真实 usage/计价，本机缺 Pi 与模型凭证 → 未验证；" +
+				"日期/数字/体积来自真实动作（设置页导出诊断包）的输出。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"error-codes.jsonl", "formatting.jsonl",
+			}},
+		},
+		{
+			// I18N04：九页 × 两语言 × 880/1920 无截断/重叠/不可达，且 en-US 下无中文硬编码。
+			ID:      "I18N04",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07I18N04BilingualLayout$"}},
+			Limitation: "只覆盖 880×600 与 1920×1080 两个极端宽度（UI12 覆盖五档窗口）；" +
+				"中文泄漏检查排除 option（语言名）与带 lang 的元素。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"bilingual-layout.jsonl",
+			}},
+		},
+		{
+			// THEME02：light/dark/跟随系统选择正确、持久化、重启首屏不闪。
+			ID:      "THEME02",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07THEME02ThemeSwitch$"}},
+			Limitation: "\"不闪\"的判据是：重启后第一个出现内容的采样点上 data-theme 已经是最终值；" +
+				"这是进程内的观测，不是屏幕录制。系统配色变化（跟随系统）在运行中变化的路径由 theme.ts 的" +
+				"媒体查询订阅实现，本机无法在系统设置里切换配色（需交互式桌面操作）。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"preferences-theme.json",
+			}},
+		},
+		{
+			// THEME03：两主题下 default/hover/active/disabled 与状态色 token 的对比度/可见性。
+			ID:      "THEME03",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07THEME03StateContrast$"}},
+			Limitation: "hover/active 用真实 CDP 输入事件触发（mouseMoved/mousePressed）；" +
+				"disabled 态只对页面上真实存在的禁用控件取样；审批风险卡片状态同 UI13 一样缺 Pi 无法产生。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"state-contrast.jsonl",
+			}},
+		},
+		{
+			// THEME04：切主题不重载、不丢草稿、不重建原生子窗口、不改变 run/Pi/浏览器状态。
+			ID:      "THEME04",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07THEME04StatePreservation$"}},
+			Limitation: "下载不被取消、人工接管归属不变这两条需要一次真实 run + 浏览器标签页，" +
+				"本机缺 Pi 1.5.0 无法产生 → 未验证（deferred）；本次证明的是页面不重载、" +
+				"草稿/详情栏保持、原生子窗口集合不变、run/Pi/BrowserState 绑定值不变。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"preservation.jsonl",
+			}},
+		},
+		{
+			// THEME05：九页 × 两主题的真实截图与 hash + 偏好 revision + 窗口事实。
+			ID:      "THEME05",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07THEME05ThemeScreenshots$"}},
+			Limitation: "截图为 CDP Page.captureScreenshot（应用自己渲染的像素），与窗口几何、DPI、偏好 revision 一并落盘；" +
+				"跨平台像素对比（macOS/Linux）未做——ADR 0005 本轮只验收 win-x64。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"window-facts.jsonl", "screenshots/light-workbench.png", "screenshots/dark-settings.png",
+			}},
+		},
+		{
+			// 检查器自证：往真实页面注入违规结构，要求每条检查变红（否则它在生产页面的绿无意义）。
+			ID:      "UI12.detectors",
+			Target:  "win-x64",
+			Display: DisplayDesktop,
+			Steps:   []nativeStep{{Package: "tests/native", Run: "^TestU07DetectorsAreNotVacuous$"}},
+			Limitation: "只证明检查器在 win-x64/WebView2 引擎上会红；Playwright 侧的夹具红证在 " +
+				"frontend/e2e/fixtures/violations/（预检，不产出门禁证据）。",
+			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{
+				"detector-selfcheck.json",
+			}},
+		},
 		{
 			// BR00：两个 origin 独立、server counter 可核对、trusted-only 负例。
 			// 它不需要 GUI，但 G1 把它算作浏览器基线的一部分，所以从 native 套件出证据。

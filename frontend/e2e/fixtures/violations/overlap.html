@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- 故意违规夹具：两个交互元素实质重叠（overlap）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: overlapping controls</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      .stack { position: relative; height: 60px; width: 240px; }
+      .stack button { position: absolute; left: 0; top: 0; width: 200px; height: 40px; }
+      .stack button + button { left: 24px; top: 8px; }
+      button:focus-visible { outline: 2px solid #1f5fd0; }
+    </style>
+  </head>
+  <body>
+    <h1>控件重叠</h1>
+    <div class="stack">
+      <button id="under">保存</button>
+      <button id="over">取消</button>
+    </div>
+  </body>
+</html>
