@@ -244,3 +244,27 @@ ADR 0005 下每个 gate 另有 deferred 位（五目标），gate 报告逐条�
    `HostTarget`、profile 的 Description/SystemPrompt/ReasoningLevel/ToolIDs + run 启动路径。
 4. **CONN07/SCH06** 页面、**RUN01/04/06.ui** 端到端。
 5. **X01 E2E** → **X03 打包** → **X04 迁移/更新/性能** → **F09** → **X05**。
+
+## 11. 2026-11-08 第八波：B2（缺失绑定）与 T1（浏览器写授权）合并
+
+- **B2 合并**（`0aa45a2`）：`ListRunUsage`（确定性 offset 分页，空 ≠ unavailable）、`PiInstallManifest`（`usable` 与
+  `Entry()` 同源）、`SaveSettingsWithRevision`（内容派生 revision → `CONFIG_CONFLICT` 且文件不变，旧接口不变）、
+  `CredentialStoreStatus`（稳定码、无秘密）、`HostTarget`（唯一映射）。19 条新用例。
+  登记遗留：settings CAS 只支持相等比较；`persistPiSelection` 仍未持 `settingsMu`（既有并发丢更新风险）；
+  `ListRunUsage` 深翻页会随新增记录位移（要严格快照需 keyset）；前端还没消费这些新绑定。
+- **T1 合并**（`9bc98fa`）：浏览器写动作接上真实授权（policy bridge，交互默认 ask、session/site 授权、origin+
+  navigationId 进指纹），**authorizer 缺失仍然 fail closed**，并有能抓住"默认放行"回归的用例；
+  `BR07.tool` 产出 external-observation 证据（fixture 计数 + 策略账本 + 动作时间线）。
+  仍未做：浏览器 MCP 工具没有注册进产品自有 MCP（`internal/app/mcp_api.go` 的 harnessTools 不在 T1 范围）；
+  没有浏览器审批 UI（ask 会 60s 超时 → 拒绝）；应用层授权用专用 policy 服务（run 的 `effectivePermissions` 把 network 写死 false）。
+- **gate（`eb75496`）**：G0 31/31、G1 7/7、G2 69/69 全 passed；前端 314 测试。
+- 再次确认 native 套件负载敏感：本轮 G2 原生第一次 BR10 失败、同命令重跑 3/3 通过。
+
+### 剩余（按优先级）
+
+1. **U07**：可访问性/视觉回归/真机 UI 验收，唯一可写 `tests/acceptance/cases.json` 与 devtools UI runner 的任务；
+   把 UI01–UI13、I18N/THEME/BRAND 的 NATIVE 证据做出来（G3 主杠杆）。
+2. 前端消费 B2 的新绑定（观测页跨 run 列表、设置页真实版本列表/凭证状态、SaveSettings 冲突）；
+   浏览器审批 UI + 把浏览器工具注册进产品 MCP。
+3. CONN07/SCH06 页面；RUN01/04/06.ui 端到端。
+4. X01 E2E01–07 → X03 打包 → X04 迁移/更新/性能 → F09 → X05。
