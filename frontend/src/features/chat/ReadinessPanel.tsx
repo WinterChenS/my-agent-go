@@ -40,14 +40,15 @@ export function ReadinessPanel({ report, checking, onNavigate, onRecheck }: Read
       aria-labelledby="chat-readiness-title"
       className="space-y-2 border-t border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-3 py-2.5"
     >
-      <header className="space-y-0.5">
+      {/* 卡片自己的标题行不是文档级的 <header>：chat 路由的 header 只能是壳层顶栏那一条（D2c）。 */}
+      <div className="space-y-0.5">
         <h2 id="chat-readiness-title" className="text-[12px] font-medium text-[color:var(--anvil-warning)]">
           {t("chat.readiness.title", { count: report.blockers.length })}
         </h2>
         <p className="text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
           {t("chat.readiness.hint")}
         </p>
-      </header>
+      </div>
 
       <ul className="space-y-1.5">
         {report.blockers.map((blocker) => (

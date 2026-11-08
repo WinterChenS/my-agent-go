@@ -66,7 +66,8 @@ export function BrowserApprovalCard({
       aria-labelledby={`browser-approval-${item.approvalId}`}
       className="rounded-md border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-2.5 py-2"
     >
-      <header className="flex flex-wrap items-center gap-2">
+      {/* 卡片自己的标题行不是文档级的 <header>：chat 路由的 header 只能是壳层顶栏那一条（D2c）。 */}
+      <div className="flex flex-wrap items-center gap-2">
         <h3
           id={`browser-approval-${item.approvalId}`}
           className="text-[11px] font-medium text-[color:var(--anvil-foreground)]"
@@ -90,7 +91,7 @@ export function BrowserApprovalCard({
             {t("chat.approval.submitted")}
           </span>
         ) : null}
-      </header>
+      </div>
 
       <dl className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-[color:var(--anvil-muted)]">
         <div>

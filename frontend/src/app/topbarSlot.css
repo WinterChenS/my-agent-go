@@ -1,0 +1,38 @@
+/*
+ * 顶栏插槽（D2c）——壳层顶栏是**一条** 52px 的带子。
+ *
+ * 为什么这些规则不在 index.css 里：index.css 是外壳几何（D1）的单一出处，本任务
+ * 只被允许改 `app/**` + `features/chat/**`。插槽是壳层新增的那一小块，样式跟着
+ * 插槽模块走（`topbarSlot.tsx` 里 import），避免悄悄改掉 D1 的版式文件。
+ *
+ * 三个约束：
+ *
+ *  1. **空槽不产生盒子。** `.anvil-topbar-slot` 永远在顶栏的 DOM 里；让它
+ *     `display: contents`，没有页面占用时就不参与 flex 排布，也不会多出一段
+ *     看不见的空带子。
+ *  2. **有内容时吃掉剩余宽度。** 原型的 `.chat-head-main` 就是 `.topbar` 里的
+ *     弹性子项；这里同样给 `flex: 1 1 auto` + `min-width: 0`（否则长标题会把
+ *     顶栏撑出横向滚动）。
+ *  3. **占用时把第一行钉在令牌高度上。** 壳层的两行是 auto 行（index.css 的
+ *     grid-template-areas），`align-content: normal` 会把剩余空间在两行之间
+ *     平分：内容短的会话里第一行会比 52px 高几个像素，于是 `.thread` 不再紧贴
+ *     顶栏（chat-diff 实测 58.8px）。占用顶栏的页面必须把这一行钉成
+ *     `var(--anvil-topbar-h)`，剩下全给内容行。
+ */
+
+.anvil-topbar-slot {
+  display: contents;
+}
+
+.anvil-topbar-slot:not(:empty) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.anvil-shell[data-topbar-claimed="true"] {
+  grid-template-rows: var(--anvil-topbar-h) minmax(0, 1fr);
+}
