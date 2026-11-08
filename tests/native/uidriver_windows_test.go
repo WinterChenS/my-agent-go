@@ -382,6 +382,28 @@ var u07SharedBuild u07Build
 //   - npm 用基线 Node（PATH 首位放 D:\Program Files\nodejs，AGENTS.md §4）；
 //   - 构建失败必须让用例失败，不能拿一份旧的二进制继续跑（那会把"代码变了但
 //     没重新构建"变成一条通过）。
+//
+// sweepStaleU07Builds 删除上次运行遗留的 anvil-u07-build-* 目录（超过 1 小时）。
+//
+// 只删旧目录：并发运行的另一个进程可能刚建好自己的目录，误删会让它构建失败。
+func sweepStaleU07Builds() {
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Hour)
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "anvil-u07-build-") {
+			continue
+		}
+		info, statErr := e.Info()
+		if statErr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(os.TempDir(), e.Name()))
+	}
+}
+
 func buildU07App(t *testing.T) (string, string) {
 	t.Helper()
 	u07SharedBuild.once.Do(func() {
@@ -390,6 +412,9 @@ func buildU07App(t *testing.T) (string, string) {
 			u07SharedBuild.err = err
 			return
 		}
+		// 先扫掉上一轮遗留的构建目录：每个目录里有 31MB 的 exe，97 次取证就在
+		// %TEMP% 里堆了 2.9GB（2026-11-08 实测把 C 盘占满）。
+		sweepStaleU07Builds()
 		dir, err := os.MkdirTemp("", "anvil-u07-build-")
 		if err != nil {
 			u07SharedBuild.err = err

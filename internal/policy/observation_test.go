@@ -29,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func policyObservationDir() string {
@@ -238,6 +239,25 @@ var (
 // executorPath 构建（一次）SEC01/SEC05 的独立执行进程。
 //
 // 构建产物落在临时目录，不进仓库：观察装置不是产品代码，不能留在工作树里。
+// sweepStaleExecutorDirs 删除上次运行遗留的 policy-executor-* 目录（超过 1 小时）。
+func sweepStaleExecutorDirs() {
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Hour)
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "policy-executor-") {
+			continue
+		}
+		info, statErr := e.Info()
+		if statErr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(os.TempDir(), e.Name()))
+	}
+}
+
 func executorPath(t *testing.T) string {
 	t.Helper()
 	executorOnce.Do(func() {
@@ -246,6 +266,9 @@ func executorPath(t *testing.T) string {
 			executorErr = err
 			return
 		}
+		// 每次取证建一个执行器二进制目录；不清理会在 %TEMP% 里累积
+		// （173 次 = 684MB，2026-11-08 实测）。先扫掉上一轮遗留的。
+		sweepStaleExecutorDirs()
 		dir, err := os.MkdirTemp("", "policy-executor-")
 		if err != nil {
 			executorErr = err
