@@ -63,6 +63,78 @@ type BrowserPolicyAuthorizer struct {
 	OnPending func(policy.ApprovalRequest, policy.ToolCall)
 	// Now 便于测试注入时钟。
 	Now func() time.Time
+
+	// bound 是本次 run 的执行身份（来自 run binding）。非空时授权器只认这一份：
+	// 调用方拿别的 session/run/workspace 来调 Authorize/Recheck 都会被拒。
+	//
+	// 为什么要有它：工具参数、调用方都可能被提示注入影响，而身份只能来自服务端
+	// 绑定的 run。零值（nil）表示调用方自己保证 exec 的来源（B05 的既有写法），
+	// 生产装配用 NewBrowserPolicyAuthorizer 把它钉住。
+	bound *contracts.ExecutionContext
+}
+
+// BrowserAuthorizationBinding 是一次 run 的执行身份（run binding 的授权视图）。
+//
+// 就是 RunService 在 admission 时冻结的那份 contracts.ExecutionContext：
+// workspace/session/run/configRevision/controlGeneration 全部来自它，授权器不另造
+// 身份来源，也不接受调用方自报。
+type BrowserAuthorizationBinding struct {
+	Exec contracts.ExecutionContext
+}
+
+// Validate 检查绑定是否完整。缺会话的绑定不能用来装配授权器。
+func (b BrowserAuthorizationBinding) Validate() error {
+	if strings.TrimSpace(string(b.Exec.SessionID)) == "" {
+		return contracts.NewAppError(contracts.CodeConfigMissing,
+			"浏览器写动作授权缺少会话绑定：不能在没有 run 身份的情况下装配授权器", false)
+	}
+	return nil
+}
+
+// BrowserAuthorizerOptions 是生产装配入口的参数。
+type BrowserAuthorizerOptions struct {
+	// Binding 是本次 run 的执行身份；非空时授权器只认这一份身份。
+	Binding *BrowserAuthorizationBinding
+	// Gate 是唯一授权权威（*policy.Service），不可为空。
+	Gate BrowserPolicyGate
+	// Guard 负责 token 的生命周期与派发前复核。
+	Guard browser.TokenGuard
+	// ApprovalWait 是等待人工答复的上限（默认 60s）。
+	ApprovalWait time.Duration
+	// PollInterval 是等待期间的轮询间隔（默认 20ms）。
+	PollInterval time.Duration
+	// OnPending 把待审批请求推给产品层（审批队列/UI）。
+	OnPending func(policy.ApprovalRequest, policy.ToolCall)
+	// Now 便于测试注入时钟。
+	Now func() time.Time
+}
+
+// NewBrowserPolicyAuthorizer 装配生产用的浏览器授权器。
+//
+// 这是**唯一**允许缺省参数的生产入口：没有策略服务（Gate）时直接返回错误，
+// 而不是返回一个“看起来能用、实际默认放行”的授权器。调用方拿到错误后应当
+// 把 Authorizer 留空（browser.Service 会拒绝所有写动作）。
+func NewBrowserPolicyAuthorizer(opts BrowserAuthorizerOptions) (*BrowserPolicyAuthorizer, error) {
+	if opts.Gate == nil {
+		return nil, contracts.NewAppError(contracts.CodeConfigMissing,
+			"浏览器写动作授权器缺少策略服务：拒绝装配（不能退化成默认放行）", false)
+	}
+	a := &BrowserPolicyAuthorizer{
+		Gate:         opts.Gate,
+		Guard:        opts.Guard,
+		ApprovalWait: opts.ApprovalWait,
+		PollInterval: opts.PollInterval,
+		OnPending:    opts.OnPending,
+		Now:          opts.Now,
+	}
+	if opts.Binding != nil {
+		if err := opts.Binding.Validate(); err != nil {
+			return nil, err
+		}
+		exec := opts.Binding.Exec
+		a.bound = &exec
+	}
+	return a, nil
 }
 
 // 默认值。
@@ -132,6 +204,13 @@ func (a *BrowserPolicyAuthorizer) Authorize(ctx context.Context, exec contracts.
 	if a == nil || a.Gate == nil {
 		return browser.AuthorizationToken{}, contracts.NewAppError(contracts.CodeUnauthorized,
 			"没有配置策略服务：浏览器写动作默认拒绝（未经授权不得写入页面）", false)
+	}
+	if err := a.requireBinding(exec); err != nil {
+		return browser.AuthorizationToken{}, err
+	}
+	if req.SessionID != exec.SessionID {
+		return browser.AuthorizationToken{}, contracts.NewAppError(contracts.CodeUnauthorized,
+			"授权请求的会话与执行身份不一致：浏览器写动作默认拒绝（未派发任何输入）", false)
 	}
 	call, err := buildBrowserCall(req)
 	if err != nil {
@@ -206,6 +285,13 @@ func (a *BrowserPolicyAuthorizer) awaitApproval(ctx context.Context, approvalID 
 
 // Recheck 是派发前的那次复查。
 func (a *BrowserPolicyAuthorizer) Recheck(ctx context.Context, exec contracts.ExecutionContext, req browser.AuthorizationRequest, token browser.AuthorizationToken) error {
+	if a == nil {
+		return contracts.NewAppError(contracts.CodeUnauthorized,
+			"没有配置浏览器授权器：浏览器写动作默认拒绝（未派发任何输入）", false)
+	}
+	if err := a.requireBinding(exec); err != nil {
+		return err
+	}
 	if err := a.Guard.Check(exec, req, token); err != nil {
 		return err
 	}
@@ -229,4 +315,33 @@ func (a *BrowserPolicyAuthorizer) now() time.Time {
 		return a.Now()
 	}
 	return time.Now()
+}
+
+// requireBinding 检查这次调用的执行身份。
+//
+// 两条规则都不允许“猜”：没有会话就不授权；钉住了 run binding 时，workspace/
+// session/run/configRevision/controlGeneration 任何一项不同都拒绝（换个 run 的 exec
+// 来复用许可，等于让调用方自报身份）。
+func (a *BrowserPolicyAuthorizer) requireBinding(exec contracts.ExecutionContext) error {
+	if strings.TrimSpace(string(exec.SessionID)) == "" {
+		return contracts.NewAppError(contracts.CodeUnauthorized,
+			"缺少执行会话身份：浏览器写动作默认拒绝（身份只能来自服务端绑定的 run）", false)
+	}
+	if a.bound == nil {
+		return nil
+	}
+	if !sameExecution(exec, *a.bound) {
+		return contracts.NewAppError(contracts.CodeUnauthorized,
+			"执行身份与本次 run 的绑定不一致（workspace/session/run/configRevision/controlGeneration）："+
+				"浏览器写动作默认拒绝，未派发任何输入", false)
+	}
+	return nil
+}
+
+func sameExecution(a, b contracts.ExecutionContext) bool {
+	return a.WorkspaceID == b.WorkspaceID &&
+		a.SessionID == b.SessionID &&
+		a.RunID == b.RunID &&
+		a.ConfigRevision == b.ConfigRevision &&
+		a.ControlGeneration == b.ControlGeneration
 }

@@ -1,0 +1,4 @@
+# my-agent-go/internal/app
+# [my-agent-go/internal/app]
+vet.exe: internal\app\browser_auth_test.go:35:11: undefined: browserAuthorization
+EXIT=1

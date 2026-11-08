@@ -213,11 +213,16 @@ func registerBrowserPanel(desktop *app.Desktop, a *application.App, win *applica
 			log.Printf("浏览器面板：初始隐藏原生视图失败（面板上报几何时会再试）: %v", err)
 		}
 
+		// 写动作走真实的策略授权器（BR07.tool）：交互默认 ask，用户可给本会话/站点范围
+		// 的许可，站点与文档身份进审批指纹。授权器为空（装配失败）时 browser.Service
+		// 会拒绝所有写动作：默认拒绝，绝不能换成“总是同意”的替身。
+		authorizer := desktop.BrowserAuthorizer()
+		if authorizer == nil {
+			log.Printf("浏览器写动作保持默认拒绝：授权器未装配（策略服务/审批队列不可用）")
+		}
 		svc, err := browser.NewService(browser.ServiceOptions{
-			Backend: host,
-			// 写动作默认拒绝：审批接线属于 BR07.tool，本版没有装配。
-			// 面板的 tab/接管/导航不走 Authorizer，不受影响。
-			Authorizer:    unwiredBrowserAuthorizer{},
+			Backend:       host,
+			Authorizer:    authorizer,
 			ActionTimeout: browserActionTimeout,
 		})
 		if err != nil {
@@ -261,29 +266,4 @@ func waitForNativeHandle(ctx context.Context, win *application.WebviewWindow) an
 		case <-ticker.C:
 		}
 	}
-}
-
-// unwiredBrowserAuthorizer 是浏览器写动作的默认拒绝器。
-//
-// 产品当前的浏览器工具（BR07.tool）与审批接线还没落地。这时**默认拒绝**是唯一
-// 安全的选择：没有装配授权器时任何写动作都不能发出（基线 §7 的“默认不授”），
-// 更不能拿一个“总是同意”的替身在产品里充数。
-//
-// 拒绝的理由写清楚“没有发出去”，而不是笼统的失败：调用方最危险的反应是把
-// 失败当成“重试就好”，而浏览器写入在人工接管期间重试会造成双重输入。
-type unwiredBrowserAuthorizer struct{}
-
-func (unwiredBrowserAuthorizer) Authorize(
-	context.Context, contracts.ExecutionContext, browser.AuthorizationRequest,
-) (browser.AuthorizationToken, error) {
-	return browser.AuthorizationToken{}, contracts.NewAppError(contracts.CodeUnsupported,
-		"浏览器写动作的审批接线尚未装配（BR07.tool）：本次动作没有发出", false)
-}
-
-func (unwiredBrowserAuthorizer) Recheck(
-	context.Context, contracts.ExecutionContext, browser.AuthorizationRequest, browser.AuthorizationToken,
-) error {
-	// 从未签发过 token，也就没有“复查通过”这回事。
-	return contracts.NewAppError(contracts.CodeUnsupported,
-		"浏览器写动作的审批接线尚未装配（BR07.tool）：没有可复查的许可", false)
 }

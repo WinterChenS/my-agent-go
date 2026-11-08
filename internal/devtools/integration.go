@@ -331,6 +331,20 @@ func integrationCases() []integrationCase {
 		// harnessmcp 侧写 policy-decisions.jsonl / mcp-calls.jsonl / fixture-counters.jsonl。
 		{ID: "BR13", Package: harnessmcpTests, Run: "TestBrowserToolDeniedLeavesCounterZero|TestBrowserToolDeniedOriginChangeAtPolicyLayer|TestModelCannotSelfConfirm|TestSessionGrantCoversTabWritesAndTokenStaysSiteScoped",
 			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"policy-decisions.jsonl", "fixture-counters.jsonl", "mcp-calls.jsonl"}}},
+		// BR07.tool（G3）：浏览器写动作的授权**接线**。BR13 证明“通道经过策略服务”，
+		// 这条证明“产品真的把授权器装上了，且任何情况下都不默认放行”：
+		//   - harnessmcp 步骤：MCP 工具 → 生产构造函数（run binding 身份）→ 策略服务 →
+		//     派发 → fixture 服务端 counter；允许恰好 1，拒绝/过期/换 origin/缺授权器为 0；
+		//   - app 步骤：Desktop 持有的授权权威 + 审批绑定（PendingBrowserApprovals/
+		//     ResolveBrowserApproval）装上 browser.Service 后的同一套 Assertion。
+		// 观察值全部从证据目录的落盘文件读回：fixture-counters.jsonl（服务端计数）、
+		// policy-decisions.jsonl（审批账本）、action-timeline.jsonl（动作时间线）、
+		// browser-authorizer-wiring.json（应用层装配事实，由 app 步骤从上述文件读回后写出）。
+		{ID: "BR07.tool", Steps: []integrationStep{
+			{Package: harnessmcpTests, Run: "TestBrowserToolAuthorizedWriteHitsFixtureExactlyOnce|TestBrowserToolPendingApprovalDispatchesNothingAndDenialLeavesCounterZero|TestBrowserToolExpiredApprovalLeavesCounterZero|TestBrowserToolOriginChangeRequiresFreshApproval|TestBrowserToolFailsClosedWithoutAuthorizer|TestBrowserAuthorizerRefusesForeignExecutionBinding"},
+			{Package: appTests, Run: "TestBrowserAuthorizerWiringApprovesExactlyOneWrite|TestBrowserAuthorizerWiringDenialLeavesCounterZero|TestBrowserAuthorizerTimesOutWithoutDispatching|TestBrowserAuthorizerResolveRejectsFingerprintChange|TestBrowserAuthorizerNilKeepsWritesDenied"},
+		},
+			Observation: &observationSpec{Source: "http-server", Artifacts: []string{"fixture-counters.jsonl", "policy-decisions.jsonl", "action-timeline.jsonl", "browser-authorizer-wiring.json"}}},
 		{ID: "BR14", Package: browserTests, Run: "TestDispatchedTimeoutIsOutcomeUnknownAndNotReplayed|TestNavigationRevokesQueuedWrites",
 			Observation: &observationSpec{Source: "filesystem", Artifacts: []string{"action-timeline.jsonl", "backend-actions.jsonl"}}},
 		// ── 浏览器 profile / 弹窗 / 下载（B06，G2） ──
