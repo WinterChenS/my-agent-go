@@ -451,6 +451,7 @@
   },
   "agents": {
     "title": "Agents",
+    "missingRefs": "These references are unavailable: {refs}",
     "subtitle": "An Agent is a Profile: name, model, references, permission ceiling and memory all persist on the backend.",
     "listTitle": "Agent list",
     "newTitle": "New Agent",

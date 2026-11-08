@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- 故意违规夹具：正文对比度不足 WCAG AA（low-contrast）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: low contrast</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      .faint { color: #b9bdc4; }
+      button:focus-visible { outline: 2px solid #1f5fd0; }
+    </style>
+  </head>
+  <body>
+    <h1>对比度不足</h1>
+    <p class="faint" id="faint-text">这段文字与背景的对比度不足 AA。</p>
+    <p id="ok-text">这段文字是正常对比度。</p>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- 故意违规夹具：交互元素横向超出视口（clipped-control）+ 页面横向滚动（h-scroll）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: clipped control</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; margin: 0; }
+      .wide { width: 2000px; }
+      #far-away { margin-left: 1400px; }
+      button:focus-visible { outline: 2px solid #1f5fd0; }
+    </style>
+  </head>
+  <body>
+    <div class="wide">
+      <h1>控件被裁掉</h1>
+      <button id="far-away">保存（在视口外）</button>
+    </div>
+  </body>
+</html>

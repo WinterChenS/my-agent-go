@@ -36,3 +36,8 @@ Thumbs.db
 # 提交它会让 revision 立刻对不上（下一次提交就换 HEAD），门禁会判过期；
 # 因此只保留生成能力，不入库。可长期引用的结论进 docs/evidence/raw/ 与 docs/evidence/*.md。
 /docs/evidence/runs/
+
+# Playwright 预检产物（U07）：截图/报告/trace 都是本机临时结果，不进仓库
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/blob-report/

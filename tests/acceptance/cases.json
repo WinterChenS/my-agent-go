@@ -143,6 +143,7 @@
     {"id": "UI11", "owner": "U06", "runner": "anvil-ui", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
     {"id": "UI12", "owner": "U07", "runner": "anvil-ui", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
     {"id": "UI13", "owner": "U07", "runner": "anvil-ui", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
+    {"id": "UI12.detectors", "owner": "U07", "runner": "anvil-ui", "required": true, "oracleKind": "external", "scope": "NATIVE", "phase": "G3", "gates": ["G3"]},
     {"id": "SES01", "owner": "C06", "runner": "workbench", "required": true, "oracleKind": "external", "scope": "HOST", "phase": "G3", "gates": ["G3"]},
     {"id": "SES02", "owner": "C06", "runner": "workbench", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G3", "gates": ["G3"]},
     {"id": "SES03", "owner": "C06", "runner": "workbench", "required": true, "oracleKind": "external", "scope": "ALL", "phase": "G3", "gates": ["G3"]},

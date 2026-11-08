@@ -31,7 +31,6 @@ import {
 export type RouteId =
   | "workbench"
   | "chat"
-  | "chat-index"
   | "agents"
   | "skills"
   | "mcp"
@@ -70,7 +69,9 @@ const SchedulesRoute: RouteComponent = () =>
 export const ROUTES: readonly RouteSpec[] = [
   { id: "workbench", pattern: "/", component: WorkbenchPage, labelKey: "nav.workbench", hintKey: "nav.hints.workbench" },
   { id: "chat", pattern: "/chat/:id", component: ChatPage, labelKey: "nav.chat", hintKey: "nav.hints.chat" },
-  { id: "chat-index", pattern: "/chat", component: ChatPage, labelKey: "nav.chat", hintKey: "nav.hints.chat" },
+  // 注意 id 与侧栏入口（navGroups 里的 "chat"）必须一致：路由 id 用来判定
+  // "当前页"，不一致的后果是侧栏不高亮、<main aria-label> 退回应用名。
+  { id: "chat", pattern: "/chat", component: ChatPage, labelKey: "nav.chat", hintKey: "nav.hints.chat" },
   { id: "agents", pattern: "/agents", component: AgentsPage, labelKey: "nav.agents", hintKey: "nav.hints.agents" },
   { id: "library", pattern: "/library", component: LibraryPage, labelKey: "nav.library", hintKey: "nav.hints.library" },
   { id: "memory", pattern: "/memory", component: MemoryPage, labelKey: "nav.memory", hintKey: "nav.hints.memory" },

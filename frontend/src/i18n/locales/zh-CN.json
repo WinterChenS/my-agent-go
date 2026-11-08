@@ -451,6 +451,7 @@
   },
   "agents": {
     "title": "Agent",
+    "missingRefs": "以下引用当前不可用：{refs}",
     "subtitle": "每个 Agent 就是一个 Profile：名称、模型、引用、权限边界与记忆都由后端保存。",
     "listTitle": "Agent 列表",
     "newTitle": "新建 Agent",

@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- 故意违规夹具：控件文案被截断（truncated-label）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: truncated label</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      button { width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      button:focus-visible { outline: 2px solid #1f5fd0; }
+    </style>
+  </head>
+  <body>
+    <h1>文案被截断</h1>
+    <button id="long-label">Save all pending runs to the workspace library</button>
+  </body>
+</html>

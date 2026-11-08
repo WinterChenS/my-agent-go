@@ -168,6 +168,7 @@ gate 报告末尾的目标汇总是诊断视图，不是另一个通过口径：
 | UI10 | U06 | NATIVE | 设置显示全部 Pi 候选、安装升级回滚和应用更新真实状态；无 Codex/Claude 伪运行时选项 |
 | UI11 | U06 | NATIVE | 观测显示真实 usage/工具/审批/失败/run 链；缺 usage/价格为 unavailable，不显示伪0 |
 | UI12 | U07 | NATIVE | 880×600 至 1920×1080、Windows 100/150/200%、Retina、Linux X11/Wayland 无关键操作遮挡 |
+| UI12.detectors | U07 | NATIVE | 检查器自证：向真实页面注入违规结构后，布局/对比度/可访问名称/截断/焦点环每条检查都必须报错（不报错的检查不能用来判绿） |
 | UI13 | U07 | NATIVE | 键盘、焦点、accessible name、风险提示和 WCAG AA 对比度通过；built Wails 真机证据绑定 API/DB oracle |
 | SES01 | C06 | HOST | 会话目录改名/置顶/归档/删除走 CAS，并发写只有一个成功；分页稳定，重启后一致；删除不删产物；普通会话在 scratch 工作区且无用户目录访问 |
 | SES02 | C06 | ALL | 附件由 Go 解析真实路径；工作区外、symlink/junction 逃逸和 policy 拒绝的项逐项返回原因，run 上的引用不可变 |

@@ -63,6 +63,15 @@
       "license": "ISC",
       "purpose": "Transitive dependency of go-webview2: loads WebView2Loader.dll from an embedded copy when the DLL is not on PATH (no cgo, no PATH dependency). Non-semver pseudo-version, pinned by go-webview2's own go.mod.",
       "transitive": true
+    },
+    {
+      "name": "github.com/coder/websocket",
+      "version": "v1.8.14",
+      "source": "https://proxy.golang.org/github.com/coder/websocket/@v/v1.8.14.zip",
+      "hash": "h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=",
+      "license": "ISC",
+      "purpose": "U07 native evidence: DevTools-protocol client for the built Wails app (tests/native). Already present transitively via wails v3 before U07 promoted it to a direct requirement; no version change.",
+      "transitive": false
     }
   ],
   "nativeToolchains": {
@@ -142,5 +151,18 @@
     "npm": "D:\\Program Files\\nodejs\\npm.cmd",
     "wails": "D:\\project\\my-agent-go\\.tools\\bin\\wails3.exe"
   },
-  "sumDbNote": "Initial `go mod tidy` hit 'unexpected EOF' from sum.golang.org and ran with GOSUMDB=off. Review re-probe returned 200; re-running `go mod tidy` with the default GOSUMDB produced a byte-identical go.sum, so the hashes match the public sumdb and no unverified dependency was introduced."
+  "sumDbNote": "Initial `go mod tidy` hit 'unexpected EOF' from sum.golang.org and ran with GOSUMDB=off. Review re-probe returned 200; re-running `go mod tidy` with the default GOSUMDB produced a byte-identical go.sum, so the hashes match the public sumdb and no unverified dependency was introduced.",
+  "preflightTooling": {
+    "note": "U07 预检工具：只用于 npm run test:e2e（静态扫描、违规夹具、两语言两主题与布局回归）。它不产出门禁证据——G3 的 UI/I18N/THEME 证据只来自构建后的 Wails 应用（verify --suite=native --gate=G3）。浏览器二进制下载到 .tools/pw-browsers（gitignore，不进仓库，也不进 Anvil 安装包）。",
+    "playwright": {
+      "name": "@playwright/test",
+      "version": "1.65.0",
+      "pinned": "exact（package.json 里是 1.65.0，没有 ^ 或 ~）",
+      "source": "https://registry.npmjs.org/@playwright/test/-/test-1.65.0.tgz",
+      "integrity": "sha512-iGURLGuKDLakSEl7Pgfv8h7f+XLT+V861Wfhz0zlEl5nyFuKUopdkFBPKqTllTUp06aOwPuH8iuUEb3yp3MpbQ==",
+      "browsersPath": ".tools/pw-browsers",
+      "install": "npm --prefix frontend run test:e2e:install（playwright install chromium，webview/chromium 与 WebView2 同源但仅用于预检）",
+      "purpose": "预检：静态 anti-mock/硬编码指标/直接颜色/消息 key、违例夹具红证、两语言×两主题×九页、五档窗口布局"
+    }
+  }
 }

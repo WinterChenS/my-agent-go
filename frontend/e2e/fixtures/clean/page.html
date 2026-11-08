@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- 干净对照页：同样被检查，但**必须**零发现（否则检查本身在乱报）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>clean page</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      button {
+        border: 1px solid #d5d9e0;
+        background: #eef0f4;
+        color: #16181d;
+        padding: 4px 10px;
+      }
+      button:focus-visible { outline: 2px solid #1f5fd0; outline-offset: 2px; }
+      .muted { color: #5b6270; }
+    </style>
+  </head>
+  <body>
+    <h1>干净页</h1>
+    <p class="muted">对比度达标的说明文字。</p>
+    <button id="save">保存</button>
+    <button id="cancel" aria-label="取消编辑">取消</button>
+    <label for="name">名称</label>
+    <input id="name" name="name" />
+  </body>
+</html>

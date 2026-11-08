@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- 故意违规夹具：聚焦后没有任何可见变化（no-visible-focus）。 -->
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>violation: no visible focus</title>
+    <style>
+      body { background: #ffffff; color: #16181d; font-family: system-ui, sans-serif; }
+      button { border: 1px solid #d5d9e0; background: #eef0f4; color: #16181d; }
+      button:focus, button:focus-visible { outline: none; box-shadow: none; border-color: #d5d9e0; }
+    </style>
+  </head>
+  <body>
+    <h1>焦点不可见</h1>
+    <button id="invisible-focus">保存</button>
+  </body>
+</html>
