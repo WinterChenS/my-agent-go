@@ -189,8 +189,11 @@ export function ChatPage({
   const [readinessReport, setReadinessReport] = useState<ReadinessReport | null>(null);
   const [checkingReadiness, setCheckingReadiness] = useState(true);
 
-  const runReadinessCheck = useCallback(async (): Promise<ReadinessReport> => {
-    setCheckingReadiness(true);
+  const runReadinessCheck = useCallback(async (quiet = false): Promise<ReadinessReport> => {
+    // quiet：不亮"正在检查"指示。挂载后的重查（设置/工作区/模型变了）与发送前
+    // 的复核都走静默模式——否则用户每发一条都会看到一次"正在检查发送前提"，
+    // 而它实际上只是把同一份结论再算一遍（2026-11-08 用户反馈）。
+    if (!quiet) setCheckingReadiness(true);
     let discovery: PiDiscoveryResult | null = null;
     let discoveryError: ReturnType<typeof toCallError> | null = null;
     try {
@@ -210,8 +213,12 @@ export function ChatPage({
     return next;
   }, [readinessBackend, shell.currentWorkspace, shell.currentModel, shell.settings]);
 
+  const readinessRef = useRef<ReadinessReport | null>(null);
+  readinessRef.current = readinessReport;
+
   useEffect(() => {
-    void runReadinessCheck();
+    // 首次亮指示；之后状态变化引起的重查静默进行，旧结论继续显示。
+    void runReadinessCheck(readinessRef.current !== null);
   }, [runReadinessCheck]);
 
   /**
@@ -412,15 +419,21 @@ export function ChatPage({
   );
 
   /**
-   * 发送：先重新检查一遍前提，再交给后端。
+   * 发送：用**当前**结论，不再每次重新探测。
    *
-   * 输入区在未就绪时本来就是禁用的，这里是第二道闸：结论过期（刚刚有东西
-   * 被删/被撤销信任）时，用户的这句话不会被丢给一次注定失败的调用。
+   * 为什么不再重跑 DiscoverPi：那是要 spawn 探针的重活，每发一条消息跑一次
+   * 既慢又会闪一次"正在检查发送前提"，而输入区在未就绪时本来就是禁用的。
+   * 结论只在这几件事发生时更新（见上面的 effect）：Pi 候选/选择变了、工作区
+   * 变了、模型变了，或用户点"重新检查"。真正的权威仍然是后端——它会在状态
+   * 真正失效时返回结构化错误，界面照实显示。
+   *
+   * 兜底：如果没有结论（极端竞态），静默补一次再决定，不把消息丢给注定失败的调用。
    */
   const sendWhenReady = useCallback(
     async (text: string, attachmentIds: string[]) => {
-      const fresh = await runReadinessCheck();
-      if (!fresh.ready) return;
+      let report = readinessRef.current;
+      if (!report) report = await runReadinessCheck(true);
+      if (!report.ready) return;
       shell.onSendToSession(sessionId, text, attachmentIds);
     },
     [runReadinessCheck, shell, sessionId]

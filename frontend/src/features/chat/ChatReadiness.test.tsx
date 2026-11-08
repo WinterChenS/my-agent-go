@@ -385,7 +385,7 @@ describe("对话页发送前提", () => {
     expect(jump.textContent).toContain(t("chat.readiness.section.permissions"));
   });
 
-  it("全部满足：面板消失、输入区可用，发送前会再检查一次后真的提交", async () => {
+  it("全部满足：面板消失、输入区可用，发送直接用当前结论（不再逐条重探测）", async () => {
     const user = userEvent.setup();
     const harness = readinessBackend(READY_DISCOVERY);
     const onSendToSession = vi.fn();
@@ -398,8 +398,10 @@ describe("对话页发送前提", () => {
     const before = harness.discoverPi.mock.calls.length;
     await user.click(screen.getByRole("button", { name: t("chat.composer.send") }));
     await waitFor(() => expect(onSendToSession).toHaveBeenCalledWith("sess-1", "看看这个仓库", []));
-    // 发送前重新检查：不是只信挂载时那份快照。
-    await waitFor(() => expect(harness.discoverPi.mock.calls.length).toBeGreaterThan(before));
+    // 发送不再重跑 DiscoverPi：那是要 spawn 探针的重活，每发一条都跑一次既慢
+    // 又会让界面闪一次"正在检查发送前提"（2026-11-08 用户反馈）。
+    // 结论只在 Pi/工作区/模型变化或用户点"重新检查"时更新。
+    expect(harness.discoverPi.mock.calls.length).toBe(before);
   });
 
   it("内置 fixture + 活着的端点：不阻塞发送，只打徽标（脚本化回放）", async () => {
