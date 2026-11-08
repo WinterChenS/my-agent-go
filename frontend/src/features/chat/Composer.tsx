@@ -18,6 +18,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { formatBytes, formatError, t } from "../../i18n";
 import type { CallError, Profile, SkillResource } from "../../types";
+import type { FixtureSignal } from "./readiness";
 import {
   chatApi,
   type ChatAttachmentMeta,
@@ -60,6 +61,15 @@ export interface ComposerProps {
   permission: PermissionSummary;
   /** 后端拒绝发送时的结构化原因（例如工作区未信任）。 */
   sendError?: CallError | null;
+  /**
+   * 发送前提未满足时的解释（UX1）；null 表示可以发送。
+   *
+   * 这里接的是**判定结果**而不是布尔：输入区要给用户一句能读的说明，
+   * 而不是一个变灰就完事的按钮。
+   */
+  blockedHint?: string | null;
+  /** 内置 fixture（脚本化回放）标记；null = 用的是真实 provider。 */
+  fixture?: FixtureSignal | null;
 }
 
 /** 把用户给的路径收敛成一个 pending 附件；空路径不算。 */
@@ -84,6 +94,8 @@ export function Composer({
   skills,
   permission,
   sendError,
+  blockedHint = null,
+  fixture = null,
 }: ComposerProps) {
   const [pathInput, setPathInput] = useState("");
   const [pending, setPending] = useState<PendingAttachment[]>([]);
@@ -163,7 +175,7 @@ export function Composer({
     setAccepted((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  const canSend = !busy && !stopRequested && !resolving && value.trim() !== "";
+  const canSend = blockedHint === null && !busy && !stopRequested && !resolving && value.trim() !== "";
 
   const send = useCallback(() => {
     if (!canSend) return;
@@ -217,6 +229,15 @@ export function Composer({
           <dd data-composer-model="" className="font-mono text-[color:var(--anvil-foreground)]">
             {modelLabel || t("common.unknown")}
           </dd>
+          {fixture ? (
+            <span
+              data-fixture-badge=""
+              title={t("chat.composer.fixtureHint")}
+              className="rounded-full border border-[color:var(--anvil-warning-border)] bg-[color:var(--anvil-warning-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--anvil-warning)]"
+            >
+              {t("chat.composer.fixtureBadge")}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           <dt>{t("chat.composer.thinking")}</dt>
@@ -367,7 +388,7 @@ export function Composer({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={t("chat.composer.placeholder")}
-          disabled={stopRequested}
+          disabled={stopRequested || blockedHint !== null}
           className="min-h-0 flex-1 resize-y rounded-md border border-[color:var(--anvil-border)] bg-[color:var(--anvil-background)] px-2 py-1.5 text-[12px] leading-relaxed text-[color:var(--anvil-foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--anvil-focus)] disabled:opacity-60"
         />
         <div className="flex shrink-0 flex-col gap-1">
@@ -393,6 +414,12 @@ export function Composer({
       {stopRequested ? (
         <p data-composer-readonly="" className="text-[10px] text-[color:var(--anvil-muted)]">
           {t("chat.composer.stopRequested")}
+        </p>
+      ) : null}
+
+      {blockedHint !== null ? (
+        <p data-composer-blocked="" role="status" className="text-[10px] leading-relaxed text-[color:var(--anvil-warning)]">
+          {blockedHint}
         </p>
       ) : null}
 

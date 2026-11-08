@@ -178,6 +178,7 @@ function renderPage(ui: UiState, overrides: Partial<ShellValue> = {}, browser?: 
         route={routeFor("sess-1")}
         browserApprovals={browser?.backend}
         browserApprovalPollMs={browser?.pollMs ?? 0}
+        readiness={READINESS_BACKEND}
       />
     </ShellProvider>
   );
@@ -241,6 +242,40 @@ function browserApprovalFixture(overrides: Partial<BrowserApprovalItem> = {}): B
     ...overrides,
   };
 }
+
+/**
+ * 发送前提的替身（UX1）。
+ *
+ * 这个文件守的是事件顺序、审批与附件，不是 Pi 探测。探测结果固定为“Pi 可用”，
+ * 其余前提（工作区/模型）照旧由 shell 的事实决定：不在这里伪造一个“全都就绪”。
+ */
+const READY_PI_CANDIDATE = {
+  installation: {
+    id: "managed:1.5.0",
+    executable: "D:/pi/pi.exe",
+    origin: "managed",
+    architecture: "x86_64",
+    runnable: true,
+    version: "1.5.0",
+  },
+  origin: "managed",
+  distribution: "standalone",
+  executableHash: "a".repeat(64),
+  launcherPath: "D:/pi/pi.exe",
+  runtimeExecutable: "D:/pi/pi.exe",
+  runtimeHash: "b".repeat(64),
+  compatibility: "ready_verified",
+  diagnostics: [],
+};
+
+const READINESS_BACKEND = {
+  discoverPi: async () => ({
+    state: "ready_verified",
+    selected: READY_PI_CANDIDATE,
+    candidates: [READY_PI_CANDIDATE],
+    diagnostics: [],
+  }),
+};
 
 /** 最小 RouteMatch：ChatPage 只读 id 参数。 */
 function routeFor(id: string) {
@@ -414,7 +449,7 @@ describe("ChatPage 事件顺序", () => {
     });
     rerender(
       <ShellProvider value={shellValue(resolved)}>
-        <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} />
+        <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} readiness={READINESS_BACKEND} />
       </ShellProvider>
     );
     await waitFor(() => expect(document.querySelector("[data-approval-card='apr-1']")).toBeNull());
@@ -694,7 +729,7 @@ describe("ChatPage 右栏浏览器面板", () => {
     const tree = (ui: UiState) => (
       <BrowserOcclusionProvider api={occlusion}>
         <ShellProvider value={shellValue(ui)}>
-          <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} />
+          <ChatPage onNavigate={() => undefined} route={routeFor("sess-1")} readiness={READINESS_BACKEND} />
         </ShellProvider>
       </BrowserOcclusionProvider>
     );

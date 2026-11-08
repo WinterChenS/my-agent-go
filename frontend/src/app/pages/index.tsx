@@ -25,7 +25,9 @@ import { useShell } from "../shell";
 
 export { ChatPage } from "../../features/chat/ChatPage";
 // 设置与观测（U06）：页面本体在各自 feature 里，路由文件不再保存一份状态。
-export { SettingsPage } from "../../features/settings/SettingsPage";
+// 设置这一层多包一处路由行为（UX1）：`?section=pi|permissions|model` 要把人
+// 送到对应分区，所以入口是 app/SettingsRoute，而不是直接转出页面本体。
+export { SettingsRoute as SettingsPage } from "../SettingsRoute";
 export { ObservabilityPage } from "../../features/observability/ObservabilityPage";
 export { LibraryPage } from "../../features/library/LibraryPage";
 export { MemoryPage } from "../../features/memory/MemoryPage";

@@ -11,7 +11,7 @@
 //
 // V1 只管理宿主 Pi：这里不出现 Codex CLI / Claude Code / 运行时市场等选项。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CallError } from "../../types";
 import { hasKey, t } from "../../i18n";
 import { AsyncState } from "../../components/states/AsyncState";
@@ -165,6 +165,19 @@ export function PiSettings() {
   const candidates = discovery?.candidates ?? [];
   const canRollback = Boolean(result?.rollbackAvailable && result?.installationId);
 
+  /**
+   * 推荐项：后端已按 ready_verified → ready_compatible → 其它排好序，且 Selected
+   * 是它算出的最可用候选。这里只**标记**，不替用户选：外部二进制要用户点一下
+   * 「选用」才算确认（静默选中 = 让用户跑了一个他没确认过的二进制）。
+   */
+  const recommendedId = useMemo(() => {
+    if (discovery?.selected) return discovery.selected.installation.id;
+    const firstUsable = candidates.find((c) => isSelectable(c.compatibility));
+    return firstUsable?.installation.id ?? "";
+  }, [discovery?.selected, candidates]);
+
+  const needsConfirm = candidates.length > 0 && !discovery?.selected;
+
   return (
     <SettingsSection id="pi" titleKey="settings.pi.title" hintKey="settings.pi.hint" state={phase}>
       <div className="flex flex-wrap items-center gap-2">
@@ -188,7 +201,16 @@ export function PiSettings() {
             emptyHint={t("settings.pi.emptyHint")}
           />
         ) : (
-          <ul data-testid="pi-candidates" className="mt-2 space-y-1.5">
+          <>
+            {needsConfirm ? (
+              <p
+                data-testid="pi-confirm-hint"
+                className="mt-1 text-[10px] leading-relaxed text-[color:var(--anvil-warning)]"
+              >
+                {t("settings.pi.confirmHint")}
+              </p>
+            ) : null}
+            <ul data-testid="pi-candidates" className="mt-2 space-y-1.5">
             {candidates.map((c) => {
               const id = c.installation.id;
               const selected = discovery?.selected?.installation.id === id;
@@ -213,6 +235,15 @@ export function PiSettings() {
                     {selected ? (
                       <span data-testid="pi-selected" className="text-[10px] text-[color:var(--anvil-success)]">
                         {t("settings.pi.selected")}
+                      </span>
+                    ) : null}
+                    {!selected && id === recommendedId ? (
+                      <span
+                        data-testid="pi-recommended"
+                        title={t("settings.pi.recommendedHint")}
+                        className="rounded-full border border-[color:var(--anvil-accent-border)] bg-[color:var(--anvil-accent-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--anvil-accent)]"
+                      >
+                        {t("settings.pi.recommended")}
                       </span>
                     ) : null}
                     <button
@@ -249,7 +280,8 @@ export function PiSettings() {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </>
         )
       ) : null}
 
