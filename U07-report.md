@@ -16,7 +16,13 @@
 
 ## 提交
 
-见本报告所在提交（`U07: gate Anvil UI accessibility and native fidelity`），本次只有一个提交。
+| commit | 内容 |
+|---|---|
+| `7bb1484` | `U07: gate Anvil UI accessibility and native fidelity`：预检工具链 + 9 条 native case + 审计器 + 四个真实缺陷修复 + 文档/用例索引 |
+| `2e0778b` | `U07: attribute the U07 native cases to task U07`：native runner 的 case→task 归属（UI12/UI13/I18N*/THEME* → U07，原来错记成 B07/C06） |
+| 本报告的提交 | `U07: record the accessibility and native UI evidence`：报告与最终数字 |
+
+证据树（不入库，`.gitignore` 已排除）：`docs/evidence/runs/2e0778b/G3/win-x64/desktop/<CASE>/`。
 
 ## 测试摘要
 
@@ -26,7 +32,8 @@
 | `npm --prefix frontend test`（单测） | 314 tests / 36 files 全通过 |
 | `powershell scripts/devtools.ps1 verify --suite=static` | exit 0（gofmt / go vet / 前端 typecheck） |
 | `node scripts/check-ui-contract.mjs` | PASS（catalog 之外文案增量 0；40 个 Go 错误码两种语言全覆盖） |
-| `powershell scripts/devtools.ps1 verify --suite=native --target=win-x64 --display=desktop --gate=G3` | 见"证据"一节：9 条 U07 case 全 PASS，I18N04 FAIL，另有 38 条缺 runner → 汇总 exit 2 |
+| `powershell scripts/devtools.ps1 verify --suite=native --target=win-x64 --display=desktop --gate=G3` | 证据根 `docs/evidence/runs/2e0778b/G3/win-x64/desktop`：可跑 10 条里 9 PASS / I18N04 FAIL；另有 38 条 G3 必需 case 缺 native runner → 汇总 exit 2（配置缺失） |
+| `powershell scripts/devtools.ps1 gate --id=G3 --evidence=.../runs/2e0778b` | exit 2：逐条列出 38 条缺证据 + I18N04 的 FAIL，没有任何 PASS 被算成通过 |
 
 ## 有证据的 case（构建后的 Wails 应用，`docs/evidence/runs/<rev>/G3/win-x64/desktop/`）
 
