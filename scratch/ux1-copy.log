@@ -1,3 +1,0 @@
-[ui-contract] 扫描 11 个含字面量文案的文件（baseline 内 11 个历史页面）
-[ui-contract] Go 错误码 40 个，覆盖检查通过
-[PASS] UI 契约：catalog 之外的文案增量为 0，两种语言覆盖全部错误码
