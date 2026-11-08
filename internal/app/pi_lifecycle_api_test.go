@@ -10,14 +10,18 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"my-agent-go/internal/contracts"
+	"my-agent-go/internal/run"
 	"my-agent-go/internal/runtime/pi"
 )
 
@@ -601,5 +605,392 @@ func TestDiscoverPiFastSkipsContractProbeButFullDiscoveryRunsIt(t *testing.T) {
 	}
 	if full.Selected == nil || !full.Selected.ContractVerified {
 		t.Fatalf("完整发现应标记契约已验证: %+v", full.Selected)
+	}
+}
+
+// ── FIX2：运行前的契约闸门（带缓存） ────────────────────────────────────────
+//
+// 缺陷背景（2026-11-08）：Desktop.Start → resolveInstallation 只校验路径与托管指针
+// 哈希；六项契约探测只在设置页点“验证契约”时跑。于是“版本合法但协议坏”的 Pi 在
+// readiness 里显示可用，开跑之后才失败——用户看到的是“连不上/没权限”，没有可行动
+// 的错误码，也不知道该去修什么。
+//
+// 这里的六条用例守住闸门的六个承诺：
+//  1. 缓存命中不 spawn 任何探测（用计数器证明，不靠耗时猜）；
+//  2. 未命中且契约坏 → Start 返回 COMPATIBILITY，run 不启动、worker 不启动；
+//  3. 二进制变了（哈希不同）→ 缓存失效并重探；
+//  4. 持久化缓存跨 Desktop 重启仍然有效（同一个 appRoot 不重探）；
+//  5. 失败结论也缓存，但 TTL 比成功短；过期后重探；
+//  6. 设置页的“验证契约”（DiscoverPi）总是重探，并把结论写回同一份缓存。
+
+// runtimeServiceOrNil 只读地取当前 RunService，用于断言“没有放行”。
+func (d *Desktop) runtimeServiceOrNil() *run.Service {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.svc
+}
+
+// fix2Probe 是可计数的契约探测替身。
+//
+// 只替换“spawn 探测”这一步：闸门的缓存/失效/TTL/错误形状全部走生产代码。
+type fix2Probe struct {
+	mu     sync.Mutex
+	calls  int
+	delay  time.Duration
+	report pi.ContractReport
+	err    error
+}
+
+func newFix2Probe() *fix2Probe {
+	return &fix2Probe{report: pi.ContractReport{State: pi.StateReadyCompatible}}
+}
+
+func (p *fix2Probe) probe(ctx context.Context, inst pi.PiInstallation) (pi.ContractReport, error) {
+	p.mu.Lock()
+	p.calls++
+	rep := p.report
+	delay := p.delay
+	err := p.err
+	p.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return pi.ContractReport{}, ctx.Err()
+		}
+	}
+	if err != nil {
+		return pi.ContractReport{}, err
+	}
+	rep.Version = inst.Version
+	if rep.State == "" {
+		rep.State = pi.StateReadyCompatible
+	}
+	if len(rep.Capabilities) == 0 {
+		rep.Capabilities = append([]string(nil), pi.ContractChecks...)
+	}
+	return rep, nil
+}
+
+func (p *fix2Probe) setReport(rep pi.ContractReport) {
+	p.mu.Lock()
+	p.report = rep
+	p.mu.Unlock()
+}
+
+func (p *fix2Probe) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+// fix2Desktop 造一个“能真的跑起来”的 Desktop：已有 Pi 路径、已信任工作区、
+// 注入的可控 worker。用于观察 Start 到底有没有进入 run。
+func fix2Desktop(t *testing.T) (*Desktop, string) {
+	t.Helper()
+	d := prepareRuntimeDesktop(t)
+	work := d.Settings().Workspace
+	ws := d.CreateWorkspace(work)
+	if ws.Error != nil {
+		t.Fatalf("登记工作区失败: %s: %s", ws.Error.Code, ws.Error.Message)
+	}
+	if res := d.SetWorkspaceTrust(string(ws.Item.ID), true); res.Error != nil {
+		t.Fatalf("信任工作区失败: %s: %s", res.Error.Code, res.Error.Message)
+	}
+	return d, d.root
+}
+
+// fix2CountingStarter 统计“真正启动了多少个 run worker”。
+func fix2CountingStarter(started *int32) run.WorkerStarter {
+	return func(ctx context.Context, spec pi.WorkerSpec) (pi.Worker, error) {
+		atomic.AddInt32(started, 1)
+		return newC06aWorker(), nil
+	}
+}
+
+func TestPiContractCacheHitDoesNotSpawnProbe(t *testing.T) {
+	d, _ := fix2Desktop(t)
+	var workers int32
+	d.mu.Lock()
+	d.workerStarter = fix2CountingStarter(&workers)
+	d.mu.Unlock()
+
+	probe := newFix2Probe()
+	const probeDelay = 250 * time.Millisecond
+	probe.delay = probeDelay
+	d.piContractProbe = probe.probe
+
+	// 第一次：缓存未命中，必须真的探测一次（这一次允许慢）。
+	inst, err := d.resolveVerifiedInstallation(context.Background(), d.Settings())
+	if err != nil {
+		t.Fatalf("首次契约验证不应失败: %v", err)
+	}
+	if probe.count() != 1 {
+		t.Fatalf("首次验证的探测次数 = %d，期望 1", probe.count())
+	}
+
+	// 第二次：同一 (可执行体, sha256, 最低版本) 必须命中缓存。
+	start := time.Now()
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("缓存命中时验证不应失败: %v", err)
+	}
+	elapsed := time.Since(start)
+	if probe.count() != 1 {
+		t.Fatalf("缓存命中又探测了一次（总次数 %d）：命中的承诺是零 spawn", probe.count())
+	}
+	if elapsed >= probeDelay {
+		t.Fatalf("缓存命中耗时 %s ≥ 探针耗时 %s：说明命中也把探针跑了", elapsed, probeDelay)
+	}
+
+	// Start 走同一个闸门：缓存已热，起 run 不得再 spawn 探测。
+	before := probe.count()
+	if _, err := d.Start("你好"); err != nil {
+		t.Fatalf("契约通过后 Start 不应失败: %v", err)
+	}
+	if probe.count() != before {
+		t.Fatalf("Start 又探测了 %d 次（期望 0）", probe.count()-before)
+	}
+	if got := atomic.LoadInt32(&workers); got != 1 {
+		t.Fatalf("契约通过后应真的启动 1 个 worker，实际 %d", got)
+	}
+	if !samePath(inst.Executable, d.Settings().PiPath) {
+		t.Fatalf("闸门解析出的安装件 = %q，期望 %q", inst.Executable, d.Settings().PiPath)
+	}
+}
+
+func TestStartRejectsBrokenPiContractAsCompatibility(t *testing.T) {
+	d, _ := fix2Desktop(t)
+	var workers int32
+	d.mu.Lock()
+	d.workerStarter = fix2CountingStarter(&workers)
+	d.mu.Unlock()
+
+	probe := newFix2Probe()
+	probe.setReport(pi.ContractReport{
+		State:        pi.StateIncompatible,
+		FailedChecks: []string{"rpc: 握手命令 get_commands 无响应", "settled: timeout"},
+	})
+	d.piContractProbe = probe.probe
+
+	_, err := d.Start("你好")
+	if err == nil {
+		t.Fatal("契约坏掉的 Pi 必须拒绝启动")
+	}
+	var appErr *contracts.AppError
+	if !errors.As(err, &appErr) || appErr.Code != contracts.CodeCompatibility {
+		t.Fatalf("期望 COMPATIBILITY，实际 %v", err)
+	}
+	// 错误必须点名失败项，并给出可执行的下一步（设置 → Pi → 验证）。
+	for _, want := range []string{"rpc", "settled", "设置", "验证"} {
+		if !strings.Contains(appErr.Message, want) {
+			t.Fatalf("错误信息缺少 %q：%q", want, appErr.Message)
+		}
+	}
+	if got := appErr.Params["action"]; got != "settings.pi.verify" {
+		t.Fatalf("错误应带可执行动作参数，实际 params=%+v", appErr.Params)
+	}
+	if got := atomic.LoadInt32(&workers); got != 0 {
+		t.Fatalf("契约失败时不得启动 worker，实际启动 %d 个", got)
+	}
+	if svc := d.runtimeServiceOrNil(); svc != nil {
+		t.Fatal("契约失败时不得构建运行时（否则等于放行）")
+	}
+
+	// 失败结论也要缓存：再点一次不能又探测一遍（TTL 内的代价必须是一次）。
+	if _, err := d.Start("你好"); err == nil {
+		t.Fatal("再次提交也必须拒绝")
+	}
+	if probe.count() != 1 {
+		t.Fatalf("失败结论没有缓存：探测次数 = %d，期望 1", probe.count())
+	}
+}
+
+func TestPiContractCacheInvalidatedWhenBinaryChanges(t *testing.T) {
+	d, _ := fix2Desktop(t)
+	piPath := d.Settings().PiPath
+	probe := newFix2Probe()
+	d.piContractProbe = probe.probe
+
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("首次验证: %v", err)
+	}
+	if probe.count() != 1 {
+		t.Fatalf("首次探测次数 = %d，期望 1", probe.count())
+	}
+	// 同内容：仍然命中。
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("命中验证: %v", err)
+	}
+	if probe.count() != 1 {
+		t.Fatalf("同一二进制不得重探，实际探测 %d 次", probe.count())
+	}
+
+	// 换掉二进制（路径不变、内容变）：哈希不同 → 缓存必须失效。
+	if err := os.WriteFile(piPath, []byte("stub-v2-different-binary"), 0o755); err != nil {
+		t.Fatalf("替换 Pi 二进制: %v", err)
+	}
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("换二进制后的验证: %v", err)
+	}
+	if probe.count() != 2 {
+		t.Fatalf("二进制变化后必须重探，探测次数 = %d，期望 2", probe.count())
+	}
+}
+
+func TestPiContractCacheSurvivesRestart(t *testing.T) {
+	d, root := fix2Desktop(t)
+	probe := newFix2Probe()
+	d.piContractProbe = probe.probe
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("首次验证: %v", err)
+	}
+	if probe.count() != 1 {
+		t.Fatalf("首次探测次数 = %d，期望 1", probe.count())
+	}
+	// 设置必须落盘：重启后的 Desktop 只从磁盘拿到这份配置。
+	if err := d.persistSettings(d.Settings()); err != nil {
+		t.Fatalf("落盘设置: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "pi-contract-cache.json")); err != nil {
+		t.Fatalf("持久化缓存文件缺失: %v", err)
+	}
+
+	d2, err := New(root)
+	if err != nil {
+		t.Fatalf("重启后构造 Desktop: %v", err)
+	}
+	t.Cleanup(d2.Shutdown)
+	probe2 := newFix2Probe()
+	d2.piContractProbe = probe2.probe
+	if _, err := d2.resolveVerifiedInstallation(context.Background(), d2.Settings()); err != nil {
+		t.Fatalf("重启后验证: %v", err)
+	}
+	if probe2.count() != 0 {
+		t.Fatalf("重启后重探了 %d 次：二进制没变就不该再 spawn", probe2.count())
+	}
+}
+
+func TestPiContractFailureTTLIsShorterAndExpires(t *testing.T) {
+	d, _ := fix2Desktop(t)
+	probe := newFix2Probe()
+	probe.setReport(pi.ContractReport{State: pi.StateIncompatible, FailedChecks: []string{"mcp: 不可达"}})
+	d.piContractProbe = probe.probe
+
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	d.piContractClock = func() time.Time { return now }
+
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err == nil {
+		t.Fatal("契约坏时必须报错")
+	}
+	if probe.count() != 1 {
+		t.Fatalf("首次失败探测次数 = %d，期望 1", probe.count())
+	}
+
+	// 失败 TTL 内：不重探（用户连点几次也不会被 10s 探测卡住）。
+	now = now.Add(piContractFailureTTL / 2)
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err == nil {
+		t.Fatal("缓存里的失败结论仍未修复，必须继续拒绝")
+	}
+	if probe.count() != 1 {
+		t.Fatalf("失败 TTL 内重探了（%d 次）：短 TTL 的意义是既不卡住也不假装通过", probe.count())
+	}
+
+	// 失败 TTL 过期、成功 TTL 未到：必须重探。这条同时证明失败 TTL 比成功短。
+	if piContractFailureTTL >= piContractSuccessTTL {
+		t.Fatalf("失败 TTL（%s）必须短于成功 TTL（%s）", piContractFailureTTL, piContractSuccessTTL)
+	}
+	now = now.Add(piContractFailureTTL)
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err == nil {
+		t.Fatal("仍然失败，必须继续拒绝")
+	}
+	if probe.count() != 2 {
+		t.Fatalf("失败 TTL 过期后应重探，探测次数 = %d，期望 2", probe.count())
+	}
+
+	// 失败 TTL 过期之后修好了：重探得到通过，结论在成功 TTL 内一直命中。
+	probe.setReport(pi.ContractReport{State: pi.StateReadyCompatible})
+	now = now.Add(piContractFailureTTL)
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("修好之后应通过: %v", err)
+	}
+	if probe.count() != 3 {
+		t.Fatalf("成功结论的首次探测次数 = %d，期望 3", probe.count())
+	}
+	now = now.Add(piContractFailureTTL * 2)
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("成功 TTL 内应继续命中: %v", err)
+	}
+	if probe.count() != 3 {
+		t.Fatalf("成功结论在成功 TTL 内被重探了（%d 次）", probe.count())
+	}
+	now = now.Add(piContractSuccessTTL)
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("成功 TTL 过期后重探应仍通过: %v", err)
+	}
+	if probe.count() != 4 {
+		t.Fatalf("成功 TTL 过期后应重探，探测次数 = %d，期望 4", probe.count())
+	}
+}
+
+func TestDiscoverPiVerifyAlwaysReprobesAndRefreshesCache(t *testing.T) {
+	d, _ := fix2Desktop(t)
+	piPath := d.Settings().PiPath
+	var verified int32 = 1
+	var discoveryProbes int32
+	d.piRequestOverride = func(req pi.DiscoveryRequest) pi.DiscoveryRequest {
+		req.Preferred = filepath.Dir(piPath)
+		req.ManagedRoot = ""
+		req.PathEnv = nil
+		req.CommonLocations = nil
+		req.VersionProbe = func(context.Context, pi.PiInstallation) (string, []string) {
+			return "1.5.0", nil
+		}
+		req.ProbeFunc = func(context.Context, pi.PiCandidate) (bool, []string) {
+			atomic.AddInt32(&discoveryProbes, 1)
+			if atomic.LoadInt32(&verified) == 1 {
+				return true, nil
+			}
+			return false, []string{"kind:\"contract-probe-failed\" rpc: 握手无响应"}
+		}
+		return req
+	}
+
+	gateProbe := newFix2Probe()
+	d.piContractProbe = gateProbe.probe
+
+	// 用户点“验证契约”：完整发现真的跑探测，并把通过的结论写进同一份缓存。
+	if _, err := d.DiscoverPi(); err != nil {
+		t.Fatalf("验证契约: %v", err)
+	}
+	if got := atomic.LoadInt32(&discoveryProbes); got < 1 {
+		t.Fatalf("“验证契约”必须真的跑探测，实际 %d 次", got)
+	}
+	if _, err := d.resolveVerifiedInstallation(context.Background(), d.Settings()); err != nil {
+		t.Fatalf("验证过的 Pi 应在闸门处直接命中缓存: %v", err)
+	}
+	if gateProbe.count() != 0 {
+		t.Fatalf("验证结论已缓存，闸门却探测了 %d 次", gateProbe.count())
+	}
+
+	// 再点一次“验证契约”：必须重探（不读缓存），并把新的失败结论写回缓存。
+	atomic.StoreInt32(&verified, 0)
+	before := atomic.LoadInt32(&discoveryProbes)
+	if _, err := d.DiscoverPi(); err != nil {
+		t.Fatalf("二次验证契约: %v", err)
+	}
+	if got := atomic.LoadInt32(&discoveryProbes); got <= before {
+		t.Fatalf("“验证契约”复用了缓存（探测次数没增加）：验证动作必须重探")
+	}
+	_, err := d.resolveVerifiedInstallation(context.Background(), d.Settings())
+	if err == nil {
+		t.Fatal("验证结论改成失败后，闸门必须拒绝启动")
+	}
+	var appErr *contracts.AppError
+	if !errors.As(err, &appErr) || appErr.Code != contracts.CodeCompatibility {
+		t.Fatalf("期望 COMPATIBILITY，实际 %v", err)
+	}
+	if gateProbe.count() != 0 {
+		t.Fatalf("闸门应复用验证动作写回的失败结论，实际探测 %d 次", gateProbe.count())
 	}
 }

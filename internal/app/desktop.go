@@ -161,6 +161,20 @@ type Desktop struct {
 	// 免得测试结论依赖宿主机真实 PATH。生产恒为 nil。
 	piRequestOverride func(pi.DiscoveryRequest) pi.DiscoveryRequest
 
+	// piContractMu 保护运行前契约验证的缓存（内存 + <appRoot>/pi-contract-cache.json）。
+	//
+	// 与 d.mu 分开：写缓存会做磁盘 I/O，不该连带把 Status/Start 的短锁拖长。
+	// 锁序恒为 piContractMu → d.mu（piContractNow 读注入时钟时短暂摸 d.mu）。
+	piContractMu     sync.Mutex
+	piContractCache  map[string]piContractCacheEntry
+	piContractLoaded bool
+
+	// piContractProbe 是契约探测的注入点（生产恒为 nil = 真实 pi.ContractProbe）：
+	// 探测要 spawn 六个隔离子进程，测试注入可计数的替身来证明“命中不探测”。
+	piContractProbe func(context.Context, pi.PiInstallation) (pi.ContractReport, error)
+	// piContractClock 允许测试推进时间以验证 TTL（生产恒为 nil = time.Now）。
+	piContractClock func() time.Time
+
 	// piInstallMu 保护 F06 安装服务单例；piInstallOverride 允许测试注入清单/
 	// HTTP 客户端/探针（生产恒为 nil，生产路径只用嵌入清单与真实探针）。
 	piInstallMu       sync.Mutex
@@ -912,7 +926,10 @@ func (d *Desktop) ensureRuntime() (*run.Service, error) {
 		d.mu.Unlock()
 	}
 
-	inst, err := d.resolveInstallation(s)
+	// FIX2 闸门：解析安装件之外还要证明这个二进制真的会说我们的协议。
+	// 放在这里（而不是在每次 Start 的开头）是故意的：已有运行时且配置签名没变时
+	// 会在上面提前返回，不会为了“再发一条消息”去哈希/探测一遍二进制。
+	inst, err := d.resolveVerifiedInstallation(ctx, s)
 	if err != nil {
 		return nil, err
 	}
