@@ -1058,7 +1058,26 @@
       "deferred": "Switched: a run is still active, so the new model takes effect on the next run.",
       "credential": "Credential",
       "credentialPresent": "Stored in the OS credential store",
-      "credentialMissing": "No stored credential"
+      "credentialMissing": "No stored credential",
+      "env": {
+        "title": "Model sources",
+        "hint": "Settings win; empty fields are filled from environment variables, and those values are never written to settings.json.",
+        "fields": {
+          "provider": "Provider",
+          "model": "Model",
+          "baseUrl": "Base URL",
+          "apiKeyRef": "Key reference"
+        },
+        "source": {
+          "settings": "Settings",
+          "env": "Environment",
+          "default": "Default",
+          "none": "Not set"
+        },
+        "empty": "not set",
+        "overridden": "Filled from environment variables (never written to settings.json): {fields}",
+        "unavailable": "Cannot read the effective config: {reason}"
+      }
     },
     "permissions": {
       "title": "Permissions",

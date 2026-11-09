@@ -15,6 +15,7 @@ import { Call, Events } from "@wailsio/runtime";
 import type {
   CallError,
   CurrentModelResult,
+  EffectiveConfigResult,
   ModelAction,
   ModelListResult,
   ModelProbeResponse,
@@ -151,6 +152,13 @@ export const settingsApi = {
   /** 会真实调用模型（可能计费），只能由用户点击触发。 */
   testModel: (id: string): Promise<ModelProbeResponse> => Call.ByName(`${FQN}.TestModel`, id),
   setActiveModel: (ref: string): Promise<ModelAction> => Call.ByName(`${FQN}.SetActiveModel`, ref),
+
+  /**
+   * 有效配置与来源（M1ENV）。这里只取模型那一段：provider/model/baseUrl/apiKeyRef
+   * 分别是谁给的（settings / env / default），设置页据此显示来源。
+   */
+  effectiveConfig: (): Promise<EffectiveConfigResult> =>
+    Call.ByName(`${FQN}.EffectiveConfig`),
 
   // ---- 权限上限 ----
   agentProfileCeiling: (workspaceId: string): Promise<AgentCeilingResult> =>

@@ -16,6 +16,8 @@ const fake = vi.hoisted(() => ({
   savePreferences: null as unknown as (...a: any[]) => Promise<any>,
   listModels: null as unknown as (...a: any[]) => Promise<any>,
   currentModel: null as unknown as (...a: any[]) => Promise<any>,
+  // M1ENV：模型分区会读一次有效配置来源。
+  effectiveConfig: null as unknown as (...a: any[]) => Promise<any>,
   testModel: null as unknown as (...a: any[]) => Promise<any>,
   setActiveModel: null as unknown as (...a: any[]) => Promise<any>,
   agentProfileCeiling: null as unknown as (...a: any[]) => Promise<any>,
@@ -175,6 +177,15 @@ beforeEach(() => {
     model: "gpt-5",
     item: model(),
     revision: 7,
+  }));
+  fake.effectiveConfig = vi.fn(async () => ({
+    model: {
+      provider: { value: "openai", source: "settings" },
+      model: { value: "fixture-model", source: "settings" },
+      baseUrl: { value: "http://127.0.0.1:8080/v1", source: "settings" },
+      apiKeyRef: { value: "", source: "none" },
+      overriddenByEnv: [],
+    },
   }));
   fake.testModel = vi.fn(async () => ({
     result: {
