@@ -203,8 +203,11 @@ type Desktop struct {
 	// 它只是"显式 --skill 的那几条"，不是 Pi 实际可见的全部技能。
 	// Digest 同时参与运行时签名：编辑 SKILL.md 内容不会改配置 revision，
 	// 只有内容摘要能发现"技能变了"。
-	runtimeSkills       []string
-	runtimeSkillDigest  string
+	runtimeSkills      []string
+	runtimeSkillDigest string
+	// piVersion 是侧栏状态点用的缓存（见 cachedPiVersion）：Status 高频轮询不能 spawn。
+	piVersion           string
+	piVersionKey        string
 	runtimeExtensionDig string
 	// connectorMu 保护 C08a 连接器服务单例与待审批请求。
 	// 与 d.mu 分开：连接器健康检查会做网络往返，不该连带把 Status 卡住。
@@ -718,6 +721,7 @@ func (d *Desktop) Status() Status {
 		AppRoot:            d.root,
 		AgentDir:           d.agentDir(),
 		PiPath:             s.PiPath,
+		PiVersion:          d.cachedPiVersion(),
 		Provider:           s.Provider,
 		Model:              s.Model,
 		ModelRef:           s.ModelRef,
@@ -1148,6 +1152,57 @@ func (d *Desktop) resolveRuntimeResources() (resources.SkillPlan, resources.Exte
 //
 // 为什么“当前托管版本”由指针而不是排序回答：F08 的托管候选按**目录名**排序，
 // versions/1.5.0-win-x64 排在 1.6.0-win-x64 前面——名字顺序不是版本顺序。
+// cachedPiVersion 返回"侧栏那颗状态点"用的 Pi 版本。
+//
+// 为什么不是每次现算：Status 会被 UI 高频轮询，而算出真实版本要么解析托管指针、
+// 要么 spawn 一次 `pi --version`——放在 Status 里就是"界面越刷越卡"。
+// 所以第一次调用先返回空（UI 显示"未检测到"），后台算完下一次轮询就正确。
+// 缓存键含设置路径与环境变量，改选 Pi 之后下一次自动重算。
+func (d *Desktop) cachedPiVersion() string {
+	d.mu.Lock()
+	version, key := d.piVersion, d.piVersionKey
+	s := d.settings
+	d.mu.Unlock()
+
+	want := strings.TrimSpace(s.PiPath)
+	if want == "" {
+		want, _ = envLookup("PI_PATH")
+	}
+	want += "|" + strings.TrimSpace(s.PiSavedPath)
+	if key == want {
+		return version
+	}
+	d.mu.Lock()
+	if d.piVersionKey != want {
+		d.piVersionKey = want
+		d.piVersion = ""
+	}
+	d.mu.Unlock()
+	go d.refreshPiVersion(want)
+	return ""
+}
+
+func (d *Desktop) refreshPiVersion(key string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := pi.DiscoverFast(ctx, d.piDiscoveryRequest())
+	if err != nil {
+		return
+	}
+	version := ""
+	for _, cand := range res.Candidates {
+		if cand.Installation.Version != "" {
+			version = cand.Installation.Version
+			break
+		}
+	}
+	d.mu.Lock()
+	if d.piVersionKey == key {
+		d.piVersion = version
+	}
+	d.mu.Unlock()
+}
+
 func (d *Desktop) resolveInstallation(s Settings) (pi.PiInstallation, error) {
 	if path := strings.TrimSpace(s.PiPath); path != "" {
 		return resolveUserInstallation(s, path)

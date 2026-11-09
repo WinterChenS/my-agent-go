@@ -994,3 +994,29 @@ func TestDiscoverPiVerifyAlwaysReprobesAndRefreshesCache(t *testing.T) {
 		t.Fatalf("闸门应复用验证动作写回的失败结论，实际探测 %d 次", gateProbe.count())
 	}
 }
+
+// TestStatusReportsPiVersionFromDiscovery 守一条"看得见但没接线"的缺陷：
+// Status.PiVersion 结构里一直有字段，但**从来没被赋值**，于是侧栏永远显示
+// "未检测到 Pi"——即使 Pi 就在那里、run 也能启动。
+//
+// 这里用真实发现（用户路径优先）让后台填充缓存；Status 第一次可能为空，
+// 第二次必须给出真实版本。
+func TestStatusReportsPiVersionFromDiscovery(t *testing.T) {
+	d, root := newTestDesktop(t)
+	path := writeAppPiStub(t, filepath.Join(root, "ver-pi"), appTestPiName())
+	d.mu.Lock()
+	d.settings.PiPath = path
+	d.mu.Unlock()
+
+	d.Status() // 触发后台计算
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if v := d.Status().PiVersion; v != "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Status().PiVersion 在 15s 内仍为空（侧栏会一直显示未检测到 Pi）")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
