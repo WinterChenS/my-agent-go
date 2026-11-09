@@ -372,6 +372,10 @@
       "jump": "Open {section}",
       "recheck": "Check again",
       "checking": "Checking…",
+      "trustWorkspace": "Trust this workspace",
+      "trustWorkspaceAria": "Trust this workspace: {path} (allow running commands and writing files there)",
+      "trusting": "Trusting…",
+      "trustFailed": "Could not trust it: {code} ({message})",
       "section": {
         "pi": "Settings · Pi runtime",
         "permissions": "Settings · Permissions (workspace)",
@@ -406,7 +410,7 @@
         "WORKSPACE_UNTRUSTED": {
           "title": "The workspace is not trusted",
           "detail": "Workspace {path} is not trusted.",
-          "next": "Trust it in Settings · Permissions: no command may run in an untrusted workspace."
+          "next": "Trust only covers execution: press \"Trust this workspace\" below to allow commands and file writes in that directory; the check then re-runs automatically. Reading, creating sessions and picking a directory never need trust."
         },
         "MODEL_MISSING": {
           "title": "No usable model",
@@ -1098,13 +1102,25 @@
         "default": "Default"
       },
       "workspacesTitle": "Workspaces",
-      "workspacesHint": "No command can run in an untrusted workspace.",
+      "workspacesHint": "No command can run in an untrusted workspace; picking a directory never needs trust.",
       "trusted": "Trusted",
       "untrusted": "Not trusted",
       "trust": "Trust",
-      "untrust": "Revoke trust",
-      "workspacesEmptyTitle": "No workspaces registered",
-      "workspacesEmptyHint": "Add a directory from chat or the workbench."
+      "untrust": "Revoke",
+      "trustAria": "Trust {path} (allow commands and file writes there)",
+      "untrustAria": "Revoke trust for {path}",
+      "workspaceName": "Name",
+      "workspacePath": "Absolute path",
+      "trustedAt": "Trusted at: {time}",
+      "trustedAtUnknown": "Trusted at: not recorded by this UI session (it was already trusted before the UI started)",
+      "revokedNote": "Trust revoked: the run already in progress is unaffected; the next message needs trust again.",
+      "addTitle": "Add a directory",
+      "addHint": "Picking a directory is not permission to execute: adding only needs an existing directory, trust comes later when you actually run commands there.",
+      "addPlaceholder": "D:\\work\\proj",
+      "add": "Add directory",
+      "adding": "Adding…",
+      "workspacesEmptyTitle": "No workspaces yet",
+      "workspacesEmptyHint": "Enter a directory path above to add one: picking a directory needs no trust; only execution does."
     },
     "pi": {
       "title": "Pi runtime",

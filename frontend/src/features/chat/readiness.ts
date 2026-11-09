@@ -8,6 +8,8 @@
 // 这里只做判定，不画界面、不发请求：
 //   - 判据全部来自后端事实（DiscoverPi 的 compatibility、当前工作区、当前模型）；
 //   - 每个不满足项都带一个"跳到哪个设置分区"的定位串；
+//   - 能就地解决的（工作区信任）另带一个 action：界面直接给按钮，
+//     而不是把人赶去另一个页面（WTRUST，2026-11-08）；
 //   - 内置 fixture 既算一条阻塞原因，也单独作为标记返回（界面要显示徽标）。
 //
 // 不重新实现一遍兼容性判定：ready_verified / ready_compatible 是后端结合
@@ -52,6 +54,26 @@ export interface ReadinessBlocker {
   /** 文案参数：全部是后端事实（路径/版本/provider/模型/端点）。 */
   params: Record<string, string>;
   target: ReadinessTarget;
+  /**
+   * 可以**就地**解决的动作（不是"跳到别处自己找"）。
+   *
+   * 只有后端真有的绑定才放进这里：界面不发明动作，也不在点击后假装置位。
+   */
+  action?: ReadinessAction;
+}
+
+/**
+ * 就绪阻断项的就地动作。
+ *
+ * `path` 必须带上：按钮的可访问名要写清"信任的是哪个绝对路径"，
+ * 否则同一句话在两个不同目录下看起来一模一样，用户无从核对。
+ */
+export interface ReadinessAction {
+  kind: "trust_workspace";
+  /** 要信任的工作区 id（后端事实，不是前端从路径推的）。 */
+  workspaceId: string;
+  /** 该工作区的绝对路径。 */
+  path: string;
 }
 
 /** 内置 fixture 的信号：脚本化回放，不是真模型。 */
@@ -180,7 +202,11 @@ function evaluatePi(input: ReadinessInput): ReadinessBlocker | null {
 function evaluateWorkspace(workspace: Workspace | null): ReadinessBlocker | null {
   if (!workspace) return blocker("workspace", "WORKSPACE_MISSING", {}, "permissions");
   if (!workspace.trusted) {
-    return blocker("workspace", "WORKSPACE_UNTRUSTED", { path: workspace.canonicalPath }, "permissions");
+    // 就地可以授权：信任只覆盖"执行"，所以这一步不要求用户先去别处翻设置。
+    return {
+      ...blocker("workspace", "WORKSPACE_UNTRUSTED", { path: workspace.canonicalPath }, "permissions"),
+      action: { kind: "trust_workspace", workspaceId: workspace.id, path: workspace.canonicalPath },
+    };
   }
   return null;
 }
