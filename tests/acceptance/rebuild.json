@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "gates": [
+    {
+      "id": "G0",
+      "targets": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
+      "requiredTasks": [
+        "R0-00", "R0-01", "R0-02", "R0-03", "R0-04", "R0-05", "R0-06",
+        "R0-07", "R0-08", "R0-09", "R0-10", "R0-11", "R0-12"
+      ],
+      "cases": [
+        {"id": "R0-00-build-gate", "task": "R0-00", "evidenceKind": "automation", "required": true},
+        {"id": "R0-00-d-drive-preflight", "task": "R0-00", "evidenceKind": "automation", "required": true},
+        {"id": "R0-00-native-window", "task": "R0-00", "evidenceKind": "native-desktop", "required": true}
+      ]
+    },
+    {
+      "id": "G1",
+      "targets": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
+      "requiredTasks": ["R1-01", "R1-02", "R1-03", "R1-04", "R1-05", "R1-06", "R1-07", "R1-08"],
+      "cases": []
+    },
+    {
+      "id": "G2",
+      "targets": ["win-x64", "win-arm64", "mac-x64", "mac-arm64", "linux-x64", "linux-arm64"],
+      "requiredTasks": ["R2-01", "R2-02", "R2-03", "R2-04", "R2-05"],
+      "cases": []
+    }
+  ]
+}
