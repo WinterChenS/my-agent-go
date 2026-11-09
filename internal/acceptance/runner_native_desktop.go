@@ -179,23 +179,9 @@ func nativeRun(r automationRunner, sha, target string, hooks *nativeHooks) nativ
 		out.Artifacts = append(out.Artifacts, artifact)
 	}
 
-	snapshot := StepSpec{
-		Name:                 "snapshot",
-		Command:              "agent-desktop",
-		Args:                 []string{"snapshot", "--app", "anvil.exe", "--window-id", windowID, "--timeout-ms", "30000", "--compact"},
-		Timeout:              90 * time.Second,
-		ExpectOutputContains: `"complete":true`,
-	}
-	if !run(snapshot) {
-		if out.Status == StatusFail {
-			return nativeFailWithCleanup(exec, out, r.caseDir, dataDir)
-		}
-		return out
-	}
-
 	// WebView2 exposes its document tree only after the first accessibility
-	// walk; poll the marker so a cold Chromium tree is not mistaken for a
-	// missing React bundle.
+	// walk. Poll the marker first (this activates the tree), then retry the
+	// snapshot until it is complete instead of accepting a truncated read.
 	markerFound := false
 	for attempt := 1; attempt <= 15; attempt++ {
 		name := fmt.Sprintf("find-build-marker-%02d", attempt)
@@ -225,6 +211,48 @@ func nativeRun(r automationRunner, sha, target string, hooks *nativeHooks) nativ
 	if !markerFound {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "frontend build marker was not found in the accessibility tree after 15 attempts")
+		return nativeFailWithCleanup(exec, out, r.caseDir, dataDir)
+	}
+
+	snapshotFound := false
+	for attempt := 1; attempt <= 10; attempt++ {
+		name := fmt.Sprintf("snapshot-%02d", attempt)
+		cmd, artifact, failure := exec.run(StepSpec{
+			Name:    name,
+			Command: "agent-desktop",
+			Args:    []string{"snapshot", "--app", "anvil.exe", "--window-id", windowID, "--timeout-ms", "30000", "--compact"},
+			Timeout: 90 * time.Second,
+		})
+		out.Commands = append(out.Commands, cmd)
+		if artifact.Path != "" {
+			out.Artifacts = append(out.Artifacts, artifact)
+		}
+		if failure != "" {
+			body, _ := exec.read(name)
+			if blocked, _ := isBlockedDesktopFailure("agent-desktop", failure, body); blocked {
+				out.Status = StatusBlocked
+				out.Limitations = append(out.Limitations, withReverify(desktopFailureDetail("agent-desktop", failure, body)))
+				return out
+			}
+			out.Status = StatusFail
+			out.Limitations = append(out.Limitations, failure)
+			return nativeFailWithCleanup(exec, out, r.caseDir, dataDir)
+		}
+		body, _ := exec.read(name)
+		var envelope struct {
+			Data struct {
+				Complete bool `json:"complete"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(lastJSONObject(body), &envelope); err == nil && envelope.Data.Complete {
+			snapshotFound = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !snapshotFound {
+		out.Status = StatusFail
+		out.Limitations = append(out.Limitations, "accessibility snapshot did not become complete after 10 attempts")
 		return nativeFailWithCleanup(exec, out, r.caseDir, dataDir)
 	}
 

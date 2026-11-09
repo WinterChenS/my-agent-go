@@ -195,8 +195,8 @@ func TestClassifyDesktopFailure(t *testing.T) {
 func TestNativeCaseBlocksWhenSnapshotReportsDACLFailure(t *testing.T) {
 	desktop := healthyDesktop()
 	const original = `{"version":"2.5","ok":false,"command":"snapshot","error":{"code":"INTERNAL","message":"private file DACL grants an untrusted principal"}}`
-	desktop.responses["snapshot"] = fakeStepResponse{failure: `step "snapshot" exited 1, want 0`}
-	desktop.logs["snapshot"] = original
+	desktop.responses["snapshot-01"] = fakeStepResponse{failure: `step "snapshot-01" exited 1, want 0`}
+	desktop.logs["snapshot-01"] = original
 
 	out, resultPath := runFakeNativeCase(t, desktop, nil)
 	if out.Code != ExitIncomplete {
@@ -253,8 +253,8 @@ func TestNativeCaseBlocksWhenStateDirectoryACLNormalisationFails(t *testing.T) {
 func TestNativeCaseKeepsProductAssertionAsFail(t *testing.T) {
 	desktop := healthyDesktop()
 	const original = `{"version":"2.5","ok":false,"command":"snapshot","error":{"code":"TIMEOUT","message":"window tree did not settle"}}`
-	desktop.responses["snapshot"] = fakeStepResponse{failure: `step "snapshot" exited 1, want 0`}
-	desktop.logs["snapshot"] = original
+	desktop.responses["snapshot-01"] = fakeStepResponse{failure: `step "snapshot-01" exited 1, want 0`}
+	desktop.logs["snapshot-01"] = original
 
 	out, _ := runFakeNativeCase(t, desktop, nil)
 	if out.Code != ExitAssertion {
