@@ -464,10 +464,10 @@ func lastJSONObject(body []byte) []byte {
 			continue
 		}
 		candidate := text[i:]
-		var probe any
+		var raw json.RawMessage
 		dec := json.NewDecoder(strings.NewReader(candidate))
-		if err := dec.Decode(&probe); err == nil {
-			return []byte(candidate)
+		if err := dec.Decode(&raw); err == nil {
+			return raw
 		}
 	}
 	return []byte(text)

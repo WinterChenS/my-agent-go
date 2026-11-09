@@ -1,0 +1,111 @@
+{
+  "prototypeCommit": "112fcae854b324d2e75fdf5c890083ef9c1d3d6e",
+  "screens": [
+    {
+      "id": "workbench",
+      "path": "/",
+      "source": "index.html",
+      "role": "launcher-overview",
+      "title": "工作台",
+      "navLabel": "工作台",
+      "group": "primary",
+      "futureTask": "R0-04",
+      "marker": "R0-01 placeholder · /"
+    },
+    {
+      "id": "chat",
+      "path": "/chat",
+      "source": "chat.html",
+      "role": "screen",
+      "title": "对话",
+      "navLabel": "对话",
+      "group": "primary",
+      "navCount": "4",
+      "futureTask": "R0-05",
+      "marker": "R0-01 placeholder · /chat"
+    },
+    {
+      "id": "agents",
+      "path": "/agents",
+      "source": "agents.html",
+      "role": "screen",
+      "title": "Agent",
+      "navLabel": "Agent",
+      "group": "primary",
+      "futureTask": "R0-06",
+      "marker": "R0-01 placeholder · /agents"
+    },
+    {
+      "id": "library",
+      "path": "/library",
+      "source": "library.html",
+      "role": "screen",
+      "title": "资源库",
+      "navLabel": "资源库",
+      "group": "tools",
+      "navMeta": "28 个输出物",
+      "futureTask": "R0-11",
+      "marker": "R0-01 placeholder · /library"
+    },
+    {
+      "id": "skills",
+      "path": "/skills",
+      "source": "skills.html",
+      "role": "screen",
+      "title": "Skill",
+      "navLabel": "Skill",
+      "group": "tools",
+      "navMeta": "9 个已安装",
+      "futureTask": "R0-07",
+      "marker": "R0-01 placeholder · /skills"
+    },
+    {
+      "id": "mcp",
+      "path": "/mcp",
+      "source": "mcp.html",
+      "role": "screen",
+      "title": "MCP",
+      "navLabel": "MCP",
+      "group": "tools",
+      "navMeta": "3 个服务",
+      "futureTask": "R0-08",
+      "marker": "R0-01 placeholder · /mcp"
+    },
+    {
+      "id": "connectors",
+      "path": "/connectors",
+      "source": "connectors.html",
+      "role": "screen",
+      "title": "连接器",
+      "navLabel": "连接器",
+      "group": "tools",
+      "navMeta": "5 个连接",
+      "futureTask": "R0-09",
+      "marker": "R0-01 placeholder · /connectors"
+    },
+    {
+      "id": "schedules",
+      "path": "/schedules",
+      "source": "schedules.html",
+      "role": "screen",
+      "title": "定时任务",
+      "navLabel": "定时任务",
+      "group": "tools",
+      "navMeta": "6 个任务",
+      "futureTask": "R0-10",
+      "marker": "R0-01 placeholder · /schedules"
+    },
+    {
+      "id": "settings",
+      "path": "/settings",
+      "source": "settings.html",
+      "role": "screen",
+      "title": "设置",
+      "navLabel": "设置",
+      "group": "tools",
+      "navMeta": "模型与运行时",
+      "futureTask": "R0-12",
+      "marker": "R0-01 placeholder · /settings"
+    }
+  ]
+}

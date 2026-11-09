@@ -1,0 +1,97 @@
+/* ==========================================================================
+   Anvil · frozen design tokens
+   Source: docs/ui/Agent-客户端产品原型/assets/studio.css (token block),
+           docs/ui/Agent-客户端产品原型/assets/pages.css (component usage)
+   Prototype commit: 112fcae854b324d2e75fdf5c890083ef9c1d3d6e
+
+   Do not replace these values with framework defaults. Shell and page code must
+   reference these variables; raw colour values outside this file fail the
+   R0-01 token scan.
+   ========================================================================== */
+
+:root {
+  /* palette (verbatim from the prototype) */
+  --bg: oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97.4% 0.004 250);
+  --surface-3: oklch(95.6% 0.005 250);
+  --fg: oklch(18% 0.012 250);
+  --fg-2: oklch(33% 0.012 250);
+  --muted: oklch(54% 0.012 250);
+  --border: oklch(92% 0.005 250);
+  --border-strong: oklch(85.5% 0.007 250);
+  --accent: oklch(58% 0.18 255);
+  --accent-hover: oklch(52% 0.18 255);
+  --accent-soft: oklch(96% 0.02 255);
+  --on-accent: oklch(99% 0 0);
+
+  --success: oklch(56% 0.13 152);
+  --success-soft: oklch(96.5% 0.03 152);
+  --warn: oklch(58% 0.12 72);
+  --warn-soft: oklch(97% 0.04 78);
+  --danger: oklch(55% 0.17 25);
+  --danger-soft: oklch(96.5% 0.025 25);
+
+  /* typography */
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  --text-2xs: 10.5px;
+  --text-xs: 11px;
+  --text-xs-plus: 11.5px;
+  --text-sm: 12px;
+  --text-base: 12.5px;
+  --text-md: 13px;
+  --text-md-plus: 13.5px;
+  --text-lg: 14px;
+  --text-xl: 15px;
+  --text-2xl: 19px;
+  --text-3xl: 26px;
+
+  /* spacing rhythm derived from the prototype's 2/4/6/8/10/12/14/16/18/20/28/56px */
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
+  --space-9: 18px;
+  --space-10: 20px;
+  --space-11: 22px;
+  --space-12: 26px;
+  --space-13: 28px;
+  --space-14: 32px;
+  --space-15: 56px;
+
+  /* geometry */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --sidebar-w: 236px;
+  --sidebar-w-collapsed: 60px;
+  --flyout-w: 248px;
+
+  /* motion (prototype transitions: .12s/.13s/.14s/.2s/.24s, ease + cubic-bezier) */
+  --motion-fast: .12s;
+  --motion-base: .14s;
+  --motion-slow: .2s;
+  --motion-page: .24s;
+  --ease-standard: ease;
+  --ease-emphasized: cubic-bezier(.2, .9, .3, 1);
+
+  /* shadows */
+  --shadow-xs: 0 1px 1px color-mix(in oklab, var(--fg) 4%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in oklab, var(--fg) 5%, transparent);
+  --shadow-md: 0 1px 3px color-mix(in oklab, var(--fg) 7%, transparent),
+               0 8px 24px -12px color-mix(in oklab, var(--fg) 18%, transparent);
+  --shadow-lg: 0 24px 60px -24px color-mix(in oklab, var(--fg) 30%, transparent),
+               0 2px 6px color-mix(in oklab, var(--fg) 6%, transparent);
+
+  /* surfaces composed from tokens (kept here so shell code has no raw colours) */
+  --topbar-bg: color-mix(in oklab, var(--bg) 82%, transparent);
+}

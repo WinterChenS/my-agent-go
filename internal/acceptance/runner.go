@@ -35,6 +35,7 @@ type CasePlan struct {
 	Steps        []StepSpec
 	Reset        []string
 	NativeWindow bool
+	NativeShell  bool
 }
 
 // VerifyOptions selects the case to execute and where to record evidence.
@@ -117,6 +118,22 @@ func casePlans() []CasePlan {
 			ID:           "R0-00-native-window",
 			EvidenceKind: EvidenceNativeDesktop,
 			NativeWindow: true,
+		},
+		{
+			ID:           "R0-01-shell",
+			EvidenceKind: EvidenceAutomation,
+			Steps: []StepSpec{
+				{Name: "go-version", Command: "go", Args: []string{"version"}, ExpectOutputContains: "go1.27.3"},
+				{Name: "npm-ci", Command: "npm", Args: []string{"ci"}, Dir: "frontend", Timeout: 20 * time.Minute},
+				{Name: "npm-test", Command: "npm", Args: []string{"test"}, Dir: "frontend", Timeout: 15 * time.Minute},
+				{Name: "npm-build", Command: "npm", Args: []string{"run", "build"}, Dir: "frontend", Timeout: 10 * time.Minute},
+				{Name: "check-dist", Command: "node", Args: []string{"scripts/check-dist.mjs"}, Dir: "frontend"},
+			},
+		},
+		{
+			ID:           "R0-01-native-shell",
+			EvidenceKind: EvidenceNativeDesktop,
+			NativeShell:  true,
 		},
 	}
 }
@@ -212,8 +229,13 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 	)
 	artifacts = append(artifacts, envArtifact)
 
-	if plan.NativeWindow {
-		native := runNativeWindowCase(runner, sha, opts.Target, opts.native)
+	if plan.NativeWindow || plan.NativeShell {
+		var native nativeOutcome
+		if plan.NativeShell {
+			native = runNativeShellCase(runner, sha, opts.Target, opts.native)
+		} else {
+			native = runNativeWindowCase(runner, sha, opts.Target, opts.native)
+		}
 		status = native.Status
 		commands = append(commands, native.Commands...)
 		artifacts = append(artifacts, native.Artifacts...)
@@ -242,7 +264,7 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 
 	versions := collectToolVersions(runner)
 	runtimeVersion := "n/a (no agent runtime in this case)"
-	if plan.NativeWindow {
+	if plan.NativeWindow || plan.NativeShell {
 		runtimeVersion = "wails " + moduleVersion(runner, "github.com/wailsapp/wails/v3")
 	}
 
@@ -434,7 +456,7 @@ func (r automationRunner) resolveCommand(command string, args []string) (string,
 		}
 		lower := strings.ToLower(path)
 		if strings.HasSuffix(lower, ".cmd") || strings.HasSuffix(lower, ".bat") {
-			return "cmd", append([]string{"/c", path}, args...), nil
+			return "cmd", append([]string{"/c", "call", path}, args...), nil
 		}
 		return path, args, nil
 	}

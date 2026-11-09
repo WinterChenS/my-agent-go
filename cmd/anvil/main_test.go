@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -74,5 +78,89 @@ func TestAppDataDirCreatesAndProbesOnD(t *testing.T) {
 	}
 	if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
 		t.Fatalf("data directory was not created: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestParseWindowSizeDefaultsAndOverrides(t *testing.T) {
+	defaults, warnings := parseWindowSize("", "")
+	if len(warnings) != 0 {
+		t.Fatalf("defaults produced warnings: %v", warnings)
+	}
+	if defaults.Width != 1180 || defaults.Height != 820 || defaults.MinWidth != 360 || defaults.MinHeight != 560 {
+		t.Fatalf("defaults = %+v", defaults)
+	}
+
+	narrow, warnings := parseWindowSize("390", "844")
+	if len(warnings) != 0 {
+		t.Fatalf("valid override produced warnings: %v", warnings)
+	}
+	if narrow.Width != 390 || narrow.Height != 844 {
+		t.Fatalf("narrow = %+v", narrow)
+	}
+
+	wide, warnings := parseWindowSize("1440", "900")
+	if len(warnings) != 0 || wide.Width != 1440 || wide.Height != 900 {
+		t.Fatalf("wide = %+v warnings=%v", wide, warnings)
+	}
+
+	fallback, warnings := parseWindowSize("100", "nope")
+	if fallback.Width != 1180 || fallback.Height != 820 {
+		t.Fatalf("invalid override did not fall back: %+v", fallback)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("invalid override warnings = %v, want 2", warnings)
+	}
+}
+
+func TestAssetHandlerServesIndexForAppRoutes(t *testing.T) {
+	dist := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dist, "assets"), 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte("<!doctype html><div id=\"root\">anvil-shell</div>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "assets", "app.js"), []byte("console.log('anvil')"), 0o644); err != nil {
+		t.Fatalf("write js: %v", err)
+	}
+	handler := newAssetHandler(dist, log.New(&bytes.Buffer{}, "", 0))
+
+	for _, route := range []string{"/", "/chat", "/skills", "/unknown/route"} {
+		req := httptest.NewRequest(http.MethodGet, route, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "anvil-shell") {
+			t.Fatalf("GET %s = %d %q, want index.html", route, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "console.log") {
+		t.Fatalf("GET /assets/app.js = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLayoutProbeEndpointLogsRealMeasurements(t *testing.T) {
+	dist := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte("<div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+	handler := newAssetHandler(dist, logger)
+
+	req := httptest.NewRequest(http.MethodPost, probeLogPath, strings.NewReader("viewport=390x844 scrollWidth=390 clientWidth=390 overflow=false"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("probe status = %d, want 204", rec.Code)
+	}
+	if !strings.Contains(buf.String(), "layout-probe: viewport=390x844") {
+		t.Fatalf("probe log = %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "\nviewport=") {
+		t.Fatalf("probe body injected a newline: %q", buf.String())
 	}
 }

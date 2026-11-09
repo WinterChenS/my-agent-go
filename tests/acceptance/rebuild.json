@@ -11,7 +11,9 @@
       "cases": [
         {"id": "R0-00-build-gate", "task": "R0-00", "evidenceKind": "automation", "required": true},
         {"id": "R0-00-d-drive-preflight", "task": "R0-00", "evidenceKind": "automation", "required": true},
-        {"id": "R0-00-native-window", "task": "R0-00", "evidenceKind": "native-desktop", "required": true}
+        {"id": "R0-00-native-window", "task": "R0-00", "evidenceKind": "native-desktop", "required": true},
+        {"id": "R0-01-shell", "task": "R0-01", "evidenceKind": "automation", "required": true},
+        {"id": "R0-01-native-shell", "task": "R0-01", "evidenceKind": "native-desktop", "required": true}
       ]
     },
     {
