@@ -167,18 +167,38 @@ func runNativeShellCase(r automationRunner, sha, target string, hooks *nativeHoo
 			return s.failCleanup()
 		}
 	}
-	if !s.goBack("narrow", "/schedules") {
+	if !s.screenshot("native/screenshot-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	if !s.screenshot("native/screenshot-390x844.png", s.windowIDValue) {
+	if !s.resize(s.windowIDValue, 360, 800, true) {
+		return s.failCleanup()
+	}
+	if next := s.waitProbe(probeCount, 10*time.Second); next > probeCount {
+		probeCount = next
+	} else {
+		s.out.Status = StatusFail
+		s.out.Limitations = append(s.out.Limitations, "layout probe did not record the 360x800 resize")
+		return s.failCleanup()
+	}
+	lastRoute := routes[len(routes)-1]
+	if lastRoute.Chrome == "shell" && lastRoute.BreadcrumbParent != "" {
+		if !s.visibleStaticText("current-parent-360x800", lastRoute.BreadcrumbParent, 10) {
+			return s.failCleanup()
+		}
+	}
+	if !s.screenshot("native/screenshot-360x800.png", s.windowIDValue) {
+		return s.failCleanup()
+	}
+	if !s.goBack("narrow", "/schedules") {
 		return s.failCleanup()
 	}
 
 	if !s.resize(s.windowIDValue, 1440, 900, true) {
 		return s.failCleanup()
 	}
-	probeCount = s.waitProbe(probeCount, 10*time.Second)
-	if probeCount < 2 {
+	if next := s.waitProbe(probeCount, 10*time.Second); next > probeCount {
+		probeCount = next
+	} else {
 		s.out.Status = StatusFail
 		s.out.Limitations = append(s.out.Limitations, "layout probe did not record the 1440x900 resize")
 		return s.failCleanup()
@@ -418,6 +438,11 @@ func (s *shellNative) navigate(route shellRoute, label string) bool {
 		if !s.waitText(route.ID+"-crumb-"+label, route.BreadcrumbParent+" / "+route.Title, false, 10) {
 			return false
 		}
+		// Aria-label is not enough: require the visible parent static text to
+		// have real bounds at this viewport (this is the F7 narrow assertion).
+		if !s.visibleStaticText(route.ID+"-parent-"+label, route.BreadcrumbParent, 10) {
+			return false
+		}
 	}
 	return s.run(StepSpec{
 		Name:    "snapshot-" + route.ID + "-" + label,
@@ -427,29 +452,92 @@ func (s *shellNative) navigate(route shellRoute, label string) bool {
 	})
 }
 
+func (s *shellNative) visibleStaticText(logID, name string, attempts int) bool {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stepName := fmt.Sprintf("visible-%s-%02d", logID, attempt)
+		if !s.run(StepSpec{
+			Name:    stepName,
+			Command: "agent-desktop",
+			Args:    []string{"find", "--text", name, "--app", "anvil.exe", "--timeout-ms", "15000"},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		body, _ := s.exec.read(stepName)
+		for _, match := range parseFindMatches(body) {
+			if match.Name == name && match.Role == "statictext" && match.Bounds.Width > 0 && match.Bounds.Height > 0 {
+				return true
+			}
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	s.out.Status = StatusFail
+	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("visible breadcrumb parent %q had no non-zero statictext bounds after %d attempts", name, attempts))
+	return false
+}
+
 func (s *shellNative) goBack(label, marker string) bool {
 	// The prototype has no shared back button, so focus the web content and
 	// inject the platform history shortcut Alt+Left (devtools key uses
 	// SendInput; agent-desktop press cannot verify WebView2 child focus).
+	// Retry the focus+key pair: the first physical click can race the window
+	// resize/focus transition on narrow viewports.
 	x := int(s.window.X + s.window.Width*0.6)
 	y := int(s.window.Y + s.window.Height*0.6)
-	if !s.run(StepSpec{
-		Name:    "focus-page-" + label,
-		Command: "agent-desktop",
-		Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
-		Timeout: 60 * time.Second,
-	}) {
-		return false
+	for attempt := 1; attempt <= 3; attempt++ {
+		// Bring Anvil to the foreground first: absolute mouse clicks otherwise
+		// land on whatever window happens to be on top after a long run.
+		if !s.run(StepSpec{
+			Name:    fmt.Sprintf("focus-window-back-%s-%02d", label, attempt),
+			Command: "agent-desktop",
+			Args:    []string{"focus-window", "--window-id", s.windowIDValue},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		if !s.run(StepSpec{
+			Name:    fmt.Sprintf("focus-page-%s-%02d", label, attempt),
+			Command: "agent-desktop",
+			Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		if !s.run(StepSpec{
+			Name:    fmt.Sprintf("history-back-%s-%02d", label, attempt),
+			Command: "self",
+			Args:    []string{"key", "--title=Anvil", "--combo=alt+left"},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		if s.markerPresent(fmt.Sprintf("back-%s-%02d", label, attempt), marker, 6) {
+			return true
+		}
 	}
-	if !s.run(StepSpec{
-		Name:    "history-back-" + label,
-		Command: "self",
-		Args:    []string{"key", "--title=Anvil", "--combo=alt+left"},
-		Timeout: 60 * time.Second,
-	}) {
-		return false
+	s.out.Status = StatusFail
+	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("history back to %q did not take effect after 3 focus+Alt+Left attempts", marker))
+	return false
+}
+
+func (s *shellNative) markerPresent(logID, text string, attempts int) bool {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stepName := fmt.Sprintf("marker-%s-%02d", logID, attempt)
+		if !s.run(StepSpec{
+			Name:    stepName,
+			Command: "agent-desktop",
+			Args:    []string{"find", "--text", text, "--app", "anvil.exe", "--timeout-ms", "15000"},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		body, _ := s.exec.read(stepName)
+		if parseFindCount(body) > 0 {
+			return true
+		}
+		time.Sleep(400 * time.Millisecond)
 	}
-	return s.waitText("back-marker-"+label, marker, false, 20)
+	return false
 }
 
 func (s *shellNative) screenshot(rel string, windowID string) bool {
@@ -527,6 +615,9 @@ func (s *shellNative) resize(windowID string, width, height int, strict bool) bo
 		s.out.Status = StatusFail
 		s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("resize to %dx%d reported bounds %+v", width, height, window))
 		return false
+	}
+	if ok {
+		s.window = window
 	}
 	return true
 }

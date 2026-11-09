@@ -28,6 +28,7 @@ const screens = ['index', 'settings']
 const sizes = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
+  { width: 360, height: 800 },
 ]
 const profile = join(repo, '.tmp', 'test', 'prototype', 'edge-profile')
 mkdirSync(outDir, { recursive: true })

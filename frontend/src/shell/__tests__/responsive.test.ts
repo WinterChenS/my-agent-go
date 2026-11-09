@@ -26,6 +26,10 @@ describe('shell responsiveness', () => {
     expect(tokensCss).toContain('--sidebar-w-collapsed: 60px;')
   })
 
+  it('never hides the visible breadcrumb parent or separator', () => {
+    expect(shellCss).not.toMatch(/topbar-crumb[^{}]*\{[^}]*display:\s*none/gi)
+  })
+
   it('covers the nine manifest viewports with no horizontal scroll requirement', () => {
     expect(VIEWPORTS.map((viewport) => `${viewport.width}x${viewport.height}`)).toEqual([
       '360x800',

@@ -173,6 +173,36 @@ func readShellRoutes(repo string) ([]shellRoute, error) {
 	return document.Screens, nil
 }
 
+type findMatch struct {
+	Name   string  `json:"name"`
+	Role   string  `json:"role"`
+	Width  float64 `json:"-"`
+	Height float64 `json:"-"`
+	Bounds struct {
+		Width  float64 `json:"width"`
+		Height float64 `json:"height"`
+	} `json:"bounds"`
+	RefID string `json:"ref_id"`
+}
+
+func parseFindMatches(body []byte) []findMatch {
+	var envelope struct {
+		Data struct {
+			Match   *findMatch  `json:"match"`
+			Matches []findMatch `json:"matches"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(lastJSONObject(body), &envelope); err != nil {
+		return nil
+	}
+	var matches []findMatch
+	if envelope.Data.Match != nil {
+		matches = append(matches, *envelope.Data.Match)
+	}
+	matches = append(matches, envelope.Data.Matches...)
+	return matches
+}
+
 func parseFindNames(body []byte) []string {
 	var envelope struct {
 		Data struct {

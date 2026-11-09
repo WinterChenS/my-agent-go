@@ -41,9 +41,10 @@ at 1440×900 and 390×844 and stored next to the R0-01 evidence.
 - **390px prototype overflow is not copied.** The manifest requires
   `mustAvoidHorizontalScroll`; the implementation collapses the sidebar to
   60px and keeps content within the viewport instead of reproducing the
-  prototype’s own horizontal overflow at 390px. Below 620px the visible
-  breadcrumb hides the parent segment to save width; the full
-  `parent / title` remains in the accessible name and is asserted by tests.
+  prototype’s own horizontal overflow at 390px. The visible breadcrumb keeps
+  both `parent / title` at every breakpoint (no degraded parent state): the
+  narrow native evidence asserts the parent `statictext` has non-zero bounds
+  at 360×800 and 390×844.
 - **Sidebar history/projects/personal sections are deferred** to R0-05
   (chat page) because they are session data, not shell chrome.
 
