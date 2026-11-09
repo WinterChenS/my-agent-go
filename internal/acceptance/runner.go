@@ -37,6 +37,7 @@ type CasePlan struct {
 	NativeWindow bool
 	NativeShell  bool
 	NativeTheme  bool
+	NativeI18n   bool
 	// CollectArtifacts lists case-directory globs whose files are hashed into
 	// result.json after the steps (e.g. screenshots written by a helper).
 	CollectArtifacts []string
@@ -157,6 +158,22 @@ func casePlans() []CasePlan {
 			EvidenceKind: EvidenceNativeDesktop,
 			NativeTheme:  true,
 		},
+		{
+			ID:           "R0-03-i18n",
+			EvidenceKind: EvidenceAutomation,
+			Steps: []StepSpec{
+				{Name: "go-version", Command: "go", Args: []string{"version"}, ExpectOutputContains: "go1.27.3"},
+				{Name: "npm-ci", Command: "npm", Args: []string{"ci"}, Dir: "frontend", Timeout: 20 * time.Minute},
+				{Name: "npm-test", Command: "npm", Args: []string{"test"}, Dir: "frontend", Timeout: 15 * time.Minute},
+				{Name: "npm-build", Command: "npm", Args: []string{"run", "build"}, Dir: "frontend", Timeout: 10 * time.Minute},
+				{Name: "check-dist", Command: "node", Args: []string{"scripts/check-dist.mjs"}, Dir: "frontend"},
+			},
+		},
+		{
+			ID:           "R0-03-native-i18n",
+			EvidenceKind: EvidenceNativeDesktop,
+			NativeI18n:   true,
+		},
 	}
 }
 
@@ -251,9 +268,11 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 	)
 	artifacts = append(artifacts, envArtifact)
 
-	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme {
+	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n {
 		var native nativeOutcome
 		switch {
+		case plan.NativeI18n:
+			native = runNativeI18nCase(runner, sha, opts.Target, opts.native)
 		case plan.NativeTheme:
 			native = runNativeThemeCase(runner, sha, opts.Target, opts.native)
 		case plan.NativeShell:
@@ -310,7 +329,7 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 
 	versions := collectToolVersions(runner)
 	runtimeVersion := "n/a (no agent runtime in this case)"
-	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme {
+	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n {
 		runtimeVersion = "wails " + moduleVersion(runner, "github.com/wailsapp/wails/v3")
 	}
 

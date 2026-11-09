@@ -9,17 +9,17 @@ import {
   type ThemeMode,
 } from './theme'
 
+export type ThemeNotice = '' | 'invalid' | 'read-failed' | 'save-failed'
+
 export interface ThemeContextValue {
   mode: ThemeMode
   resolved: ResolvedTheme
   systemDark: boolean
-  notice: string
+  notice: ThemeNotice
   setMode(mode: ThemeMode): void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
-
-const INVALID_NOTICE = '主题设置无效，已回退到跟随系统'
 
 export function ThemeProvider({
   children,
@@ -33,7 +33,7 @@ export function ThemeProvider({
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     initial ? initial.resolved === 'dark' : environment.systemDark(),
   )
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<ThemeNotice>('')
 
   useEffect(() => {
     let active = true
@@ -42,13 +42,13 @@ export function ThemeProvider({
         if (!active) return
         const normalized = normalizeTheme(raw)
         if (raw !== undefined && raw !== normalized) {
-          setNotice(INVALID_NOTICE)
+          setNotice('invalid')
         }
         setModeState(normalized)
         setSystemDark(environment.systemDark())
       })
       .catch(() => {
-        if (active) setNotice('主题设置读取失败，已回退到跟随系统')
+        if (active) setNotice('read-failed')
       })
     return () => {
       active = false
@@ -70,7 +70,7 @@ export function ThemeProvider({
       setModeState(normalized)
       setNotice('')
       void Promise.resolve(environment.storage.save(normalized)).catch(() => {
-        setNotice('主题设置保存失败，本次选择仍然生效')
+        setNotice('save-failed')
       })
     },
     [environment],

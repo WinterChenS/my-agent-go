@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { ThemeProvider } from './preferences/ThemeProvider'
+import { LanguageProvider } from './i18n/LanguageProvider'
 import SettingsPage from './pages/settings/SettingsPage'
+import { ThemeProvider } from './preferences/ThemeProvider'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
 import { SHELL_ROUTES, WORKBENCH_ROUTE } from './shell/routes'
@@ -13,18 +14,20 @@ function FallbackPage() {
 export function AppRoutes() {
   return (
     <ThemeProvider>
-      <Routes>
-        <Route element={<Shell />}>
-          {SHELL_ROUTES.map((route) => (
-            <Route
-              key={route.path}
-              path={route.path}
-              element={route.id === 'settings' ? <SettingsPage /> : <PagePlaceholder route={route} />}
-            />
-          ))}
-          <Route path="*" element={<FallbackPage />} />
-        </Route>
-      </Routes>
+      <LanguageProvider>
+        <Routes>
+          <Route element={<Shell />}>
+            {SHELL_ROUTES.map((route) => (
+              <Route
+                key={route.path}
+                path={route.path}
+                element={route.id === 'settings' ? <SettingsPage /> : <PagePlaceholder route={route} />}
+              />
+            ))}
+            <Route path="*" element={<FallbackPage />} />
+          </Route>
+        </Routes>
+      </LanguageProvider>
     </ThemeProvider>
   )
 }

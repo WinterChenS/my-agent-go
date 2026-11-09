@@ -74,6 +74,7 @@ func run() error {
 	theme := newThemeState(dataDir, log.Default())
 	mode, _, resolved := theme.snapshot()
 	log.Printf("theme-options: mode=%s resolved=%s", mode, resolved)
+	log.Printf("i18n-options: language=%s", theme.languageValue())
 	size, warnings := parseWindowSize(os.Getenv("ANVIL_WINDOW_WIDTH"), os.Getenv("ANVIL_WINDOW_HEIGHT"))
 	for _, warning := range warnings {
 		log.Printf("window-options: %s", warning)
@@ -172,7 +173,7 @@ func newAssetHandler(dist string, logger *log.Logger, theme *themeState) http.Ha
 				return
 			}
 			message := sanitizeProbe(string(body))
-			if strings.HasPrefix(message, "theme:") {
+			if strings.HasPrefix(message, "theme:") || strings.HasPrefix(message, "i18n:") || strings.HasPrefix(message, "i18n-title:") {
 				logger.Printf("%s", message)
 			} else {
 				logger.Printf("layout-probe: %s", message)
@@ -208,33 +209,51 @@ func handlePreferences(w http.ResponseWriter, r *http.Request, theme *themeState
 	case http.MethodGet:
 		mode, systemDark, resolved := theme.snapshot()
 		theme.syncBackground()
-		writeThemeJSON(w, mode, systemDark, resolved)
+		writeThemeJSON(w, mode, systemDark, resolved, theme.languageValue())
 	case http.MethodPut:
-		var pref themePreference
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&pref); err != nil {
+		var patch struct {
+			Theme    *string `json:"theme"`
+			Language *string `json:"language"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&patch); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if err := theme.setMode(pref.Theme); err != nil {
-			logger.Printf("theme-options: reject %q: %v", pref.Theme, err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if patch.Theme == nil && patch.Language == nil {
+			http.Error(w, "theme or language is required", http.StatusBadRequest)
 			return
 		}
+		if patch.Theme != nil {
+			if err := theme.setMode(*patch.Theme); err != nil {
+				logger.Printf("theme-options: reject %q: %v", *patch.Theme, err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mode, _, resolved := theme.snapshot()
+			logger.Printf("theme-options: user selected %s (resolved %s)", mode, resolved)
+		}
+		if patch.Language != nil {
+			if err := theme.setLanguage(*patch.Language); err != nil {
+				logger.Printf("i18n-options: reject %q: %v", *patch.Language, err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		mode, systemDark, resolved := theme.snapshot()
-		logger.Printf("theme-options: user selected %s (resolved %s)", mode, resolved)
-		writeThemeJSON(w, mode, systemDark, resolved)
+		writeThemeJSON(w, mode, systemDark, resolved, theme.languageValue())
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func writeThemeJSON(w http.ResponseWriter, mode string, systemDark bool, resolved string) {
+func writeThemeJSON(w http.ResponseWriter, mode string, systemDark bool, resolved, language string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"theme":      mode,
 		"systemDark": systemDark,
 		"resolved":   resolved,
+		"language":   language,
 	})
 }
 

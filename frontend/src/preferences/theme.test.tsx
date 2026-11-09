@@ -120,7 +120,7 @@ describe('theme preference state', () => {
     const fake = fakeEnvironment('purple', false)
     renderTheme(fake.environment)
     await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('system'))
-    expect(screen.getByTestId('notice')).toHaveTextContent('回退')
+    expect(screen.getByTestId('notice')).toHaveTextContent('invalid')
     expect(fake.saves).toEqual([])
   })
 

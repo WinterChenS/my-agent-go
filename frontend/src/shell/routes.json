@@ -17,7 +17,9 @@
         "help"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.workbench",
+      "titleKey": "page.workbench.title",
+      "breadcrumbKey": "crumb.workspace"
     },
     {
       "id": "chat",
@@ -32,7 +34,9 @@
       "breadcrumbParent": "",
       "topbarActions": [],
       "chrome": "chat",
-      "topbarStatus": null
+      "navKey": "nav.chat",
+      "titleKey": "page.chat.title",
+      "breadcrumbKey": "crumb.chat"
     },
     {
       "id": "agents",
@@ -49,7 +53,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.agents",
+      "titleKey": "page.agents.title",
+      "breadcrumbKey": "crumb.agents"
     },
     {
       "id": "library",
@@ -66,7 +72,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.library",
+      "titleKey": "page.library.title",
+      "breadcrumbKey": "crumb.workspace"
     },
     {
       "id": "skills",
@@ -83,7 +91,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.skills",
+      "titleKey": "page.skills.title",
+      "breadcrumbKey": "crumb.agents"
     },
     {
       "id": "mcp",
@@ -100,7 +110,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.mcp",
+      "titleKey": "page.mcp.title",
+      "breadcrumbKey": "crumb.agents"
     },
     {
       "id": "connectors",
@@ -117,7 +129,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.connectors",
+      "titleKey": "page.connectors.title",
+      "breadcrumbKey": "crumb.agents"
     },
     {
       "id": "schedules",
@@ -134,7 +148,9 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": null
+      "navKey": "nav.schedules",
+      "titleKey": "page.schedules.title",
+      "breadcrumbKey": "crumb.automation"
     },
     {
       "id": "settings",
@@ -152,10 +168,10 @@
         "search"
       ],
       "chrome": "shell",
-      "topbarStatus": {
-        "label": "运行时未接入",
-        "tone": "warn"
-      }
+      "navKey": "nav.settings",
+      "titleKey": "page.settings.title",
+      "breadcrumbKey": "crumb.system",
+      "topbarStatusKey": "topbar.runtime.notConnected"
     }
   ]
 }

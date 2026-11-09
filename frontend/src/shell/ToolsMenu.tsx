@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { TOOL_ROUTES } from './routes'
 
 export default function ToolsMenu() {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -68,11 +70,11 @@ export default function ToolsMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls="tools-menu"
-        aria-label="工具与自动化"
+        aria-label={t('nav.tools')}
         onClick={() => setOpen((value) => !value)}
       >
         <Icon name="layers" size={15} />
-        <span>工具与自动化</span>
+        <span>{t('nav.tools')}</span>
         <Icon name="chevDown" size={12} />
       </button>
       <div
@@ -80,11 +82,11 @@ export default function ToolsMenu() {
         id="tools-menu"
         className="nav-flyout"
         role="menu"
-        aria-label="工具与自动化"
+        aria-label={t('nav.tools')}
         hidden={!open}
         onKeyDown={onMenuKeyDown}
       >
-        <div className="nav-flyout-head">工具与自动化</div>
+        <div className="nav-flyout-head">{t('nav.tools')}</div>
         {TOOL_ROUTES.map((route) => (
           <NavLink
             key={route.id}
@@ -92,7 +94,7 @@ export default function ToolsMenu() {
             to={route.path}
             role="menuitem"
             className={({ isActive }) => `nav-flyout-item${isActive ? ' is-active' : ''}`}
-            aria-label={route.navLabel}
+            aria-label={t(route.navKey)}
             tabIndex={open ? 0 : -1}
             data-nav-entry
             data-route-path={route.path}
@@ -109,8 +111,7 @@ export default function ToolsMenu() {
               <Icon name={route.id} size={14} />
             </span>
             <span>
-              <b>{route.navLabel}</b>
-              {route.navMeta ? <small>{route.navMeta}</small> : null}
+              <b>{t(route.navKey)}</b>
             </span>
           </NavLink>
         ))}

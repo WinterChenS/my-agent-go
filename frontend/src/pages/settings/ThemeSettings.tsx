@@ -1,15 +1,21 @@
 import { useRef, type KeyboardEvent } from 'react'
+import { useI18n } from '../../i18n/LanguageProvider'
 import { useTheme } from '../../preferences/ThemeProvider'
 import type { ThemeMode } from '../../preferences/theme'
 import './settings.css'
 
-const OPTIONS: Array<{ value: ThemeMode; label: string; hint: string }> = [
-  { value: 'system', label: '跟随系统', hint: '跟随 Windows 外观' },
-  { value: 'light', label: '浅色', hint: '始终使用浅色' },
-  { value: 'dark', label: '深色', hint: '始终使用深色' },
+const OPTIONS: Array<{
+  value: ThemeMode
+  labelKey: 'settings.theme.system' | 'settings.theme.light' | 'settings.theme.dark'
+  hintKey: 'settings.theme.system.hint' | 'settings.theme.light.hint' | 'settings.theme.dark.hint'
+}> = [
+  { value: 'system', labelKey: 'settings.theme.system', hintKey: 'settings.theme.system.hint' },
+  { value: 'light', labelKey: 'settings.theme.light', hintKey: 'settings.theme.light.hint' },
+  { value: 'dark', labelKey: 'settings.theme.dark', hintKey: 'settings.theme.dark.hint' },
 ]
 
 export default function ThemeSettings() {
+  const { t } = useI18n()
   const { mode, resolved, notice, setMode } = useTheme()
   const buttons = useRef<Array<HTMLInputElement | null>>([])
 
@@ -45,20 +51,28 @@ export default function ThemeSettings() {
     }
   }
 
+  const noticeKey =
+    notice === 'invalid'
+      ? 'settings.theme.notice.invalid'
+      : notice === 'read-failed'
+        ? 'settings.theme.notice.readFailed'
+        : notice === 'save-failed'
+          ? 'settings.theme.notice.saveFailed'
+          : null
+  const modeLabel = t(mode === 'system' ? 'settings.theme.system' : mode === 'dark' ? 'settings.theme.dark' : 'settings.theme.light')
+  const resolvedLabel = t(resolved === 'dark' ? 'settings.theme.resolved.dark' : 'settings.theme.resolved.light')
+
   return (
     <section className="theme-settings" aria-labelledby="theme-settings-title">
       <div className="card">
         <div className="card-head">
-          <h3 id="theme-settings-title">主题</h3>
-          <span className="card-head-sub">浅色、深色或跟随 Windows 外观</span>
+          <h3 id="theme-settings-title">{t('settings.theme.title')}</h3>
+          <span className="card-head-sub">{t('settings.theme.subtitle')}</span>
         </div>
         <div className="card-pad">
-          <div className="theme-options" role="radiogroup" aria-label="主题" onKeyDown={onKeyDown}>
+          <div className="theme-options" role="radiogroup" aria-label={t('settings.theme.title')} onKeyDown={onKeyDown}>
             {OPTIONS.map((option, index) => (
-              <label
-                key={option.value}
-                className={`theme-option${mode === option.value ? ' is-active' : ''}`}
-              >
+              <label key={option.value} className={`theme-option${mode === option.value ? ' is-active' : ''}`}>
                 <input
                   ref={(element) => {
                     buttons.current[index] = element
@@ -68,24 +82,23 @@ export default function ThemeSettings() {
                   value={option.value}
                   checked={mode === option.value}
                   aria-checked={mode === option.value}
-                  aria-label={option.label}
+                  aria-label={t(option.labelKey)}
                   tabIndex={mode === option.value ? 0 : -1}
                   onChange={() => setMode(option.value)}
                 />
                 <span>
-                  <b>{option.label}</b>
-                  <small>{option.hint}</small>
+                  <b>{t(option.labelKey)}</b>
+                  <small>{t(option.hintKey)}</small>
                 </span>
               </label>
             ))}
           </div>
           <p className="theme-status" data-testid="theme-status" role="status">
-            当前主题：{resolved === 'dark' ? '深色' : '浅色'}（
-            {mode === 'system' ? '跟随系统' : mode === 'dark' ? '深色' : '浅色'}）
+            {t('settings.theme.status', { resolved: resolvedLabel, mode: modeLabel })}
           </p>
-          {notice ? (
+          {noticeKey ? (
             <p className="theme-notice" role="status">
-              {notice}
+              {t(noticeKey)}
             </p>
           ) : null}
         </div>

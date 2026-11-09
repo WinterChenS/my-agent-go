@@ -1,4 +1,5 @@
 import data from './routes.json'
+import type { MessageKey } from '../i18n/catalogue'
 
 export type ShellRouteGroup = 'primary' | 'tools'
 
@@ -9,10 +10,13 @@ export interface ShellRoute {
   role: string
   title: string
   navLabel: string
+  navKey: MessageKey
+  titleKey: MessageKey
+  breadcrumbKey: MessageKey
   group: ShellRouteGroup
   breadcrumbParent: string
   topbarActions: string[]
-  topbarStatus: { label: string; tone: 'success' | 'warn' } | null
+  topbarStatusKey?: MessageKey | null
   chrome: 'shell' | 'chat'
   navMeta?: string
   futureTask: string

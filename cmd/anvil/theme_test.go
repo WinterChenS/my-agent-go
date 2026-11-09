@@ -44,6 +44,19 @@ func TestThemeStateDefaultsPersistsAndFallsBack(t *testing.T) {
 	if mode, _, _ := reloaded.snapshot(); mode != themeLight {
 		t.Fatalf("reloaded mode = %q, want light", mode)
 	}
+	if language := reloaded.languageValue(); language != languageZhCN {
+		t.Fatalf("reloaded language = %q, want zh-CN", language)
+	}
+	if err := reloaded.setLanguage(languageEnUS); err != nil {
+		t.Fatalf("setLanguage en-US: %v", err)
+	}
+	both := newThemeState(dataDir, log.New(io.Discard, "", 0))
+	if mode, _, _ := both.snapshot(); mode != themeLight {
+		t.Fatalf("language write lost theme: %q", mode)
+	}
+	if language := both.languageValue(); language != languageEnUS {
+		t.Fatalf("reloaded language = %q, want en-US", language)
+	}
 
 	if err := os.WriteFile(themePreferencePath(dataDir), []byte(`{"theme":"purple"}`), 0o644); err != nil {
 		t.Fatalf("write invalid preference: %v", err)
@@ -104,6 +117,9 @@ func TestThemeHandlerReadsWritesAndInjects(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `__ANVIL_INITIAL_THEME__`) || !strings.Contains(rec.Body.String(), `dataset.theme="dark"`) {
 		t.Fatalf("index is missing the initial theme: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `__ANVIL_INITIAL_LANGUAGE__="zh-CN"`) {
+		t.Fatalf("index is missing the initial language: %s", rec.Body.String())
+	}
 
 	// GET preferences.
 	req = httptest.NewRequest(http.MethodGet, preferencesEndpoint, nil)
@@ -113,7 +129,7 @@ func TestThemeHandlerReadsWritesAndInjects(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("GET preferences = %d %q", rec.Code, rec.Body.String())
 	}
-	if response["theme"] != themeDark || response["resolved"] != themeDark {
+	if response["theme"] != themeDark || response["resolved"] != themeDark || response["language"] != languageZhCN {
 		t.Fatalf("GET preferences = %v", response)
 	}
 	if len(backgrounds) == 0 || backgrounds[len(backgrounds)-1] != themeDark {
@@ -134,6 +150,24 @@ func TestThemeHandlerReadsWritesAndInjects(t *testing.T) {
 	}
 	if backgrounds[len(backgrounds)-1] != themeLight {
 		t.Fatalf("background after PUT = %v", backgrounds)
+	}
+
+	// Language write preserves the theme and updates the injected HTML.
+	req = httptest.NewRequest(http.MethodPut, preferencesEndpoint, strings.NewReader(`{"language":"en-US"}`))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT language = %d %q", rec.Code, rec.Body.String())
+	}
+	body, err = os.ReadFile(themePreferencePath(dataDir))
+	if err != nil || json.Unmarshal(body, &stored) != nil || stored.Theme != themeLight || stored.Language != languageEnUS {
+		t.Fatalf("stored preferences after language write = %q (%v)", body, err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/settings", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `lang="en-US"`) || !strings.Contains(rec.Body.String(), `__ANVIL_INITIAL_LANGUAGE__="en-US"`) {
+		t.Fatalf("index did not switch language: %s", rec.Body.String())
 	}
 
 	// Invalid PUT is rejected without changing the file.
