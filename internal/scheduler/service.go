@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"my-agent-go/internal/config"
 	"my-agent-go/internal/contracts"
 	"my-agent-go/internal/run"
 )
@@ -532,6 +533,13 @@ func (s *Service) fire(ctx context.Context, scheduleID string, at, now time.Time
 		PermissionRef:  sch.PermissionRef,
 		PolicySnapshot: &snapshot,
 		ConfigRevision: s.opts.ConfigRevision,
+		// 无人值守：**一律**按 ask 提交，即使设置里开了允许完全访问。
+		//
+		// 定时任务旁边没有人答复审批，靠的是“60 秒无答复则 failed 且无副作用”
+		// （C09 口径）；如果它跟着用户的白天开关变成免审，那就成了一个“用户开过一次
+		// 完全访问就永久免审”的后门，而且出事时没有任何人当场同意过。
+		// 需要更宽范围的任务应当改任务的权限引用（受上限约束），不是靠这个档位。
+		PermissionMode: config.PermissionModeAsk,
 	})
 	if rerr != nil {
 		return s.finishOccurrence(ctx, key, StateFailed, ReasonDispatchFailed, now)

@@ -71,6 +71,12 @@ type Options struct {
 	PathGuard *PathGuard
 	// ApprovalTTL 审批有效期，默认 60 秒（基线 §6）。
 	ApprovalTTL time.Duration
+	// AutoAllow 是服务级默认档位：为 true 时，本应 ask 的调用直接 allow
+	// （见 ReasonAutoAllowed）。默认 false = 逐次审批。
+	//
+	// per-run 档位（PinRunPermissionMode）一旦登记就覆盖这个默认值：交互 run
+	// 可以在 full_access 下跑，无人值守 run 同时钉成 ask，两者不会互相污染。
+	AutoAllow bool
 	// Now 便于测试注入时钟，生产留空用 time.Now。
 	Now func() time.Time
 }
@@ -87,6 +93,18 @@ type Service struct {
 	approvals map[string]*approval
 	sessionOK map[string]map[string]time.Time // sessionID -> toolKey -> expiry（session_scope 许可）
 	seq       uint64
+
+	// 审批档位（2026-11-08 权限模式增量规格）。
+	//
+	// runModes 是**admission 时钉住**的 per-run 档位：run 期间改设置只影响下一条
+	// run，同一条 run 的前后步骤永远适用同一档位（否则回放时无法解释）。
+	// 未登记的 run 用 autoAllow（服务级默认）。
+	//
+	// onAutoAllow 是自动放行的留痕回调（由 run.Service 装上，发 policy.auto_allowed）。
+	// 它不是"另一个决策者"：结论已经定了，回调只负责记录，且不得在持锁时调用。
+	autoAllow   bool
+	runModes    map[contracts.RunID]string
+	onAutoAllow func(exec contracts.ExecutionContext, call ToolCall, mode string)
 }
 
 // New 创建策略服务。
@@ -111,6 +129,8 @@ func New(opts Options) *Service {
 		now:       now,
 		approvals: map[string]*approval{},
 		sessionOK: map[string]map[string]time.Time{},
+		autoAllow: opts.AutoAllow,
+		runModes:  map[contracts.RunID]string{},
 	}
 }
 
@@ -159,7 +179,17 @@ func (s *Service) Authorize(ctx context.Context, exec contracts.ExecutionContext
 		return Result{Decision: DecisionAllow, Reason: "命中本会话授权"}, nil
 	}
 
-	// 4. 需要审批：签发一次性审批，绑定 session/参数/revision/controlGeneration。
+	// 4. 允许完全访问：只跳过**人工审批**这一步。
+	//
+	// 走到这里的调用已经过了资源范围归一、项目信任与权限硬边界——越界、未授予
+	// shell、未知通道在上面就 deny 了，不会被档位放行。
+	// 留痕是硬要求：跳过审批 ≠ 不留痕，每次自动放行都要发一条 policy.auto_allowed。
+	if mode, auto := s.autoAllowFor(exec.RunID); auto {
+		s.notifyAutoAllowed(exec, call, mode)
+		return Result{Decision: DecisionAllow, Reason: ReasonAutoAllowed}, nil
+	}
+
+	// 5. 需要审批：签发一次性审批，绑定 session/参数/revision/controlGeneration。
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seq++

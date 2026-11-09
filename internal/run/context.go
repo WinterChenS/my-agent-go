@@ -110,9 +110,24 @@ type ExecutionBinding struct {
 	ProfileID        contracts.ProfileID        `json:"profileId,omitempty"`
 	PermissionRef    string                     `json:"permissionRef,omitempty"`
 	PolicySnapshot   PolicySnapshot             `json:"policySnapshot"`
+	// PermissionMode 是这次 run 的审批档位（ask / full_access），**admission 时钉住**。
+	//
+	// 它与 PolicySnapshot 是两件事：快照说"这次 run 最多能做什么"，档位说"这些动作
+	// 要不要逐次找人批准"。分开的理由见规格 2026-11-08 权限模式：把「已开完全访问」
+	// 写成更宽的 Permissions，就再也回不到"范围不变、只是不弹卡"这个状态。
+	//
+	// 钉在这里而不是每次判定时读设置：运行中切开关只影响下一条 run，否则同一条 run
+	// 的前后步骤会适用不同规则，回放时无法解释。策略服务里的 per-run 登记
+	// （policy.Service.PinRunPermissionMode）只是这份事实的执行侧镜像。
+	PermissionMode string `json:"permissionMode"`
 	// Attachments 是这次 run 冻结的附件引用（C06f）。空表示没有附件。
 	// 它只带元数据，因此可以安全地进快照与事件；路径与令牌不在这里。
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
+}
+
+// AutoApproves 报告这次 run 是否跳过人工审批（只读快照上的档位）。
+func (b ExecutionBinding) AutoApproves() bool {
+	return config.PermissionModeAutoApproves(b.PermissionMode)
 }
 
 // SessionID 是本次 run 所属会话。

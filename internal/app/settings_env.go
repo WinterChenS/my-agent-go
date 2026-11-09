@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	"my-agent-go/internal/config"
 )
 
 // 环境变量名（不带前缀，由 envLookup 解析成 ANVIL_*/MYAGENT_*）。
@@ -192,6 +194,20 @@ func (d *Desktop) resolveSettings(doc settingsDocument) (Settings, ModelConfig) 
 			out.ShellAllowed = v == "1" || strings.EqualFold(v, "true")
 		} else {
 			out.ShellAllowed = def.ShellAllowed
+		}
+	}
+
+	// 审批档位：只认 ask / full_access，没配就是 ask。
+	//
+	// 磁盘上写了认不出的值（手改文件、旧版本残留）时退回 ask 并留痕：
+	// 退回的方向只能是“更严”（逐次审批），绝不把认不出的值当 full_access——
+	// 那正是“配置写错反而更宽”的最坏降级。
+	out.PermissionMode = config.PermissionModeAsk
+	if raw := strings.TrimSpace(doc.Settings.PermissionMode); raw != "" {
+		if mode, ok := config.NormalizePermissionMode(raw); ok {
+			out.PermissionMode = mode
+		} else {
+			d.setLastErr("settings.json 里的权限档位无法识别（" + raw + "），已按 ask（逐次审批）处理")
 		}
 	}
 

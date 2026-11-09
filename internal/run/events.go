@@ -34,6 +34,13 @@ const (
 	// EventClarificationResolved 澄清已收口。
 	// payload: {"requestId","outcome"(value|confirmed|cancelled),"kind"?, "value"?,"confirmed"?,"reason"?}
 	EventClarificationResolved = "clarification.resolved"
+	// EventPolicyAutoAllowed 一次调用被“允许完全访问”放行（跳过人工审批）。
+	// payload: {"runId","sessionId","toolName","toolCallId"?,"source"?,"resourceScope"?,"permissionMode","reason"}
+	//
+	// 为什么必须逐条发：跳过审批 ≠ 不留痕。审批卡不出现，但“被放行了什么”
+	// 必须能追溯（诊断页查得到），否则完全访问就是一片黑。
+	// 它和其它 run 事件走同一个 sink（订阅者 / run_events），不另开记录通道。
+	EventPolicyAutoAllowed = "policy.auto_allowed"
 )
 
 // runErrorPayload 是 EventRunError 的载荷。
@@ -51,4 +58,22 @@ type statePayload struct {
 	State         string `json:"state"`
 	Previous      string `json:"previous"`
 	QueuePosition int    `json:"queuePosition,omitempty"`
+}
+
+// autoAllowedPayload 是 EventPolicyAutoAllowed 的载荷。
+//
+// run/session 在事件封套里也有，但这里再写一份：诊断页把 run_events 按 type 过滤后
+// 直接读这一行就能拼出“谁、在哪个会话、哪个工具被放行”，不用再回查封套。
+//
+// 参数只放 ResourceScope（已归一的真实资源）与工具名，不放完整参数：
+// 事件会进诊断包，完整命令/参数属于敏感内容，不在这一条里给（事件流也一样）。
+type autoAllowedPayload struct {
+	RunID          string `json:"runId"`
+	SessionID      string `json:"sessionId"`
+	ToolName       string `json:"toolName"`
+	ToolCallID     string `json:"toolCallId,omitempty"`
+	Source         string `json:"source,omitempty"`
+	ResourceScope  string `json:"resourceScope,omitempty"`
+	PermissionMode string `json:"permissionMode"`
+	Reason         string `json:"reason"`
 }
