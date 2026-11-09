@@ -14,13 +14,15 @@ import (
 // manifest viewport matrix while reading the real layout probe from the app
 // log, then prove the window closed.
 type shellNative struct {
-	runner        automationRunner
-	exec          desktopStepRunner
-	out           *nativeOutcome
-	dataDir       string
-	appLog        string
-	windowIDValue string
-	window        windowBounds
+	runner          automationRunner
+	exec            desktopStepRunner
+	out             *nativeOutcome
+	dataDir         string
+	webviewDir      string
+	appLog          string
+	windowIDValue   string
+	window          windowBounds
+	lastLaunchTheme themeLogEntry
 }
 
 func runNativeShellCase(r automationRunner, sha, target string, hooks *nativeHooks) nativeOutcome {

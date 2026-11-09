@@ -123,7 +123,8 @@ func TestAssetHandlerServesIndexForAppRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dist, "assets", "app.js"), []byte("console.log('anvil')"), 0o644); err != nil {
 		t.Fatalf("write js: %v", err)
 	}
-	handler := newAssetHandler(dist, log.New(&bytes.Buffer{}, "", 0))
+	theme := newThemeState(t.TempDir(), log.New(&bytes.Buffer{}, "", 0))
+	handler := newAssetHandler(dist, log.New(&bytes.Buffer{}, "", 0), theme)
 
 	for _, route := range []string{"/", "/chat", "/skills", "/unknown/route"} {
 		req := httptest.NewRequest(http.MethodGet, route, nil)
@@ -149,7 +150,8 @@ func TestLayoutProbeEndpointLogsRealMeasurements(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
-	handler := newAssetHandler(dist, logger)
+	theme := newThemeState(t.TempDir(), logger)
+	handler := newAssetHandler(dist, logger, theme)
 
 	req := httptest.NewRequest(http.MethodPost, probeLogPath, strings.NewReader("viewport=390x844 scrollWidth=390 clientWidth=390 overflow=false"))
 	rec := httptest.NewRecorder()

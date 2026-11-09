@@ -7,6 +7,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,9 @@ func run() error {
 		log.SetOutput(logFile)
 	}
 	log.SetFlags(log.LstdFlags | log.LUTC)
+	theme := newThemeState(dataDir, log.Default())
+	mode, _, resolved := theme.snapshot()
+	log.Printf("theme-options: mode=%s resolved=%s", mode, resolved)
 	size, warnings := parseWindowSize(os.Getenv("ANVIL_WINDOW_WIDTH"), os.Getenv("ANVIL_WINDOW_HEIGHT"))
 	for _, warning := range warnings {
 		log.Printf("window-options: %s", warning)
@@ -87,11 +91,11 @@ func run() error {
 			WebviewUserDataPath: webviewDir,
 		},
 		Assets: application.AssetOptions{
-			Handler:        newAssetHandler(dist, log.Default()),
+			Handler:        newAssetHandler(dist, log.Default(), theme),
 			DisableLogging: true,
 		},
 	})
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
 		Title:            appName,
 		Width:            size.Width,
@@ -99,7 +103,10 @@ func run() error {
 		MinWidth:         size.MinWidth,
 		MinHeight:        size.MinHeight,
 		URL:              "/",
-		BackgroundColour: application.NewRGB(245, 246, 248),
+		BackgroundColour: windowBackground(resolved),
+	})
+	theme.setWindow(func(current string) {
+		win.SetBackgroundColour(windowBackground(current))
 	})
 	log.Printf("window created; running")
 	if err := app.Run(); err != nil {
@@ -144,12 +151,16 @@ func isAppRoute(urlPath string) bool {
 
 // newAssetHandler serves the built bundle, SPA route fallbacks for pushState
 // navigation/reload, and the layout probe log endpoint.
-func newAssetHandler(dist string, logger *log.Logger) http.Handler {
+func newAssetHandler(dist string, logger *log.Logger, theme *themeState) http.Handler {
 	files := application.AssetFileServerFS(os.DirFS(dist))
 	if logger == nil {
 		logger = log.Default()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == preferencesEndpoint {
+			handlePreferences(w, r, theme, logger)
+			return
+		}
 		if r.URL.Path == probeLogPath {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -160,19 +171,78 @@ func newAssetHandler(dist string, logger *log.Logger) http.Handler {
 				http.Error(w, "read probe", http.StatusBadRequest)
 				return
 			}
-			logger.Printf("layout-probe: %s", sanitizeProbe(string(body)))
+			message := sanitizeProbe(string(body))
+			if strings.HasPrefix(message, "theme:") {
+				logger.Printf("%s", message)
+			} else {
+				logger.Printf("layout-probe: %s", message)
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if isAppRoute(r.URL.Path) {
-			clone := r.Clone(r.Context())
-			clone.URL.Path = "/"
-			clone.URL.RawPath = ""
-			files.ServeHTTP(w, clone)
+			if theme == nil {
+				http.Error(w, "theme state is not configured", http.StatusInternalServerError)
+				return
+			}
+			body, err := theme.injectedIndex(dist)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write(body)
 			return
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+func handlePreferences(w http.ResponseWriter, r *http.Request, theme *themeState, logger *log.Logger) {
+	if theme == nil {
+		http.Error(w, "theme state is not configured", http.StatusInternalServerError)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		mode, systemDark, resolved := theme.snapshot()
+		theme.syncBackground()
+		writeThemeJSON(w, mode, systemDark, resolved)
+	case http.MethodPut:
+		var pref themePreference
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&pref); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if err := theme.setMode(pref.Theme); err != nil {
+			logger.Printf("theme-options: reject %q: %v", pref.Theme, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mode, systemDark, resolved := theme.snapshot()
+		logger.Printf("theme-options: user selected %s (resolved %s)", mode, resolved)
+		writeThemeJSON(w, mode, systemDark, resolved)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func writeThemeJSON(w http.ResponseWriter, mode string, systemDark bool, resolved string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"theme":      mode,
+		"systemDark": systemDark,
+		"resolved":   resolved,
+	})
+}
+
+func windowBackground(resolved string) application.RGBA {
+	if resolved == themeDark {
+		return application.NewRGB(20, 22, 28)
+	}
+	return application.NewRGB(245, 246, 248)
 }
 
 func sanitizeProbe(body string) string {

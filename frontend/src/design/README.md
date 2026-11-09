@@ -23,4 +23,7 @@ product.
 - Do not substitute framework default colours, radii, shadows or fonts.
 - `tokens.ts` mirrors the variable names for tests and components. Values remain
   in `tokens.css`.
+- The dark theme is a colour-only override under `[data-theme="dark"]`; see
+  `DARK-THEME.md` for the derivation and contrast measurements. Non-colour
+  tokens must stay byte-identical between modes.
 - New tokens require an audit against the prototype and an update to this file.

@@ -23,6 +23,7 @@ export const TOKEN_GROUPS = {
     '--danger',
     '--danger-soft',
     '--topbar-bg',
+    '--shadow-color',
   ],
   radius: ['--r-xs', '--r-sm', '--r-md', '--r-lg'],
   shadow: ['--shadow-xs', '--shadow-sm', '--shadow-md', '--shadow-lg'],
