@@ -351,8 +351,12 @@ func TestCompileSkipsLegacyShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("一条旧数据不该让正常模型无法编译: %v", err)
 	}
-	if len(pm.Skipped) != 1 || pm.Skipped[0] != "m-old" {
+	if len(pm.Skipped) != 1 || pm.Skipped[0].ModelID != "m-old" {
 		t.Fatalf("跳过的条目要能说出来，实际 %v", pm.Skipped)
+	}
+	// 只说"跳过了谁"不够：诊断/启动报错要回答"为什么"，否则用户只能逐项猜。
+	if !strings.Contains(pm.Skipped[0].Reason, "provider") {
+		t.Fatalf("跳过原因要指明缺什么，实际 %q", pm.Skipped[0].Reason)
 	}
 	if strings.Contains(string(pm.JSON), `"":`) {
 		t.Fatalf("providers 里出现了空键：\n%s", pm.JSON)
@@ -607,5 +611,56 @@ func TestCustomModelFillOnlyNameBaseAndKey(t *testing.T) {
 	}
 	if got.API != "openai-completions" {
 		t.Fatalf("api = %q，期望 openai-completions（只给 baseUrl 时的默认）", got.API)
+	}
+}
+
+// TestCompileDiagnosticReportsDanglingCredential 守"诊断要能一次说清哪条不行、为什么"。
+//
+// 严格编译（启动走的那条）遇到凭证悬空会整份失败——对启动是对的，
+// 但诊断只用它就只能看到第一条，另外几条的状态全丢了。诊断模式必须：
+//   - 不掩盖正常模型（它们仍在 JSON 里）；
+//   - 把悬空凭证的条目连原因一起说进 Skipped；
+//   - 不把密钥写进任何输出。
+func TestCompileDiagnosticReportsDanglingCredential(t *testing.T) {
+	svc, _, mem := newTestService(t)
+	ctx := context.Background()
+
+	good := validModel()
+	if _, err := svc.Save(ctx, 0, good, ""); err != nil {
+		t.Fatalf("保存正常模型: %v", err)
+	}
+	withCred := validModel()
+	withCred.ID = "m-cred"
+	withCred.ProviderID = "demo2"
+	withCred.ModelID = "demo-model-2"
+	withCred.CredentialRef = "cred-lost"
+	if _, err := svc.Save(ctx, 1, withCred, "{{API_KEY_diag1}}"); err != nil {
+		t.Fatalf("保存带凭证的模型: %v", err)
+	}
+	// 凭证在保存之后消失（换了机器、清了凭证库、改过 ref）：这正是"悬空引用"。
+	if err := mem.Delete(ctx, "cred-lost"); err != nil {
+		t.Fatalf("删除凭证: %v", err)
+	}
+
+	// 严格模式仍然整份失败：不能因为加诊断就放宽启动。
+	if _, err := svc.CompilePiModels(ctx); err == nil {
+		t.Fatal("凭证悬空时严格编译必须失败")
+	}
+
+	pm, err := svc.CompilePiModelsDiagnostic(ctx)
+	if err != nil {
+		t.Fatalf("诊断编译不该整份失败: %v", err)
+	}
+	if len(pm.Skipped) != 1 || pm.Skipped[0].ModelID != "m-cred" {
+		t.Fatalf("Skipped 应只含 m-cred，实际 %+v", pm.Skipped)
+	}
+	if !strings.Contains(pm.Skipped[0].Reason, "cred-lost") {
+		t.Fatalf("跳过原因要指明是哪条凭证悬空，实际 %q", pm.Skipped[0].Reason)
+	}
+	if !strings.Contains(string(pm.JSON), "demo-model") {
+		t.Fatalf("正常模型应仍然参与编译：\n%s", pm.JSON)
+	}
+	if strings.Contains(string(pm.JSON), "{{API_KEY_diag1}}") {
+		t.Fatal("诊断输出的 models.json 里出现明文密钥")
 	}
 }

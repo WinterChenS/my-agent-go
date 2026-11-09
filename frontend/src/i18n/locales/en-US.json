@@ -1081,6 +1081,39 @@
         "empty": "not set",
         "overridden": "Filled from environment variables (never written to settings.json): {fields}",
         "unavailable": "Cannot read the effective config: {reason}"
+      },
+      "diagnosis": {
+        "button": "Check model configuration",
+        "checking": "Checking…",
+        "title": "Model configuration diagnosis",
+        "hint": "Read-only check: writes no files, starts no Pi process, calls no model.",
+        "ready": "Configuration is usable",
+        "notReady": "Configuration is not usable",
+        "reasonLabel": "Reason",
+        "selected": "Selected model",
+        "selectedNone": "No model selected",
+        "selectedSource": "Selected from",
+        "fields": {
+          "provider": "Provider",
+          "model": "Model",
+          "baseUrl": "Base URL",
+          "api": "API",
+          "credentialRef": "Credential reference",
+          "empty": "not set"
+        },
+        "compiled": "{count} model(s) compiled",
+        "modelsTitle": "Per-model status",
+        "modelsEmpty": "No model definitions yet.",
+        "status": {
+          "ok": "ok",
+          "skipped": "skipped: {reason}"
+        },
+        "skippedTitle": "Not compiled",
+        "skippedItem": "{modelId}: {reason}",
+        "modelsJsonPath": "models.json path",
+        "modelsJsonPresent": "present",
+        "modelsJsonAbsent": "not created yet (written on next start)",
+        "unavailable": "Diagnosis failed: {reason}"
       }
     },
     "permissions": {

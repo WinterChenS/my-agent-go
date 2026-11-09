@@ -17,6 +17,7 @@ import type {
   CurrentModelResult,
   EffectiveConfigResult,
   ModelAction,
+  ModelDiagnosis,
   ModelListResult,
   ModelProbeResponse,
   Preferences,
@@ -152,6 +153,12 @@ export const settingsApi = {
   /** 会真实调用模型（可能计费），只能由用户点击触发。 */
   testModel: (id: string): Promise<ModelProbeResponse> => Call.ByName(`${FQN}.TestModel`, id),
   setActiveModel: (ref: string): Promise<ModelAction> => Call.ByName(`${FQN}.SetActiveModel`, ref),
+  /**
+   * 诊断模型配置（MDIAG）：只读，不写文件、不启动 Pi、不产生调用费用。
+   * 只给用户点击用，不挂在页面挂载上（诊断会读凭证库）。
+   */
+  diagnoseModelConfig: (): Promise<ModelDiagnosis> =>
+    Call.ByName(`${FQN}.DiagnoseModelConfig`),
 
   /**
    * 有效配置与来源（M1ENV）。这里只取模型那一段：provider/model/baseUrl/apiKeyRef

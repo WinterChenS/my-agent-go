@@ -795,6 +795,16 @@ func (m modelSetup) key() string {
 // 那是 fixture / 本机端点的路径——它把密钥放在 settings.json 里（界面会告警），
 // 但 models.json 仍然只写 $ENV 引用，不在磁盘上多留一份明文。
 func (d *Desktop) resolveModelSetup(ctx context.Context) (modelSetup, error) {
+	setup, err := d.resolveModelSetupInner(ctx)
+	if err != nil {
+		// 启动失败时的消息要能直接告诉用户“哪一步不对”。
+		// 包装放在这里而不是每个分支里：新增分支时不会有人忘记加。
+		return modelSetup{}, d.withModelHint(ctx, err)
+	}
+	return setup, nil
+}
+
+func (d *Desktop) resolveModelSetupInner(ctx context.Context) (modelSetup, error) {
 	d.mu.Lock()
 	s := d.settings
 	d.mu.Unlock()
@@ -888,12 +898,82 @@ func legacyModelSetup(s Settings) (modelSetup, error) {
 	}, nil
 }
 
-// describeSkipped 把"哪些条目没参与编译"说成一句人话。
-func describeSkipped(ids []string) string {
-	if len(ids) == 0 {
+// describeSkipped 把"哪些条目没参与编译、为什么"说成一句人话。
+//
+// 只说 ID 不够：用户拿着"m-x 被跳过"去修，而真正的原因是凭证悬空或已禁用，
+// 修完还是起不来时，这条提示就会被当成假的。所以原因必须跟着一起说。
+func describeSkipped(skips []resources.ModelSkip) string {
+	if len(skips) == 0 {
 		return ""
 	}
-	return "（" + strings.Join(ids, "、") + " 是旧格式，缺少 provider 名或模型名）"
+	parts := make([]string, 0, len(skips))
+	for _, sk := range skips {
+		if strings.TrimSpace(sk.Reason) == "" {
+			parts = append(parts, sk.ModelID)
+			continue
+		}
+		parts = append(parts, sk.ModelID+"："+sk.Reason)
+	}
+	return "（未参与编译：" + strings.Join(parts, "；") + "）"
+}
+
+// modelConfigHint 为"当前没有可用模型"补充一句可操作的原因。
+//
+// 它只**解释**，不改判定：编译规则仍然只在 resources.compilePiModels 一处。
+// 返回空串表示没有更多可说（例如资源库里一条模型也没有）。
+func (d *Desktop) modelConfigHint(ctx context.Context) string {
+	svc, err := d.resourceServices()
+	if err != nil {
+		return ""
+	}
+	pm, compileErr := svc.CompilePiModelsDiagnostic(ctx)
+	skipped := describeSkipped(pm.Skipped)
+	if compileErr != nil {
+		if skipped != "" {
+			return skipped
+		}
+		return "（读不出模型定义：" + compileErr.Error() + "）"
+	}
+	set, listErr := svc.List(ctx)
+	if listErr != nil || len(set.Items) == 0 {
+		return skipped
+	}
+
+	d.mu.Lock()
+	ref := strings.TrimSpace(d.settings.ModelRef)
+	d.mu.Unlock()
+	if ref != "" {
+		return skipped
+	}
+	ids := make([]string, 0, len(set.Items))
+	for _, m := range set.Items {
+		ids = append(ids, m.ID)
+	}
+	// 这是实测里最常见的一种：模型能保存、也能列出来，但从未被设为当前模型。
+	// 此时旧字段路径（settings 里的 provider/baseUrl/model）是空的，
+	// 于是启动只能回 CONFIG_MISSING——不说清这一句，用户根本不知道还有“设为当前”这一步。
+	return "资源库里有 " + strconv.Itoa(len(set.Items)) + " 个模型（" + strings.Join(ids, "、") +
+		"），但没有一个被设为当前模型；请在设置→模型里点“设为当前模型”" + skipped
+}
+
+// withModelHint 给模型配置相关的失败补上“为什么”。
+//
+// 所有可能以 CONFIG_MISSING 结束的模型路径都要经过它：同一句
+// “缺少必要的配置”对用户毫无帮助，而原因（未选中 / 被跳过 / 凭证悬空）
+// 恰恰决定下一步该点哪里。
+func (d *Desktop) withModelHint(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	hint := d.modelConfigHint(ctx)
+	if hint == "" || strings.Contains(err.Error(), hint) {
+		return err
+	}
+	var appErr *contracts.AppError
+	if errors.As(err, &appErr) {
+		return contracts.NewAppError(appErr.Code, appErr.Message+"；"+hint, appErr.Retryable)
+	}
+	return fmt.Errorf("%w；%s", err, hint)
 }
 
 // ensureRuntime 按需构建 RunService。

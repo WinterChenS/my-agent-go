@@ -7,6 +7,7 @@
 // 密钥不进这一层：模型定义里只有 credentialRef，凭证明文只存在 OS 凭证库。
 
 import { ModelsMaintenance } from "../models/ModelsMaintenance";
+import { ModelDiagnosis } from "./ModelDiagnosis";
 import { ModelProvenance } from "./ModelProvenance";
 import { SettingsSection } from "./Section";
 
@@ -15,6 +16,8 @@ export function ModelSettings() {
     <SettingsSection id="model" titleKey="settings.model.title" hintKey="settings.model.hint">
       {/* M1ENV：来源必须显示在列表之前——先回答"现在用的是谁给的模型"，再谈维护。 */}
       <ModelProvenance />
+      {/* MDIAG："保存了却起不来"的第一步应该是"点一下，看它说为什么"。 */}
+      <ModelDiagnosis />
       <ModelsMaintenance />
     </SettingsSection>
   );
