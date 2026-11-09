@@ -19,6 +19,16 @@ const fake = vi.hoisted(() => ({
   savePreferences: vi.fn(),
   listModels: vi.fn(async () => ({ items: [], revision: 1, options: { apis: [], inputKinds: [], thinkingLevels: [] } })),
   currentModel: vi.fn(async () => ({ source: "none", ref: "", error: undefined })),
+  // M1ENV：设置页的模型分区会读一次有效配置来源；这里给一份"全都来自设置"的默认值。
+  effectiveConfig: vi.fn(async () => ({
+    model: {
+      provider: { value: "openai", source: "settings" },
+      model: { value: "gpt-5", source: "settings" },
+      baseUrl: { value: "https://api.example.com/v1", source: "settings" },
+      apiKeyRef: { value: "", source: "none" },
+      overriddenByEnv: [],
+    },
+  })),
   testModel: vi.fn(),
   setActiveModel: vi.fn(),
   agentProfileCeiling: vi.fn(async () => ({

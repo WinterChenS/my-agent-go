@@ -45,16 +45,27 @@ type EffectiveConfigResult struct {
 	Provenance map[string]string `json:"provenance"`
 	Warnings   []string          `json:"warnings,omitempty"`
 	// Layers 只报告哪几层真的存在（磁盘上有文档），便于解释"为什么这个键是默认值"。
-	Layers []string   `json:"layers"`
-	Error  *CallError `json:"error,omitempty"`
+	Layers []string `json:"layers"`
+	// Model 是**当前生效**的模型配置与每项来源（设置 / 环境变量 / 默认）。
+	//
+	// 它不来自五层配置：provider/model/baseUrl 这三个值住在 settings.json 与
+	// 环境变量里（五层配置里只有 models 资源列表）。所以单独列一段，但来源的
+	// 口径与层完全一致：界面必须能回答"这个模型值是谁给的"，环境变量补位
+	// 不允许静默发生（OverriddenByEnv）。
+	Model ModelConfig `json:"model"`
+	Error *CallError  `json:"error,omitempty"`
 }
 
 // EffectiveConfig 读取并合并五层配置，返回可查询来源的结果。
 func (d *Desktop) EffectiveConfig() EffectiveConfigResult {
 	ctx := context.Background()
+	// 模型来源取自**当前生效的设置**（内存里的那一份，与启动 run 用的是同一份）。
+	// 不从磁盘现读：读路径算出的快照可能与已生效的设置不同（外部改文件），
+	// 而这里回答的是"现在跑起来会用哪个模型、它是谁给的"。
+	model := d.ModelConfig()
 	store, err := config.NewStore(filepath.Join(d.root, "config"))
 	if err != nil {
-		return EffectiveConfigResult{Error: toCallError(err)}
+		return EffectiveConfigResult{Error: toCallError(err), Model: model}
 	}
 
 	layers := make([]config.Layer, 0, len(effectiveConfigLayers))
@@ -65,7 +76,7 @@ func (d *Desktop) EffectiveConfig() EffectiveConfigResult {
 			if isConfigNotFound(loadErr) {
 				continue // 该层没有文档 = 没说话
 			}
-			return EffectiveConfigResult{Error: toCallError(loadErr)}
+			return EffectiveConfigResult{Error: toCallError(loadErr), Model: model}
 		}
 		if configDocumentAbsent(doc.Revision, doc.Body) {
 			continue
@@ -78,12 +89,13 @@ func (d *Desktop) EffectiveConfig() EffectiveConfigResult {
 			Error: toCallError(contracts.NewAppError(contracts.CodeConfigMissing,
 				"没有任何配置层（default/user/workspace/profile/session 都没有文档）", false)),
 			Layers: present,
+			Model:  model,
 		}
 	}
 
 	merged, mergeErr := config.Merge(layers)
 	if mergeErr != nil {
-		return EffectiveConfigResult{Error: toCallError(mergeErr), Layers: present}
+		return EffectiveConfigResult{Error: toCallError(mergeErr), Layers: present, Model: model}
 	}
 	sort.Strings(present)
 	return EffectiveConfigResult{
@@ -91,7 +103,17 @@ func (d *Desktop) EffectiveConfig() EffectiveConfigResult {
 		Provenance: merged.Provenance,
 		Warnings:   merged.Warnings,
 		Layers:     present,
+		Model:      model,
 	}
+}
+
+// ModelConfig 返回当前生效模型配置的来源（设置 / 环境变量 / 默认值）。
+//
+// 导出给绑定层与诊断用：它不含任何密钥，只有值与来源（密钥只有引用）。
+func (d *Desktop) ModelConfig() ModelConfig {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.modelConfig
 }
 
 // SaveConfigLayer 写一层的配置文档（CAS）。

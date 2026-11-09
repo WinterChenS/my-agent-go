@@ -127,11 +127,11 @@ func (d *Desktop) SelectPi(installationID string) (pi.DiscoveryResult, error) {
 
 // persistPiSelection 只把"上次选定的 Pi"写进 settings.json，不提交整份内存快照。
 //
-// 为什么不能直接复用 persistSettings(d.Settings())：内存里的 Settings 已经过
-// applyEnvOverrides，把整份快照写回磁盘等于把这一次进程的环境变量（MYAGENT_PI_PATH
-// 等）永久钉进用户配置。选一个 Pi 是一次点击动作，不该顺带固化一组用户没输入过的值；
-// 固化之后即使环境变量消失，配置里也留着那条路径，而 resolveInstallation 对失效的
-// piPath 是**不静默回退**的，用户会突然打不开任何 Pi。
+// 为什么不能直接复用 persistSettings(d.Settings())：内存里的 Settings 已经过环境变量
+// 补位（见 settings_env.go 的 resolveSettings），把整份快照写回磁盘等于把这一次进程的
+// 环境变量（ANVIL_PI_PATH 等）永久钉进用户配置。选一个 Pi 是一次点击动作，不该顺带
+// 固化一组用户没输入过的值；固化之后即使环境变量消失，配置里也留着那条路径，而
+// resolveInstallation 对失效的 piPath 是**不静默回退**的，用户会突然打不开任何 Pi。
 //
 // 所以这里以磁盘上的文档为基线（没有文件就是默认值），只改这一个字段。
 // 环境覆盖仍在 loadSettings 时应用，优先级没变：本次进程内 piPath 还是覆盖值，

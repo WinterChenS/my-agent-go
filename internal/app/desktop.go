@@ -63,6 +63,9 @@ type Settings struct {
 	// Provider 是 models.json 里的 provider 键名。
 	Provider string `json:"provider"`
 	// BaseURL 是 OpenAI 兼容端点，例如 http://127.0.0.1:8080/v1。
+	//
+	// M1ENV：这就是模型的 base URL 字段（internal/config 里没有 Settings，也没有
+	// 等价字段），因此不新增 Settings.ModelBaseURL——同一件事有两个字段，迟早会分叉。
 	BaseURL string `json:"baseUrl"`
 	// Model 是模型 id。
 	Model string `json:"model"`
@@ -71,7 +74,15 @@ type Settings struct {
 	// 仅用于"还没有任何模型定义"的旧配置路径（fixture/本机端点）。
 	// 一旦 ModelRef 指向资源库里的模型，密钥改从 OS 凭证库取，
 	// 这里不再被读到（也不会被写进 models.json 明文）。
+	//
+	// 环境变量 ANVIL_API_KEY 能补这个字段，但补上的值**不落盘**（见 stripEnvDerived）。
 	APIKey string `json:"apiKey"`
+	// ModelAPIKeyRef 是密钥的**引用**（形如 env:ANVIL_MODEL_API_KEY），不是密钥本身。
+	//
+	// 为什么要有引用而不是直接存 key：环境变量给的密钥必须能被使用、又能被安全地
+	// 描述出来——引用可以落盘、可以显示在设置页、可以进诊断包，明文不行。
+	// 明文只在进程内存里，经子进程环境交给 Pi（models.json 里只有 $ENV 引用）。
+	ModelAPIKeyRef string `json:"modelAPIKeyRef,omitempty"`
 	// ModelRef 指向资源库中的模型定义；空表示沿用上面四个旧字段。
 	ModelRef string `json:"modelRef"`
 	// Workspace 是 agent 的工作目录（文件读写的边界）。
@@ -126,6 +137,10 @@ type Desktop struct {
 	svc     *run.Service
 	emitter func(contracts.Event)
 	lastErr string
+	// modelConfig 是当前生效模型配置的**来源**（设置 / 环境 / 默认）。
+	// 与 settings 同一时刻更新：界面据此显示"这个值是谁给的"，
+	// 不允许显示设置值而实际跑环境值。
+	modelConfig ModelConfig
 	// policyExt 是解析到的策略扩展绝对路径，供状态展示复用。
 	policyExt string
 	// harness 是自有 MCP 服务（应用级单例）。端口与令牌固定，
@@ -258,11 +273,12 @@ func New(root string) (*Desktop, error) {
 		// 免得"为什么突然没有执行前授权"没有任何线索。
 		d.setLastErr("产品扩展物化失败：" + err.Error())
 	}
-	s, err := d.loadSettings()
+	s, cfg, err := d.loadSettings()
 	if err != nil {
 		return nil, err
 	}
 	d.settings = s
+	d.modelConfig = cfg
 	// 默认工作区先建出来，避免首次启动就撞"目录不存在"。
 	// 建不出来不阻断启动：真正的原因（只读盘、无权限）会在 Start 时
 	// 以更准确的错误码出现，比在启动阶段吞掉它更有用。
@@ -356,20 +372,22 @@ func (d *Desktop) writeSettings(s Settings) (uint64, error) {
 	return settingsRevisionOf(raw), nil
 }
 
-func (d *Desktop) loadSettings() (Settings, error) {
-	s := defaultSettings(d.root)
+func (d *Desktop) loadSettings() (Settings, ModelConfig, error) {
 	raw, err := d.readSettingsFile()
+	doc, docErr := parseSettingsDocument(raw)
 	if err != nil {
-		return s, err
+		// 读不出来（权限/磁盘）也要给出一份可用的设置：
+		// 环境变量与默认值仍然说得清楚，不必让整个应用起不来。
+		s, cfg := d.resolveSettings(doc)
+		return s, cfg, err
 	}
-	if len(raw) > 0 {
-		// 用户已保存的设置优先；解析失败不静默丢弃，交由调用方看到错误。
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return s, fmt.Errorf("解析 settings.json 失败: %w", err)
-		}
+	if docErr != nil {
+		// 用户手改坏了配置文件：不静默丢弃，交由调用方看到错误。
+		s, cfg := d.resolveSettings(doc)
+		return s, cfg, fmt.Errorf("解析 settings.json 失败: %w", docErr)
 	}
-	applyEnvOverrides(&s)
-	return s, nil
+	s, cfg := d.resolveSettings(doc)
+	return s, cfg, nil
 }
 
 // defaultSettings 给出可用的默认值：优先本机基线的 Node 与隔离安装的 Pi 1.5.0。
@@ -392,27 +410,11 @@ func defaultSettings(root string) Settings {
 	return s
 }
 
-// applyEnvOverrides 允许用环境变量驱动一次运行（自动化验证用，不改变 UI 行为）。
+// applyEnvOverrides 已被 resolveSettings 取代（见 settings_env.go）。
 //
-// 全部走 envLookup：ANVIL_* 优先，MYAGENT_* 仍可用但会记一次弃用警告
-// （U00 的品牌迁移，见 env.go）。
-func applyEnvOverrides(s *Settings) {
-	set := func(dst *string, name string) {
-		if v, _ := envLookup(name); v != "" {
-			*dst = v
-		}
-	}
-	set(&s.PiPath, "PI_PATH")
-	set(&s.NodePath, "NODE_PATH")
-	set(&s.Provider, "PROVIDER")
-	set(&s.BaseURL, "BASE_URL")
-	set(&s.Model, "MODEL")
-	set(&s.APIKey, "API_KEY")
-	set(&s.Workspace, "WORKSPACE")
-	if v, _ := envLookup("SHELL"); v != "" {
-		s.ShellAllowed = v == "1" || strings.EqualFold(v, "true")
-	}
-}
+// 旧实现是无条件覆盖：环境变量永远赢过设置文件。后果是脚本一设 ANVIL_MODEL，
+// 用户在设置里改的模型就永远不生效，且界面上看不出是谁在生效。
+// 现行规则是"设置 > 环境 > 默认"，并且补位出来的值不落盘。
 
 // Settings 返回当前设置（不含任何隐式改写）。
 func (d *Desktop) Settings() Settings {
@@ -445,17 +447,17 @@ func (d *Desktop) SettingsWithRevision() SettingsResult {
 	if err != nil {
 		return SettingsResult{Settings: d.Settings(), Error: toCallError(err)}
 	}
-	s := defaultSettings(d.root)
-	if len(raw) > 0 {
-		if uerr := json.Unmarshal(raw, &s); uerr != nil {
-			return SettingsResult{Settings: d.Settings(),
-				Revision: settingsRevisionOf(raw),
-				Error: toCallError(contracts.NewAppError(contracts.CodeInternal,
-					"设置文件内容不是合法 JSON", false).
-					WithOperation("settings.get").WithCause(uerr.Error()))}
-		}
+	doc, docErr := parseSettingsDocument(raw)
+	if docErr != nil {
+		return SettingsResult{Settings: d.Settings(),
+			Revision: settingsRevisionOf(raw),
+			Error: toCallError(contracts.NewAppError(contracts.CodeInternal,
+				"设置文件内容不是合法 JSON", false).
+				WithOperation("settings.get").WithCause(docErr.Error()))}
 	}
-	applyEnvOverrides(&s)
+	// 这是**读**路径：按磁盘 + 环境算一份给界面编辑的快照，
+	// 不改内存里的生效设置（否则界面一刷新就把没保存的编辑吞掉）。
+	s, _ := d.resolveSettings(doc)
 	return SettingsResult{Settings: s, Revision: settingsRevisionOf(raw)}
 }
 
@@ -557,12 +559,30 @@ func (d *Desktop) saveSettings(s Settings, expected *uint64) (uint64, error) {
 		return current, fmt.Errorf("创建工作目录失败: %w", err)
 	}
 
-	next, err := d.writeSettings(s)
+	// 环境变量补位出来的值不落盘（M1ENV）：否则一次保存就把预览/CI 的值
+	// 钉进用户配置，环境变量消失后行为会莫名变化。
+	doc, docErr := parseSettingsDocument(raw)
+	if docErr != nil {
+		// 磁盘上那份解析不了（用户手改坏了）：按"什么都没写"处理。
+		// 宁可多保留一条环境值不落盘，也不要拿它当"用户写过"。
+		doc = settingsDocument{present: map[string]bool{}}
+	}
+	persist, stripped := stripEnvDerived(s, doc)
+
+	next, err := d.writeSettings(persist)
 	if err != nil {
 		return current, err
 	}
+	// 内存里的生效设置按"刚落盘的文档 + 环境变量"重新解析：
+	// 环境值仍然生效（下一次 run 行为不变），但磁盘上不会出现它们。
+	memDoc := settingsDocumentOf(persist)
+	for key := range stripped {
+		delete(memDoc.present, key)
+	}
+	mem, cfg := d.resolveSettings(memDoc)
 	d.mu.Lock()
-	d.settings = s
+	d.settings = mem
+	d.modelConfig = cfg
 	d.mu.Unlock()
 	return next, nil
 }
@@ -781,6 +801,7 @@ func (d *Desktop) resolveModelSetup(ctx context.Context) (modelSetup, error) {
 
 	ref := strings.TrimSpace(s.ModelRef)
 	if ref == "" {
+		// 旧字段路径（fixture / 本机端点）：密钥可能是 env: 引用，也可能是旧明文。
 		return legacyModelSetup(s)
 	}
 	svc, err := d.resourceServices()
@@ -830,6 +851,9 @@ func (d *Desktop) resolveModelSetup(ctx context.Context) (modelSetup, error) {
 //
 // 用同一套编译实现而不是另写一段拼装代码：两段代码一旦分叉，"测过的"和
 // "实际跑的"就会是两份不同的配置，而症状要到 provider 报错时才出现。
+//
+// 密钥原文由 modelSecret 现取（env: 引用读环境变量，否则退回旧明文字段），
+// 只经子进程环境交给 Pi；models.json 里写的是 $ENV 引用，磁盘上不多留一份明文。
 func legacyModelSetup(s Settings) (modelSetup, error) {
 	baseURL := strings.TrimSpace(s.BaseURL)
 	model := strings.TrimSpace(s.Model)
@@ -851,7 +875,7 @@ func legacyModelSetup(s Settings) (modelSetup, error) {
 		InputKinds:    []string{"text"},
 		ContextWindow: 128000,
 		MaxOutput:     8192,
-	}, s.APIKey)
+	}, modelSecret(s))
 	if err != nil {
 		return modelSetup{}, err
 	}

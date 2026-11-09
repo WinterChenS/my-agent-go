@@ -14,6 +14,11 @@
    - [资源与工作台：C01–C07](superpowers/plans/2026-11-03-resources-workbench.md)
    - [集成与发行：X01–X05](superpowers/plans/2026-11-03-integration-release.md)
 
+## 运行配置
+
+[模型与运行配置的环境变量](model-config-env.md)：`ANVIL_PROVIDER / ANVIL_MODEL / ANVIL_BASE_URL /
+ANVIL_MODEL_API_KEY` 等变量的语义、优先级（设置 > 环境变量 > 默认值）、不落盘与密钥引用规则。
+
 [给实施agent的任务指令](agent-handoff.md)可复制到执行会话。当前编写计划不等于已经授权公开发布，也不等于本轮开始实施。
 
 ## 历史设计与调研

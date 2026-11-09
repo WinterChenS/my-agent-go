@@ -100,13 +100,51 @@ export interface Settings {
   piPath: string;
   nodePath: string;
   provider: string;
+  /** 模型的 OpenAI 兼容端点（M1ENV 复用这个字段，不另建 ModelBaseURL）。 */
   baseUrl: string;
   model: string;
   apiKey: string;
+  /**
+   * 密钥的**引用**（形如 `env:ANVIL_MODEL_API_KEY`），不是密钥本身。
+   * 环境变量给的密钥只以引用形式存在：明文不进 settings.json，也不进这里。
+   */
+  modelAPIKeyRef?: string;
   /** 指向资源库里的模型定义；空表示沿用上面几个旧字段。 */
   modelRef: string;
   workspace: string;
   shellAllowed: boolean;
+}
+
+/** 一个配置字段的生效来源（与 Go 侧 ConfigSource 一一对应）。 */
+export type ConfigSource = "settings" | "env" | "default" | "none";
+
+export interface ConfigFieldSource {
+  value: string;
+  source: ConfigSource;
+  /** 仅 source=env 时出现：命中的完整变量名（ANVIL_* 或旧 MYAGENT_*）。 */
+  envVar?: string;
+}
+
+/**
+ * 当前生效的模型配置与每项来源（M1ENV）。
+ *
+ * 界面必须把它显示出来：环境变量只在设置里"没写这个字段"时才生效，
+ * 但"生效了"与"没生效"在屏幕上必须看得出区别——否则用户改了设置而模型没变，
+ * 和"脚本静默顶掉了我的配置"完全无法区分。
+ */
+export interface ModelConfigProvenance {
+  provider: ConfigFieldSource;
+  model: ConfigFieldSource;
+  baseUrl: ConfigFieldSource;
+  apiKeyRef: ConfigFieldSource;
+  /** 被环境变量补上的字段名（provider/model/baseUrl/apiKeyRef）。 */
+  overriddenByEnv?: string[] | null;
+}
+
+/** EffectiveConfig 的绑定结果里界面关心的那一段。 */
+export interface EffectiveConfigResult {
+  model?: ModelConfigProvenance | null;
+  error?: CallError | null;
 }
 
 // 取值必须与 Go 侧 policy.ApprovalChoice 一致（once / session_scope / deny）。

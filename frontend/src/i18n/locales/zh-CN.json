@@ -1058,7 +1058,26 @@
       "deferred": "已切换：还有运行在进行，新模型会在下一次运行时生效。",
       "credential": "凭证",
       "credentialPresent": "已存于系统凭证库",
-      "credentialMissing": "未保存凭证"
+      "credentialMissing": "未保存凭证",
+      "env": {
+        "title": "模型来源",
+        "hint": "设置优先；空着的字段由环境变量补上，补上的值不会写入 settings.json。",
+        "fields": {
+          "provider": "Provider",
+          "model": "模型",
+          "baseUrl": "Base URL",
+          "apiKeyRef": "密钥引用"
+        },
+        "source": {
+          "settings": "设置",
+          "env": "环境变量",
+          "default": "默认值",
+          "none": "未设置"
+        },
+        "empty": "未设置",
+        "overridden": "以下字段由环境变量补上（不会写入 settings.json）：{fields}",
+        "unavailable": "读不到有效配置：{reason}"
+      }
     },
     "permissions": {
       "title": "权限",
