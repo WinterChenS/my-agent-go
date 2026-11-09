@@ -156,9 +156,25 @@ func checkEvidenceRoot(opts GateOptions) (string, error) {
 }
 
 func evaluateCase(evidenceRoot, sha, target string, c Case, resolver preflight.Resolver) (string, error) {
+	if resolver == nil {
+		resolver = preflight.OSSystem{}
+	}
 	caseDir := filepath.Join(evidenceRoot, sha, target, c.ID)
 	if err := ensureWithin(evidenceRoot, caseDir); err != nil {
 		return "", fmt.Errorf("case directory escapes the evidence root")
+	}
+	// The textual path is not enough: a junction at the case directory must not
+	// hand the gate evidence from outside the evidence root.
+	resolvedRoot, err := resolver.Resolve(evidenceRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve evidence root: %w", err)
+	}
+	resolvedCase, err := resolver.Resolve(caseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve case directory: %w", err)
+	}
+	if err := ensureWithin(resolvedRoot.Resolved, resolvedCase.Resolved); err != nil {
+		return "", fmt.Errorf("case directory resolves outside the evidence root")
 	}
 
 	res, raw, err := loadResult(filepath.Join(caseDir, "result.json"))
@@ -202,9 +218,6 @@ func evaluateCase(evidenceRoot, sha, target string, c Case, resolver preflight.R
 		return "", fmt.Errorf("limitations must explain %s evidence", res.Status)
 	}
 
-	if resolver == nil {
-		resolver = preflight.OSSystem{}
-	}
 	for _, artifact := range res.Artifacts {
 		if err := validateArtifact(caseDir, artifact, resolver); err != nil {
 			return "", err

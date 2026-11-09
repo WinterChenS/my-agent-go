@@ -414,3 +414,40 @@ func TestGateRejectsArtifactJunctionEscape(t *testing.T) {
 	f.writeResult(caseID, res)
 	assertOutcome(t, f.evaluate(m), ExitIncomplete, "artifact")
 }
+
+// A junction at the case directory must not let evidence from outside the
+// evidence root pass the gate, even if result.json and artifacts are valid.
+func TestGateRejectsCaseDirectoryJunctionOutsideEvidenceRoot(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("junctions are a Windows feature")
+	}
+	f := newFixture(t)
+	const caseID = "R0-00-build-gate"
+	m := f.matrix([]string{"R0-00"}, caseDecl(caseID, "R0-00", "automation"))
+
+	// Produce a fully valid case directory, then move it outside the root.
+	f.writeResult(caseID, f.passResult(caseID, "automation"))
+	inside := f.caseDir(caseID)
+	outside := filepath.Join(t.TempDir(), caseID)
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside case: %v", err)
+	}
+	entries, err := os.ReadDir(inside)
+	if err != nil {
+		t.Fatalf("read case dir: %v", err)
+	}
+	for _, entry := range entries {
+		if err := os.Rename(filepath.Join(inside, entry.Name()), filepath.Join(outside, entry.Name())); err != nil {
+			t.Fatalf("move %q: %v", entry.Name(), err)
+		}
+	}
+	if err := os.Remove(inside); err != nil {
+		t.Fatalf("remove original case dir: %v", err)
+	}
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", inside, outside).CombinedOutput()
+	if err != nil {
+		t.Fatalf("mklink: %v (%s)", err, out)
+	}
+
+	assertOutcome(t, f.evaluate(m), ExitIncomplete, "outside the evidence root")
+}

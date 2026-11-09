@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"my-agent-go/internal/preflight"
@@ -44,6 +45,9 @@ type VerifyOptions struct {
 	CaseID       string
 	Target       string
 	GitSHA       string
+
+	// native is a test seam for the desktop case; production leaves it nil.
+	native *nativeHooks
 }
 
 // VerifyOutcome reports the result of a verification run.
@@ -55,6 +59,10 @@ type VerifyOutcome struct {
 }
 
 const defaultStepTimeout = 20 * time.Minute
+
+// acceptanceStubEnv guards re-exec of the acceptance test binary: a child that
+// receives it exits immediately instead of entering the test main function.
+const acceptanceStubEnv = "ANVIL_ACCEPTANCE_STUB"
 
 // LookupPlan returns the runner for a registered case.
 func LookupPlan(caseID string) (CasePlan, bool) {
@@ -205,7 +213,7 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 	artifacts = append(artifacts, envArtifact)
 
 	if plan.NativeWindow {
-		native := runNativeWindowCase(runner, sha, opts.Target)
+		native := runNativeWindowCase(runner, sha, opts.Target, opts.native)
 		status = native.Status
 		commands = append(commands, native.Commands...)
 		artifacts = append(artifacts, native.Artifacts...)
@@ -302,6 +310,10 @@ func (r automationRunner) runSteps(steps []StepSpec) ([]Command, string, []Artif
 	return commands, StatusPass, artifacts, nil
 }
 
+func (r automationRunner) logPath(stepName string) string {
+	return filepath.Join(r.caseDir, "logs", stepName+".log")
+}
+
 func (r automationRunner) runStep(step StepSpec) (Command, Artifact, string) {
 	command := expandPlaceholders(step.Command, r.repo, r.evidence, r.caseDir)
 	args := make([]string, len(step.Args))
@@ -317,7 +329,7 @@ func (r automationRunner) runStep(step StepSpec) (Command, Artifact, string) {
 	}
 
 	logRel := filepath.ToSlash(filepath.Join("logs", step.Name+".log"))
-	logPath := filepath.Join(r.caseDir, filepath.FromSlash(logRel))
+	logPath := r.logPath(step.Name)
 	logFile, err := os.Create(logPath)
 	record := Command{Command: formatCommand(command, args), WorkDir: dir, ExitCode: -1}
 	if err != nil {
@@ -344,6 +356,9 @@ func (r automationRunner) runStep(step StepSpec) (Command, Artifact, string) {
 	proc := exec.CommandContext(ctx, prog, progArgs...)
 	proc.Dir = dir
 	proc.Env = r.env
+	if command == "self" {
+		proc.Env = setEnv(r.env, acceptanceStubEnv, "1")
+	}
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	runErr := proc.Run()
@@ -395,6 +410,9 @@ func (r automationRunner) resolveCommand(command string, args []string) (string,
 		exe, err := os.Executable()
 		if err != nil {
 			return "", nil, err
+		}
+		if strings.HasSuffix(strings.ToLower(exe), ".test.exe") {
+			return "", nil, errors.New("self command is unavailable inside the acceptance test binary")
 		}
 		return exe, args, nil
 	case "node":
@@ -543,32 +561,52 @@ func nodeExecutables() (node, npm string) {
 	return node, npm
 }
 
-func collectToolVersions(r automationRunner) map[string]string {
-	versions := map[string]string{
-		"os": runtime.GOOS + "/" + runtime.GOARCH,
-	}
-	for _, probe := range []struct {
-		key  string
-		cmd  string
-		args []string
-	}{
-		{"go", "go", []string{"version"}},
-		{"git", "git", []string{"--version"}},
-		{"gcc", "gcc", []string{"--version"}},
-	} {
-		if value := captureVersion(probe.cmd, probe.args, r.env, r.repo); value != "" {
-			versions[probe.key] = value
+// Standard tool probes do not change within one process. Cache them so a
+// multi-case test run does not spawn the same binaries repeatedly; production
+// verify executes one case per process.
+var (
+	standardVersionsOnce sync.Once
+	standardVersions     map[string]string
+)
+
+func standardToolVersions(env []string, dir string) map[string]string {
+	standardVersionsOnce.Do(func() {
+		versions := map[string]string{
+			"os": runtime.GOOS + "/" + runtime.GOARCH,
 		}
+		for _, probe := range []struct {
+			key  string
+			cmd  string
+			args []string
+		}{
+			{"go", "go", []string{"version"}},
+			{"git", "git", []string{"--version"}},
+			{"gcc", "gcc", []string{"--version"}},
+		} {
+			if value := captureVersion(probe.cmd, probe.args, env, dir); value != "" {
+				versions[probe.key] = value
+			}
+		}
+		if node, npm := nodeExecutables(); node != "" {
+			versions["node"] = strings.TrimSpace(captureVersion(node, []string{"-v"}, env, dir)) + " (" + node + ")"
+			versions["npm"] = strings.TrimSpace(captureVersion("cmd", []string{"/c", npm, "-v"}, env, dir)) + " (" + npm + ")"
+		}
+		if value := captureVersion("agent-desktop", []string{"version"}, env, dir); value != "" {
+			versions["agent-desktop"] = value
+		}
+		standardVersions = versions
+	})
+	out := make(map[string]string, len(standardVersions)+1)
+	for key, value := range standardVersions {
+		out[key] = value
 	}
-	if node, npm := nodeExecutables(); node != "" {
-		versions["node"] = strings.TrimSpace(captureVersion(node, []string{"-v"}, r.env, r.repo)) + " (" + node + ")"
-		versions["npm"] = strings.TrimSpace(captureVersion("cmd", []string{"/c", npm, "-v"}, r.env, r.repo)) + " (" + npm + ")"
-	}
+	return out
+}
+
+func collectToolVersions(r automationRunner) map[string]string {
+	versions := standardToolVersions(r.env, r.repo)
 	if value := moduleVersion(r, "github.com/wailsapp/wails/v3"); value != "" {
 		versions["wails"] = value
-	}
-	if value := captureVersion("agent-desktop", []string{"version"}, r.env, r.repo); value != "" {
-		versions["agent-desktop"] = value
 	}
 	return versions
 }
