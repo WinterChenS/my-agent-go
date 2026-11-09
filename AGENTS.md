@@ -3,7 +3,7 @@
 > **重建分支优先规则**（2026-11-09）。在 `codex/anvil-rebuild` 上，先读 [重建设计](docs/superpowers/specs/2026-11-09-anvil-prototype-rebuild-design.md)、[实施计划](docs/superpowers/plans/2026-11-09-anvil-prototype-rebuild-plan.md) 和 [ADR 0006](docs/adr/0006-prototype-rebuild-scope.md)。下文 Anvil V1 任务现状、Pi 单运行时范围、命令与门禁表是旧实现历史。新分支按 G0 界面、G1 多 Agent 发现和同步、G2 会话顺序开发，使用新的任务 ID 和证据。Windows 10+ 优先，先验当前 Windows 10 22H2，再按 macOS/Linux 真机结果报告。技术栈、隔离、任务取证、提交及现场执行规则继续适用。
 
 
-> **重建实施与验收**。实施任务必须由 `deepseek-2/deepseek-v4.1-flash` subagent 执行，桌面交互用 `agent-desktop` 验收，Pi 真实用例使用本机已安装的 Pi 和现有登录。详见[实施与真实验收规范](docs/superpowers/specs/2026-11-09-anvil-rebuild-execution-standard.md)，其中 Pi 登录约定优先于下文旧规则。
+> **重建实施与验收**。实施任务必须由 `deepseek-2/deepseek-v4.1-flash` subagent 执行，桌面交互用 `agent-desktop` 验收，Pi 真实用例使用本机已安装的 Pi 和现有登录。详见[实施与真实验收规范](docs/superpowers/specs/2026-11-09-anvil-rebuild-execution-standard.md)，其中 Pi 登录约定优先于下文旧规则。Windows 所有写入必须落在 D 盘，唯一例外是本机 Pi Agent 自身产生的文件。重建工作树使用 `D:\project\anvil-wt\anvil-rebuild`。
 
 本文件是执行 Agent 的现场契约。动手前必读，与本文件冲突的临时便利一律让步。
 
