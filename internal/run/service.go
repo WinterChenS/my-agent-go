@@ -282,11 +282,20 @@ func New(opts Options) *Service {
 	if opts.MaxRunDuration <= 0 {
 		opts.MaxRunDuration = defaultMaxRunDuration
 	}
-	return &Service{
+	s := &Service{
 		opts:          opts,
 		runs:          map[contracts.RunID]*runState{},
 		cleanupFailed: map[contracts.SessionID]string{},
 	}
+	// 自动放行的留痕在这里接上：每次由档位放行的调用都要发一条 policy.auto_allowed，
+	// 与其它 run 事件走**同一套订阅者**（前端 emitter、诊断 recorder 都是从这里取的）。
+	//
+	// 向外包装而不是让 policy 直接依赖 run：依赖方向仍是 run → policy，
+	// 策略包只负责“结论定了，告诉你一声”，不认识事件、也不认识 sink。
+	if opts.Policy != nil {
+		opts.Policy.SetAutoAllowObserver(s.noteAutoAllowed)
+	}
+	return s
 }
 
 // StartRunRequest 描述一次提交。
@@ -318,6 +327,16 @@ type StartRunRequest struct {
 	// 只带元数据、不带路径与字节，并且会在 admission 时随 workspace/policy 一起
 	// 冻结进 ExecutionBinding：run 期间界面换不了它们。
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
+
+	// PermissionMode 是这次提交要求的审批档位：ask（默认）/ full_access。
+	//
+	// 由提交方在**受理时**给出，而不是服务在每次判定时现读设置：档位属于
+	// "这次 run 以什么规则跑"，必须跟策略快照一样在 admission 冻结。空值/未知值
+	// 一律钉成 ask（宁可变严：写错的档位不能变成永久免审）。
+	//
+	// 无人值守的提交方（定时任务/后台续跑）必须显式传 ask：它们没有人在旁边答复，
+	// 不能因为用户白天开过一次完全访问就永久免审。
+	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
 // Subscribe 注册事件订阅者，返回幂等的退订函数。回调在独立 goroutine 中执行，
@@ -508,6 +527,14 @@ func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (Execu
 		return ExecutionBinding{}, err
 	}
 
+	// 审批档位：请求给什么就用什么，空值/未知值钉成 ask。
+	// 未知值不是错误而是 ask：一条写错的档位不应该让提交直接失败（那会让人以为
+	// "功能没做"），但也绝不能让写错的值变成更宽的规则。
+	mode, ok := config.NormalizePermissionMode(req.PermissionMode)
+	if !ok {
+		mode = config.PermissionModeAsk
+	}
+
 	return ExecutionBinding{
 		ExecutionContext: contracts.ExecutionContext{
 			WorkspaceID:       workspaceID,
@@ -521,6 +548,7 @@ func (s *Service) resolveBinding(req StartRunRequest, id contracts.RunID) (Execu
 		ProfileID:      req.ProfileID,
 		PermissionRef:  ref,
 		PolicySnapshot: snapshot,
+		PermissionMode: mode,
 		// 附件引用与工作区/策略同一条规矩：admission 时冻结，run 期间不得替换。
 		Attachments: append([]AttachmentRef{}, req.Attachments...),
 	}, nil
@@ -602,6 +630,20 @@ func (s *Service) launch(ctx context.Context, rs *runState, text string) error {
 	binding := rs.binding
 	runCtx, cancel := context.WithCancel(context.Background())
 	rs.cancel = cancel
+
+	// 审批档位装满策略服务：判定发生在服务端，策略端点只报“这次是谁、哪条 run”。
+	//
+	// 档位本身是 admission 时冻结的 binding.PermissionMode；这里只是把同一份
+	// 事实交给执行侧，供本 run 的授权请求使用。端点还没起来就装好，所以本 run
+	// 的每一条调用都适用同一档位——运行中改设置不影响已经在跑的 run。
+	// 释放在 release()：run 终止后不再有权威的授权请求，不留无限增长的登记。
+	if s.opts.Policy != nil {
+		if err := s.opts.Policy.PinRunPermissionMode(rs.id, binding.PermissionMode); err != nil {
+			cancel()
+			s.finishFailed(rs, err)
+			return err
+		}
+	}
 
 	// 预算闸门必须在建端点之前就位：端点拿到的 Gate 就是它。
 	gate := s.newBudgetGate(rs)
@@ -1328,6 +1370,11 @@ func (s *Service) release(rs *runState) {
 	if !rs.released.CompareAndSwap(false, true) {
 		return
 	}
+	// 终止的 run 不再有权威的授权请求（策略端点随 run 关闭）：把钉住的档位
+	// 从策略服务里摘掉，避免登记表随 run 数量无界增长。
+	if s.opts.Policy != nil {
+		s.opts.Policy.ReleaseRunPermissionMode(rs.id)
+	}
 	// C06f：run 终止时把未回答的澄清收口为 cancelled 并清理 pending。
 	// 必须在关 worker 之前发：发不出去的答复只能当诊断，但"永远挂着的请求"不是选项。
 	s.cancelPendingClarifications(rs, "run_terminated")
@@ -1502,6 +1549,20 @@ func (s *Service) Get(id contracts.RunID) (contracts.RunSnapshot, error) {
 		return contracts.RunSnapshot{}, contracts.NewAppError(contracts.CodeNotFound, "run 不存在", false)
 	}
 	return rs.snapshot(), nil
+}
+
+// Binding 返回一条 run 在 admission 时冻结的执行身份与策略（含审批档位）。
+//
+// 只读快照：回放/诊断/测试靠它回答“这条 run 当时按哪个档位、哪份权限跑”，
+// 而不是去读此刻的设置（设置可能已经改过，而那条 run 并没有跟着变）。
+func (s *Service) Binding(id contracts.RunID) (ExecutionBinding, bool) {
+	s.mu.Lock()
+	rs, ok := s.runs[id]
+	s.mu.Unlock()
+	if !ok {
+		return ExecutionBinding{}, false
+	}
+	return rs.binding, true
 }
 
 // Replay 返回 afterSeq 之后的事件，用于重连补发（不重复、不丢）。

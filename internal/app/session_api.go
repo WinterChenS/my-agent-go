@@ -486,6 +486,8 @@ func (d *Desktop) StartSessionRun(sessionID, message string, attachmentIDs []str
 		WorkspaceID:  workspaceID,
 		WorkspaceDir: workspaceDir,
 		Attachments:  refs,
+		// 与 Desktop.Start 同一口径：档位在受理时读一次，进 ExecutionBinding 快照。
+		PermissionMode: d.permissionModeForAttendedRun(),
 	})
 	if err != nil {
 		d.setLastErr(err.Error())

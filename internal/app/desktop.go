@@ -89,6 +89,16 @@ type Settings struct {
 	Workspace string `json:"workspace"`
 	// ShellAllowed 控制是否授予 shell 权限。
 	ShellAllowed bool `json:"shellAllowed"`
+	// PermissionMode 是审批档位：ask（默认，逐次人工确认）/ full_access
+	// （同一 run 内不再逐次弹审批，但仍逐条记 policy.auto_allowed）。
+	//
+	// 它只影响“要不要找人批准”，**不**影响权限范围：文件系统仍限制在工作区、
+	// 未授予 shell 仍未授予。要放宽范围必须改权限档（见 effectivePermissions）。
+	//
+	// 持久化走 settings.json 与既有 CAS（SaveSettings* / SetPermissionMode），
+	// 生效点在 run 受理：本字段在 Start 时被读一次，进 ExecutionBinding 快照，
+	// 所以运行中改它只影响下一条 run（见规格 2026-11-08 第 2 条）。
+	PermissionMode string `json:"permissionMode"`
 }
 
 // Status 是给 UI 的环境概览。
@@ -530,6 +540,15 @@ func (d *Desktop) saveSettings(s Settings, expected *uint64) (uint64, error) {
 		return 0, contracts.NewAppError(contracts.CodeInvalidInput, "工作目录不能为空", false).
 			WithOperation("settings.save")
 	}
+	// 权限档位也只认两个稳定值：写错的档位不能落到磁盘上（它会在下次启动时
+	// 变成一个说不清的默认）。空值 = 没说话 = ask。
+	mode, ok := config.NormalizePermissionMode(s.PermissionMode)
+	if !ok {
+		return 0, contracts.NewAppError(contracts.CodeInvalidInput,
+			"未知的权限档位: "+s.PermissionMode+"（只能是 ask 或 full_access）", false).
+			WithOperation("settings.save")
+	}
+	s.PermissionMode = mode
 
 	d.settingsMu.Lock()
 	defer d.settingsMu.Unlock()
@@ -1457,12 +1476,33 @@ func (d *Desktop) Start(message string) (contracts.RunSnapshot, error) {
 		SessionID:    sessionID,
 		WorkspaceID:  workspaceID,
 		WorkspaceDir: workspaceDir,
+		// 审批档位在受理时读一次：这次 run 全程适用同一档位，
+		// 运行中切开关只影响下一条 run。
+		PermissionMode: d.permissionModeForAttendedRun(),
 	})
 	if err != nil {
 		d.setLastErr(err.Error())
 		return snap, err
 	}
 	return snap, nil
+}
+
+// permissionModeForAttendedRun 返回交互 run（有人在旁边）的审批档位。
+//
+// 每次提交都现读设置，而不是在运行时里缓存：档位属于“这次 run 以什么规则跑”，
+// 缓存会让“关了开关但下一条 run 仍然免审”成为可能。
+//
+// 无人值守的提交方**不得**用它：定时任务/后台续跑一律显式传 ask
+// （见 internal/scheduler 的派发）。
+func (d *Desktop) permissionModeForAttendedRun() string {
+	d.mu.Lock()
+	mode := d.settings.PermissionMode
+	d.mu.Unlock()
+	if normalized, ok := config.NormalizePermissionMode(mode); ok {
+		return normalized
+	}
+	// 内存里出现未知档位（手改文件/外部入口）：按默认逐次审批跑，绝不自动放行。
+	return config.PermissionModeAsk
 }
 
 // assertWorkspaceReady 把设置里的工作区路径登记成工作区并检查信任，返回工作区 ID。
