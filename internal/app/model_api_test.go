@@ -144,13 +144,19 @@ func mustRead(t *testing.T, path string) string {
 	return string(b)
 }
 
-// TestSaveModelRejectsSecretWithoutCredentialRef：只填密钥不给引用时拒绝，
-// 而不是"帮你随便生成一个"——引用是用户后续换凭证的把手。
-func TestSaveModelRejectsSecretWithoutCredentialRef(t *testing.T) {
+// TestSaveModelDerivesCredentialRef：只填密钥不给引用时**派生**一个稳定的引用名。
+//
+// 行为改过（2026-11-08）：原来拒绝并回 UNSUPPORTED「当前版本不支持这个操作」，
+// 而界面根本不给填引用名的地方——等于自定义模型永远存不进 key。引用名的用途是
+// "以后换凭证的把手"，按模型 ID 派生同样满足，且重复保存命中同一条。
+func TestSaveModelDerivesCredentialRef(t *testing.T) {
 	d, _ := newTestDesktop(t)
 	res := d.SaveModel(0, demoModel(), "sk-x")
-	if res.Error == nil || res.Error.Code != contracts.CodeUnsupported {
-		t.Fatalf("期望 UNSUPPORTED，实际 %+v", res.Error)
+	if res.Error != nil {
+		t.Fatalf("期望成功并派生引用名，实际 %+v", res.Error)
+	}
+	if res.Item.CredentialRef == "" {
+		t.Fatal("保存后 credentialRef 仍为空，密钥会无处可寻")
 	}
 }
 
@@ -520,5 +526,38 @@ func TestDeleteActiveModelIsRefused(t *testing.T) {
 	}
 	if del := d.DeleteModel(saved.Revision, saved.Item.ID); del.Error != nil {
 		t.Fatalf("切换后应能删除: %s: %s", del.Error.Code, del.Error.Message)
+	}
+}
+
+// TestSetActiveModelRepairsLegacyRef 守用户实测的那条路径：
+//
+// 按 Pi 的习惯只填了一个 `deepseek-2/deepseek-v4.1-flash`，保存后点"设为当前模型"
+// 得到 UNSUPPORTED，界面也没说该填什么。现在必须就地补齐 providerId/modelId 并写回，
+// 而不是把用户挡在门口。
+func TestSetActiveModelRepairsLegacyRef(t *testing.T) {
+	d, _ := newTestDesktop(t)
+	def := demoModel()
+	// 界面把"模型名"整串塞进 ModelID、provider 留空，就是用户遇到的形状。
+	def.ProviderID = ""
+	def.ModelID = "deepseek-2/deepseek-v4.1-flash"
+	saved := d.SaveModel(0, def, "")
+	if saved.Error != nil {
+		t.Fatalf("保存旧格式模型失败: %s", saved.Error.Message)
+	}
+
+	res := d.SetActiveModel(def.ID)
+	if res.Error != nil {
+		t.Fatalf("设为当前模型失败: %s（期望就地补齐旧格式）", res.Error.Message)
+	}
+	repaired, err := d.resourceServices()
+	if err != nil {
+		t.Fatalf("resourceServices: %v", err)
+	}
+	got, err := repaired.Get(context.Background(), def.ID)
+	if err != nil {
+		t.Fatalf("回读: %v", err)
+	}
+	if got.ProviderID != "deepseek-2" || got.ModelID != "deepseek-2/deepseek-v4.1-flash" {
+		t.Fatalf("补齐结果 = %q/%q，期望 provider=deepseek-2、模型名保持原样", got.ProviderID, got.ModelID)
 	}
 }

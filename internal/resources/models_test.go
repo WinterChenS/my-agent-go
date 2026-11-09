@@ -81,7 +81,7 @@ func TestModelSchemaValidation(t *testing.T) {
 		{"模型ID大写", func(m *ModelDefinition) { m.ID = "M-Demo" }, contracts.CodeUnsupported},
 		{"模型ID带斜杠", func(m *ModelDefinition) { m.ID = "a/b" }, contracts.CodeUnsupported},
 		{"模型ID为空", func(m *ModelDefinition) { m.ID = "" }, contracts.CodeUnsupported},
-		{"provider名为空", func(m *ModelDefinition) { m.ProviderID = "" }, contracts.CodeUnsupported},
+		// provider 名为空不再报错：按模型名第一个斜杠推导（见 normalizeDefinitionWithProviders）。
 		{"模型名为空", func(m *ModelDefinition) { m.ModelID = " " }, contracts.CodeUnsupported},
 		{"模型名带换行", func(m *ModelDefinition) { m.ModelID = "a\nb" }, contracts.CodeUnsupported},
 		{"API不在白名单", func(m *ModelDefinition) { m.API = "openai-chat" }, contracts.CodeUnsupported},
@@ -571,4 +571,41 @@ func scanForSecret(t *testing.T, root, secret string) []string {
 		return nil
 	})
 	return hits
+}
+
+// TestCustomModelFillOnlyNameBaseAndKey 守用户实测的那条路径（2026-11-08）：
+//
+// 只填「模型名 deepseek-2/deepseek-v4.1-flash、baseUrl http://192.168.3.10:3425/v1、key」，
+// 以前会分别撞上「provider 名非法: （空）」和「api 为空」两句 UNSUPPORTED。
+// 现在必须能存下来：provider 从模型名前缀推导、api 在只给 baseUrl 时按 openai-completions。
+func TestCustomModelFillOnlyNameBaseAndKey(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	def := validModel()
+	def.ProviderID = ""
+	def.API = ""
+	def.ModelID = "deepseek-2/deepseek-v4.1-flash"
+	def.BaseURL = "http://192.168.3.10:3425/v1"
+
+	doc, err := svc.Save(context.Background(), 0, def, "")
+	if err != nil {
+		t.Fatalf("保存自定义模型失败: %v", err)
+	}
+	if doc.Revision == 0 {
+		t.Fatal("保存后 revision 仍为 0")
+	}
+	got, err := svc.Get(context.Background(), def.ID)
+	if err != nil {
+		t.Fatalf("回读: %v", err)
+	}
+	if got.ProviderID != "deepseek-2" {
+		t.Fatalf("providerId = %q，期望 deepseek-2（从模型名前缀推导）", got.ProviderID)
+	}
+	// 模型名必须原样保留：它是真正发给网关的名字，把 `deepseek-2/` 去掉会请求到
+	// 一个不存在的模型（本机网关就只认带前缀的写法）。
+	if got.ModelID != "deepseek-2/deepseek-v4.1-flash" {
+		t.Fatalf("modelId = %q，期望原样的 deepseek-2/deepseek-v4.1-flash", got.ModelID)
+	}
+	if got.API != "openai-completions" {
+		t.Fatalf("api = %q，期望 openai-completions（只给 baseUrl 时的默认）", got.API)
+	}
 }

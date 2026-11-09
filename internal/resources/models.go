@@ -265,8 +265,18 @@ func (s *Service) Save(ctx context.Context, expectedRevision uint64, def ModelDe
 				"没有可用的 OS 凭证库，拒绝保存密钥（不回退明文）", false)
 		}
 		if normalized.CredentialRef == "" {
-			return contracts.ConfigDocument{}, contracts.NewAppError(
-				contracts.CodeUnsupported, "输入了密钥但没有凭证引用名（credentialRef）", false)
+			// 没有引用名就自己派生一个，而不是把用户挡回去。
+			//
+			// 实测（2026-11-08）：在设置里新建自定义模型、把 key 填进表单，得到的是
+			// UNSUPPORTED「当前版本不支持这个操作」——因为界面没有生成 credentialRef，
+			// 而这里要求"要存密钥必须先给引用名"。引用名的用途是**以后换凭证的把手**，
+			// 派生一个稳定的（模型 ID 决定）同样满足这个用途，且重复保存不会产生多条。
+			ref, refErr := credentialRefForModel(normalized.ID)
+			if refErr != nil {
+				return contracts.ConfigDocument{}, refErr
+			}
+			normalized.CredentialRef = ref
+			def.CredentialRef = ref
 		}
 		if err := s.creds.Put(ctx, normalized.CredentialRef, []byte(secret)); err != nil {
 			return contracts.ConfigDocument{}, err
@@ -812,4 +822,27 @@ func upsertModel(old json.RawMessage, def ModelDefinition) (json.RawMessage, err
 // withModels 把 models 数组写回 body，保留其它顶层字段。
 func withModels(old json.RawMessage, items []json.RawMessage) (json.RawMessage, error) {
 	return withField(old, "models", items)
+}
+
+// credentialRefForModel 由模型 ID 派生一个稳定的凭证引用名。
+//
+// 为什么不是随机 UUID：同一个模型重复保存（改 baseUrl、换 key）必须命中同一条
+// 凭证，否则每点一次保存就多一条永远读不到的密钥。为什么带前缀：凭证库里还要放
+// 连接器/供应商的条目，前缀让"这条属于谁"一眼可见。
+func credentialRefForModel(id string) (string, error) {
+	clean := strings.ToLower(strings.TrimSpace(id))
+	clean = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, clean)
+	clean = strings.Trim(clean, "-.")
+	if clean == "" {
+		return "", contracts.NewAppError(contracts.CodeConfigMissing,
+			"模型 ID 为空，无法生成凭证引用名", false)
+	}
+	return "model:" + clean, nil
 }

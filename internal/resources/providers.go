@@ -540,11 +540,32 @@ func resolveProviders(models []ModelDefinition, records []providerRecord) []Mode
 // 先用供应商补齐留空的 baseUrl/api 再校验，但落盘时仍保留"留空"这个事实。
 func normalizeDefinitionWithProviders(def ModelDefinition, records []providerRecord) (ModelDefinition, error) {
 	providerID := strings.TrimSpace(def.ProviderID)
+	// 用户最常见的填法（2026-11-08 实测）：模型名写成 `provider/模型`，供应商留空。
+	// 以前这里会一路走到"provider 名非法: （空）"，用户只看到 UNSUPPORTED。
+	// 现在按第一个斜杠切出供应商名；没有斜杠就用模型 ID 当供应商，保证键名合法。
+	if providerID == "" {
+		// 只切出**供应商名**，模型名保持原样：ModelID 是真正发给 API 的名字，
+		// 允许含斜杠（models.go:38 的约定）。把 `deepseek-2/x` 改写成 `x` 会让网关
+		// 收到一个不存在的模型名——那是比"存不进去"更糟的错。
+		modelID := strings.TrimSpace(def.ModelID)
+		if i := strings.Index(modelID, "/"); i > 0 {
+			providerID = modelID[:i]
+		} else {
+			providerID = "custom"
+		}
+		def.ProviderID = providerID
+	}
 	rec, hasProvider := providerByID(records, providerID)
 	rawBase := strings.TrimSpace(def.BaseURL)
 	rawAPI := strings.TrimSpace(def.API)
+	// 只填了 baseUrl（绝大多数自建网关都是 OpenAI 兼容）：协议按 openai-completions 处理，
+	// 而不是回一句"api 为空"把人挡住。显式声明了别的协议仍然以声明为准。
+	if rawAPI == "" && rawBase != "" {
+		rawAPI = "openai-completions"
+	}
 
 	resolved := def
+	resolved.API = rawAPI
 	if rawBase == "" {
 		if !hasProvider || strings.TrimSpace(rec.BaseURL) == "" {
 			return ModelDefinition{}, contracts.NewAppError(contracts.CodeUnsupported,

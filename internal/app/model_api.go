@@ -249,12 +249,50 @@ func (d *Desktop) SetActiveModel(ref string) ModelAction {
 				"模型 "+out.Ref+" 已禁用，不能设为当前模型", false))
 			return out
 		}
-		// 旧格式条目编译进 models.json 只会得到一个空 provider 键。
-		// 界面已经把它灰掉了，但绑定层也得拦——UI 可以被绕过。
+		// 旧格式条目（只有 "provider/model" 一个字符串）编译进 models.json 会得到空
+		// provider 键，直接拒是对的——但"拒绝"必须给出可行的下一步，而不是让用户去猜。
+		//
+		// 实测（2026-11-08）：用户按 Pi 的习惯只填了 `deepseek-2/deepseek-v4.1-flash`，
+		// 保存后点"设为当前模型"得到 UNSUPPORTED，界面也没说该填什么。
+		// 这里就地补齐并写回：以最后一个 "/" 切分（模型名本身允许带斜杠），
+		// provider 名沿用该模型已有的 Provider（若为空则用前缀）。
 		if strings.TrimSpace(def.ProviderID) == "" || strings.TrimSpace(def.ModelID) == "" {
-			out.Error = toCallError(contracts.NewAppError(contracts.CodeUnsupported,
-				"模型 "+out.Ref+" 是旧格式（缺 provider 名或模型名），请先编辑补齐再设为当前模型", false))
-			return out
+			providerID := strings.TrimSpace(def.ProviderID)
+			modelID := strings.TrimSpace(def.ModelID)
+			// 用户最常见的填法：只给了模型名字符串 `provider/模型`。先在模型名里切
+			// （模型名本身允许带斜杠，所以按**第一个**斜杠切 provider），再退回 ID。
+			// 只补供应商名；模型名原样保留（允许含斜杠，那才是发给 API 的名字）。
+			if providerID == "" {
+				base := modelID
+				if base == "" {
+					base = out.Ref
+				}
+				if i := strings.Index(base, "/"); i > 0 {
+					providerID = base[:i]
+				} else {
+					providerID = "custom"
+				}
+			}
+			if modelID == "" {
+				modelID = out.Ref
+			}
+			if providerID == "" || modelID == "" {
+				out.Error = toCallError(contracts.NewAppError(contracts.CodeUnsupported,
+					"模型 "+out.Ref+" 缺少 provider 名或模型名：请按 <provider>/<模型名> 填写，例如 gateway/deepseek-v4.1-flash", false))
+				return out
+			}
+			def.ProviderID = providerID
+			def.ModelID = modelID
+			current, listErr := svc.List(ctx)
+			if listErr != nil {
+				out.Error = toCallError(listErr)
+				return out
+			}
+			if _, err := svc.Save(ctx, current.Revision, def, ""); err != nil {
+				out.Error = toCallError(contracts.NewAppError(contracts.CodeConfigConflict,
+					"补齐旧格式模型时保存失败（配置已被改动）："+err.Error(), true))
+				return out
+			}
 		}
 	}
 
