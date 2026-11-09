@@ -512,7 +512,13 @@
       "pinnedBadge": "Pinned"
     },
     "replay": "Resync events",
-    "otherSessionRun": "Another session is running: its messages and approvals belong to that session and are not shown here."
+    "otherSessionRun": "Another session is running: its messages and approvals belong to that session and are not shown here.",
+    "transcript": "Transcript",
+    "message": {
+      "role": "message",
+      "byUser": "You said",
+      "byAssistant": "Assistant reply"
+    }
   },
   "browser": {
     "address": {

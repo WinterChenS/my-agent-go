@@ -27,6 +27,7 @@ import {
   type UiState,
 } from "../../runState";
 import type { ApprovalChoice } from "../../types";
+import type { UiMessage } from "../../runState";
 import { ApprovalCard } from "./ApprovalCard";
 import { BrowserApprovalCard } from "./BrowserApprovalCard";
 import type { BrowserApprovalHandle, BrowserApprovalNote } from "./browserApproval";
@@ -195,6 +196,18 @@ export function SettledBanner({ settled }: { settled: NonNullable<UiState["settl
   );
 }
 
+// messageLabel 为每条消息造一个可访问名。
+//
+// 只写"用户/助手"不够：读屏时连续几条同名节点分不清是哪一条；带上正文摘要
+// （前 60 字符）既能定位，也不会把整段长文塞进 aria-label。
+function messageLabel(message: UiMessage, isUser: boolean): string {
+  const prefix = t(isUser ? "chat.message.byUser" : "chat.message.byAssistant");
+  const text = (message.text ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return prefix;
+  const brief = text.length > 60 ? text.slice(0, 60) + "…" : text;
+  return prefix + "：" + brief;
+}
+
 export function MessageList({
   ui,
   onDecide,
@@ -228,12 +241,18 @@ export function MessageList({
   }
 
   return (
-    <div className="achat-msg-list" data-message-list="">
+    <div className="achat-msg-list" data-message-list="" role="log" aria-label={t("chat.transcript")} aria-live="polite">
       {ui.messages.map((message) => {
         const isUser = message.role === "user";
         return (
           <div
             key={message.id}
+            // 消息必须有可访问结构：只靠视觉样式时，读屏软件和 UI 自动化都读不到
+            // 对话内容（实测：UIA 里主区只有输入框/发送，整段转录不可寻址）。
+            // role=article + 可访问名（谁说的 + 摘要）把每条消息变成一个可定位的单元。
+            role="article"
+            aria-label={messageLabel(message, isUser)}
+            aria-roledescription={t("chat.message.role")}
             data-message-role={message.role}
             data-role={message.role}
             data-run-id={message.runId ?? undefined}

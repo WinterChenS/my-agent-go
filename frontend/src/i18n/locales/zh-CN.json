@@ -512,7 +512,13 @@
       "pinnedBadge": "已置顶"
     },
     "replay": "重新同步事件",
-    "otherSessionRun": "另一个会话正在运行：这里的消息与审批属于那个会话，不会显示在本页。"
+    "otherSessionRun": "另一个会话正在运行：这里的消息与审批属于那个会话，不会显示在本页。",
+    "transcript": "会话记录",
+    "message": {
+      "role": "消息",
+      "byUser": "你说的话",
+      "byAssistant": "助手回复"
+    }
   },
   "browser": {
     "address": {
