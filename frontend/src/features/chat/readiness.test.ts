@@ -146,6 +146,15 @@ describe("发送前提（readiness）", () => {
     ]);
     // 当前值来自后端事实：未信任的工作区要说清是哪个目录。
     expect(report.blockers[1].params.path).toBe("D:/work/demo");
+    // 工作区未信任可以就地解决：动作带工作区 id 与绝对路径（不是只有一句“去设置”）。
+    expect(report.blockers[1].action).toEqual({
+      kind: "trust_workspace",
+      workspaceId: WORKSPACE.id,
+      path: WORKSPACE.canonicalPath,
+    });
+    // 其它阻塞项没有就地动作：不发明后端没有的绑定。
+    expect(report.blockers[0].action).toBeUndefined();
+    expect(report.blockers[2].action).toBeUndefined();
   });
 
   it("Pi 低于最低支持版本（upgrade_available）：原因里带版本与最低版本", () => {

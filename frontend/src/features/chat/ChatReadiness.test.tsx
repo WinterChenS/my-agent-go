@@ -421,7 +421,11 @@ describe("对话页发送前提", () => {
     expect(item.querySelector('[data-readiness-jump="PI_TOO_OLD"]')).not.toBeNull();
   });
 
-  it("工作区未信任：原因带目录与信任动作", async () => {
+  // WTRUST：改动前这条用例断言的是“跳去设置 · 权限”是唯一出口。
+  // 那是把界面自己的阻塞丢给用户去翻译（实测：人被赶去另一个页面）。
+  // 现在主路径是就地授权，设置链接降为次级入口；断言改成两者都在、
+  // 且主按钮的可访问名里带着被信任的绝对路径。
+  it("工作区未信任：就给地面包屑授权按钮，可访问名带绝对路径，设置是次级入口", async () => {
     const harness = readinessBackend(READY_DISCOVERY);
     renderPage(
       shellValue({
@@ -437,8 +441,85 @@ describe("对话页发送前提", () => {
     );
     const item = document.querySelector('[data-readiness-blocker="WORKSPACE_UNTRUSTED"]') as HTMLElement;
     expect(item.textContent).toContain("D:/work/demo");
+
+    // 主按钮：一次点击就能授权，名字里写明信任的是哪个绝对路径。
+    const trust = item.querySelector(
+      '[data-readiness-trust="ws-1"]'
+    ) as HTMLButtonElement;
+    expect(trust).not.toBeNull();
+    expect(trust.getAttribute("aria-label")).toBe(
+      t("chat.readiness.trustWorkspaceAria", { path: WORKSPACE.canonicalPath })
+    );
+    expect(trust.getAttribute("aria-label")).toContain(WORKSPACE.canonicalPath);
+    expect(trust.textContent).toContain(t("chat.readiness.trustWorkspace"));
+
+    // 风险语义写清“执行/写入”，不只说“信任”。
+    expect(item.textContent).toContain("执行命令");
+
+    // 次级入口还在（想看完整权限对照的人仍然能过去），但不再是唯一出路。
     const jump = item.querySelector('[data-readiness-jump="WORKSPACE_UNTRUSTED"]') as HTMLElement;
+    expect(jump).not.toBeNull();
     expect(jump.textContent).toContain(t("chat.readiness.section.permissions"));
+  });
+
+  it("未信任：发送被拦；点一次「信任此工作区」只调一次后端，就绪自动重算、输入区随即可用", async () => {
+    const user = userEvent.setup();
+    const harness = readinessBackend(READY_DISCOVERY);
+    const untrusted: Workspace = { ...WORKSPACE, trusted: false };
+    const trusted: Workspace = { ...WORKSPACE, trusted: true };
+    const trustWorkspace = vi.fn(async (_id: string, _trusted: boolean) => undefined);
+    const onSendToSession = vi.fn();
+
+    const page = (workspace: Workspace) => (
+      <ShellProvider
+        value={shellValue({
+          currentWorkspace: workspace,
+          workspaces: [workspace],
+          trustWorkspace,
+          input: "hi",
+          onSendToSession,
+        })}
+      >
+        <ChatPage
+          onNavigate={() => undefined}
+          route={routeFor("sess-1")}
+          browserApprovals={NO_BROWSER_APPROVALS}
+          browserApprovalPollMs={0}
+          readiness={harness.readiness}
+        />
+      </ShellProvider>
+    );
+
+    const view = render(page(untrusted));
+    await waitFor(() =>
+      expect(document.querySelector('[data-readiness-blocker="WORKSPACE_UNTRUSTED"]')).not.toBeNull()
+    );
+
+    // 未信任只拦“执行”：输入区禁用，发送不会打到后端。
+    const before = screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement;
+    expect(before.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: t("chat.composer.send") }));
+    expect(onSendToSession).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: t("chat.readiness.trustWorkspaceAria", { path: WORKSPACE.canonicalPath }),
+      })
+    );
+    expect(trustWorkspace).toHaveBeenCalledTimes(1);
+    expect(trustWorkspace).toHaveBeenCalledWith(WORKSPACE.id, true);
+
+    // 后端事实翻面（夹层替身：壳层重读后 currentWorkspace 变了）→ 就绪自动重算。
+    // 不刷新页面、不重挂载：同一个组件树只换壳层事实。
+    view.rerender(page(trusted));
+    await waitFor(() => expect(document.querySelector("[data-readiness-panel]")).toBeNull());
+    const after = screen.getByLabelText(t("chat.composer.placeholder")) as HTMLTextAreaElement;
+    expect(after.disabled).toBe(false);
+    expect(document.querySelector("[data-composer-blocked]")).toBeNull();
+
+    // 真的能发了：不需要再去别处。
+    await user.click(screen.getByRole("button", { name: t("chat.composer.send") }));
+    await waitFor(() => expect(onSendToSession).toHaveBeenCalledWith("sess-1", "hi", []));
   });
 
   it("全部满足：面板消失、输入区可用，发送直接用当前结论（不再逐条重探测）", async () => {

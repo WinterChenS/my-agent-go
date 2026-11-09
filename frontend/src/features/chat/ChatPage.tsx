@@ -271,6 +271,21 @@ export function ChatPage({
   const readinessRef = useRef<ReadinessReport | null>(null);
   readinessRef.current = readinessReport;
 
+  /**
+   * 就地面包屑式授权（WTRUST）：把某个工作区标成已信任。
+   *
+   * 只转发一个后端动作，不改本地结论：信任成功后壳层重读工作区事实，
+   * currentWorkspace 一变，上面那个 effect 就自动重算就绪——输入区随之可用，
+   * 不需要刷新页面。失败时壳层把结构化错误放进 actionError，输入区的
+   * sendError 会照实显示，不至于“点了没反应”。
+   */
+  const trustWorkspaceInline = useCallback(
+    async (workspaceId: string) => {
+      await shell.trustWorkspace(workspaceId, true);
+    },
+    [shell]
+  );
+
   useEffect(() => {
     // 首次亮指示；之后状态变化引起的重查静默进行，旧结论继续显示。
     void runReadinessCheck(readinessRef.current !== null);
@@ -976,6 +991,7 @@ export function ChatPage({
                     checking={checkingReadiness}
                     onNavigate={onNavigate}
                     onRecheck={() => void runReadinessCheck()}
+                    onTrustWorkspace={trustWorkspaceInline}
                   />
                 ) : null}
               </div>

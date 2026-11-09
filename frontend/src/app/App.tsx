@@ -24,6 +24,7 @@ import { Layout } from "./Layout";
 import { RouterProvider, useRouter } from "./Router";
 import { ShellProvider, type ShellValue } from "./shell";
 import { toCallError, useBackend } from "./useBackend";
+import { recordWorkspaceTrust } from "./trustLog";
 import { DetailPanel } from "./DetailPanel";
 
 /** run 阶段的状态点颜色；文案来自 catalog 的 status.*。 */
@@ -257,6 +258,9 @@ function Shell() {
         return;
       }
       setActionError(null);
+      // 记一笔界面观察到的信任时刻（WTRUST）：后端没有 trustedAt 字段，
+      // 设置页的“信任时间”只能来自这里，并如实标注口径。
+      recordWorkspaceTrust(id, trusted);
       await backend.refreshWorkspaces();
     },
     [backend]

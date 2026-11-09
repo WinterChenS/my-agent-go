@@ -465,7 +465,13 @@ describe("设置页 · 权限", () => {
     const row = await within(section).findByTestId("workspace-ws-1");
     expect(row).toHaveTextContent(t("settings.permissions.trusted"));
 
-    await userEvent.click(within(row).getByRole("button", { name: t("settings.permissions.untrust") }));
+    // WTRUST：动作名里带路径（多行同名字按钮时能分清在拉哪个目录的信任），
+    // 按钮文本同时改成“撤销”（与撤销语义一致）。
+    await userEvent.click(
+      within(row).getByRole("button", {
+        name: t("settings.permissions.untrustAria", { path: "D:/work" }),
+      })
+    );
     expect(shellState.value.trustWorkspace).toHaveBeenCalledWith("ws-1", false);
   });
 });

@@ -372,6 +372,10 @@
       "jump": "去{section}",
       "recheck": "重新检查",
       "checking": "正在检查…",
+      "trustWorkspace": "信任此工作区",
+      "trustWorkspaceAria": "信任此工作区：{path}（允许在该目录执行命令与写入文件）",
+      "trusting": "正在信任…",
+      "trustFailed": "信任失败：{code}（{message}）",
       "section": {
         "pi": "设置 · Pi 运行时",
         "permissions": "设置 · 权限（工作区）",
@@ -406,7 +410,7 @@
         "WORKSPACE_UNTRUSTED": {
           "title": "工作区尚未信任",
           "detail": "工作区 {path} 尚未信任。",
-          "next": "在设置 · 权限里信任它：未信任的工作区不允许执行任何命令。"
+          "next": "信任只覆盖执行：点下面的「信任此工作区」即允许在该目录执行命令与写入文件，随后自动重新检查；读取、新建会话、选目录都不需要信任。"
         },
         "MODEL_MISSING": {
           "title": "没有可用的模型",
@@ -1098,13 +1102,25 @@
         "default": "默认值"
       },
       "workspacesTitle": "工作区",
-      "workspacesHint": "未信任的工作区不能执行任何命令。",
+      "workspacesHint": "未信任的工作区不能执行任何命令；选目录本身不需要信任。",
       "trusted": "已信任",
       "untrusted": "未信任",
       "trust": "信任",
-      "untrust": "取消信任",
-      "workspacesEmptyTitle": "还没有登记工作区",
-      "workspacesEmptyHint": "在对话或工作台里添加一个目录。"
+      "untrust": "撤销",
+      "trustAria": "信任 {path}（允许在该目录执行命令与写入文件）",
+      "untrustAria": "撤销 {path} 的信任",
+      "workspaceName": "名称",
+      "workspacePath": "绝对路径",
+      "trustedAt": "信任时间：{time}",
+      "trustedAtUnknown": "信任时间：本次界面未记录（该项在界面启动前已信任）",
+      "revokedNote": "已撤销信任：当前运行不受影响，下一条消息需要重新信任。",
+      "addTitle": "添加目录",
+      "addHint": "选目录不等于允许执行：现在添加只需要它是一个存在的目录，信任留到真要在这里跑命令时再做。",
+      "addPlaceholder": "D:\\work\\proj",
+      "add": "添加目录",
+      "adding": "添加中…",
+      "workspacesEmptyTitle": "还没有工作区",
+      "workspacesEmptyHint": "在上面填一个目录路径添加：选目录不需要信任，信任只在执行时要求。"
     },
     "pi": {
       "title": "Pi 运行时",

@@ -44,7 +44,7 @@ export function DetailPanel({ ui, status, workspace, phaseMeta, onGoRuns }: Deta
             </p>
             {!workspace.trusted && (
               <p className="mt-1 rounded bg-[color:var(--anvil-warning-surface)] px-1.5 py-1 text-[10px] leading-relaxed text-[color:var(--anvil-warning)]">
-                未信任：不能在此执行命令。左栏的锁形按钮可以切换。
+                未信任：不能在此执行命令。聊天页的「信任此工作区」或设置 · 权限里可以切换。
               </p>
             )}
           </>
