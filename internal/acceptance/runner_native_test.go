@@ -292,6 +292,9 @@ func TestAgentDesktopHomePreparationSteps(t *testing.T) {
 			t.Fatalf("icacls args %q do not contain %q", joined, want)
 		}
 	}
+	if strings.Contains(joined, "/T") {
+		t.Fatalf("icacls args %q must not use /T: container-only ACEs on files break existing state", joined)
+	}
 }
 
 // The real icacls step must leave exactly three explicit ACEs and no inherited
@@ -336,4 +339,118 @@ func TestAgentDesktopHomeACLTightensIdempotently(t *testing.T) {
 	if strings.Contains(text, "(I)(") {
 		t.Fatalf("inherited ACEs remain on %q; icacls:\n%s", home, text)
 	}
+}
+
+// Normalising the state directory must keep files left by a previous run
+// usable. `/T` applied container-only (OI)(CI) ACEs to files, leaving them
+// with no effective access, so the second native run failed with PERM_DENIED.
+func TestAgentDesktopHomeACLKeepsExistingFilesUsable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("agent-desktop private-file DACL handling is Windows-specific")
+	}
+	home := filepath.Join(t.TempDir(), "agent-desktop-home")
+	snapshots := filepath.Join(home, "snapshots")
+	if err := os.MkdirAll(snapshots, 0o755); err != nil {
+		t.Fatalf("mkdir home: %v", err)
+	}
+	lockPath := filepath.Join(home, "refstore.lock")
+	if err := os.WriteFile(lockPath, []byte("previous run\n"), 0o644); err != nil {
+		t.Fatalf("write refstore.lock: %v", err)
+	}
+	snapshotPath := filepath.Join(snapshots, "s1.json")
+	if err := os.WriteFile(snapshotPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+
+	caseDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseDir, "logs"), 0o755); err != nil {
+		t.Fatalf("mkdir logs: %v", err)
+	}
+	steps, err := agentDesktopHomePreparationSteps(home)
+	if err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	aclStep := steps[len(steps)-1]
+	if aclStep.Command != "icacls" {
+		t.Fatalf("last step = %q, want icacls", aclStep.Command)
+	}
+	runner := automationRunner{repo: t.TempDir(), caseDir: caseDir, env: os.Environ()}
+	if _, _, failure := runner.runStep(aclStep); failure != "" {
+		t.Fatalf("icacls step failed: %s", failure)
+	}
+
+	// Existing state must remain readable and appendable.
+	body, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("existing state file became unreadable after ACL normalization: %v\nicacls:\n%s", err, icaclsListing(t, lockPath))
+	}
+	if !strings.Contains(string(body), "previous run") {
+		t.Fatalf("existing state file content changed: %q", body)
+	}
+	f, err := os.OpenFile(lockPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("existing state file is not appendable after ACL normalization: %v\nicacls:\n%s", err, icaclsListing(t, lockPath))
+	}
+	if _, err := f.WriteString("append\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append to existing state file failed: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close appended state file: %v", err)
+	}
+	if _, err := os.ReadFile(snapshotPath); err != nil {
+		t.Fatalf("nested state file became unreadable: %v\nicacls:\n%s", err, icaclsListing(t, snapshotPath))
+	}
+
+	// New files (what agent-desktop writes next) must inherit a usable ACL.
+	newFile := filepath.Join(home, "next-run.lock")
+	if err := os.WriteFile(newFile, []byte("new\n"), 0o644); err != nil {
+		t.Fatalf("create new state file: %v", err)
+	}
+	newNested := filepath.Join(snapshots, "s2.json")
+	if err := os.WriteFile(newNested, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("create new nested state file: %v", err)
+	}
+
+	// The root must have exactly the three trusted explicit ACEs and no
+	// inherited ones; children must only carry the three trusted inherited
+	// ACEs (no Authenticated Users / Users).
+	rootACL := icaclsListing(t, home)
+	if strings.Contains(rootACL, "(I)(") {
+		t.Fatalf("root directory still has inherited ACEs:\n%s", rootACL)
+	}
+	if count := strings.Count(rootACL, ":("); count != 3 {
+		t.Fatalf("root directory has %d ACEs, want 3:\n%s", count, rootACL)
+	}
+	for _, path := range []string{lockPath, snapshotPath, newFile, newNested} {
+		listing := icaclsListing(t, path)
+		if count := strings.Count(listing, ":("); count != 3 {
+			t.Fatalf("%q has %d ACEs, want the 3 trusted inherited ACEs:\n%s", path, count, listing)
+		}
+		if strings.Contains(listing, "(M)") || strings.Contains(listing, "(RX)") {
+			t.Fatalf("%q still grants untrusted principals:\n%s", path, listing)
+		}
+	}
+
+	// agent-desktop must still be able to read its state directory.
+	if agentDesktop, err := exec.LookPath("agent-desktop"); err == nil {
+		cmd := exec.Command(agentDesktop, "status")
+		cmd.Env = append(os.Environ(), "AGENT_DESKTOP_HOME="+home)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("agent-desktop status failed after ACL normalization: %v\n%s", err, out)
+		}
+		if !strings.Contains(string(out), `"ok":true`) {
+			t.Fatalf("agent-desktop status did not report ok:\n%s", out)
+		}
+	}
+}
+
+func icaclsListing(t *testing.T, path string) string {
+	t.Helper()
+	out, err := exec.Command("icacls", path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("icacls %q: %v (%s)", path, err, out)
+	}
+	return string(out)
 }

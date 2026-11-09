@@ -11,6 +11,11 @@ import (
 // agentDesktopACLArgs returns the icacls arguments that remove inherited ACEs
 // and grant the state directory only to the current user, SYSTEM and
 // Administrators. SIDs are used so the command is locale-independent.
+//
+// /T is deliberately absent: it applies container-only (OI)(CI) ACEs directly
+// to files, leaving existing state files with no effective access. Applying the
+// grant to the directory alone lets Windows propagate plain inherited (F) ACEs
+// to existing files and subdirectories; the operation is idempotent.
 func agentDesktopACLArgs(home string) ([]string, error) {
 	token, err := windows.OpenCurrentProcessToken()
 	if err != nil {
@@ -29,7 +34,6 @@ func agentDesktopACLArgs(home string) ([]string, error) {
 		"*" + sid + ":(OI)(CI)F",
 		"*S-1-5-18:(OI)(CI)F",     // NT AUTHORITY\SYSTEM
 		"*S-1-5-32-544:(OI)(CI)F", // BUILTIN\Administrators
-		"/T",
 		"/Q",
 	}, nil
 }
