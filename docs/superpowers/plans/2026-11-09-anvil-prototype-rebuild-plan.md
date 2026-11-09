@@ -10,6 +10,8 @@
 
 ## 执行方式与证据
 
+实施派发、客户端实测及本机 Pi 的使用要求见[实施与真实验收规范](../specs/2026-11-09-anvil-rebuild-execution-standard.md)。
+
 计划中的命令由 `R0-00` 新建。例 `powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 verify --case=R0-01 --target=win-x64`，结束时执行 `powershell -ExecutionPolicy Bypass -File scripts/devtools.ps1 gate --id=G0 --target=win-x64 --evidence=<absolute-path>`。G1/G2 同理。命令透传进程退出码，0 通过，1 断言失败，2 输入或证据不完整。验收矩阵 `tests/acceptance/rebuild.json` 串行维护。证据保存在隔离目录 `<evidence>/<sha>/<target>/<case>/`，含命令、退出码、真实/界面数据来源、OS build、应用版本、运行时版本、日志或截图的相对路径与 SHA-256。不同提交的结果先确认代码与用例适用范围，再在门禁目标提交上重跑必要用例；门禁拒绝错误 SHA 或错误平台。
 
 每项的 **失败用例** 是先写的断言，**实现** 给出入口和边界，**验收** 是必须运行的结果。阶段变动由用户决定。先按每个 Task 查工作树，禁止同时开始多个后续阶段。
