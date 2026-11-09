@@ -313,6 +313,10 @@ func (d *Desktop) ListModels() ModelListResult {
 // SaveModel 保存模型定义（CAS）。secret 非空时写入 OS 凭证库，配置里只留引用。
 func (d *Desktop) SaveModel(expectedRevision uint64, def resources.ModelDefinition, secret string) ModelResult {
 	out := ModelResult{Item: def}
+	// 模型 ID 是内部主键，必须是 slug；而用户填的是模型名（`deepseek-2/xxx`，含斜杠）。
+	// 界面把模型名当 ID 传上来、或干脆留空，都会得到「模型 ID 非法」——用户看到的是
+	// UNSUPPORTED，完全不理解自己做错了什么。这里统一按 provider+模型名派生一个合法 ID。
+	def.ID = normalizeOrDeriveModelID(def, d)
 	svc, err := d.resourceServices()
 	if err != nil {
 		out.Error = toCallError(err)
@@ -395,6 +399,70 @@ func (d *Desktop) TestModel(id string) ModelProbeResponse {
 
 	prober := resources.NewProber(filepath.Join(d.root, "probes"), inst)
 	return ModelProbeResponse{Result: prober.Probe(ctx, def, secret)}
+}
+
+// normalizeOrDeriveModelID 保证保存路径上永远有一个合法的模型 ID。
+func normalizeOrDeriveModelID(def resources.ModelDefinition, d *Desktop) string {
+	valid := func(s string) bool {
+		if s == "" {
+			return false
+		}
+		for i, r := range s {
+			okc := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-'
+			if !okc {
+				return false
+			}
+			if i == 0 && !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+				return false
+			}
+		}
+		return true
+	}
+	if valid(def.ID) {
+		return def.ID
+	}
+	base := strings.ToLower(strings.TrimSpace(def.ProviderID + "-" + def.ModelID))
+	if strings.TrimSpace(def.ModelID) == "" {
+		base = strings.ToLower(strings.TrimSpace(def.ID))
+	}
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, base)
+	slug = strings.Trim(slug, "-._")
+	if slug == "" {
+		slug = "model"
+	}
+	if slug[0] < 'a' || slug[0] > 'z' {
+		if slug[0] < '0' || slug[0] > '9' {
+			slug = "model-" + slug
+		}
+	}
+	// 已存在同 ID 的另一条 → 加后缀，避免把用户已有的模型覆盖掉。
+	svc, err := d.resourceServices()
+	if err != nil {
+		return slug
+	}
+	existing := map[string]bool{}
+	if set, listErr := svc.List(context.Background()); listErr == nil {
+		for _, item := range set.Items {
+			existing[item.ID] = true
+		}
+	}
+	if !existing[slug] {
+		return slug
+	}
+	for i := 2; i < 100; i++ {
+		candidate := slug + "-" + strconv.Itoa(i)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+	return slug
 }
 
 // SetActiveModel 把某个模型设为"当前模型"（下一次 run 生效）。

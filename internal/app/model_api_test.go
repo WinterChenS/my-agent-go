@@ -561,3 +561,31 @@ func TestSetActiveModelRepairsLegacyRef(t *testing.T) {
 		t.Fatalf("补齐结果 = %q/%q，期望 provider=deepseek-2、模型名保持原样", got.ProviderID, got.ModelID)
 	}
 }
+
+// TestSaveModelDerivesValidID 守用户实测的第三个卡点（2026-11-08）：
+//
+// 模型 ID 是内部主键，必须是 slug；而手动添加模型的表单把**模型名**（含斜杠）当 ID
+// 传上来，或干脆留空，于是得到 UNSUPPORTED「模型 ID 非法」，用户根本看不出哪里错。
+// 保存路径必须自己派生一个合法 ID，而不是把这条规则甩给界面。
+func TestSaveModelDerivesValidID(t *testing.T) {
+	for _, id := range []string{"", "deepseek-2/deepseek-v4.1-flash"} {
+		d, _ := newTestDesktop(t)
+		def := demoModel()
+		def.ID = id
+		def.ProviderID = ""
+		def.ModelID = "deepseek-2/deepseek-v4.1-flash"
+		def.BaseURL = "http://192.168.3.10:3425/v1"
+		def.API = ""
+
+		res := d.SaveModel(0, def, "sk-test")
+		if res.Error != nil {
+			t.Fatalf("id=%q 保存失败: %s: %s", id, res.Error.Code, res.Error.Message)
+		}
+		if res.Item.ID == "" || strings.ContainsAny(res.Item.ID, "/ ") {
+			t.Fatalf("id=%q 派生出的 ID 不合法: %q", id, res.Item.ID)
+		}
+		if res.Item.ModelID != "deepseek-2/deepseek-v4.1-flash" {
+			t.Fatalf("模型名必须原样保留，实际 %q", res.Item.ModelID)
+		}
+	}
+}
