@@ -256,6 +256,32 @@ export function useBackend() {
   }, []);
 
   /**
+   * 定期重读 Status。
+   *
+   * 为什么需要：侧栏的运行时状态点读的是 `status.piVersion`，而这个值在启动时
+   * 还是空的——Pi 版本要跑一次发现才有。只刷一次的话，用户会一直看到
+   * "未检测到 Pi"，即便 Pi 就在那里、会话也能启动（实测踩到）。
+   * 5 秒一次、窗口不可见时不跑：代价是一次 Wails 调用，换来状态点不再撒谎。
+   */
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      if (!alive || document.visibilityState !== "visible") return;
+      void refreshStatus();
+    };
+    const timer = window.setInterval(tick, 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshStatus();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshStatus]);
+
+  /**
    * 刷新技能与扩展。
    *
    * 同时刷 Status：技能是否"已生效"只有对比运行中的摘要才知道，
