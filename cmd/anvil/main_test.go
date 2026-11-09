@@ -166,3 +166,17 @@ func TestLayoutProbeEndpointLogsRealMeasurements(t *testing.T) {
 		t.Fatalf("probe body injected a newline: %q", buf.String())
 	}
 }
+
+func TestInitialURLFromEnv(t *testing.T) {
+	if got := initialURLFromEnv(""); got != "/" {
+		t.Fatalf("empty = %q", got)
+	}
+	if got := initialURLFromEnv("/?sample=workbench"); got != "/?sample=workbench" {
+		t.Fatalf("sample = %q", got)
+	}
+	for _, raw := range []string{"https://example.com", "//evil", "/path with space"} {
+		if got := initialURLFromEnv(raw); got != "/" {
+			t.Fatalf("invalid %q = %q, want /", raw, got)
+		}
+	}
+}

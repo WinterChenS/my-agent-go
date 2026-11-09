@@ -95,6 +95,7 @@
 
   /* surfaces composed from tokens (kept here so shell code has no raw colours) */
   --topbar-bg: color-mix(in oklab, var(--bg) 82%, transparent);
+  --scrim: color-mix(in oklab, var(--fg) 28%, transparent);
   color-scheme: light;
 }
 
@@ -128,5 +129,6 @@
 
   --shadow-color: oklch(4% 0.004 255);
   --topbar-bg: color-mix(in oklab, var(--bg) 82%, transparent);
+  --scrim: color-mix(in oklab, var(--fg) 28%, transparent);
   color-scheme: dark;
 }

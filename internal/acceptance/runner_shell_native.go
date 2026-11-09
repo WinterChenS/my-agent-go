@@ -24,6 +24,7 @@ type shellNative struct {
 	window             windowBounds
 	lastLaunchTheme    themeLogEntry
 	lastLaunchLanguage languageLogEntry
+	initialURL         string
 }
 
 func runNativeShellCase(r automationRunner, sha, target string, hooks *nativeHooks) nativeOutcome {

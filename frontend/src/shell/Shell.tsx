@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useI18n } from '../i18n/LanguageProvider'
+import GlobalSearchDialog from './GlobalSearchDialog'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import { resolveRoute, WORKBENCH_ROUTE } from './routes'
@@ -11,8 +12,21 @@ export default function Shell() {
   const location = useLocation()
   const route = resolveRoute(location.pathname) ?? WORKBENCH_ROUTE
   const { language, t } = useI18n()
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   useLayoutProbe()
   useHistoryShortcuts()
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     document.title = t('document.titleFormat', { title: t(route.titleKey) })
@@ -26,13 +40,16 @@ export default function Shell() {
     <div className="shell" data-shell>
       <Sidebar />
       <div className="main">
-        {route.chrome === 'shell' ? <Topbar route={route} /> : null}
+        {route.chrome === 'shell' ? (
+          <Topbar route={route} onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
+        ) : null}
         <main className="page" tabIndex={0} aria-label={t('main.content')}>
           <div className="page-inner">
             <Outlet />
           </div>
         </main>
       </div>
+      <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} returnFocus={searchButtonRef} />
     </div>
   )
 }

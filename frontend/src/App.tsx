@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { LanguageProvider } from './i18n/LanguageProvider'
 import SettingsPage from './pages/settings/SettingsPage'
+import WorkbenchPage from './pages/workbench/WorkbenchPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
@@ -21,9 +22,12 @@ export function AppRoutes() {
               <Route
                 key={route.path}
                 path={route.path}
-                element={route.id === 'settings' ? <SettingsPage /> : <PagePlaceholder route={route} />}
+                element={
+                  route.id === 'settings' ? <SettingsPage /> : route.id === 'workbench' ? <WorkbenchPage /> : <PagePlaceholder route={route} />
+                }
               />
             ))}
+            <Route path="/__sample/workbench" element={<WorkbenchPage />} />
             <Route path="*" element={<FallbackPage />} />
           </Route>
         </Routes>

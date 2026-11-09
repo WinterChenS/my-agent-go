@@ -62,3 +62,25 @@ prototype CSS. The deviations above are deliberate and scope-driven; no layout
 or interaction difference beyond them is accepted. The prototype fixture
 identity/counts are the only content intentionally absent from the normal
 entry; they must not be reintroduced outside isolated sample fixtures.
+
+## R0-04 workbench
+
+- Normal `/` is the real entry: stats show `0`, lists show empty states, and
+  「配置 Agent」「新建对话」「全部会话」「继续」「管理」「全部」 are disabled
+  with an explicit "not connected (G1/G2)" tooltip. No prototype fixture
+  numbers, names or identities are rendered.
+- The prototype-filled state is isolated at `/?sample=workbench` and the
+  path alias `/__sample/workbench` (used by the native case; not in navigation).
+  A visible sample banner marks it as design data, and its action buttons only
+  emit a sample-mode notice, never a fake success.
+- Layout follows the prototype module order: header, 4 stats, activity
+  heatmap, continue chats, recent artifacts, my agents, today's schedules,
+  run status, global search, header actions. The split is two-column at wide
+  sizes and one column at ≤1180px; stats go 4 → 2 → 1 at 900/620px.
+- The greeting is time-based in the normal entry and fixed to the prototype's
+  afternoon greeting in the sample entry (which intentionally keeps the
+  prototype's 陈羽 fixture name). Normal never shows a person name.
+- Global search is a real shell dialog (page results, sample agents/artifacts
+  when sample mode is active); Escape restores focus to the toolbar trigger.
+- The 820×1180 spot check has the same Windows 1080 work-area clamp documented
+  in R0-01; horizontal overflow remains false.

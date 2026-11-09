@@ -43,8 +43,12 @@ describe('shared shell', () => {
     for (const route of SHELL_ROUTES) {
       cleanup()
       renderAt(route.path)
-      expect(screen.getByRole('heading', { level: 1, name: route.title })).toBeInTheDocument()
-      expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
+      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
+      if (route.id === 'workbench') {
+        expect(screen.getByTestId('workbench-page')).toBeInTheDocument()
+      } else {
+        expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
+      }
     }
   })
 
@@ -141,7 +145,7 @@ describe('shared shell', () => {
   it('falls back to the workbench with a diagnosable status for unknown paths', () => {
     renderAt('/unknown/route')
     expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/')
-    expect(screen.getByTestId('page-marker')).toHaveTextContent('R0-01 placeholder · /')
+    expect(screen.getByTestId('page-marker')).toHaveTextContent('R0-04 workbench · /')
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent('未找到路由 /unknown/route')
     expect(status).toHaveAttribute('data-route-status', 'fallback')

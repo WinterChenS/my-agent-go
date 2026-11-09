@@ -57,9 +57,11 @@ describe('design tokens', () => {
   it('rejects raw colour values in shell code and styles.css', () => {
     const shellDir = join(srcRoot, 'shell')
     const preferencesDir = join(srcRoot, 'preferences')
+    const workbenchDir = join(srcRoot, 'pages', 'workbench')
     const files = [
       ...filesUnder(shellDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(preferencesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(workbenchDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       join(srcRoot, 'styles.css'),
     ]
     const rawColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\(/

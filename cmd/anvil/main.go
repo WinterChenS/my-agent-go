@@ -81,6 +81,8 @@ func run() error {
 	}
 	log.Printf("starting: dist=%s data=%s webview=%s", dist, dataDir, webviewDir)
 	log.Printf("window-options: requested=%dx%d min=%dx%d", size.Width, size.Height, size.MinWidth, size.MinHeight)
+	initialURL := initialURLFromEnv(os.Getenv("ANVIL_INITIAL_URL"))
+	log.Printf("window-options: initialURL=%s", initialURL)
 
 	app := application.New(application.Options{
 		Name:        appName,
@@ -103,7 +105,7 @@ func run() error {
 		Height:           size.Height,
 		MinWidth:         size.MinWidth,
 		MinHeight:        size.MinHeight,
-		URL:              "/",
+		URL:              initialURL,
 		BackgroundColour: windowBackground(resolved),
 	})
 	theme.setWindow(func(current string) {
@@ -136,6 +138,27 @@ func parseWindowSize(widthRaw, heightRaw string) (windowSize, []string) {
 	parse(widthRaw, &size.Width, 360, 3840, "ANVIL_WINDOW_WIDTH")
 	parse(heightRaw, &size.Height, 560, 2160, "ANVIL_WINDOW_HEIGHT")
 	return size, warnings
+}
+
+// initialURLFromEnv allows acceptance runs to open an isolated sample route.
+// Only same-origin absolute paths are accepted; malformed values fall back to
+// "/" and are logged.
+func initialURLFromEnv(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "/"
+	}
+	invalid := strings.Contains(value, "://") || strings.HasPrefix(value, "//")
+	for _, r := range value {
+		if r == 0x20 || r == 0x09 || r == 0x0A || r == 0x0D {
+			invalid = true
+		}
+	}
+	if !strings.HasPrefix(value, "/") || invalid {
+		log.Printf("window-options: invalid ANVIL_INITIAL_URL %q; using /", raw)
+		return "/"
+	}
+	return value
 }
 
 // isAppRoute treats extension-less paths as React Router routes. Assets and

@@ -19,9 +19,7 @@ describe('history navigation', () => {
     expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/chat')
 
     window.history.back()
-    await waitFor(() => {
-      expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/')
-    })
+    await waitFor(() => expect(screen.getByTestId('workbench-page')).toBeInTheDocument())
   })
 
   it('supports the Alt+Left history shortcut without a visible back button', async () => {
@@ -30,8 +28,6 @@ describe('history navigation', () => {
     await user.click(screen.getByRole('link', { name: '对话' }))
     expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/chat')
     fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true })
-    await waitFor(() => {
-      expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/')
-    })
+    await waitFor(() => expect(screen.getByTestId('workbench-page')).toBeInTheDocument())
   })
 })

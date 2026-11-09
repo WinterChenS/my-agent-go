@@ -338,18 +338,22 @@ func (s *shellNative) launchThemeClient(width, height int, label string) bool {
 	}
 	dist := filepath.Join(s.runner.repo, "frontend", "dist")
 	before := len(s.themeEntries())
+	args := []string{
+		"launch", exe, "--no-attach",
+		"--env", "ANVIL_DATA_DIR=" + s.dataDir,
+		"--env", "ANVIL_WEBVIEW_DATA_DIR=" + s.webviewDir,
+		"--env", "ANVIL_FRONTEND_DIST=" + dist,
+		"--env", "ANVIL_WINDOW_WIDTH=" + strconv.Itoa(width),
+		"--env", "ANVIL_WINDOW_HEIGHT=" + strconv.Itoa(height),
+		"--timeout", "30000",
+	}
+	if s.initialURL != "" {
+		args = append(args, "--env", "ANVIL_INITIAL_URL="+s.initialURL)
+	}
 	if !s.run(StepSpec{
-		Name:    label,
-		Command: "agent-desktop",
-		Args: []string{
-			"launch", exe, "--no-attach",
-			"--env", "ANVIL_DATA_DIR=" + s.dataDir,
-			"--env", "ANVIL_WEBVIEW_DATA_DIR=" + s.webviewDir,
-			"--env", "ANVIL_FRONTEND_DIST=" + dist,
-			"--env", "ANVIL_WINDOW_WIDTH=" + strconv.Itoa(width),
-			"--env", "ANVIL_WINDOW_HEIGHT=" + strconv.Itoa(height),
-			"--timeout", "30000",
-		},
+		Name:                 label,
+		Command:              "agent-desktop",
+		Args:                 args,
 		Timeout:              90 * time.Second,
 		ExpectOutputContains: `"title":"Anvil"`,
 	}) {

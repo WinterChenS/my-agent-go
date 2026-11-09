@@ -10,7 +10,7 @@
       "navLabel": "工作台",
       "group": "primary",
       "futureTask": "R0-04",
-      "marker": "R0-01 placeholder · /",
+      "marker": "R0-04 workbench · /",
       "breadcrumbParent": "工作区",
       "topbarActions": [
         "search",

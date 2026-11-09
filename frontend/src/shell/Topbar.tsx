@@ -1,9 +1,17 @@
-import { useState } from 'react'
+import { useState, type RefObject } from 'react'
 import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import type { ShellRoute } from './routes'
 
-export default function Topbar({ route }: { route: ShellRoute }) {
+export default function Topbar({
+  route,
+  onOpenSearch,
+  searchButtonRef,
+}: {
+  route: ShellRoute
+  onOpenSearch: () => void
+  searchButtonRef: RefObject<HTMLButtonElement | null>
+}) {
   const { t } = useI18n()
   const [notice, setNotice] = useState('')
   const has = (action: string) => route.topbarActions.includes(action)
@@ -34,9 +42,10 @@ export default function Topbar({ route }: { route: ShellRoute }) {
         <button
           type="button"
           id="topbar-search"
+          ref={searchButtonRef}
           className="iconbtn"
           aria-label={t('topbar.search')}
-          onClick={() => setNotice(t('topbar.notice.search'))}
+          onClick={onOpenSearch}
         >
           <Icon name="search" size={16} />
         </button>

@@ -26,6 +26,7 @@ const (
 	keyeventfKeyUp = 0x0002
 	vkMenu         = 0x12
 	vkLeft         = 0x25
+	vkEscape       = 0x1B
 	swRestore      = 9
 )
 
@@ -48,8 +49,9 @@ type input struct {
 // sendKeyCombo brings the window titled windowTitle to the foreground and
 // injects Alt+Left (the browser-history shortcut).
 func sendKeyCombo(windowTitle, combo string) error {
-	if strings.ToLower(strings.TrimSpace(combo)) != "alt+left" {
-		return fmt.Errorf("unsupported key combo %q (only alt+left is implemented)", combo)
+	events, err := keyEvents(strings.ToLower(strings.TrimSpace(combo)))
+	if err != nil {
+		return err
 	}
 	hwnd, err := findWindowByTitle(windowTitle)
 	if err != nil {
@@ -63,12 +65,6 @@ func sendKeyCombo(windowTitle, combo string) error {
 		return fmt.Errorf("window %q did not become foreground", windowTitle)
 	}
 
-	events := []input{
-		newKeyInput(vkMenu, 0),
-		newKeyInput(vkLeft, 0),
-		newKeyInput(vkLeft, keyeventfKeyUp),
-		newKeyInput(vkMenu, keyeventfKeyUp),
-	}
 	sent, _, callErr := procSendInput.Call(
 		uintptr(len(events)),
 		uintptr(unsafe.Pointer(&events[0])),
@@ -79,6 +75,22 @@ func sendKeyCombo(windowTitle, combo string) error {
 	}
 	time.Sleep(100 * time.Millisecond)
 	return nil
+}
+
+func keyEvents(combo string) ([]input, error) {
+	switch combo {
+	case "alt+left":
+		return []input{
+			newKeyInput(vkMenu, 0),
+			newKeyInput(vkLeft, 0),
+			newKeyInput(vkLeft, keyeventfKeyUp),
+			newKeyInput(vkMenu, keyeventfKeyUp),
+		}, nil
+	case "escape":
+		return []input{newKeyInput(vkEscape, 0), newKeyInput(vkEscape, keyeventfKeyUp)}, nil
+	default:
+		return nil, fmt.Errorf("unsupported key combo %q (alt+left or escape)", combo)
+	}
 }
 
 func newKeyInput(vk uint16, flags uint32) input {

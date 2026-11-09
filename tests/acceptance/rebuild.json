@@ -80,6 +80,18 @@
           "task": "R0-03",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-04-workbench",
+          "task": "R0-04",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-04-native-workbench",
+          "task": "R0-04",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },

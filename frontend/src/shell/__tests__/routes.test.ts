@@ -55,7 +55,7 @@ describe('shell routes', () => {
       expect(route?.path).toBe(path)
       expect(route?.title).toBe(title)
       expect(route?.role).toBe(role)
-      expect(route?.marker).toBe(`R0-01 placeholder · ${path}`)
+      expect(route?.marker).toBe(path === '/' ? 'R0-04 workbench · /' : `R0-01 placeholder · ${path}`)
     }
   })
 
