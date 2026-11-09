@@ -36,6 +36,9 @@ type CasePlan struct {
 	Reset        []string
 	NativeWindow bool
 	NativeShell  bool
+	// CollectArtifacts lists case-directory globs whose files are hashed into
+	// result.json after the steps (e.g. screenshots written by a helper).
+	CollectArtifacts []string
 }
 
 // VerifyOptions selects the case to execute and where to record evidence.
@@ -128,7 +131,9 @@ func casePlans() []CasePlan {
 				{Name: "npm-test", Command: "npm", Args: []string{"test"}, Dir: "frontend", Timeout: 15 * time.Minute},
 				{Name: "npm-build", Command: "npm", Args: []string{"run", "build"}, Dir: "frontend", Timeout: 10 * time.Minute},
 				{Name: "check-dist", Command: "node", Args: []string{"scripts/check-dist.mjs"}, Dir: "frontend"},
+				{Name: "capture-prototype", Command: "node", Args: []string{"scripts/capture-prototype.mjs", "--out", "{caseDir}/prototype"}, Dir: "frontend", Timeout: 5 * time.Minute},
 			},
+			CollectArtifacts: []string{"prototype/*.png"},
 		},
 		{
 			ID:           "R0-01-native-shell",
@@ -249,6 +254,27 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 		artifacts = append(artifacts, runArtifacts...)
 		limitations = append(limitations, runLimitations...)
 		status = status2
+	}
+
+	for _, pattern := range plan.CollectArtifacts {
+		matches, globErr := filepath.Glob(filepath.Join(caseDir, filepath.FromSlash(pattern)))
+		if globErr != nil {
+			return fail("collect artifacts %q: %v", pattern, globErr)
+		}
+		if len(matches) == 0 {
+			return fail("collect artifacts %q: no files matched", pattern)
+		}
+		for _, match := range matches {
+			rel, relErr := filepath.Rel(caseDir, match)
+			if relErr != nil {
+				return fail("collect artifacts %q: %v", pattern, relErr)
+			}
+			artifact, hashErr := hashArtifact(caseDir, filepath.ToSlash(rel))
+			if hashErr != nil {
+				return fail("collect artifact %q: %v", rel, hashErr)
+			}
+			artifacts = append(artifacts, artifact)
+		}
 	}
 
 	// The launched client inherits the launch command's stdout and keeps

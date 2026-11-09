@@ -110,7 +110,7 @@ export default function ToolsMenu() {
             </span>
             <span>
               <b>{route.navLabel}</b>
-              <small>{route.navMeta}</small>
+              {route.navMeta ? <small>{route.navMeta}</small> : null}
             </span>
           </NavLink>
         ))}

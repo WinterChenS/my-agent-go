@@ -10,7 +10,10 @@ export interface ShellRoute {
   title: string
   navLabel: string
   group: ShellRouteGroup
-  navCount?: string
+  breadcrumbParent: string
+  topbarActions: string[]
+  topbarStatus: { label: string; tone: 'success' | 'warn' } | null
+  chrome: 'shell' | 'chat'
   navMeta?: string
   futureTask: string
   marker: string

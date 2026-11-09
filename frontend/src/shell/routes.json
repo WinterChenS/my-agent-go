@@ -10,7 +10,14 @@
       "navLabel": "工作台",
       "group": "primary",
       "futureTask": "R0-04",
-      "marker": "R0-01 placeholder · /"
+      "marker": "R0-01 placeholder · /",
+      "breadcrumbParent": "工作区",
+      "topbarActions": [
+        "search",
+        "help"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "chat",
@@ -20,9 +27,12 @@
       "title": "对话",
       "navLabel": "对话",
       "group": "primary",
-      "navCount": "4",
       "futureTask": "R0-05",
-      "marker": "R0-01 placeholder · /chat"
+      "marker": "R0-01 placeholder · /chat",
+      "breadcrumbParent": "",
+      "topbarActions": [],
+      "chrome": "chat",
+      "topbarStatus": null
     },
     {
       "id": "agents",
@@ -33,7 +43,13 @@
       "navLabel": "Agent",
       "group": "primary",
       "futureTask": "R0-06",
-      "marker": "R0-01 placeholder · /agents"
+      "marker": "R0-01 placeholder · /agents",
+      "breadcrumbParent": "智能体",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "library",
@@ -43,9 +59,14 @@
       "title": "资源库",
       "navLabel": "资源库",
       "group": "tools",
-      "navMeta": "28 个输出物",
       "futureTask": "R0-11",
-      "marker": "R0-01 placeholder · /library"
+      "marker": "R0-01 placeholder · /library",
+      "breadcrumbParent": "工作区",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "skills",
@@ -55,9 +76,14 @@
       "title": "Skill",
       "navLabel": "Skill",
       "group": "tools",
-      "navMeta": "9 个已安装",
       "futureTask": "R0-07",
-      "marker": "R0-01 placeholder · /skills"
+      "marker": "R0-01 placeholder · /skills",
+      "breadcrumbParent": "智能体",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "mcp",
@@ -67,9 +93,14 @@
       "title": "MCP",
       "navLabel": "MCP",
       "group": "tools",
-      "navMeta": "3 个服务",
       "futureTask": "R0-08",
-      "marker": "R0-01 placeholder · /mcp"
+      "marker": "R0-01 placeholder · /mcp",
+      "breadcrumbParent": "智能体",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "connectors",
@@ -79,9 +110,14 @@
       "title": "连接器",
       "navLabel": "连接器",
       "group": "tools",
-      "navMeta": "5 个连接",
       "futureTask": "R0-09",
-      "marker": "R0-01 placeholder · /connectors"
+      "marker": "R0-01 placeholder · /connectors",
+      "breadcrumbParent": "智能体",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "schedules",
@@ -91,9 +127,14 @@
       "title": "定时任务",
       "navLabel": "定时任务",
       "group": "tools",
-      "navMeta": "6 个任务",
       "futureTask": "R0-10",
-      "marker": "R0-01 placeholder · /schedules"
+      "marker": "R0-01 placeholder · /schedules",
+      "breadcrumbParent": "自动化",
+      "topbarActions": [
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": null
     },
     {
       "id": "settings",
@@ -103,9 +144,18 @@
       "title": "设置",
       "navLabel": "设置",
       "group": "tools",
-      "navMeta": "模型与运行时",
       "futureTask": "R0-12",
-      "marker": "R0-01 placeholder · /settings"
+      "marker": "R0-01 placeholder · /settings",
+      "breadcrumbParent": "系统",
+      "topbarActions": [
+        "status",
+        "search"
+      ],
+      "chrome": "shell",
+      "topbarStatus": {
+        "label": "运行时未接入",
+        "tone": "warn"
+      }
     }
   ]
 }

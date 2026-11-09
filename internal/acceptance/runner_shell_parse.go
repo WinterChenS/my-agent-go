@@ -116,6 +116,8 @@ func parseWindowOptions(line string) (windowGeometry, bool) {
 type windowBounds struct {
 	ID     string  `json:"id"`
 	Title  string  `json:"title"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
 }
@@ -126,6 +128,8 @@ func parseFirstWindow(body []byte) (windowBounds, bool) {
 			ID     string `json:"id"`
 			Title  string `json:"title"`
 			Bounds struct {
+				X      float64 `json:"x"`
+				Y      float64 `json:"y"`
 				Width  float64 `json:"width"`
 				Height float64 `json:"height"`
 			} `json:"bounds"`
@@ -135,18 +139,20 @@ func parseFirstWindow(body []byte) (windowBounds, bool) {
 		return windowBounds{}, false
 	}
 	first := envelope.Data[0]
-	return windowBounds{ID: first.ID, Title: first.Title, Width: first.Bounds.Width, Height: first.Bounds.Height}, true
+	return windowBounds{ID: first.ID, Title: first.Title, X: first.Bounds.X, Y: first.Bounds.Y, Width: first.Bounds.Width, Height: first.Bounds.Height}, true
 }
 
 type shellRoute struct {
-	ID         string `json:"id"`
-	Path       string `json:"path"`
-	Source     string `json:"source"`
-	Title      string `json:"title"`
-	NavLabel   string `json:"navLabel"`
-	Group      string `json:"group"`
-	FutureTask string `json:"futureTask"`
-	Marker     string `json:"marker"`
+	ID               string `json:"id"`
+	Path             string `json:"path"`
+	Source           string `json:"source"`
+	Title            string `json:"title"`
+	NavLabel         string `json:"navLabel"`
+	Group            string `json:"group"`
+	Chrome           string `json:"chrome"`
+	BreadcrumbParent string `json:"breadcrumbParent"`
+	FutureTask       string `json:"futureTask"`
+	Marker           string `json:"marker"`
 }
 
 func readShellRoutes(repo string) ([]shellRoute, error) {

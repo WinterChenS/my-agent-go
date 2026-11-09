@@ -23,6 +23,7 @@ const usage = `usage:
   devtools verify --case=<id> --target=<target> [--evidence=<abs path>] [--matrix=<path>] [--sha=<sha>]
   devtools gate --id=<gate> --target=<target> --evidence=<abs path> [--matrix=<path>] [--sha=<sha>]
   devtools preflight --path=<path> [--create]
+  devtools key --title=<window title> --combo=alt+left
 `
 
 func main() {
@@ -41,6 +42,8 @@ func run(args []string) int {
 		return runVerify(args[1:])
 	case "preflight":
 		return runPreflight(args[1:])
+	case "key":
+		return runKey(args[1:])
 	case "version":
 		fmt.Println("devtools (Anvil rebuild)")
 		return acceptance.ExitPass
@@ -208,6 +211,41 @@ func runVerify(args []string) int {
 		fmt.Fprintf(os.Stderr, "verify %s/%s: exit %d status %s\n", *caseID, *target, out.Code, out.Status)
 	}
 	return out.Code
+}
+
+type keyReport struct {
+	Title string `json:"title"`
+	Combo string `json:"combo"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// runKey injects a keyboard shortcut into the named window. The native shell
+// case uses alt+left for browser history so the product has no extra back
+// button that the prototype does not have.
+func runKey(args []string) int {
+	fs := flag.NewFlagSet("key", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	title := fs.String("title", "Anvil", "target window title")
+	combo := fs.String("combo", "", "key combo, e.g. alt+left")
+	if err := fs.Parse(args); err != nil {
+		return acceptance.ExitIncomplete
+	}
+	report := keyReport{Title: *title, Combo: *combo}
+	if strings.TrimSpace(*combo) == "" {
+		report.Error = "combo is required"
+		writeJSON(os.Stdout, report)
+		return acceptance.ExitIncomplete
+	}
+	if err := sendKeyCombo(*title, *combo); err != nil {
+		report.Error = err.Error()
+		writeJSON(os.Stdout, report)
+		fmt.Fprintf(os.Stderr, "key: %v\n", err)
+		return acceptance.ExitIncomplete
+	}
+	report.OK = true
+	writeJSON(os.Stdout, report)
+	return acceptance.ExitPass
 }
 
 type preflightReport struct {

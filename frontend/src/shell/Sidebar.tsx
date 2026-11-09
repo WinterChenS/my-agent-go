@@ -12,7 +12,7 @@ export default function Sidebar() {
         </span>
         <span className="brand-copy">
           <span className="brand-name">Anvil</span>
-          <span className="brand-sub">本地智能体客户端 · v0.1</span>
+          <span className="brand-sub">本地智能体客户端 · v0.9</span>
         </span>
       </Link>
 
@@ -31,7 +31,6 @@ export default function Sidebar() {
           >
             <Icon name={route.id} size={15} />
             <span>{route.navLabel}</span>
-            {route.navCount ? <span className="nav-count">{route.navCount}</span> : null}
           </NavLink>
         ))}
       </div>
@@ -44,20 +43,20 @@ export default function Sidebar() {
             π
           </span>
           <span>
-            <b>Pi Agent</b>
+            <b>本地运行时</b>
             <small>
               <i aria-hidden="true" />
-              本机运行中
+              未检测
             </small>
           </span>
         </div>
         <div className="user-chip" aria-label="本地工作区">
           <span className="avatar" aria-hidden="true">
-            陈
+            本
           </span>
           <span className="user-chip-copy">
-            <span className="user-chip-name">陈羽</span>
-            <span className="user-chip-plan">个人 · 本地工作区</span>
+            <span className="user-chip-name">本地工作区</span>
+            <span className="user-chip-plan">未连接账号</span>
           </span>
         </div>
         <span className="shell-build-marker" data-testid="build-marker">

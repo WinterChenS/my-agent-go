@@ -48,15 +48,67 @@ describe('shared shell', () => {
     }
   })
 
-  it('gives icon-only controls accessible names', () => {
+  it('gives icon-only controls accessible names and no extra back button', () => {
     renderAt('/')
     expect(screen.getByRole('link', { name: 'Anvil' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '帮助' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '工具与自动化' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '返回上一页' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
     expect(screen.getByRole('main', { name: '主内容' })).toBeInTheDocument()
     expect(screen.getByTestId('build-marker')).toHaveTextContent('anvil-rebuild-shell')
+  })
+
+  it('renders the prototype breadcrumb parent for every shell route', () => {
+    for (const route of SHELL_ROUTES) {
+      cleanup()
+      const { container } = renderAt(route.path)
+      if (route.chrome === 'chat') {
+        expect(container.querySelector('.topbar')).toBeNull()
+        continue
+      }
+      const crumb = container.querySelector('#topbar-crumb')
+      expect(crumb, `breadcrumb for ${route.path}`).not.toBeNull()
+      expect(crumb).toHaveAttribute('aria-label', `${route.breadcrumbParent} / ${route.title}`)
+      expect(crumb).toHaveTextContent(route.breadcrumbParent)
+      expect(crumb).toHaveTextContent(route.title)
+      expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
+    }
+  })
+
+  it('matches the prototype topbar actions per route', () => {
+    renderAt('/')
+    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '帮助' })).toBeInTheDocument()
+    cleanup()
+
+    renderAt('/agents')
+    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
+    cleanup()
+
+    renderAt('/settings')
+    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
+    const badge = screen.getByText('运行时未接入')
+    expect(badge).toHaveAttribute('data-runtime-state', 'warn')
+    cleanup()
+
+    renderAt('/chat')
+    expect(screen.queryByRole('button', { name: '搜索' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
+  })
+
+  it('does not render prototype fixture identity or counts in the normal entry', () => {
+    renderAt('/')
+    for (const fake of ['陈羽', '28 个输出物', '9 个已安装', '3 个服务', '5 个连接', '6 个任务', '本机运行中']) {
+      expect(screen.queryByText(fake), `fixture text ${fake}`).toBeNull()
+    }
+    expect(screen.getByText('本地运行时')).toBeInTheDocument()
+    expect(screen.getByText('未检测')).toBeInTheDocument()
+    expect(screen.getByText('本地工作区')).toBeInTheDocument()
+    expect(screen.getByText('未连接账号')).toBeInTheDocument()
+    expect(screen.getByText('本地智能体客户端 · v0.9')).toBeInTheDocument()
   })
 
   it('keeps the tools menu closed and out of the tab order by default', () => {

@@ -1,61 +1,54 @@
-import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import Icon from './Icon'
 import type { ShellRoute } from './routes'
 
 export default function Topbar({ route }: { route: ShellRoute }) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [depth, setDepth] = useState(0)
   const [notice, setNotice] = useState('')
-
-  useEffect(() => {
-    setDepth((value) => value + 1)
-  }, [location.key])
-
-  const canGoBack = depth > 1
+  const has = (action: string) => route.topbarActions.includes(action)
 
   return (
     <header className="topbar">
-      <button
-        type="button"
-        id="topbar-back"
-        className="iconbtn"
-        aria-label="返回上一页"
-        disabled={!canGoBack}
-        onClick={() => navigate(-1)}
-      >
-        <Icon name="arrowLeft" size={16} />
-      </button>
-      <div className="topbar-crumb">
-        <span>工作区</span>
+      <div className="topbar-crumb" id="topbar-crumb" aria-label={`${route.breadcrumbParent} / ${route.title}`}>
+        <span>{route.breadcrumbParent}</span>
         <span className="sep" aria-hidden="true">
           /
         </span>
         <span className="topbar-title">{route.title}</span>
       </div>
       <div className="topbar-spacer" />
+      {has('status') && route.topbarStatus ? (
+        <span
+          className={`badge ${route.topbarStatus.tone === 'success' ? 'badge-success' : 'badge-warn'}`}
+          data-runtime-state={route.topbarStatus.tone}
+        >
+          {route.topbarStatus.label}
+        </span>
+      ) : null}
       <span className="topbar-status" role={notice ? 'status' : undefined} aria-live="polite">
         {notice}
       </span>
-      <button
-        type="button"
-        id="topbar-search"
-        className="iconbtn"
-        aria-label="搜索"
-        onClick={() => setNotice('搜索将在后续任务接入')}
-      >
-        <Icon name="search" size={16} />
-      </button>
-      <button
-        type="button"
-        id="topbar-help"
-        className="iconbtn"
-        aria-label="帮助"
-        onClick={() => setNotice('帮助将在后续任务接入')}
-      >
-        <Icon name="help" size={16} />
-      </button>
+      {has('search') ? (
+        <button
+          type="button"
+          id="topbar-search"
+          className="iconbtn"
+          aria-label="搜索"
+          onClick={() => setNotice('搜索将在后续任务接入')}
+        >
+          <Icon name="search" size={16} />
+        </button>
+      ) : null}
+      {has('help') ? (
+        <button
+          type="button"
+          id="topbar-help"
+          className="iconbtn"
+          aria-label="帮助"
+          onClick={() => setNotice('帮助将在后续任务接入')}
+        >
+          <Icon name="help" size={16} />
+        </button>
+      ) : null}
     </header>
   )
 }

@@ -20,6 +20,7 @@ type shellNative struct {
 	dataDir       string
 	appLog        string
 	windowIDValue string
+	window        windowBounds
 }
 
 func runNativeShellCase(r automationRunner, sha, target string, hooks *nativeHooks) nativeOutcome {
@@ -138,6 +139,7 @@ func runNativeShellCase(r automationRunner, sha, target string, hooks *nativeHoo
 		return s.failCleanup()
 	}
 	s.windowIDValue = window.ID
+	s.window = window
 	if opts, found := lastWindowOptions(s.appLog); !found || opts.Width != 390 || opts.Height != 844 {
 		s.out.Status = StatusFail
 		s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("application log does not record window-options requested=390x844 (found %+v: %v)", opts, found))
@@ -412,6 +414,11 @@ func (s *shellNative) navigate(route shellRoute, label string) bool {
 	if !s.waitText(route.ID+"-"+label, route.Marker, route.Path == "/", 20) {
 		return false
 	}
+	if route.Chrome == "shell" && route.BreadcrumbParent != "" {
+		if !s.waitText(route.ID+"-crumb-"+label, route.BreadcrumbParent+" / "+route.Title, false, 10) {
+			return false
+		}
+	}
 	return s.run(StepSpec{
 		Name:    "snapshot-" + route.ID + "-" + label,
 		Command: "agent-desktop",
@@ -421,11 +428,25 @@ func (s *shellNative) navigate(route shellRoute, label string) bool {
 }
 
 func (s *shellNative) goBack(label, marker string) bool {
-	ref, ok := s.findRef("back-"+label, "button", "返回上一页", 20)
-	if !ok {
+	// The prototype has no shared back button, so focus the web content and
+	// inject the platform history shortcut Alt+Left (devtools key uses
+	// SendInput; agent-desktop press cannot verify WebView2 child focus).
+	x := int(s.window.X + s.window.Width*0.6)
+	y := int(s.window.Y + s.window.Height*0.6)
+	if !s.run(StepSpec{
+		Name:    "focus-page-" + label,
+		Command: "agent-desktop",
+		Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
+		Timeout: 60 * time.Second,
+	}) {
 		return false
 	}
-	if !s.run(StepSpec{Name: "click-back-" + label, Command: "agent-desktop", Args: []string{"click", ref}, Timeout: 60 * time.Second}) {
+	if !s.run(StepSpec{
+		Name:    "history-back-" + label,
+		Command: "self",
+		Args:    []string{"key", "--title=Anvil", "--combo=alt+left"},
+		Timeout: 60 * time.Second,
+	}) {
 		return false
 	}
 	return s.waitText("back-marker-"+label, marker, false, 20)

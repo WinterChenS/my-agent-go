@@ -26,7 +26,7 @@ describe('shell keyboard access', () => {
     const user = userEvent.setup()
     renderAt('/')
     const order: string[] = []
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       await user.tab()
       order.push(activeLabel())
     }
@@ -35,6 +35,7 @@ describe('shell keyboard access', () => {
     expect(at('工作台')).toBeGreaterThan(at('Anvil'))
     expect(at('工具与自动化')).toBeGreaterThan(at('Agent'))
     expect(at('搜索')).toBeGreaterThan(at('工具与自动化'))
+    expect(at('帮助')).toBeGreaterThan(at('搜索'))
     expect(at('主内容')).toBeGreaterThan(at('帮助'))
   })
 
