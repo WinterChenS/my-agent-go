@@ -1081,6 +1081,39 @@
         "empty": "未设置",
         "overridden": "以下字段由环境变量补上（不会写入 settings.json）：{fields}",
         "unavailable": "读不到有效配置：{reason}"
+      },
+      "diagnosis": {
+        "button": "检查模型配置",
+        "checking": "检查中…",
+        "title": "模型配置诊断",
+        "hint": "只读检查：不写文件、不启动 Pi、不调用模型。",
+        "ready": "配置可用",
+        "notReady": "配置不可用",
+        "reasonLabel": "原因",
+        "selected": "当前模型",
+        "selectedNone": "未选择任何模型",
+        "selectedSource": "选中来源",
+        "fields": {
+          "provider": "Provider",
+          "model": "模型",
+          "baseUrl": "Base URL",
+          "api": "协议",
+          "credentialRef": "凭证引用",
+          "empty": "未设置"
+        },
+        "compiled": "已编译 {count} 个模型",
+        "modelsTitle": "逐模型状态",
+        "modelsEmpty": "资源库里还没有模型定义。",
+        "status": {
+          "ok": "ok",
+          "skipped": "跳过：{reason}"
+        },
+        "skippedTitle": "未参与编译",
+        "skippedItem": "{modelId}：{reason}",
+        "modelsJsonPath": "models.json 路径",
+        "modelsJsonPresent": "已生成",
+        "modelsJsonAbsent": "尚未生成（下次启动时写入）",
+        "unavailable": "诊断失败：{reason}"
       }
     },
     "permissions": {

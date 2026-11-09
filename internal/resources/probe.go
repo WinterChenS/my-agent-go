@@ -115,7 +115,7 @@ func (p *Prober) Probe(ctx context.Context, def ModelDefinition, secret string) 
 			return "", "", nil
 		}
 		return CredentialEnvName(m.CredentialRef), secret, nil
-	})
+	}, false)
 	if err != nil {
 		res.Error = toAppError(err)
 		return res

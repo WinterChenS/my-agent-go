@@ -330,6 +330,17 @@ func (s *Service) Delete(ctx context.Context, expectedRevision uint64, id string
 	return s.store.CompareAndSwap(ctx, config.KeyUser, expectedRevision, body)
 }
 
+// ModelSkip 是一条没参与编译的模型条目，以及**为什么**。
+//
+// 为什么不是裸 ID：诊断与启动报错都要回答"为什么"。只说"跳过了 m-x"
+// 会让用户回到界面里逐项猜——是 provider 名、模型名、被禁用，还是凭证引用
+// 悬空？这几种的修复动作完全不同（改定义 / 启用 / 重新保存密钥）。
+// Reason 是给人看的一句话，不含密钥本体。
+type ModelSkip struct {
+	ModelID string `json:"modelId"`
+	Reason  string `json:"reason"`
+}
+
 // PiModels 是编译结果：models.json 正文 + 需要注入子进程的凭证环境变量。
 type PiModels struct {
 	// JSON 是 models.json 的内容，apiKey 只有 $ENV 引用。
@@ -338,11 +349,11 @@ type PiModels struct {
 	Env []string
 	// Providers 是本次编译出的 provider 键（诊断/测试用）。
 	Providers []string
-	// Skipped 是因缺少 provider/模型名而没参与编译的条目 ID。
+	// Skipped 是没参与编译的条目及原因（旧格式、已禁用、凭证不可用…）。
 	//
 	// 旧版本存下的形状（只有 provider/baseUrl/model）会落到这里。
 	// 不参与编译，但要能被说出来——静默跳过会让用户以为它在用。
-	Skipped []string
+	Skipped []ModelSkip
 }
 
 // CompilePiModels 把用户层的模型定义编译成 Pi 的 models.json。
@@ -351,6 +362,20 @@ type PiModels struct {
 // 拒绝编译而不是"取最后一个"：那会让其中一个模型的请求打到另一个端点，
 // 而且从界面完全看不出来。
 func (s *Service) CompilePiModels(ctx context.Context) (PiModels, error) {
+	return s.compileModels(ctx, false)
+}
+
+// CompilePiModelsDiagnostic 用**同一套**规则编译，但把单条模型的失败记成
+// Skipped（带原因）而不是让整份编译失败。
+//
+// 用途只有一个：诊断要把"哪几条不行、为什么"一次说清，而不是报第一条就停。
+// 它不用于写 models.json——真正启动仍然走 CompilePiModels 的严格模式，
+// 所以"诊断说跳过"不会变成"启动时悄悄少一个模型"。
+func (s *Service) CompilePiModelsDiagnostic(ctx context.Context) (PiModels, error) {
+	return s.compileModels(ctx, true)
+}
+
+func (s *Service) compileModels(ctx context.Context, lenient bool) (PiModels, error) {
 	set, err := s.List(ctx)
 	if err != nil {
 		return PiModels{}, err
@@ -373,7 +398,7 @@ func (s *Service) CompilePiModels(ctx context.Context) (PiModels, error) {
 				"模型 "+m.ID+" 引用的凭证 "+m.CredentialRef+" 不可用: "+err.Error(), false)
 		}
 		return CredentialEnvName(m.CredentialRef), string(secret), nil
-	})
+	}, lenient)
 }
 
 // CompileLegacy 把旧的四个设置字段编译成同一份 models.json。
@@ -390,7 +415,7 @@ func CompileLegacy(def ModelDefinition, secret string) (PiModels, error) {
 			return "", "", nil
 		}
 		return CredentialEnvName(legacyCredentialRef), secret, nil
-	})
+	}, false)
 }
 
 // legacyCredentialRef 是旧设置路径的固定凭证名，只用于生成环境变量名。
@@ -404,7 +429,10 @@ const legacyCredentialRef = "settings-api-key"
 type credentialResolver func(ModelDefinition) (envName, secret string, err error)
 
 // compilePiModels 是 models.json 生成的唯一实现。
-func compilePiModels(defs []ModelDefinition, resolve credentialResolver) (PiModels, error) {
+//
+// lenient=true 时单条模型的问题记进 Skipped 并继续，其余规则与严格模式完全相同；
+// 两条路径共用这一份代码，否则"诊断说没事、启动说不行"会变成常态化偏差。
+func compilePiModels(defs []ModelDefinition, resolve credentialResolver, lenient bool) (PiModels, error) {
 	type providerEntry struct {
 		name    string
 		baseURL string
@@ -416,11 +444,14 @@ func compilePiModels(defs []ModelDefinition, resolve credentialResolver) (PiMode
 	order := []string{}
 	byProvider := map[string]*providerEntry{}
 	env := []string{}
-	skipped := []string{}
+	skipped := []ModelSkip{}
 	seenEnv := map[string]bool{}
 
 	for _, m := range defs {
 		if m.Enabled != nil && !*m.Enabled {
+			// 禁用不是缺陷，但"没参与编译"这件事必须能被说出来：
+			// 否则用户看到列表里有一条、运行时却没有它，只能猜。
+			skipped = append(skipped, ModelSkip{ModelID: m.ID, Reason: "已禁用"})
 			continue
 		}
 		// 空 providerId 会在 providers 里生成一个空键（"": {...}），Pi 那边
@@ -429,12 +460,17 @@ func compilePiModels(defs []ModelDefinition, resolve credentialResolver) (PiMode
 		// 但也不能默默跳过：调用方与列表都要能看到"这条没参与编译"。
 		// C01 之前的旧形状（provider/baseUrl/model）正好落到这个分支。
 		if strings.TrimSpace(m.ProviderID) == "" || strings.TrimSpace(m.ModelID) == "" {
-			skipped = append(skipped, m.ID)
+			skipped = append(skipped, ModelSkip{ModelID: m.ID, Reason: missingShapeReason(m)})
 			continue
 		}
 		envName, secret, err := resolve(m)
 		if err != nil {
-			return PiModels{}, err
+			if !lenient {
+				return PiModels{}, err
+			}
+			// 诊断模式：凭证不可用不该掩盖另外几条模型的状态。
+			skipped = append(skipped, ModelSkip{ModelID: m.ID, Reason: err.Error()})
+			continue
 		}
 		apiKey := "local-no-key"
 		if envName != "" {
@@ -453,6 +489,12 @@ func compilePiModels(defs []ModelDefinition, resolve credentialResolver) (PiMode
 			byProvider[m.ProviderID] = p
 			order = append(order, m.ProviderID)
 		} else if p.baseURL != m.BaseURL || p.api != m.API {
+			driftReason := "与 " + p.owner + " 共用 provider " + m.ProviderID +
+				"，但 baseUrl/api 不一致（" + p.baseURL + "/" + p.api + " vs " + m.BaseURL + "/" + m.API + "）"
+			if lenient {
+				skipped = append(skipped, ModelSkip{ModelID: m.ID, Reason: driftReason})
+				continue
+			}
 			return PiModels{}, contracts.NewAppError(
 				contracts.CodeConfigConflict,
 				"模型 "+p.owner+" 与 "+m.ID+" 共用 provider "+m.ProviderID+
@@ -488,6 +530,24 @@ func compilePiModels(defs []ModelDefinition, resolve credentialResolver) (PiMode
 	}
 	sort.Strings(env)
 	return PiModels{JSON: raw, Env: env, Providers: order, Skipped: skipped}, nil
+}
+
+// missingShapeReason 说明一条定义**缺了什么**才编译不了。
+//
+// 分开说"缺 provider 名"和"缺模型名"：修复动作一样（去编辑那条模型），
+// 但用户看到"缺 provider 名"才知道该在哪个输入框里补东西。
+func missingShapeReason(m ModelDefinition) string {
+	missing := []string{}
+	if strings.TrimSpace(m.ProviderID) == "" {
+		missing = append(missing, "provider 名")
+	}
+	if strings.TrimSpace(m.ModelID) == "" {
+		missing = append(missing, "模型名")
+	}
+	if len(missing) == 0 {
+		return "无法编译"
+	}
+	return "缺少 " + strings.Join(missing, " 与 ") + "（旧格式条目无法编译进 models.json）"
 }
 
 // WritePiModels 把编译结果写进隔离 agentDir。

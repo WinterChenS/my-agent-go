@@ -367,6 +367,52 @@ export interface ModelAction {
   error?: CallError;
 }
 
+/**
+ * 一条模型在诊断里的状态（MDIAG）。
+ *
+ * only ok / skipped：ok = 会进 models.json，skipped = 不会且 reason 说明为什么。
+ * “跳过”经常是用户自己禁用的，不是错误；但不说出来就成了
+ * “列表里有一条、运行时却没有它”的悬案。
+ */
+export interface ModelDiagnosisEntry {
+  modelId: string;
+  providerId: string;
+  status: "ok" | "skipped" | string;
+  reason?: string;
+}
+
+/** 当前选中模型的只读快照：只有引用，没有密钥本体。 */
+export interface ModelDiagnosisSelection {
+  providerId: string;
+  modelId: string;
+  baseUrl: string;
+  api: string;
+  credentialRef: string;
+}
+
+/**
+ * 模型配置诊断结果（MDIAG）。
+ *
+ * 为什么需要它：保存模型成功、启动却只回“缺少必要的配置”时，用户无从判断是
+ * 没设为当前、编译时被跳过、缺 baseUrl/api，还是凭证引用悬空。
+ */
+export interface ModelDiagnosis {
+  selectedRef: string;
+  /** resources | settings | none。 */
+  selectedSource: "resources" | "settings" | "none" | string;
+  selected?: ModelDiagnosisSelection | null;
+  models: ModelDiagnosisEntry[] | null;
+  compiled: number;
+  /** 没参与编译的条目与原因（与 Go 侧 resources.ModelSkip 对应）。 */
+  skipped: { modelId: string; reason: string }[] | null;
+  modelsJsonPath: string;
+  modelsJsonExists: boolean;
+  ready: boolean;
+  /** ready=false 时的唯一一句原因（含要动手的那一步）。 */
+  reason: string;
+  error?: CallError;
+}
+
 // ---- C03：技能与扩展 ----
 
 export type ResourceScope = "user" | "workspace";

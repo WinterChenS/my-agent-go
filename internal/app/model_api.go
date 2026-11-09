@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +73,176 @@ type ModelAction struct {
 	Ref      string     `json:"ref"`
 	Deferred bool       `json:"deferred"`
 	Error    *CallError `json:"error,omitempty"`
+}
+
+// ModelDiagnosisEntry 是一条模型定义在本次诊断里的状态。
+//
+// Status 只有两种：ok（会进 models.json）/ skipped（不会，且 Reason 说明为什么）。
+// "跳过"不是错误——它经常是用户自己禁用的——但不说出来就会变成
+// "列表里有一条、运行时却没有它"的悬案。
+type ModelDiagnosisEntry struct {
+	ModelID    string `json:"modelId"`
+	ProviderID string `json:"providerId"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// ModelDiagnosisSelection 是当前选中模型的只读快照。
+//
+// 只有**引用**：credentialRef 是凭证库里的名字，密钥本体不在这条路径上。
+type ModelDiagnosisSelection struct {
+	ProviderID    string `json:"providerId"`
+	ModelID       string `json:"modelId"`
+	BaseURL       string `json:"baseUrl"`
+	API           string `json:"api"`
+	CredentialRef string `json:"credentialRef"`
+}
+
+// ModelDiagnosis 回答一个问题：“为什么现在没有可用模型？”
+//
+// 为什么需要它：保存模型成功、启动却回 CONFIG_MISSING 时，用户无从判断是
+// 没设为当前、编译 models.json 时被跳过、还是凭证引用悬空——这几种的修复
+// 动作完全不同。诊断把这些事实一次列全，且**不产生副作用**（不写文件、不启动 Pi）。
+type ModelDiagnosis struct {
+	SelectedRef    string                   `json:"selectedRef"`
+	SelectedSource string                   `json:"selectedSource"`
+	Selected       *ModelDiagnosisSelection `json:"selected,omitempty"`
+	// Models 是逐模型状态（界面直接渲染，不在前端重算规则）。
+	Models []ModelDiagnosisEntry `json:"models"`
+	// Compiled 是真正进了 models.json 的条数；Skipped 是没进的及原因。
+	Compiled int                   `json:"compiled"`
+	Skipped  []resources.ModelSkip `json:"skipped"`
+	// ModelsJSONPath/Exists 是真正会被 Pi 读的那份文件，以及它当前在不在。
+	// 不存在本身不算“不可用”（下一次启动会写），所以它不参与 Ready。
+	ModelsJSONPath   string `json:"modelsJsonPath"`
+	ModelsJSONExists bool   `json:"modelsJsonExists"`
+	Ready            bool   `json:"ready"`
+	// Reason 是 Ready=false 时的唯一一句原因（含要动手的那一步）。
+	Reason string     `json:"reason"`
+	Error  *CallError `json:"error,omitempty"`
+}
+
+// DiagnoseModelConfig 诊断模型配置为什么可用/不可用。
+//
+// 复用 CompilePiModels 的同一套规则（CompilePiModelsDiagnostic 只是把单条
+// 失败记成 Skipped）：这里不另写一份"能不能跑"的判定，否则界面说没事、
+// 启动却报 CONFIG_MISSING 的偏差会永久存在。
+func (d *Desktop) DiagnoseModelConfig() ModelDiagnosis {
+	ctx := context.Background()
+
+	d.mu.Lock()
+	s := d.settings
+	d.mu.Unlock()
+
+	out := ModelDiagnosis{
+		SelectedRef:    strings.TrimSpace(s.ModelRef),
+		SelectedSource: "none",
+		Models:         []ModelDiagnosisEntry{},
+		Skipped:        []resources.ModelSkip{},
+		ModelsJSONPath: filepath.Join(d.agentDir(), "models.json"),
+	}
+	if st, err := os.Stat(out.ModelsJSONPath); err == nil && !st.IsDir() {
+		out.ModelsJSONExists = true
+	}
+
+	svc, err := d.resourceServices()
+	if err != nil {
+		out.Error = toCallError(err)
+		out.Reason = "读不到模型资源服务：" + err.Error()
+		return out
+	}
+
+	pm, compileErr := svc.CompilePiModelsDiagnostic(ctx)
+	if pm.Skipped != nil {
+		out.Skipped = pm.Skipped
+	}
+	skippedReason := make(map[string]string, len(out.Skipped))
+	for _, sk := range out.Skipped {
+		skippedReason[sk.ModelID] = sk.Reason
+	}
+
+	set, listErr := svc.List(ctx)
+	if listErr != nil {
+		out.Error = toCallError(listErr)
+		out.Reason = "读不出模型定义：" + listErr.Error()
+		return out
+	}
+	for _, m := range set.Items {
+		entry := ModelDiagnosisEntry{ModelID: m.ID, ProviderID: m.ProviderID, Status: "ok"}
+		if reason, ok := skippedReason[m.ID]; ok {
+			entry.Status = "skipped"
+			entry.Reason = reason
+			out.Models = append(out.Models, entry)
+			continue
+		}
+		out.Compiled++
+		out.Models = append(out.Models, entry)
+	}
+	if compileErr != nil {
+		out.Error = toCallError(compileErr)
+		out.Reason = "编译 models.json 失败：" + compileErr.Error()
+		return out
+	}
+
+	if out.SelectedRef == "" {
+		// 旧字段路径（fixture / 本机端点）：设置里直接写了端点与模型名。
+		// 它不经过资源库，所以编译结果与它无关，不算进 Compiled。
+		if strings.TrimSpace(s.BaseURL) != "" && strings.TrimSpace(s.Model) != "" {
+			provider := strings.TrimSpace(s.Provider)
+			if provider == "" {
+				provider = "fixture"
+			}
+			out.SelectedSource = "settings"
+			out.Selected = &ModelDiagnosisSelection{
+				ProviderID: provider,
+				ModelID:    strings.TrimSpace(s.Model),
+				BaseURL:    strings.TrimSpace(s.BaseURL),
+				API:        "openai-completions",
+			}
+			out.Ready = true
+			return out
+		}
+		if len(set.Items) == 0 {
+			out.Reason = "资源库里没有任何模型定义；请先在设置→模型里新建一个模型并设为当前模型"
+			return out
+		}
+		ids := make([]string, 0, len(set.Items))
+		for _, m := range set.Items {
+			ids = append(ids, m.ID)
+		}
+		out.Reason = "资源库里有 " + strconv.Itoa(len(set.Items)) + " 个模型（" + strings.Join(ids, "、") +
+			"），但没有一个被设为当前模型；请点“设为当前模型”后再启动"
+		return out
+	}
+
+	out.SelectedSource = "resources"
+	def, defErr := svc.Get(ctx, out.SelectedRef)
+	if defErr != nil {
+		out.Error = toCallError(defErr)
+		out.Reason = "当前模型 " + out.SelectedRef + " 不存在（可能已被删除）；请在设置→模型里重新选择一个模型"
+		return out
+	}
+	out.Selected = &ModelDiagnosisSelection{
+		ProviderID:    def.ProviderID,
+		ModelID:       def.ModelID,
+		BaseURL:       def.BaseURL,
+		API:           def.API,
+		CredentialRef: def.CredentialRef,
+	}
+	if def.Enabled != nil && !*def.Enabled {
+		out.Reason = "当前模型 " + out.SelectedRef + " 已被禁用；请启用它，或改选其它模型"
+		return out
+	}
+	if reason, ok := skippedReason[def.ID]; ok {
+		out.Reason = "当前模型 " + out.SelectedRef + " 没有参与编译：" + reason
+		return out
+	}
+	if len(pm.JSON) == 0 {
+		out.Reason = "没有任何可用的模型定义，无法生成 models.json"
+		return out
+	}
+	out.Ready = true
+	return out
 }
 
 // resourceServices 懒加载模型服务与凭证存储。
