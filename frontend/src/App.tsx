@@ -4,6 +4,7 @@ import SettingsPage from './pages/settings/SettingsPage'
 import WorkbenchPage from './pages/workbench/WorkbenchPage'
 import ChatPage from './pages/chat/ChatPage'
 import AgentsPage from './pages/agents/AgentsPage'
+import SkillsPage from './pages/skills/SkillsPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
@@ -17,7 +18,7 @@ function FallbackPage() {
 function RootPage() {
   const { search } = useLocation()
   const sample = new URLSearchParams(search).get('sample')
-  return sample === 'chat' ? <ChatPage /> : sample === 'agents' ? <AgentsPage /> : <WorkbenchPage />
+  return sample === 'chat' ? <ChatPage /> : sample === 'agents' ? <AgentsPage /> : sample === 'skills' ? <SkillsPage /> : <WorkbenchPage />
 }
 
 export function AppRoutes() {
@@ -39,6 +40,8 @@ export function AppRoutes() {
                     <ChatPage />
                   ) : route.id === 'agents' ? (
                     <AgentsPage />
+                  ) : route.id === 'skills' ? (
+                    <SkillsPage />
                   ) : (
                     <PagePlaceholder route={route} />
                   )
@@ -48,6 +51,7 @@ export function AppRoutes() {
             <Route path="/__sample/workbench" element={<WorkbenchPage />} />
             <Route path="/__sample/chat" element={<ChatPage />} />
             <Route path="/__sample/agents" element={<AgentsPage />} />
+            <Route path="/__sample/skills" element={<SkillsPage />} />
             <Route path="*" element={<FallbackPage />} />
           </Route>
         </Routes>

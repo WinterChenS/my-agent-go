@@ -85,7 +85,7 @@
       "navLabel": "Skill",
       "group": "tools",
       "futureTask": "R0-07",
-      "marker": "R0-01 placeholder · /skills",
+      "marker": "R0-07 skills · /skills",
       "breadcrumbParent": "智能体",
       "topbarActions": [
         "search"

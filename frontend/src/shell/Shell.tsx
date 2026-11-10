@@ -16,11 +16,16 @@ export default function Shell() {
   const agentsSample =
     location.pathname === '/__sample/agents' ||
     (location.pathname === '/' && new URLSearchParams(location.search).get('sample') === 'agents')
+  const skillsSample =
+    location.pathname === '/__sample/skills' ||
+    (location.pathname === '/' && new URLSearchParams(location.search).get('sample') === 'skills')
   const route = (chatSample
     ? ROUTES_BY_ID.get('chat')
     : agentsSample
       ? ROUTES_BY_ID.get('agents')
-      : resolveRoute(location.pathname)) ?? WORKBENCH_ROUTE
+      : skillsSample
+        ? ROUTES_BY_ID.get('skills')
+        : resolveRoute(location.pathname)) ?? WORKBENCH_ROUTE
   const { language, t } = useI18n()
   const searchButtonRef = useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)

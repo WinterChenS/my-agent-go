@@ -14,6 +14,8 @@ export default function Sidebar() {
   const shellSample = useShellSample()
   const agentsSample =
     location.pathname === '/__sample/agents' || new URLSearchParams(location.search).get('sample') === 'agents'
+  const skillsSample =
+    location.pathname === '/__sample/skills' || new URLSearchParams(location.search).get('sample') === 'skills'
   const isChat = location.pathname === '/chat' || location.pathname === '/__sample/chat' || chatSample
   return (
     <aside className="sidebar" id="sidebar">
@@ -36,7 +38,7 @@ export default function Sidebar() {
               key={route.id}
               id={`nav-${route.id}`}
               to={route.path}
-              className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') || (agentsSample && route.id === 'agents') ? ' is-active' : ''}`}
+              className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') || (agentsSample && route.id === 'agents') || (skillsSample && route.id === 'skills') ? ' is-active' : ''}`}
               aria-label={count === null ? t(route.navKey) : t('sample.nav.chat', { count })}
               data-nav-entry
               data-route-path={route.path}

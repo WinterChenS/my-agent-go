@@ -51,6 +51,9 @@ describe('shared shell', () => {
       } else if (route.id === 'agents') {
         expect(screen.getByTestId('agents-page')).toBeInTheDocument()
         expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
+      } else if (route.id === 'skills') {
+        expect(screen.getByTestId('skills-page')).toBeInTheDocument()
+        expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
       } else {
         expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
       }

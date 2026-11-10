@@ -15,7 +15,7 @@ export const SHELL_SAMPLE_FIXTURE = {
 
 export function useShellSample(): boolean {
   const { pathname, search } = useLocation()
-  if (pathname === '/__sample/workbench' || pathname === '/__sample/chat' || pathname === '/__sample/agents') return true
+  if (pathname === '/__sample/workbench' || pathname === '/__sample/chat' || pathname === '/__sample/agents' || pathname === '/__sample/skills') return true
   const sample = new URLSearchParams(search).get('sample')
-  return sample === 'workbench' || sample === 'chat' || sample === 'agents'
+  return sample === 'workbench' || sample === 'chat' || sample === 'agents' || sample === 'skills'
 }

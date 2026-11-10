@@ -520,3 +520,131 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `agents.dialog.importAction` | 导入 | Import |
 | `agents.dialog.close` | 关闭 | Close |
 | `agents.validation.fileRequired` | 请选择要导入的文件 | Choose a file to import |
+| `skills.title` | Skill | Skills |
+| `skills.description` | Skill 是可复用的能力包，包含指令、触发条件与可选脚本。Agent 在命中触发条件时自动调用，也可以被对话显式唤起。 | Skills are reusable capability packages containing instructions, triggers, and optional scripts. Agents call them when a trigger matches, or a chat can invoke them explicitly. |
+| `skills.import` | 导入 Skill | Import Skill |
+| `skills.new` | 新建 Skill | New Skill |
+| `skills.sampleBanner` | 原型样例数据 · 仅用于设计对照，不是真实状态 | Prototype sample data · design reference only, not a real state |
+| `skills.tab.installed` | 已安装 | Installed |
+| `skills.tab.installedCount` | 已安装 {count} | Installed {count} |
+| `skills.tab.market` | 市场 | Market |
+| `skills.tab.drafts` | 草稿 | Drafts |
+| `skills.tab.draftsCount` | 草稿 {count} | Drafts {count} |
+| `skills.searchPlaceholder` | 按名称或触发条件搜索 | Search by name or trigger |
+| `skills.filter.source` | 全部来源 | All sources |
+| `skills.filter.agent` | 全部 Agent | All agents |
+| `skills.toolbar.summary` | {count} 个已安装 · 上次同步 2 小时前 | {count} installed · synced 2 hours ago |
+| `skills.emptyList` | 尚未接入 Skill | No Skills connected yet |
+| `skills.emptyListBody` | Skill 数据源接入后会在这里显示。 | Skills will appear here after a data source is connected. |
+| `skills.emptyDetail` | 尚未接入 Skill 详情 | No Skill details connected yet |
+| `skills.emptyDetailBody` | 接入并选择一个 Skill 后，可在这里查看概览、工作流与测试。 | Connect a data source and select a Skill to inspect its overview, workflow, and tests. |
+| `skills.listNoMatch` | 没有匹配的 Skill | No matching Skills |
+| `skills.source.builtin` | 内置 | Built-in |
+| `skills.source.local` | 本地 | Local |
+| `skills.source.market` | 市场 | Market |
+| `skills.source.official` | 官方 | Official |
+| `skills.source.community` | 社区 | Community |
+| `skills.meta` | {version} · {source} | {version} · {source} |
+| `skills.calls` | 调用 {count} 次 | {count} calls |
+| `skills.updated` | {time} | {time} |
+| `skills.installs` | 安装 {count} | {count} installs |
+| `skills.status.draft` | 草稿 | Draft |
+| `skills.status.unsaved` | 未保存 | Unsaved |
+| `skills.status.needsTest` | 待测试 | Needs test |
+| `skills.action.unavailable` | 未接入（G1） | Not connected (G1) |
+| `skills.notice.save` | 样例模式：保存未接入。 | Sample mode: save is not connected. |
+| `skills.notice.enable` | 样例模式：启用未接入。 | Sample mode: enabling is not connected. |
+| `skills.notice.disable` | 样例模式：停用未接入。 | Sample mode: disabling is not connected. |
+| `skills.notice.test` | 样例模式：试运行未接入。 | Sample mode: test runs are not connected. |
+| `skills.notice.publish` | 样例模式：发布未接入。 | Sample mode: publishing is not connected. |
+| `skills.notice.install` | 样例模式：安装未接入。 | Sample mode: install is not connected. |
+| `skills.notice.import` | 样例模式：导入未接入。 | Sample mode: import is not connected. |
+| `skills.notice.edit` | 样例模式：编辑未接入。 | Sample mode: editing is not connected. |
+| `skills.notice.toggle` | 样例模式：设置切换未接入。 | Sample mode: toggling settings is not connected. |
+| `skills.notice.continue` | 样例模式：继续编辑未接入。 | Sample mode: continue editing is not connected. |
+| `skills.notice.auth` | 样例模式：连接器授权未接入。 | Sample mode: connector authorization is not connected. |
+| `skills.detail.save` | 保存 | Save |
+| `skills.detail.backToList` | 返回 Skill 列表 | Back to Skill list |
+| `skills.more` | 更多操作 | More actions |
+| `skills.detail.overview` | 概览 | Overview |
+| `skills.detail.version` | 版本 {version} | Version {version} |
+| `skills.detail.successRate` | 成功率 | Success rate |
+| `skills.detail.recentRun` | 最近运行 | Last run |
+| `skills.detail.enable` | 启用 Skill | Enable Skill |
+| `skills.workflow.title` | 工作流步骤 | Workflow steps |
+| `skills.workflow.stepCount` | {count} 步 | {count} steps |
+| `skills.workflow.done` | 已完成 | Done |
+| `skills.workflow.ready` | 可执行 | Ready |
+| `skills.workflow.waiting` | 等待确认 | Waiting |
+| `skills.workflow.tools` | 所需工具/资源 | Tools/resources |
+| `skills.workflow.toggle` | 展开或收起步骤 | Toggle step |
+| `skills.trigger.title` | 触发与资源 | Triggers & resources |
+| `skills.trigger.conditions` | 触发条件 | Trigger conditions |
+| `skills.trigger.schedule` | 定时触发 | Scheduled trigger |
+| `skills.trigger.resources` | 依赖与资源 | Dependencies & resources |
+| `skills.resource.sentry` | Sentry 连接器 | Sentry connector |
+| `skills.resource.sentryDesc` | 读取今日告警与处理状态 | Read today's alerts and resolution state |
+| `skills.resource.dingtalk` | 钉钉连接器 | DingTalk connector |
+| `skills.resource.dingtalkDesc` | 读取值班群处理记录 | Read on-call group resolution records |
+| `skills.resource.library` | 资源库 | Library |
+| `skills.resource.libraryDesc` | 写入 Markdown 交接单 | Write the Markdown handoff |
+| `skills.resource.terminal` | 终端脚本 | Terminal script |
+| `skills.resource.terminalDesc` | 当前流程不需要 | Not needed for this flow |
+| `skills.test.title` | 测试与发布 | Test & publish |
+| `skills.test.description` | Agent 会在隔离会话中跑一遍示例输入，不会发送消息或写入正式资源库。 | The agent runs the sample input in an isolated chat; no message is sent and no production resource is written. |
+| `skills.test.input` | 试运行输入 | Test input |
+| `skills.test.run` | 运行测试 | Run test |
+| `skills.test.fail` | 模拟失败 | Simulate failure |
+| `skills.test.checks` | 检查项 | Checks |
+| `skills.test.structure` | SKILL.md 结构完整 | SKILL.md structure is valid |
+| `skills.test.triggerable` | 触发条件可判定 | Trigger conditions are decidable |
+| `skills.test.dependencies` | 依赖均已授权 | Dependencies are authorized |
+| `skills.test.awaiting` | 等待试运行输出 | Awaiting test output |
+| `skills.test.running` | 运行中… | Running… |
+| `skills.test.success` | 试运行成功 | Test succeeded |
+| `skills.test.failure` | 试运行失败 | Test failed |
+| `skills.test.enableAfter` | 试运行后启用 | Enable after test |
+| `skills.test.defaultAgent` | 发布后默认只对「文档助手」可用，可在 Agent 配置中挂载到其它 Agent。 | After publishing, this Skill is available only to Documentation agent by default; mount it on other agents from their configuration. |
+| `skills.import.title` | 导入 Skill | Import Skill |
+| `skills.import.description` | 粘贴仓库或 SKILL.md 链接，Pi Agent 会拉取、检查依赖并在本地安装；也可从文件导入。 | Paste a repository or SKILL.md URL; Pi Agent fetches it, checks dependencies, and installs locally. You can also import a file. |
+| `skills.import.urlTab` | 从链接 | From URL |
+| `skills.import.fileTab` | 从文件 | From file |
+| `skills.import.url` | Skill 链接 | Skill URL |
+| `skills.import.urlPlaceholder` | https://github.com/owner/repo/tree/main/my-skill | https://github.com/owner/repo/tree/main/my-skill |
+| `skills.import.analyze` | 交给 Agent | Hand to agent |
+| `skills.import.urlHint` | 支持 GitHub/GitLab 仓库、目录链接、原始 SKILL.md URL 与 git 地址。 | Supports GitHub/GitLab repositories, directory links, raw SKILL.md URLs, and git addresses. |
+| `skills.import.file` | 选择文件 | Choose file |
+| `skills.import.fileHint` | 支持 SKILL.md、ZIP 或包含 assets/ 与 scripts/ 的目录包。 | Supports SKILL.md, ZIP, or directories containing assets/ and scripts/. |
+| `skills.import.notice` | 链接内容视为不可信输入。Agent 只解析 Skill 清单，不会执行仓库中的安装说明或脚本，直到你确认依赖与权限。 | Link contents are untrusted. The agent only parses the Skill manifest and does not run repository instructions or scripts until dependencies and permissions are confirmed. |
+| `skills.import.cancel` | 取消 | Cancel |
+| `skills.import.action` | 导入 | Import |
+| `skills.import.close` | 关闭 | Close |
+| `skills.validation.urlRequired` | 请填写 Skill 链接 | Enter a Skill URL |
+| `skills.validation.urlInvalid` | 请输入有效的 http/https 链接 | Enter a valid http/https URL |
+| `skills.validation.fileRequired` | 请选择要导入的文件 | Choose a file to import |
+| `skills.builder.title` | 创建可复用能力 | Create reusable capability |
+| `skills.builder.description` | 先描述目标，Agent 会生成结构；只有在需要时才展开触发、工具与测试配置。 | Describe the goal first; the agent generates structure and only asks for triggers, tools, and tests when needed. |
+| `skills.builder.kicker` | 标准 Skill 创建器 | Standard Skill builder |
+| `skills.builder.step.basics` | 基础信息 | Basic information |
+| `skills.builder.step.basicsDesc` | 名称与说明 | Name and description |
+| `skills.builder.step.triggers` | 触发与资源 | Triggers & resources |
+| `skills.builder.step.triggersDesc` | 按需展开 | Configure as needed |
+| `skills.builder.step.test` | 测试与发布 | Test & publish |
+| `skills.builder.step.testDesc` | 试运行后启用 | Enable after test |
+| `skills.builder.progress` | 第 {current} / {total} 步 | Step {current} / {total} |
+| `skills.builder.name` | 名称 | Name |
+| `skills.builder.slug` | 标识 | Identifier |
+| `skills.builder.descriptionLabel` | 用途说明 | Description |
+| `skills.builder.triggerLabel` | 触发条件 | Trigger conditions |
+| `skills.builder.triggerPlaceholder` | 例如：用户提到「交接」或每日 18:00 | For example: the user mentions handoff, or daily at 18:00 |
+| `skills.builder.semantic` | 语义条件 | Semantic conditions |
+| `skills.builder.schedule` | 定时触发 | Scheduled trigger |
+| `skills.builder.next` | 继续 | Continue |
+| `skills.builder.prev` | 上一步 | Previous |
+| `skills.builder.publish` | 发布 Skill | Publish Skill |
+| `skills.builder.cancel` | 取消 | Cancel |
+| `skills.builder.saveDraft` | 存为草稿 | Save draft |
+| `skills.validation.nameRequired` | 请填写 Skill 名称 | Enter a Skill name |
+| `skills.validation.slugRequired` | 请填写标识 | Enter an identifier |
+| `skills.validation.slugInvalid` | 标识只能包含小写字母、数字和连字符 | Use only lowercase letters, numbers, and hyphens |
+| `skills.validation.triggerRequired` | 请填写至少一个触发条件 | Enter at least one trigger condition |
