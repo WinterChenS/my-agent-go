@@ -206,7 +206,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.run(StepSpec{Name: "chat-open-rail-drawer", Command: "agent-desktop", Args: []string{"click", railToggle}, Timeout: 60 * time.Second}) {
+	if !s.clickRefPhysical(railToggle, "chat-rail-toggle") {
 		return s.failCleanup()
 	}
 	if !s.waitExpanded(railToggle, true, "chat-rail-open") {
@@ -219,7 +219,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.run(StepSpec{Name: "chat-close-rail-drawer", Command: "agent-desktop", Args: []string{"click", railClose}, Timeout: 60 * time.Second}) {
+	if !s.clickRefPhysical(railClose, "chat-rail-close") {
 		return s.failCleanup()
 	}
 	if !s.waitExpanded(railToggle, false, "chat-rail-closed") {
@@ -234,7 +234,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.run(StepSpec{Name: "chat-open-history-drawer", Command: "agent-desktop", Args: []string{"click", historyToggle}, Timeout: 60 * time.Second}) {
+	if !s.clickRefPhysical(historyToggle, "chat-history-toggle") {
 		return s.failCleanup()
 	}
 	if !s.waitRoleCount("chat-history-drawer", "window", "历史会话", 1, 10) {
@@ -342,4 +342,21 @@ func (s *shellNative) waitRoleCount(logID, role, name string, want, attempts int
 	s.out.Status = StatusFail
 	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("role %s %q count did not become %d", role, name, want))
 	return false
+}
+
+func (s *shellNative) clickRefPhysical(ref, logID string) bool {
+	bounds, ok := s.elementBounds(logID, ref)
+	if !ok {
+		return false
+	}
+	if !s.run(StepSpec{Name: "focus-" + logID, Command: "agent-desktop", Args: []string{"focus-window", "--window-id", s.windowIDValue}, Timeout: 60 * time.Second}) {
+		return false
+	}
+	x := int(bounds.X + bounds.Width/2)
+	y := int(bounds.Y + bounds.Height/2)
+	return s.run(StepSpec{
+		Name: "physical-click-" + logID, Command: "agent-desktop",
+		Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
+		Timeout: 60 * time.Second,
+	})
 }
