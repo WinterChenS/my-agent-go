@@ -54,6 +54,9 @@ describe('shared shell', () => {
       } else if (route.id === 'skills') {
         expect(screen.getByTestId('skills-page')).toBeInTheDocument()
         expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
+      } else if (route.id === 'mcp') {
+        expect(screen.getByTestId('mcp-page')).toBeInTheDocument()
+        expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
       } else {
         expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
       }

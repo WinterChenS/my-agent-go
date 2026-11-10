@@ -61,6 +61,7 @@ describe('design tokens', () => {
     const chatDir = join(srcRoot, 'pages', 'chat')
     const agentsDir = join(srcRoot, 'pages', 'agents')
     const skillsDir = join(srcRoot, 'pages', 'skills')
+    const mcpDir = join(srcRoot, 'pages', 'mcp')
     const files = [
       ...filesUnder(shellDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(preferencesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
@@ -68,6 +69,7 @@ describe('design tokens', () => {
       ...filesUnder(chatDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(agentsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(skillsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(mcpDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       join(srcRoot, 'styles.css'),
     ]
     const rawColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\(/

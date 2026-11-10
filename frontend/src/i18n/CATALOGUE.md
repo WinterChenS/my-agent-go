@@ -663,3 +663,107 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `skills.builder.intentLabel` | 任务描述 | Task description |
 | `skills.builder.intentPlaceholder` | 例如：每天交接前，把告警、处理动作和遗留问题整理成交接单。 | Example: before each shift handoff, collect alerts, actions, and open issues into a handoff report. |
 | `skills.builder.workflow` | 工作流步骤 | Workflow steps |
+| `mcp.title` | MCP 服务 | MCP services |
+| `mcp.description` | 通过 Model Context Protocol 把本地文件、数据库与浏览器接进 Agent。服务声明的每个工具都会出现在 Agent 的工具列表里，调用前按权限策略校验。 | Connect local files, databases, and browsers to agents through the Model Context Protocol. Every tool a server exposes appears in the agent tool list and is checked against the permission policy before use. |
+| `mcp.reconnect` | 重连全部 | Reconnect all |
+| `mcp.add` | 添加服务 | Add server |
+| `mcp.sampleBanner` | 原型样例数据 · 仅用于设计对照，不是真实状态 | Prototype sample data · design reference only, not a real state |
+| `mcp.action.unavailable` | 未接入（G1） | Not connected (G1) |
+| `mcp.stats.connected` | 已连接服务 | Connected servers |
+| `mcp.stats.connectedSub` | 1 个未连接 | 1 disconnected |
+| `mcp.stats.tools` | 暴露工具 | Exposed tools |
+| `mcp.stats.toolsSub` | 本周新增 4 | 4 added this week |
+| `mcp.stats.calls` | 今日调用 | Calls today |
+| `mcp.stats.callsSub` | 失败 3 · 成功率 98.6% | 3 failed · 98.6% success |
+| `mcp.stats.latency` | 平均延迟 | Average latency |
+| `mcp.stats.latencySub` | p95 480ms | p95 480ms |
+| `mcp.stats.empty` | 尚未接入 | Not connected |
+| `mcp.searchPlaceholder` | 按服务名或工具名搜索 | Search by server or tool name |
+| `mcp.filter.transport` | 全部传输方式 | All transports |
+| `mcp.filter.transportLabel` | 传输方式 | Transport |
+| `mcp.filter.status` | 全部状态 | All statuses |
+| `mcp.filter.statusLabel` | 状态 | Status |
+| `mcp.transport.stdio` | stdio | stdio |
+| `mcp.transport.http` | HTTP / SSE | HTTP / SSE |
+| `mcp.transport.websocket` | WebSocket | WebSocket |
+| `mcp.status.connected` | 已连接 | Connected |
+| `mcp.status.needsAuth` | 需授权 | Authorization needed |
+| `mcp.status.disconnected` | 未连接 | Disconnected |
+| `mcp.status.disabled` | 已停用 | Disabled |
+| `mcp.configPath` | 配置文件 | Config file |
+| `mcp.toolsCount` | {count} 个工具 | {count} tools |
+| `mcp.tag.stdio` | stdio | stdio |
+| `mcp.tag.readonly` | 只读 | Read only |
+| `mcp.tag.http` | HTTP / SSE | HTTP / SSE |
+| `mcp.tag.rowLimit` | 行级限制 5,000 | Row limit 5,000 |
+| `mcp.tag.writesWeb` | 可写外部网站 | Writes external sites |
+| `mcp.tag.highRisk` | 高风险 | High risk |
+| `mcp.tag.oauthPending` | OAuth 待完成 | OAuth pending |
+| `mcp.callsToday` | 今日 {count} 次调用 | {count} calls today |
+| `mcp.lastError` | 上次错误 {time} | Last error {time} |
+| `mcp.average` | 平均 {latency} | Average {latency} |
+| `mcp.waitingAuth` | 等待你在对话中确认授权 | Waiting for you to approve access in chat |
+| `mcp.authorize` | 授权 | Authorize |
+| `mcp.goConfirm` | 去确认 | Confirm |
+| `mcp.notionAuth` | 授权流程在浏览器里完成，返回后会自动拉取可用工具。 | Authorization completes in the browser; tools are fetched automatically when you return. |
+| `mcp.tryFailed` | 上次尝试 · {time} 失败 | Last attempt · failed at {time} |
+| `mcp.more` | 更多设置 | More settings |
+| `mcp.noResults` | 没有匹配的 MCP 服务 | No matching MCP servers |
+| `mcp.empty` | 尚未接入 MCP 服务 | No MCP servers connected yet |
+| `mcp.emptyBody` | 接入 MCP 配置后会在这里显示服务、工具与连接状态。 | Servers, tools, and connection states will appear here after MCP configuration is connected. |
+| `mcp.footnote` | stdio 服务以当前用户身份在本机运行，权限等同于你的终端。带写操作的工具默认走中风险确认；高风险工具每次调用都会重新确认。 | stdio servers run locally as the current user with your terminal's permissions. Write tools require medium-risk approval by default; high-risk tools require approval on every call. |
+| `mcp.logs.title` | 连接日志 | Connection log |
+| `mcp.logs.recent` | 最近 {count} 条 | Last {count} entries |
+| `mcp.logs.refresh` | 刷新 | Refresh |
+| `mcp.logs.empty` | 尚未接入连接日志 | No connection log yet |
+| `mcp.logs.notice` | 样例模式：日志刷新未接入。 | Sample mode: log refresh is not connected. |
+| `mcp.notice.reconnect` | 样例模式：重连未接入。 | Sample mode: reconnect is not connected. |
+| `mcp.notice.enable` | 样例模式：启用未接入。 | Sample mode: enabling is not connected. |
+| `mcp.notice.disable` | 样例模式：停用未接入。 | Sample mode: disabling is not connected. |
+| `mcp.notice.settings` | 样例模式：服务设置未接入。 | Sample mode: server settings are not connected. |
+| `mcp.notice.auth` | 样例模式：授权未接入。 | Sample mode: authorization is not connected. |
+| `mcp.notice.test` | 样例模式：连接测试未接入。 | Sample mode: connection testing is not connected. |
+| `mcp.notice.add` | 样例模式：添加服务未接入。 | Sample mode: adding a server is not connected. |
+| `mcp.service.filesystemDesc` | 本地文件系统 | Local filesystem |
+| `mcp.service.postgresDesc` | 只读副本 · 报表库 | Read-only replica · reporting |
+| `mcp.service.playwrightDesc` | 浏览器自动化 | Browser automation |
+| `mcp.service.notionDesc` | 远端托管服务 | Remote hosted service |
+| `mcp.tool.readFile` | 读取工作目录内的文件，单次最多 200 KB。 | Read files inside the working folder, up to 200 KB per call. |
+| `mcp.tool.listDirectory` | 列目录，隐藏 .git 与 node_modules。 | List a folder while hiding .git and node_modules. |
+| `mcp.tool.searchFiles` | 按文件名与内容正则检索，返回命中行号。 | Search names and contents by regular expression and return matching lines. |
+| `mcp.tool.writeFile` | 写入文件，需要中风险确认。 | Write a file; requires medium-risk confirmation. |
+| `mcp.tool.listTables` | 列出 schema 与表，附带行数估计。 | List schemas and tables with estimated row counts. |
+| `mcp.tool.describeTable` | 返回字段、类型、索引与注释。 | Return fields, types, indexes, and comments. |
+| `mcp.tool.runQuery` | 执行只读 SQL，超时 30 秒，禁用写语句。 | Run read-only SQL with a 30-second timeout; writes are disabled. |
+| `mcp.tool.navigate` | 打开 URL 并等待网络空闲。 | Open a URL and wait for network idle. |
+| `mcp.tool.screenshot` | 截取视口，写入会话产出物。 | Capture the viewport into chat artifacts. |
+| `mcp.tool.click` | 按选择器点击，高风险操作。 | Click by selector; high-risk operation. |
+| `mcp.dialog.title` | 添加 MCP 服务 | Add MCP server |
+| `mcp.dialog.description` | 填写启动命令或远端地址，Anvil 会先握手并拉取工具清单。 | Enter a launch command or remote address; Anvil handshakes first and fetches the tool list. |
+| `mcp.form.name` | 服务名称 | Server name |
+| `mcp.form.namePlaceholder` | 例如 gitlab | For example: gitlab |
+| `mcp.form.transport` | 传输方式 | Transport |
+| `mcp.form.command` | 启动命令或地址 | Launch command or address |
+| `mcp.form.commandPlaceholder` | npx -y @scope/server-gitlab | npx -y @scope/server-gitlab |
+| `mcp.form.commandHint.stdio` | stdio 使用命令，远端服务填写 https://…/sse。 | stdio uses a command; remote servers use https://…/sse. |
+| `mcp.form.commandHint.remote` | 填写远端 MCP 服务的 http/https 地址。 | Enter the http/https address of the remote MCP server. |
+| `mcp.form.env` | 环境变量（每行一条） | Environment variables (one per line) |
+| `mcp.form.envPlaceholder` | GITLAB_TOKEN=… | GITLAB_TOKEN=… |
+| `mcp.form.envHint` | 提交时读取；预览值已脱敏。 | Read on submit; preview values are masked. |
+| `mcp.form.envPreview` | 环境变量预览 | Environment preview |
+| `mcp.form.envMasked` | {key}=•••• | {key}=•••• |
+| `mcp.form.permission` | 默认权限 | Default permission |
+| `mcp.form.permission.readonly` | 只读（拒绝写工具） | Read only (deny write tools) |
+| `mcp.form.permission.medium` | 中风险确认 | Confirm medium risk |
+| `mcp.form.permission.full` | 完全控制 | Full control |
+| `mcp.form.agents` | 可用 Agent | Available agents |
+| `mcp.form.allAgents` | 全部 Agent | All agents |
+| `mcp.form.readonly24` | 添加后先以只读模式运行 24 小时，观察工具调用记录后再放开写权限。 | Run in read-only mode for the first 24 hours, then grant write access after reviewing tool calls. |
+| `mcp.form.cancel` | 取消 | Cancel |
+| `mcp.form.add` | 添加 | Add |
+| `mcp.form.test` | 测试连接 | Test connection |
+| `mcp.form.close` | 关闭 | Close |
+| `mcp.validation.nameRequired` | 请填写服务名称 | Enter a server name |
+| `mcp.validation.addressRequired` | 请填写启动命令或地址 | Enter a launch command or address |
+| `mcp.validation.urlInvalid` | 远端服务地址必须是有效的 http/https URL | Remote server address must be a valid http/https URL |
+| `mcp.validation.envInvalid` | 环境变量格式应为 KEY=VALUE | Environment variables must use KEY=VALUE |
