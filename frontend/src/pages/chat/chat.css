@@ -115,14 +115,20 @@
 }
 
 .chat-export {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: auto;
   gap: var(--space-2);
   padding: 0 var(--space-3);
+  white-space: nowrap;
 }
 
 .chat-export-label {
   color: var(--fg-2);
   font-size: var(--text-xs-plus);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .chat-iconbtn:hover:not(:disabled),
@@ -2649,8 +2655,6 @@ button.chat-badge:hover {
     gap: var(--space-1);
   }
 
-  .chat-head-actions .chat-export,
-  .chat-head-actions .chat-more,
   .chat-head-actions [data-testid='language-quick-switch'] {
     display: none;
   }
