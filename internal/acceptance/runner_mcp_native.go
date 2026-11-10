@@ -164,7 +164,7 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 		return s.failCleanup()
 	}
 
-	tool, ok := s.findRef("mcp-tools-filesystem", "list", "filesystem 工具清单", 15)
+	tool, ok := s.findTextRef("mcp-tool-read", "read_file", 15)
 	if !ok {
 		return s.failCleanup()
 	}
@@ -257,4 +257,21 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 
 	out.Status = StatusPass
 	return out
+}
+
+func (s *shellNative) findTextRef(logID, text string, attempts int) (string, bool) {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stepName := fmt.Sprintf("find-text-%s-%02d", logID, attempt)
+		if !s.run(StepSpec{Name: stepName, Command: "agent-desktop", Args: []string{"find", "--text", text, "--first", "--app", "anvil.exe", "--timeout-ms", "15000"}, Timeout: 60 * time.Second}) {
+			return "", false
+		}
+		body, _ := s.exec.read(stepName)
+		if ref, ok := parseFindRef(body); ok {
+			return ref, true
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	s.out.Status = StatusFail
+	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("could not find text %q in the accessibility tree after %d attempts", text, attempts))
+	return "", false
 }
