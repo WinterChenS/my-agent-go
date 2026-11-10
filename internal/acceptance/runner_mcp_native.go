@@ -164,7 +164,7 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 		return s.failCleanup()
 	}
 
-	tool, ok := s.findTextRef("mcp-tool-read", "read_file", 15)
+	tool, ok := s.findRef("mcp-tool-anchor", "button", "filesystem 工具清单", 15)
 	if !ok {
 		return s.failCleanup()
 	}
