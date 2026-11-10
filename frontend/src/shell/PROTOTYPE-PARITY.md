@@ -260,9 +260,10 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - All chrome, statuses, tool descriptions, hints, validation and aria names use
   the zh/en `mcp.*` catalogue with equal key sets and `CATALOGUE.md` entries.
   Server names, commands, URLs, env keys and paths remain user content.
-- Cards are two columns wide and one column at ≤900px; stats go 4 → 2 → 1 and
-  tool lists scroll locally. All nine manifest viewports were probed without
-  page-level horizontal overflow; 820×1180 keeps the existing Windows clamp
-  limitation.
+- Cards are two columns wide and one column at ≤900px; stats go 4 → 2 → 1.
+  Tool lists have no fixed height or internal scroll: every declared tool stays
+  visible and the page scrolls, matching the prototype. All nine manifest
+  viewports were probed without page-level horizontal overflow; 820×1180 keeps
+  the existing Windows clamp limitation.
 - Sample navigation reuses `sample.nav.*` (MCP 3 个服务 in the tool menu);
   normal `/mcp` renders no fixed service/tool counts or metadata.

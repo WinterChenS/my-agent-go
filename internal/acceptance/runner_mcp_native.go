@@ -164,20 +164,22 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 		return s.failCleanup()
 	}
 
-	tool, ok := s.findRef("mcp-tool-anchor", "button", "filesystem 工具清单", 15)
-	if !ok {
-		return s.failCleanup()
+	for _, toolName := range []string{"read_file", "list_directory", "search_files", "write_file"} {
+		ref, ok := s.findTextRef("mcp-tool-"+toolName, toolName, 15)
+		if !ok {
+			return s.failCleanup()
+		}
+		bounds, ok := s.elementBounds("mcp-bounds-"+toolName, ref)
+		if !ok {
+			return s.failCleanup()
+		}
+		if bounds.Width <= 0 || bounds.Height <= 0 {
+			out.Status = StatusFail
+			out.Limitations = append(out.Limitations, fmt.Sprintf("tool %q has zero bounds", toolName))
+			return s.failCleanup()
+		}
 	}
-	bounds, ok := s.elementBounds("mcp-tools-bounds", tool)
-	if !ok {
-		return s.failCleanup()
-	}
-	x := int(bounds.X + bounds.Width/2)
-	y := int(bounds.Y + bounds.Height/2)
-	if !s.run(StepSpec{Name: "mcp-scroll-tools", Command: "agent-desktop", Args: []string{"--headed", "mouse-wheel", "--x", fmt.Sprint(x), "--y", fmt.Sprint(y), "--dy", "-3"}, Timeout: 60 * time.Second}) {
-		return s.failCleanup()
-	}
-	if !s.screenshot("native/mcp-tools-scrolled-1440x900.png", s.windowIDValue) {
+	if !s.screenshot("native/mcp-filesystem-tools-1440x900.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
 

@@ -364,23 +364,9 @@
 }
 
 .mcp-tools {
-  position: relative;
-  max-height: 96px;
-  overflow-y: auto;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-}
-
-.mcp-tools-anchor {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  width: 2px;
-  height: 2px;
-  padding: 0;
-  border: 0;
-  opacity: 0.01;
 }
 
 .mcp-tool {
