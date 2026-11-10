@@ -1,6 +1,11 @@
 # 本地工具链（F00：wails3 CLI 装在项目内，不进版本库）
 /.tools/
 
+# Rust / Cargo 构建产物
+# 正常构建走 .cargo/config.toml 的 D 盘 target（.tmp/ 已忽略）；这里兜底防止
+# 在别处执行 cargo 时把 target/ 误入库。
+/target/
+
 # Node
 node_modules/
 frontend/dist/

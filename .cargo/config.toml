@@ -1,0 +1,9 @@
+# Keep all Cargo build artifacts on the D: volume even when scripts/env-rs.ps1
+# has not been loaded (defence in depth for the D-drive-only write rule).
+#
+# `target-dir` is resolved relative to this file's directory, so the artifacts
+# land in D:\project\anvil-wt\anvil-rebuild\.tmp\tooling\cargo-target.
+# An explicit CARGO_TARGET_DIR environment variable still wins, and
+# scripts/env-rs.ps1 sets it to the same path.
+[build]
+target-dir = "../.tmp/tooling/cargo-target"

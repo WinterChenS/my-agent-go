@@ -1,0 +1,12 @@
+# Toolchain lock for the Anvil Rust + Tauri migration.
+#
+# Pinned to the exact version verified by R0-RS01 on Windows 10 22H2
+# (rustc 1.95.0, rustfmt 1.9.0, clippy 0.1.95). The install lives under
+# RUSTUP_HOME=D:\Microsoft\tooling\rustup (D: drive only); see scripts/env-rs.ps1.
+#
+# Only the Windows x64 MSVC target is in scope for the current migration phase.
+# macOS/Linux targets are added when their real-machine evidence tasks start.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
