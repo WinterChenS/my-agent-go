@@ -76,7 +76,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	probeCount := 0
 
 	// Normal entry: empty state, disabled composer, no fixture conversation.
-	s.initialURL = ""
+	s.initialURL = "/chat"
 	if !s.launchThemeClient(1440, 900, "launch-chat-normal") {
 		return s.failCleanup()
 	}
