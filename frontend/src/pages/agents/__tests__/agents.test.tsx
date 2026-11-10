@@ -37,7 +37,7 @@ describe('agents normal entry', () => {
     expect(screen.getByTestId('agent-field-name')).toBeDisabled()
     expect(screen.getByTestId('agent-field-slug')).toBeDisabled()
     expect(screen.queryByTestId('sample-banner')).toBeNull()
-    for (const fixture of ['迁移工程师', '数据分析师', 'claude-sonnet-4.5', 'gpt-5.1', '4 skills', 'migration-engineer']) {
+    for (const fixture of ['迁移工程师', '数据分析师', 'claude-sonnet-4.5', 'gpt-5.1', '4 skills', 'migration-engineer', 'Pi Agent']) {
       expect(screen.queryByText(fixture), `fixture ${fixture}`).toBeNull()
     }
   })

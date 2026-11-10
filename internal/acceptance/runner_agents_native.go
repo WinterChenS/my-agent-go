@@ -210,6 +210,16 @@ func runNativeAgentsCase(r automationRunner, sha, target string, hooks *nativeHo
 		out.Limitations = append(out.Limitations, "layout probe missing for the compact sample agents page")
 		return s.failCleanup()
 	}
+	basicTab, ok := s.findRef("agents-basic-tab", "", "基础配置", 15)
+	if !ok {
+		return s.failCleanup()
+	}
+	if !s.run(StepSpec{Name: "agents-compact-basic-tab", Command: "agent-desktop", Args: []string{"click", basicTab}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
+	if !s.waitText("agents-compact-basic", "Agent 运行时", false, 10) {
+		return s.failCleanup()
+	}
 	if !s.screenshot("native/agents-sample-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}

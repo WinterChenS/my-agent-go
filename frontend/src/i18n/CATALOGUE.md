@@ -422,6 +422,7 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `agents.form.thinkingHint` | 深度思考会增加延迟与 token 消耗。 | Deeper thinking increases latency and token use. |
 | `agents.form.contextHint` | 上限同时受运行时与模型能力约束。 | The limit is constrained by both the runtime and the model. |
 | `agents.form.unavailable` | 未接入 | Not connected |
+| `agents.form.modelUnavailableHint` | 接入运行时后显示可用模型。 | Available models appear after a runtime is connected. |
 | `agents.thinking.off` | 关闭 | Off |
 | `agents.thinking.low` | 低 | Low |
 | `agents.thinking.medium` | 中 | Medium |

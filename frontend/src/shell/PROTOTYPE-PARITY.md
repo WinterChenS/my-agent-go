@@ -155,3 +155,39 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   reports macOS; the prototype's mac keycap is otherwise unchanged. The
   prototype locale select is represented by the existing R0-03 quick-switch
   control.
+
+## R0-06 agents
+
+- Normal `/agents` is the real entry: page header and five tabs exist, the list
+  and detail are explicit empty states, and the basic form shows disabled
+  「未接入」 fields. 导入 / 新建 Agent / 保存 / 发起对话 are disabled. No agent
+  names, runtime names, model IDs, Skill counts or identifiers are prefilled.
+- The populated prototype state is isolated at `/?sample=agents` and
+  `/__sample/agents`. A sample banner marks it as design data. It renders the
+  four main agents and two sub-agents (只读 · 委派自 迁移工程师), the selected
+  migration engineer detail, runtime/model/thinking/permission/Skill chips and
+  all five panels: basic form, prompt/tools/Skills, sub-agent table and policy,
+  permission modes/boundaries, and four run-history rows.
+- The list filter is a local addition for the required filter interaction; it
+  matches name, description, model and runtime and shows
+  「没有匹配的 Agent」 when nothing matches. Selecting a row updates the hero,
+  chips and basic form. Sub-agent rows are marked 子 and are read-only.
+- Basic-form switches (memory/auto-compaction), every prompt/tool/Skill/sub
+  switch, permission mode and dialog action only emit the localized sample-mode
+  notice; nothing is persisted or sent. Save validates a name and a lowercase
+  slug (`[a-z0-9-]+`). Start chat never creates a session.
+- 新建 Agent and 导入 Agent dialogs share a focus-trapped `role="dialog"` shell:
+  ESC/backdrop close, focus returns to the opener, create validates a required
+  name, and import validates a chosen file before showing the sample notice.
+- All chrome, field labels/hints, validation, tabs, table headers, risk labels
+  and aria names come from the `agents.*` zh/en catalogue; key sets stay equal
+  and `CATALOGUE.md` lists every key. Agent names, descriptions, system prompt
+  and user-entered values are content and keep their original language.
+- At wide sizes the layout is 268px list + detail; at ≤1180px the list narrows
+  to 224px, at ≤900px it becomes one column with a detail/list switch and a
+  back-to-list control, and at ≤620px the form/tables/hero fold. All nine
+  manifest viewports were probed without horizontal overflow; 820×1180 keeps
+  the existing Windows work-area clamp limitation.
+- Sample navigation reuses the R0-05 shell fixture: `对话 4` and the five tool
+  metadata strings are present only in sample mode. Normal `/agents` keeps them
+  absent.

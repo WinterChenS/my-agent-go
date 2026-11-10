@@ -561,7 +561,7 @@ function BasicPanel({
               <option>{t('agents.form.unavailable')}</option>
             )}
           </select>
-          <small>{t('agents.form.modelHint', { runtime: runtimeLabel(t, draft.runtime) })}</small>
+          <small>{sample ? t('agents.form.modelHint', { runtime: runtimeLabel(t, draft.runtime) }) : t('agents.form.modelUnavailableHint')}</small>
         </label>
       </div>
       <div className="agents-form-grid">
