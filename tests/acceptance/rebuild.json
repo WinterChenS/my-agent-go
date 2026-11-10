@@ -116,6 +116,18 @@
           "task": "R0-06",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-07-skills",
+          "task": "R0-07",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-07-native-skills",
+          "task": "R0-07",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },

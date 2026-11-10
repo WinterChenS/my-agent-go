@@ -31,7 +31,7 @@ if (!edge) {
 }
 
 const prototype = join(repo, 'docs', 'ui', 'Agent-客户端产品原型')
-const screens = ['index', 'settings', 'chat', 'agents']
+const screens = ['index', 'settings', 'chat', 'agents', 'skills']
 const sizes = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
