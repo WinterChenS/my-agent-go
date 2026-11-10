@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n/LanguageProvider'
-import { sampleWorkbench } from '../pages/workbench/sampleData'
+import type { MessageKey } from '../i18n/catalogue'
 import { SHELL_ROUTES } from './routes'
 
-interface SearchEntry {
+interface PaletteItem {
   id: string
   label: string
   sub: string
-  group: 'pages' | 'agents' | 'artifacts'
+  kind: 'page' | 'action'
   path?: string
 }
+
+const ACTIONS: Array<{ label: MessageKey; sub: MessageKey }> = [
+  { label: 'workbench.palette.action.newChat', sub: 'workbench.palette.action.newChatSub' },
+  { label: 'workbench.palette.action.newSchedule', sub: 'workbench.palette.action.newScheduleSub' },
+  { label: 'workbench.palette.action.addMcp', sub: 'workbench.palette.action.addMcpSub' },
+  { label: 'workbench.palette.action.manageRuntime', sub: 'workbench.palette.action.manageRuntimeSub' },
+  { label: 'workbench.palette.action.tokenAudit', sub: 'workbench.palette.action.tokenAuditSub' },
+]
 
 export default function GlobalSearchDialog({
   open,
@@ -23,46 +31,42 @@ export default function GlobalSearchDialog({
 }) {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const location = useLocation()
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
-  const sample = new URLSearchParams(location.search).get('sample') === 'workbench'
+  const [active, setActive] = useState(0)
+  const [notice, setNotice] = useState('')
 
-  const entries = useMemo(() => {
-    const pages: SearchEntry[] = SHELL_ROUTES.map((route) => ({
+  const items = useMemo(() => {
+    const pages: PaletteItem[] = SHELL_ROUTES.map((route) => ({
       id: `page-${route.id}`,
       label: t(route.navKey),
-      sub: route.path,
-      group: 'pages',
+      sub: route.id === 'schedules' ? t('workbench.palette.sub.automation') : t('workbench.palette.sub.page'),
+      kind: 'page',
       path: route.path,
     }))
-    if (!sample) return pages
-    return pages.concat(
-      sampleWorkbench.agents.map((agent) => ({
-        id: `agent-${agent.name}`,
-        label: agent.name,
-        sub: agent.meta,
-        group: 'agents' as const,
-      })),
-      sampleWorkbench.artifacts.map((artifact) => ({
-        id: `artifact-${artifact.name}`,
-        label: artifact.name,
-        sub: artifact.meta,
-        group: 'artifacts' as const,
-      })),
-    )
-  }, [sample, t])
+    const actions: PaletteItem[] = ACTIONS.map((action, index) => ({
+      id: `action-${index}`,
+      label: t(action.label),
+      sub: t(action.sub),
+      kind: 'action',
+    }))
+    return pages.concat(actions)
+  }, [t])
 
-  const filtered = entries.filter((entry) => {
-    if (!query.trim()) return true
+  const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return entry.label.toLowerCase().includes(needle) || entry.sub.toLowerCase().includes(needle)
-  })
+    if (!needle) return items
+    return items.filter(
+      (item) => item.label.toLowerCase().includes(needle) || item.sub.toLowerCase().includes(needle),
+    )
+  }, [items, query])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
+    setActive(0)
+    setNotice('')
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus())
     return () => window.cancelAnimationFrame(frame)
   }, [open])
@@ -86,92 +90,100 @@ export default function GlobalSearchDialog({
     window.setTimeout(() => returnFocus.current?.focus(), 0)
   }
 
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Tab') return
-    const focusables = Array.from(
-      dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input, [href], [tabindex]:not([tabindex="-1"])',
-      ) ?? [],
-    )
-    if (focusables.length === 0) return
-    const first = focusables[0]
-    const last = focusables[focusables.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
+  const activate = (item: PaletteItem | undefined) => {
+    if (!item) return
+    if (item.kind === 'action') {
+      setNotice(t('workbench.palette.unavailable'))
+      return
+    }
+    if (item.path) {
+      navigate(item.path)
+      close()
     }
   }
 
-  const groups: Array<{ key: 'pages' | 'agents' | 'artifacts'; labelKey: 'workbench.search.pages' | 'workbench.search.agents' | 'workbench.search.artifacts' }> = [
-    { key: 'pages', labelKey: 'workbench.search.pages' },
-    { key: 'agents', labelKey: 'workbench.search.agents' },
-    { key: 'artifacts', labelKey: 'workbench.search.artifacts' },
-  ]
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      if (filtered.length > 0) setActive((current) => (current + 1) % filtered.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (filtered.length > 0) setActive((current) => (current - 1 + filtered.length) % filtered.length)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      activate(filtered[active])
+    } else if (event.key === 'Tab') {
+      event.preventDefault()
+      inputRef.current?.focus()
+    }
+  }
+
+  const listboxID = 'palette-listbox'
 
   return (
     <div className="wb-search-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
       <div
         ref={dialogRef}
-        className="wb-search-dialog"
+        className="wb-search-dialog palette-dialog"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="global-search-title"
+        aria-label={t('workbench.palette.label')}
         onKeyDown={onKeyDown}
       >
-        <div className="wb-search-head">
-          <div>
-            <h2 id="global-search-title">{t('workbench.search.title')}</h2>
-            <p>{t('workbench.search.subtitle')}</p>
-          </div>
-          <button type="button" className="iconbtn" aria-label={t('workbench.search.close')} onClick={close}>
-            ×
-          </button>
-        </div>
         <div className="wb-search-body">
           <input
             ref={inputRef}
             className="wb-search-input"
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('workbench.search.placeholder')}
-            aria-label={t('workbench.search.placeholder')}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setActive(0)
+              setNotice('')
+            }}
+            placeholder={t('workbench.palette.placeholder')}
+            aria-label={t('workbench.palette.placeholder')}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listboxID}
+            aria-activedescendant={filtered[active] ? `palette-${filtered[active].id}` : undefined}
           />
-          <p className="wb-search-hint">{t('workbench.search.hint', { shortcut: 'Ctrl/⌘ K' })}</p>
-          <div className="wb-search-results">
-            {filtered.length === 0 ? <p className="wb-empty">{t('workbench.search.empty')}</p> : null}
-            {groups.map((group) => {
-              const groupEntries = filtered.filter((entry) => entry.group === group.key)
-              if (groupEntries.length === 0) return null
-              return (
-                <div className="wb-search-group" key={group.key}>
-                  <div className="wb-search-group-label">{t(group.labelKey)}</div>
-                  {groupEntries.map((entry) => (
-                    <button
-                      type="button"
-                      className="wb-search-result"
-                      key={entry.id}
-                      onClick={() => {
-                        if (entry.path) navigate(entry.path)
-                        close()
-                      }}
-                    >
-                      <span>{entry.label}</span>
-                      <small>{entry.sub}</small>
-                    </button>
-                  ))}
-                </div>
-              )
-            })}
+          <div className="wb-palette-list" id={listboxID} role="listbox" aria-label={t('workbench.palette.label')}>
+            {filtered.length === 0 ? <p className="wb-empty">{t('workbench.palette.empty')}</p> : null}
+            {filtered.map((item, index) => (
+              <div
+                key={item.id}
+                id={`palette-${item.id}`}
+                role="option"
+                aria-selected={active === index}
+                data-kind={item.kind}
+                className={`wb-palette-item${active === index ? ' is-active' : ''}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => activate(item)}
+              >
+                <span>{item.label}</span>
+                <small>{item.sub}</small>
+              </div>
+            ))}
           </div>
+          {notice ? (
+            <p className="wb-palette-notice" role="status">
+              {notice}
+            </p>
+          ) : null}
         </div>
-        <div className="wb-search-foot">
-          <button type="button" className="wb-search-close" onClick={close}>
-            {t('workbench.search.close')}
-          </button>
+        <div className="wb-palette-foot">
+          <span>
+            <span className="kbd">↑</span> <span className="kbd">↓</span> {t('workbench.palette.hint.move')}
+          </span>
+          <span>
+            <span className="kbd">↵</span> {t('workbench.palette.hint.open')}
+          </span>
+          <span>
+            <span className="kbd">⌘</span> <span className="kbd">K</span> {t('workbench.palette.hint.summon')}
+          </span>
+          <span className="wb-palette-foot-spacer" />
+          <span className="kbd">{t('workbench.palette.hint.escape')}</span>
         </div>
       </div>
     </div>

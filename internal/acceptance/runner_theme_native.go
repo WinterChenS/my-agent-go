@@ -336,6 +336,9 @@ func (s *shellNative) launchThemeClient(width, height int, label string) bool {
 		s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("built client %q is missing: %v", exe, err))
 		return false
 	}
+	if !s.ensureNoAnvilClient(label + "-preclean") {
+		return false
+	}
 	dist := filepath.Join(s.runner.repo, "frontend", "dist")
 	before := len(s.themeEntries())
 	args := []string{
@@ -372,8 +375,15 @@ func (s *shellNative) launchThemeClient(width, height int, label string) bool {
 		s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("theme window bounds = %+v, want %dx%d", window, width, height))
 		return false
 	}
+	if window.ProcessInstance == "" || window.PID == 0 {
+		s.out.Status = StatusFail
+		s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("window identity is missing (pid=%d instance=%q)", window.PID, window.ProcessInstance))
+		return false
+	}
 	s.windowIDValue = window.ID
 	s.window = window
+	s.processInstance = window.ProcessInstance
+	s.windowPID = window.PID
 	entry, ok := s.waitTheme(before, 20*time.Second)
 	if !ok {
 		s.out.Status = StatusFail
@@ -443,52 +453,38 @@ func readFileBestEffort(path string) string {
 }
 
 func (s *shellNative) clickThemeOption(index int, logID, expectedMode string) (themeLogEntry, bool) {
-	ref, ok := s.findRadio(logID, index)
-	if !ok {
-		return themeLogEntry{}, false
-	}
-	bounds, ok := s.elementBounds(logID, ref)
-	if !ok {
-		return themeLogEntry{}, false
-	}
-	if !s.run(StepSpec{
-		Name:    "focus-theme-window-" + logID,
-		Command: "agent-desktop",
-		Args:    []string{"focus-window", "--window-id", s.windowIDValue},
-		Timeout: 60 * time.Second,
-	}) {
-		return themeLogEntry{}, false
-	}
-	x := int(bounds.X + bounds.Width/2)
-	y := int(bounds.Y + bounds.Height/2)
-	if !s.run(StepSpec{
-		Name:    "click-theme-option-" + logID,
-		Command: "agent-desktop",
-		Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
-		Timeout: 60 * time.Second,
-	}) {
-		return themeLogEntry{}, false
-	}
-	resolved := expectedMode
-	if expectedMode == "system" {
-		resolved = ""
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		entries := s.themeEntries()
-		if len(entries) > 0 {
-			last := entries[len(entries)-1]
-			if last.Mode == expectedMode && (resolved == "" || last.Resolved == resolved) {
-				return last, true
+	for attempt := 1; attempt <= 2; attempt++ {
+		attemptID := fmt.Sprintf("%s-%02d", logID, attempt)
+		statusBefore := s.out.Status
+		limitationsBefore := len(s.out.Limitations)
+
+		identityOK := s.verifyWindowIdentity(attemptID)
+		if identityOK {
+			entry, ok, coords, bounds, stepLogs := s.clickThemeOptionOnce(index, attemptID, expectedMode)
+			if ok {
+				return entry, true
 			}
+			s.recordThemeClickFailure(attemptID, index, expectedMode, coords, bounds, stepLogs)
+		} else {
+			s.recordThemeClickFailure(attemptID, index, expectedMode, "", elementBounds{}, nil)
 		}
-		if time.Now().After(deadline) {
-			break
+		if s.out.Status == StatusBlocked {
+			return themeLogEntry{}, false
 		}
-		time.Sleep(200 * time.Millisecond)
+		s.out.Status = statusBefore
+		if len(s.out.Limitations) > limitationsBefore {
+			s.out.Limitations = s.out.Limitations[:limitationsBefore]
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	last, hasLast := s.latestTheme()
+	detail := "no theme log"
+	if hasLast {
+		detail = fmt.Sprintf("last theme log mode=%s resolved=%s", last.Mode, last.Resolved)
 	}
 	s.out.Status = StatusFail
-	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("theme option %d did not produce mode=%s", index, expectedMode))
+	s.out.Limitations = append(s.out.Limitations,
+		fmt.Sprintf("theme option %d did not produce mode=%s after 2 attempts (%s)", index, expectedMode, detail))
 	return themeLogEntry{}, false
 }
 

@@ -80,7 +80,17 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - The greeting is time-based in the normal entry and fixed to the prototype's
   afternoon greeting in the sample entry (which intentionally keeps the
   prototype's 陈羽 fixture name). Normal never shows a person name.
-- Global search is a real shell dialog (page results, sample agents/artifacts
-  when sample mode is active); Escape restores focus to the toolbar trigger.
+- The ⌘K quick-jump palette follows the prototype: `role="dialog"` labelled
+  「快速跳转」, a `role="listbox"` with the flat 14 items (9 pages + 5 actions),
+  ↑/↓ changes the highlighted option, ↵ opens, ESC closes, and the footer shows
+  the key hints with no close button. Focus returns to the toolbar trigger after
+  closing; Tab stays in the search field.
+- Page options navigate to their route. The five action options are not wired
+  yet (new chat → R0-05/G2, schedule → R0-10, MCP/runtime/token audit → later
+  settings tasks), so activating one keeps the palette open and shows the
+  localized 「未接入」 notice. It never navigates, mutates state, or reports a
+  fake success.
+- All palette copy comes from `workbench.palette.*` in both catalogues; the
+  zh/en key sets stay identical and `CATALOGUE.md` lists every key.
 - The 820×1180 spot check has the same Windows 1080 work-area clamp documented
   in R0-01; horizontal overflow remains false.

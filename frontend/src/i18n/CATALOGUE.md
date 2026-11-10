@@ -143,3 +143,23 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `workbench.search.artifacts` | 输出物 | Artifacts |
 | `workbench.search.empty` | 没有匹配结果 | No matches |
 | `workbench.search.open` | 打开全局搜索 | Open global search |
+| `workbench.palette.label` | 快速跳转 | Quick jump |
+| `workbench.palette.placeholder` | 搜索页面、Agent、任务… | Search pages, agents, and tasks… |
+| `workbench.palette.empty` | 没有匹配的页面或操作 | No matching pages or actions |
+| `workbench.palette.sub.page` | 页面 | Page |
+| `workbench.palette.sub.automation` | 自动化 | Automation |
+| `workbench.palette.action.newChat` | 新建对话 | New chat |
+| `workbench.palette.action.newChatSub` | 操作 · 对话 | Action · Chats |
+| `workbench.palette.action.newSchedule` | 新建定时任务 | New schedule |
+| `workbench.palette.action.newScheduleSub` | 操作 · 自动化 | Action · Automation |
+| `workbench.palette.action.addMcp` | 添加 MCP 服务 | Add MCP server |
+| `workbench.palette.action.addMcpSub` | 操作 · MCP | Action · MCP |
+| `workbench.palette.action.manageRuntime` | 管理本地运行时 | Manage local runtimes |
+| `workbench.palette.action.manageRuntimeSub` | 设置 | Settings |
+| `workbench.palette.action.tokenAudit` | Token 用量审计 | Token usage audit |
+| `workbench.palette.action.tokenAuditSub` | 设置 | Settings |
+| `workbench.palette.hint.move` | ↑ ↓ 移动 | ↑ ↓ Move |
+| `workbench.palette.hint.open` | ↵ 打开 | ↵ Open |
+| `workbench.palette.hint.summon` | ⌘ K 呼出 | ⌘ K Summon |
+| `workbench.palette.hint.escape` | ESC | ESC |
+| `workbench.palette.unavailable` | 未接入：该操作将在后续任务开放 | Not connected: this action arrives in a later task |

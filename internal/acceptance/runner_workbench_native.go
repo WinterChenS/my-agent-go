@@ -107,7 +107,7 @@ func runNativeWorkbenchCase(r automationRunner, sha, target string, hooks *nativ
 	if !s.run(StepSpec{Name: "open-global-search", Command: "agent-desktop", Args: []string{"click", ref}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
-	if !s.waitText("global-search-open", "全局搜索", false, 10) {
+	if !s.waitText("global-search-open", "快速跳转", false, 10) {
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/workbench-search-1440x900.png", s.windowIDValue) {
@@ -116,7 +116,10 @@ func runNativeWorkbenchCase(r automationRunner, sha, target string, hooks *nativ
 	if !s.run(StepSpec{Name: "close-global-search", Command: "self", Args: []string{"key", "--title=Anvil", "--combo=escape"}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
-	if !s.waitTextGone("global-search-escape", "全局搜索", 10) {
+	if !s.waitTextGone("global-search-escape", "快速跳转", 10) {
+		return s.failCleanup()
+	}
+	if !s.waitFocused(ref, "workbench-search") {
 		return s.failCleanup()
 	}
 

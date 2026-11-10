@@ -114,32 +114,52 @@ func parseWindowOptions(line string) (windowGeometry, bool) {
 }
 
 type windowBounds struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	PID             int     `json:"pid"`
+	ProcessInstance string  `json:"process_instance"`
+	X               float64 `json:"x"`
+	Y               float64 `json:"y"`
+	Width           float64 `json:"width"`
+	Height          float64 `json:"height"`
+}
+
+type windowListEntry struct {
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	PID             int    `json:"pid"`
+	ProcessInstance string `json:"process_instance"`
+	Bounds          struct {
+		X      float64 `json:"x"`
+		Y      float64 `json:"y"`
+		Width  float64 `json:"width"`
+		Height float64 `json:"height"`
+	} `json:"bounds"`
+}
+
+func parseWindows(body []byte) ([]windowBounds, bool) {
+	var envelope struct {
+		Data []windowListEntry `json:"data"`
+	}
+	if err := json.Unmarshal(lastJSONObject(body), &envelope); err != nil {
+		return nil, false
+	}
+	windows := make([]windowBounds, 0, len(envelope.Data))
+	for _, entry := range envelope.Data {
+		windows = append(windows, windowBounds{
+			ID: entry.ID, Title: entry.Title, PID: entry.PID, ProcessInstance: entry.ProcessInstance,
+			X: entry.Bounds.X, Y: entry.Bounds.Y, Width: entry.Bounds.Width, Height: entry.Bounds.Height,
+		})
+	}
+	return windows, true
 }
 
 func parseFirstWindow(body []byte) (windowBounds, bool) {
-	var envelope struct {
-		Data []struct {
-			ID     string `json:"id"`
-			Title  string `json:"title"`
-			Bounds struct {
-				X      float64 `json:"x"`
-				Y      float64 `json:"y"`
-				Width  float64 `json:"width"`
-				Height float64 `json:"height"`
-			} `json:"bounds"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(lastJSONObject(body), &envelope); err != nil || len(envelope.Data) == 0 {
+	windows, ok := parseWindows(body)
+	if !ok || len(windows) == 0 {
 		return windowBounds{}, false
 	}
-	first := envelope.Data[0]
-	return windowBounds{ID: first.ID, Title: first.Title, X: first.Bounds.X, Y: first.Bounds.Y, Width: first.Bounds.Width, Height: first.Bounds.Height}, true
+	return windows[0], true
 }
 
 type shellRoute struct {

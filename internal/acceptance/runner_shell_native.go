@@ -24,6 +24,8 @@ type shellNative struct {
 	window             windowBounds
 	lastLaunchTheme    themeLogEntry
 	lastLaunchLanguage languageLogEntry
+	processInstance    string
+	windowPID          int
 	initialURL         string
 }
 
