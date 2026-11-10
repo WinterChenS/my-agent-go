@@ -168,10 +168,10 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.run(StepSpec{Name: "skills-expand-step", Command: "agent-desktop", Args: []string{"click", step}, Timeout: 60 * time.Second}) {
+	if !s.clickRefPhysical(step, "skills-expand-step") {
 		return s.failCleanup()
 	}
-	if !s.waitText("skills-expanded-step", "保留告警来源与时间线", false, 10) {
+	if !s.waitExpanded(step, true, "skills-step") {
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/skills-workflow-1440x900.png", s.windowIDValue) {
