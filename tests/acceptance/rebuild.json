@@ -104,6 +104,18 @@
           "task": "R0-05",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-06-agents",
+          "task": "R0-06",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-06-native-agents",
+          "task": "R0-06",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },
