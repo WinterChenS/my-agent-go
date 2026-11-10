@@ -359,8 +359,16 @@ func (s *shellNative) clickRefPhysical(ref, logID string) bool {
 	if !ok {
 		return false
 	}
+	statusBefore := s.out.Status
+	limitationsBefore := len(s.out.Limitations)
 	if !s.focusWindowRetry(logID) {
-		return false
+		// A background window may refuse foreground activation; fall back to
+		// the semantic click path for ordinary buttons.
+		s.out.Status = statusBefore
+		if len(s.out.Limitations) > limitationsBefore {
+			s.out.Limitations = s.out.Limitations[:limitationsBefore]
+		}
+		return s.run(StepSpec{Name: "semantic-click-" + logID, Command: "agent-desktop", Args: []string{"click", ref}, Timeout: 60 * time.Second})
 	}
 	x := int(bounds.X + bounds.Width/2)
 	y := int(bounds.Y + bounds.Height/2)
