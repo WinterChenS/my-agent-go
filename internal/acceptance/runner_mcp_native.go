@@ -174,7 +174,6 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 	}
 	x := int(bounds.X + bounds.Width/2)
 	y := int(bounds.Y + bounds.Height/2)
-	_ = s.focusWindowRetry("mcp-scroll")
 	if !s.run(StepSpec{Name: "mcp-scroll-tools", Command: "agent-desktop", Args: []string{"--headed", "mouse-wheel", "--x", fmt.Sprint(x), "--y", fmt.Sprint(y), "--dy", "-3"}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
