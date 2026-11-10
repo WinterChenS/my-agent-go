@@ -164,6 +164,23 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 		return s.failCleanup()
 	}
 
+	card, ok := s.findRef("skills-card-code-review", "", "打开 代码审查", 15)
+	if !ok {
+		return s.failCleanup()
+	}
+	if !s.run(StepSpec{Name: "skills-open-builder", Command: "agent-desktop", Args: []string{"click", card}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
+	if !s.waitRoleCount("skills-builder", "window", "创建可复用能力", 1, 10) {
+		return s.failCleanup()
+	}
+	triggerStep, ok := s.findRef("skills-builder-triggers", "button", "触发与资源", 15)
+	if !ok {
+		return s.failCleanup()
+	}
+	if !s.run(StepSpec{Name: "skills-builder-triggers", Command: "agent-desktop", Args: []string{"click", triggerStep}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
 	step, ok := s.findRef("skills-workflow-step", "", "展开或收起步骤", 15)
 	if !ok {
 		return s.failCleanup()
@@ -175,6 +192,28 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/skills-workflow-1440x900.png", s.windowIDValue) {
+		return s.failCleanup()
+	}
+	testStep, ok := s.findRef("skills-builder-test", "button", "测试与发布", 15)
+	if !ok {
+		return s.failCleanup()
+	}
+	if !s.run(StepSpec{Name: "skills-builder-test", Command: "agent-desktop", Args: []string{"click", testStep}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
+	if !s.waitText("skills-builder-checks", "SKILL.md 结构完整", false, 10) {
+		return s.failCleanup()
+	}
+	if !s.screenshot("native/skills-builder-test-1440x900.png", s.windowIDValue) {
+		return s.failCleanup()
+	}
+	if !s.run(StepSpec{Name: "skills-close-builder", Command: "self", Args: []string{"key", "--title=Anvil", "--combo=escape"}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
+	if !s.waitRoleCount("skills-builder-escape", "window", "创建可复用能力", 0, 10) {
+		return s.failCleanup()
+	}
+	if !s.waitFocused(card, "skills-card") {
 		return s.failCleanup()
 	}
 
@@ -201,7 +240,7 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 		return s.failCleanup()
 	}
 
-	// Compact sample: detail then back to list.
+	// Compact sample: the same grid becomes one column.
 	if !s.resize(s.windowIDValue, 390, 844, true) {
 		return s.failCleanup()
 	}
@@ -210,20 +249,10 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 		out.Limitations = append(out.Limitations, "layout probe missing for the compact sample skills page")
 		return s.failCleanup()
 	}
+	if !s.waitText("skills-compact-grid", "代码审查", false, 10) {
+		return s.failCleanup()
+	}
 	if !s.screenshot("native/skills-sample-390x844.png", s.windowIDValue) {
-		return s.failCleanup()
-	}
-	back, ok := s.findRef("skills-back", "button", "返回 Skill 列表", 15)
-	if !ok {
-		return s.failCleanup()
-	}
-	if !s.run(StepSpec{Name: "skills-back-to-list", Command: "agent-desktop", Args: []string{"click", back}, Timeout: 60 * time.Second}) {
-		return s.failCleanup()
-	}
-	if !s.waitText("skills-compact-list", "已安装 9", false, 10) {
-		return s.failCleanup()
-	}
-	if !s.screenshot("native/skills-list-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
 	if !s.closeThemeClient() {

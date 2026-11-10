@@ -651,3 +651,15 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `skills.validation.versionRequired` | 请填写版本号 | Enter a version |
 | `skills.validation.versionInvalid` | 版本格式应为 v1.2.3 | Use a version like v1.2.3 |
 | `skills.validation.triggerRequired` | 请填写至少一个触发条件 | Enter at least one trigger condition |
+| `skills.card.open` | 打开 {name} | Open {name} |
+| `skills.card.menu` | 更多操作：{name} | More actions: {name} |
+| `skills.card.install` | 获取 | Get |
+| `skills.card.continue` | 继续编辑 | Continue editing |
+| `skills.footnote` | Skill 在本机沙箱内执行，脚本只能访问被授权的目录与网络域名。修改系统级 Skill 需具备管理员角色。 | Skills run in a local sandbox; scripts can only reach authorized folders and network domains. Changing system Skills requires an administrator role. |
+| `skills.builder.step.intent` | 描述意图 | Describe intent |
+| `skills.builder.step.intentDesc` | 与 AI 一起定义 | Define with the AI |
+| `skills.builder.intentTitle` | 你希望 Agent 学会什么？ | What should the agent learn? |
+| `skills.builder.intentDesc` | 用自然语言描述真实任务，Agent 会追问缺失条件并生成 Skill 草稿。 | Describe a real task in natural language; the agent asks for missing details and creates a draft Skill. |
+| `skills.builder.intentLabel` | 任务描述 | Task description |
+| `skills.builder.intentPlaceholder` | 例如：每天交接前，把告警、处理动作和遗留问题整理成交接单。 | Example: before each shift handoff, collect alerts, actions, and open issues into a handoff report. |
+| `skills.builder.workflow` | 工作流步骤 | Workflow steps |

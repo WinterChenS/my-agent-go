@@ -23,14 +23,13 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('skills normal entry', () => {
-  it('renders empty list/detail, three tabs and disabled actions without fixtures', () => {
+  it('renders an empty grid with no fixtures and disabled actions', () => {
     renderAt('/skills')
     expect(screen.getByTestId('skills-page')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Skill' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '导入 Skill' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '新建 Skill' })).toBeDisabled()
     expect(screen.getByTestId('skill-empty-list')).toHaveTextContent('尚未接入 Skill')
-    expect(screen.getByTestId('skill-empty-detail')).toHaveTextContent('尚未接入 Skill 详情')
     expect(screen.getByRole('tab', { name: '已安装' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '市场' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '草稿' })).toBeInTheDocument()
@@ -38,12 +37,13 @@ describe('skills normal entry', () => {
     expect(screen.getByTestId('skill-enable')).toBeDisabled()
     expect(screen.getByTestId('skill-test-run')).toBeDisabled()
     expect(screen.queryByTestId('sample-banner')).toBeNull()
+    expect(screen.queryByTestId('skill-item')).toBeNull()
     for (const fixture of ['代码审查', '周报生成', 'v2.3', '9 个已安装', '97%', 'handoff-report']) {
       expect(screen.queryByText(fixture), `fixture ${fixture}`).toBeNull()
     }
   })
 
-  it('shows no fixed counts and keeps actions unavailable in English', async () => {
+  it('shows no fixed counts in English', async () => {
     window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/skills')
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
@@ -54,82 +54,105 @@ describe('skills normal entry', () => {
   })
 })
 
-describe('skills sample entry', () => {
-  it('renders the three counted tabs and the installed list', () => {
+describe('skills sample grid', () => {
+  it('renders counted tabs and prototype card anatomy', () => {
     renderAt('/?sample=skills')
     expect(screen.getByTestId('sample-banner')).toHaveTextContent('原型样例数据')
     expect(screen.getByRole('tab', { name: '已安装 9' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '市场' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '草稿 2' })).toBeInTheDocument()
-    expect(screen.getAllByTestId('skill-item')).toHaveLength(9)
-    expect(screen.getAllByText('代码审查').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('周报生成').length).toBeGreaterThan(0)
-    expect(screen.getByText('v2.3 · 内置')).toBeInTheDocument()
-
-    const detail = screen.getByTestId('skill-detail')
-    expect(within(detail).getByRole('heading', { name: '代码审查' })).toBeInTheDocument()
-    expect(within(detail).getByText('97%')).toBeInTheDocument()
-    expect(within(detail).getAllByTestId('skill-workflow-step').length).toBeGreaterThanOrEqual(4)
-    expect(within(detail).getByTestId('skill-checks')).toHaveTextContent('SKILL.md 结构完整')
-    expect(within(detail).getByTestId('skill-checks')).toHaveTextContent('依赖均已授权')
+    const cards = screen.getAllByTestId('skill-item')
+    expect(cards).toHaveLength(9)
+    const review = cards[0]
+    expect(within(review).getByText('代码审查')).toBeInTheDocument()
+    expect(within(review).getByText('v2.3 · 内置')).toBeInTheDocument()
+    expect(within(review).getByText('按 diff 输出风险分级：会断掉、编译期可见、仅命名变化。附最小修复建议。')).toBeInTheDocument()
+    expect(within(review).getByText('git diff')).toBeInTheDocument()
+    expect(within(review).getByText('调用 128 次')).toBeInTheDocument()
+    expect(within(review).getByText('3 天前更新')).toBeInTheDocument()
+    expect(within(review).getByRole('switch', { name: '代码审查 启用 Skill' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(review).getByRole('button', { name: '更多操作：代码审查' })).toBeInTheDocument()
   })
 
-  it('switches tabs, selects market/drafts and shows their content', async () => {
+  it('switches tabs and keeps market/draft card actions', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=skills')
     await user.click(screen.getByRole('tab', { name: '市场' }))
     expect(screen.getAllByTestId('skill-item')).toHaveLength(6)
-    expect(screen.getAllByText('SQL 优化').length).toBeGreaterThan(0)
+    expect(screen.getByText('SQL 优化')).toBeInTheDocument()
     expect(screen.getByText('v2.1 · 官方')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '获取' })).toHaveLength(6)
     await user.click(screen.getByRole('tab', { name: '草稿 2' }))
     expect(screen.getAllByTestId('skill-item')).toHaveLength(2)
-    expect(screen.getAllByText('值班交接单').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('API 变更通知').length).toBeGreaterThan(0)
+    expect(screen.getByText('值班交接单')).toBeInTheDocument()
+    expect(screen.getByText('API 变更通知')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '继续编辑' })).toHaveLength(2)
     await user.click(screen.getByRole('tab', { name: '已安装 9' }))
     expect(screen.getByText('票单分诊')).toBeInTheDocument()
   })
 
-  it('expands a workflow step and runs both success and failure test states', async () => {
-    const user = userEvent.setup()
-    renderAt('/?sample=skills')
-    const detail = screen.getByTestId('skill-detail')
-    const step = within(detail).getAllByTestId('skill-workflow-step')[0]
-    expect(step).toHaveAttribute('aria-expanded', 'false')
-    await user.click(within(step).getByRole('button'))
-    expect(step).toHaveAttribute('aria-expanded', 'true')
-    expect(step).toHaveTextContent('读取今日告警与处理状态')
-
-    await user.click(within(detail).getByRole('button', { name: '运行测试' }))
-    await waitFor(() => expect(within(detail).getByTestId('skill-test-success')).toBeInTheDocument())
-    expect(within(detail).getByTestId('skill-enable-after-test')).not.toBeDisabled()
-    await user.click(within(detail).getByTestId('skill-enable-after-test'))
-    expect(screen.getByTestId('skill-notice')).toHaveTextContent('样例模式：启用未接入')
-
-    await user.click(within(detail).getByRole('button', { name: '模拟失败' }))
-    expect(within(detail).getByTestId('skill-test-failure')).toHaveAttribute('role', 'alert')
-    expect(within(detail).getByTestId('skill-enable-after-test')).toBeDisabled()
-  })
-
-  it('filters the list and reports an empty result', async () => {
+  it('filters the grid and reports an empty result', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=skills')
     const search = screen.getByTestId('skill-search')
     await user.type(search, '周报')
     expect(screen.getAllByTestId('skill-item')).toHaveLength(1)
-    expect(screen.getAllByText('周报生成').length).toBeGreaterThan(0)
+    expect(screen.getByText('周报生成')).toBeInTheDocument()
     await user.clear(search)
     await user.type(search, '不存在')
     expect(screen.getByText('没有匹配的 Skill')).toBeInTheDocument()
     expect(screen.queryAllByTestId('skill-item')).toHaveLength(0)
   })
+})
 
-  it('walks the create flow with three stages and validates each step', async () => {
+describe('skills builder', () => {
+  it('opens a prefilled builder from the card and expands a workflow step', async () => {
+    const user = userEvent.setup()
+    renderAt('/?sample=skills')
+    const opener = screen.getByRole('button', { name: '打开 代码审查' })
+    await user.click(opener)
+    const dialog = screen.getByRole('dialog', { name: '创建可复用能力' })
+    expect(within(dialog).getByText('第 2 / 4 步')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('名称')).toHaveValue('代码审查')
+    expect(within(dialog).getByLabelText('标识')).toHaveValue('code-review')
+    expect(within(dialog).getByLabelText('版本')).toHaveValue('v2.3')
+
+    await user.click(within(dialog).getByRole('button', { name: /触发与资源/ }))
+    const step = within(dialog).getAllByTestId('skill-workflow-step')[0]
+    expect(step).toHaveAttribute('aria-expanded', 'false')
+    await user.click(within(step).getByRole('button'))
+    expect(step).toHaveAttribute('aria-expanded', 'true')
+    expect(step).toHaveTextContent('保留告警来源与时间线')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '创建可复用能力' })).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+  })
+
+  it('runs success and failure test states inside the builder', async () => {
+    const user = userEvent.setup()
+    renderAt('/?sample=skills')
+    await user.click(screen.getByRole('button', { name: '打开 代码审查' }))
+    const dialog = screen.getByRole('dialog', { name: '创建可复用能力' })
+    await user.click(within(dialog).getByRole('button', { name: /测试与发布/ }))
+    await user.click(within(dialog).getByRole('button', { name: '运行测试' }))
+    await waitFor(() => expect(within(dialog).getByTestId('skill-test-success')).toBeInTheDocument())
+    expect(within(dialog).getByTestId('skill-enable-after-test')).not.toBeDisabled()
+    await user.click(within(dialog).getByTestId('skill-enable-after-test'))
+    expect(screen.getByTestId('skill-notice')).toHaveTextContent('样例模式：启用未接入')
+    await user.click(within(dialog).getByRole('button', { name: '模拟失败' }))
+    expect(within(dialog).getByTestId('skill-test-failure')).toHaveAttribute('role', 'alert')
+    expect(within(dialog).getByTestId('skill-enable-after-test')).toBeDisabled()
+  })
+
+  it('walks four builder stages and validates name, slug, version and trigger', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=skills')
     const opener = screen.getByRole('button', { name: '新建 Skill' })
     await user.click(opener)
     const dialog = screen.getByRole('dialog', { name: '创建可复用能力' })
-    expect(within(dialog).getByText('第 1 / 3 步')).toBeInTheDocument()
+    expect(within(dialog).getByText('第 1 / 4 步')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '继续' }))
+    expect(within(dialog).getByText('第 2 / 4 步')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '继续' }))
     expect(within(dialog).getByText('请填写 Skill 名称')).toBeInTheDocument()
     await user.type(within(dialog).getByLabelText('名称'), '值班交接单')
@@ -144,14 +167,14 @@ describe('skills sample entry', () => {
     await user.clear(within(dialog).getByLabelText('版本'))
     await user.type(within(dialog).getByLabelText('版本'), 'v1.0.0')
     await user.click(within(dialog).getByRole('button', { name: '继续' }))
-    expect(within(dialog).getByText('第 2 / 3 步')).toBeInTheDocument()
+    expect(within(dialog).getByText('第 3 / 4 步')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '继续' }))
     expect(within(dialog).getByText('请填写至少一个触发条件')).toBeInTheDocument()
     await user.type(within(dialog).getByLabelText('触发条件'), '用户提到交接时')
     await user.click(within(dialog).getByRole('button', { name: '继续' }))
-    expect(within(dialog).getByText('第 3 / 3 步')).toBeInTheDocument()
+    expect(within(dialog).getByText('第 4 / 4 步')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '上一步' }))
-    expect(within(dialog).getByText('第 2 / 3 步')).toBeInTheDocument()
+    expect(within(dialog).getByText('第 3 / 4 步')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '继续' }))
     await user.click(within(dialog).getByRole('button', { name: '发布 Skill' }))
     expect(screen.getByTestId('skill-notice')).toHaveTextContent('样例模式：发布未接入')
@@ -185,8 +208,10 @@ describe('skills sample entry', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(document.activeElement).toBe(opener))
   })
+})
 
-  it('translates tabs, checks and validation into English', async () => {
+describe('skills i18n', () => {
+  it('translates grid tabs, builder checks and validation into English', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/?sample=skills')
@@ -194,20 +219,24 @@ describe('skills sample entry', () => {
     expect(screen.getByRole('tab', { name: 'Installed 9' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Market' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Drafts 2' })).toBeInTheDocument()
-    const detail = screen.getByTestId('skill-detail')
-    expect(within(detail).getByText('SKILL.md structure is valid')).toBeInTheDocument()
-    expect(within(detail).getByText('Dependencies are authorized')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'New Skill' }))
+    await user.click(screen.getByRole('button', { name: 'Open 代码审查' }))
     const dialog = screen.getByRole('dialog', { name: 'Create reusable capability' })
+    await user.click(within(dialog).getByRole('button', { name: /Test & publish/ }))
+    expect(within(dialog).getByText('SKILL.md structure is valid')).toBeInTheDocument()
+    expect(within(dialog).getByText('Dependencies are authorized')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /Basic information/ }))
+    await user.clear(within(dialog).getByLabelText('Name'))
     await user.click(within(dialog).getByRole('button', { name: 'Continue' }))
     expect(within(dialog).getByText('Enter a Skill name')).toBeInTheDocument()
   })
 })
 
 describe('skills responsive contract', () => {
-  it('declares wide two-column and compact single-column layouts', () => {
+  it('declares three-column, two-column and single-column grids', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/pages/skills/skills.css'), 'utf8')
-    expect(css).toContain('grid-template-columns: 360px minmax(0, 1fr)')
+    expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
+    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr)')
     expect(css).toContain('@media (max-width: 900px)')
     expect(css).toContain('@media (max-width: 620px)')
     expect(css).toContain('min-width: 0')

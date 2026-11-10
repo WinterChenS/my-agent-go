@@ -2,44 +2,73 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
+import {
+  testFailure,
+  testInput,
+  testSuccess,
+  triggerConditions,
+  triggerResources,
+  workflowSteps,
+  type SkillRecord,
+} from './sampleData'
 
 export type SkillDialogKind = 'builder' | 'import' | null
 
+const RESOURCE_KEYS: Record<string, { label: MessageKey; desc: MessageKey }> = {
+  sentry: { label: 'skills.resource.sentry', desc: 'skills.resource.sentryDesc' },
+  dingtalk: { label: 'skills.resource.dingtalk', desc: 'skills.resource.dingtalkDesc' },
+  library: { label: 'skills.resource.library', desc: 'skills.resource.libraryDesc' },
+  terminal: { label: 'skills.resource.terminal', desc: 'skills.resource.terminalDesc' },
+}
+
 export default function SkillDialogs({
   kind,
+  initial,
   onClose,
   onNotice,
 }: {
   kind: SkillDialogKind
+  initial: SkillRecord | null
   onClose: () => void
   onNotice: (message: string) => void
 }) {
   const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
+  const testTimer = useRef<number | null>(null)
   const [step, setStep] = useState(0)
+  const [intent, setIntent] = useState('')
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [version, setVersion] = useState('')
   const [description, setDescription] = useState('')
   const [trigger, setTrigger] = useState('')
   const [error, setError] = useState('')
+  const [workflowOpen, setWorkflowOpen] = useState<Record<string, boolean>>({})
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failure'>('idle')
   const [importTab, setImportTab] = useState<'url' | 'file'>('url')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
   useEffect(() => {
     if (!kind) return
-    setStep(0)
-    setName('')
-    setSlug('')
-    setVersion('')
-    setDescription('')
-    setTrigger('')
+    setStep(initial ? 1 : 0)
+    setIntent(initial?.description ?? '')
+    setName(initial?.name ?? '')
+    setSlug(initial?.id ?? '')
+    setVersion(initial?.version ?? '')
+    setDescription(initial?.description ?? '')
+    setTrigger(initial ? `用户要求「${initial.name}」时` : '')
     setError('')
+    setWorkflowOpen({})
+    setTestStatus('idle')
     setImportTab('url')
     setUrl('')
     setFile(null)
-  }, [kind])
+  }, [kind, initial])
+
+  useEffect(() => () => {
+    if (testTimer.current !== null) window.clearTimeout(testTimer.current)
+  }, [])
 
   useEffect(() => {
     if (!kind) return
@@ -76,8 +105,14 @@ export default function SkillDialogs({
 
   if (!kind) return null
 
+  const runTest = () => {
+    if (testTimer.current !== null) window.clearTimeout(testTimer.current)
+    setTestStatus('running')
+    testTimer.current = window.setTimeout(() => setTestStatus('success'), 120)
+  }
+
   const next = () => {
-    if (step === 0) {
+    if (step === 1) {
       if (!name.trim()) {
         setError(t('skills.validation.nameRequired'))
         return
@@ -98,16 +133,14 @@ export default function SkillDialogs({
         setError(t('skills.validation.versionInvalid'))
         return
       }
-    } else if (step === 1 && !trigger.trim()) {
+    } else if (step === 2 && !trigger.trim()) {
       setError(t('skills.validation.triggerRequired'))
       return
     }
     setError('')
-    setStep((current) => Math.min(2, current + 1))
+    setStep((current) => Math.min(3, current + 1))
   }
-  const publish = () => {
-    onNotice(t('skills.notice.publish'))
-  }
+
   const analyzeImport = () => {
     if (!url.trim()) {
       setError(t('skills.validation.urlRequired'))
@@ -130,6 +163,7 @@ export default function SkillDialogs({
   }
 
   const builderSteps: Array<{ label: MessageKey; desc: MessageKey }> = [
+    { label: 'skills.builder.step.intent', desc: 'skills.builder.step.intentDesc' },
     { label: 'skills.builder.step.basics', desc: 'skills.builder.step.basicsDesc' },
     { label: 'skills.builder.step.triggers', desc: 'skills.builder.step.triggersDesc' },
     { label: 'skills.builder.step.test', desc: 'skills.builder.step.testDesc' },
@@ -168,13 +202,20 @@ export default function SkillDialogs({
             <div className="skills-builder-layout">
               <nav className="skills-builder-steps" aria-label={t('skills.builder.title')}>
                 {builderSteps.map((entry, index) => (
-                  <button key={entry.label} type="button" className={index === step ? 'is-active' : index < step ? 'is-done' : ''} onClick={() => setStep(index)}>
+                  <button key={entry.label} type="button" aria-label={t(entry.label)} className={index === step ? 'is-active' : index < step ? 'is-done' : ''} onClick={() => setStep(index)}>
                     <span>{index + 1}</span><b>{t(entry.label)}</b><small>{t(entry.desc)}</small>
                   </button>
                 ))}
               </nav>
               <div className="skills-builder-main">
                 {step === 0 ? (
+                  <div className="skills-form-stack">
+                    <h3>{t('skills.builder.intentTitle')}</h3>
+                    <p className="skills-hint">{t('skills.builder.intentDesc')}</p>
+                    <label className="skills-field"><span>{t('skills.builder.intentLabel')}</span><textarea rows={5} value={intent} placeholder={t('skills.builder.intentPlaceholder')} onChange={(event) => setIntent(event.target.value)} /></label>
+                  </div>
+                ) : null}
+                {step === 1 ? (
                   <div className="skills-form-stack">
                     <h3>{t('skills.builder.step.basics')}</h3>
                     <label className="skills-field"><span>{t('skills.builder.name')}</span><input value={name} onChange={(event) => { setName(event.target.value); setError('') }} /></label>
@@ -183,21 +224,64 @@ export default function SkillDialogs({
                     <label className="skills-field"><span>{t('skills.builder.descriptionLabel')}</span><textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
                   </div>
                 ) : null}
-                {step === 1 ? (
+                {step === 2 ? (
                   <div className="skills-form-stack">
                     <h3>{t('skills.builder.step.triggers')}</h3>
                     <label className="skills-field"><span>{t('skills.builder.semantic')}</span><textarea rows={3} value={trigger} placeholder={t('skills.builder.triggerPlaceholder')} onChange={(event) => { setTrigger(event.target.value); setError('') }} aria-label={t('skills.builder.triggerLabel')} /></label>
                     <label className="skills-field"><span>{t('skills.builder.schedule')}</span><input className="mono" defaultValue="0 18 * * 1-5" /></label>
+                    <div className="skills-section-label">{t('skills.builder.workflow')}</div>
+                    <div className="skills-timeline">
+                      {workflowSteps.map((workflowStep, index) => {
+                        const open = Boolean(workflowOpen[workflowStep.id])
+                        return (
+                          <section key={workflowStep.id} className={`skills-step${open ? ' is-open' : ''}`} data-testid="skill-workflow-step" aria-expanded={open}>
+                            <button type="button" className="skills-step-head" aria-expanded={open} aria-label={t('skills.workflow.toggle')} onClick={() => setWorkflowOpen((current) => ({ ...current, [workflowStep.id]: !current[workflowStep.id] }))}>
+                              <span className="skills-step-mark">{index + 1}</span>
+                              <span className="skills-step-main"><b>{workflowStep.title}</b><small>{workflowStep.description}</small></span>
+                              <span className={`skills-run-status is-${workflowStep.status}`}>{t(workflowStep.status === 'done' ? 'skills.workflow.done' : workflowStep.status === 'ready' ? 'skills.workflow.ready' : 'skills.workflow.waiting')}</span>
+                              <span className="skills-caret" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
+                            </button>
+                            {open ? <div className="skills-step-body"><div>{workflowStep.description}</div><div className="skills-step-tools"><span>{t('skills.workflow.tools')}</span>{workflowStep.tools.map((tool) => <span key={tool} className="skills-chip">{tool}</span>)}</div></div> : null}
+                          </section>
+                        )
+                      })}
+                    </div>
+                    <div className="skills-section-label">{t('skills.trigger.resources')}</div>
+                    <div className="skills-resource-list">
+                      {triggerResources.map((resource) => (
+                        <label key={resource.key} className="skills-resource">
+                          <input type="checkbox" defaultChecked={resource.enabled} onChange={() => onNotice(t('skills.notice.toggle'))} />
+                          <span><b>{t(RESOURCE_KEYS[resource.key].label)}</b><small>{t(RESOURCE_KEYS[resource.key].desc)}</small></span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="skills-conditions">{triggerConditions.map((condition) => <span key={condition}>{condition}</span>)}</div>
                   </div>
                 ) : null}
-                {step === 2 ? (
+                {step === 3 ? (
                   <div className="skills-form-stack">
                     <h3>{t('skills.builder.step.test')}</h3>
-                    <div className="skills-checks">
-                      <span><i className="is-ok" />{t('skills.test.structure')}</span>
-                      <span><i className="is-ok" />{t('skills.test.triggerable')}</span>
-                      <span><i />{t('skills.test.awaiting')}</span>
+                    <label className="skills-field"><span>{t('skills.test.input')}</span><textarea className="skills-test-input" rows={5} defaultValue={testInput} aria-label={t('skills.test.input')} /></label>
+                    <div className="skills-test-actions">
+                      <button type="button" className="skills-btn skills-btn-sm" data-testid="skill-test-run" onClick={runTest}>{t('skills.test.run')}</button>
+                      <button type="button" className="skills-btn skills-btn-sm" onClick={() => setTestStatus('failure')}>{t('skills.test.fail')}</button>
+                      <button type="button" className="skills-btn skills-btn-sm skills-btn-primary" data-testid="skill-enable-after-test" disabled={testStatus !== 'success'} onClick={() => onNotice(t('skills.notice.enable'))}>{t('skills.test.enableAfter')}</button>
                     </div>
+                    {testStatus === 'running' ? <div className="skills-test-result is-running" role="status">{t('skills.test.running')}</div> : null}
+                    {testStatus === 'success' ? <div className="skills-test-result is-success" data-testid="skill-test-success" role="status"><b>{t('skills.test.success')}</b><span>{testSuccess}</span></div> : null}
+                    {testStatus === 'failure' ? <div className="skills-test-result is-failure" data-testid="skill-test-failure" role="alert"><b>{t('skills.test.failure')}</b><span>{testFailure}</span></div> : null}
+                    <div className="skills-label">{t('skills.test.checks')}</div>
+                    <div className="skills-checks" data-testid="skill-checks">
+                      {[
+                        ['skills.test.structure', true],
+                        ['skills.test.triggerable', true],
+                        ['skills.test.dependencies', true],
+                        ['skills.test.awaiting', testStatus === 'success'],
+                      ].map(([key, ok]) => (
+                        <span key={key as string}><i className={ok ? 'is-ok' : ''} aria-hidden="true" />{t(key as MessageKey)}</span>
+                      ))}
+                    </div>
+                    <p className="skills-default-agent">{t('skills.test.defaultAgent')}</p>
                   </div>
                 ) : null}
                 {error ? <p className="skills-error" role="alert">{error}</p> : null}
@@ -208,10 +292,10 @@ export default function SkillDialogs({
               <span className="skills-progress">{t('skills.builder.progress', { current: step + 1, total: builderSteps.length })}</span>
               <span className="skills-spacer" />
               <button type="button" className="skills-btn" onClick={onClose}>{t('skills.builder.saveDraft')}</button>
-              {step < 2 ? (
+              {step < 3 ? (
                 <button type="button" className="skills-btn skills-btn-primary" onClick={next}>{t('skills.builder.next')}</button>
               ) : (
-                <button type="button" className="skills-btn skills-btn-primary" onClick={publish}>{t('skills.builder.publish')}</button>
+                <button type="button" className="skills-btn skills-btn-primary" onClick={() => onNotice(t('skills.notice.publish'))}>{t('skills.builder.publish')}</button>
               )}
             </div>
           </>
