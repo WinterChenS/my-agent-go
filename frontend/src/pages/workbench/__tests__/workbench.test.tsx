@@ -109,6 +109,10 @@ describe('quick jump palette', () => {
     expect(options[11]).toHaveAccessibleName(/添加 MCP 服务.*操作 · MCP/)
     expect(options[12]).toHaveAccessibleName(/管理本地运行时.*设置/)
     expect(options[13]).toHaveAccessibleName(/Token 用量审计.*设置/)
+    expect(within(dialog).getByText('移动')).toBeInTheDocument()
+    expect(within(dialog).getByText('打开')).toBeInTheDocument()
+    expect(within(dialog).getByText('呼出')).toBeInTheDocument()
+    expect(within(dialog).getByText('ESC')).toBeInTheDocument()
   })
 
   it('moves with arrows, opens with Enter, closes with Escape and returns focus', async () => {

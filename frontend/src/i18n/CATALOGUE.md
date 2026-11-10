@@ -158,8 +158,8 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `workbench.palette.action.manageRuntimeSub` | 设置 | Settings |
 | `workbench.palette.action.tokenAudit` | Token 用量审计 | Token usage audit |
 | `workbench.palette.action.tokenAuditSub` | 设置 | Settings |
-| `workbench.palette.hint.move` | ↑ ↓ 移动 | ↑ ↓ Move |
-| `workbench.palette.hint.open` | ↵ 打开 | ↵ Open |
-| `workbench.palette.hint.summon` | ⌘ K 呼出 | ⌘ K Summon |
+| `workbench.palette.hint.move` | 移动 | Move |
+| `workbench.palette.hint.open` | 打开 | Open |
+| `workbench.palette.hint.summon` | 呼出 | Summon |
 | `workbench.palette.hint.escape` | ESC | ESC |
 | `workbench.palette.unavailable` | 未接入：该操作将在后续任务开放 | Not connected: this action arrives in a later task |

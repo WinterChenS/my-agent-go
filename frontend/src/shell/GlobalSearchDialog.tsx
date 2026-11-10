@@ -131,23 +131,26 @@ export default function GlobalSearchDialog({
         onKeyDown={onKeyDown}
       >
         <div className="wb-search-body">
-          <input
-            ref={inputRef}
-            className="wb-search-input"
-            type="search"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setActive(0)
-              setNotice('')
-            }}
-            placeholder={t('workbench.palette.placeholder')}
-            aria-label={t('workbench.palette.placeholder')}
-            role="combobox"
-            aria-expanded="true"
-            aria-controls={listboxID}
-            aria-activedescendant={filtered[active] ? `palette-${filtered[active].id}` : undefined}
-          />
+          <div className="wb-palette-head">
+            <input
+              ref={inputRef}
+              className="wb-search-input"
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setActive(0)
+                setNotice('')
+              }}
+              placeholder={t('workbench.palette.placeholder')}
+              aria-label={t('workbench.palette.placeholder')}
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listboxID}
+              aria-activedescendant={filtered[active] ? `palette-${filtered[active].id}` : undefined}
+            />
+            <span className="kbd" aria-hidden="true">{t('workbench.palette.hint.escape')}</span>
+          </div>
           <div className="wb-palette-list" id={listboxID} role="listbox" aria-label={t('workbench.palette.label')}>
             {filtered.length === 0 ? <p className="wb-empty">{t('workbench.palette.empty')}</p> : null}
             {filtered.map((item, index) => (
@@ -161,8 +164,11 @@ export default function GlobalSearchDialog({
                 onMouseEnter={() => setActive(index)}
                 onClick={() => activate(item)}
               >
-                <span>{item.label}</span>
-                <small>{item.sub}</small>
+                <span className="wb-palette-main">
+                  <span className="wb-palette-text">{item.label}</span>
+                  <small>{item.sub}</small>
+                </span>
+                <span className="wb-palette-go" aria-hidden="true">›</span>
               </div>
             ))}
           </div>
@@ -174,16 +180,15 @@ export default function GlobalSearchDialog({
         </div>
         <div className="wb-palette-foot">
           <span>
-            <span className="kbd">↑</span> <span className="kbd">↓</span> {t('workbench.palette.hint.move')}
+            <span className="kbd">↑</span><span className="kbd">↓</span> {t('workbench.palette.hint.move')}
           </span>
           <span>
             <span className="kbd">↵</span> {t('workbench.palette.hint.open')}
           </span>
-          <span>
-            <span className="kbd">⌘</span> <span className="kbd">K</span> {t('workbench.palette.hint.summon')}
-          </span>
           <span className="wb-palette-foot-spacer" />
-          <span className="kbd">{t('workbench.palette.hint.escape')}</span>
+          <span>
+            <span className="kbd">⌘</span><span className="kbd">K</span> {t('workbench.palette.hint.summon')}
+          </span>
         </div>
       </div>
     </div>
