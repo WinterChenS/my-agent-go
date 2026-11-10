@@ -202,12 +202,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.screenshot("native/chat-sample-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	_ = s.run(StepSpec{
-		Name: "chat-debug-buttons", Command: "agent-desktop",
-		Args:    []string{"find", "--role", "button", "--limit", "0", "--app", "anvil.exe", "--timeout-ms", "15000"},
-		Timeout: 60 * time.Second,
-	})
-	railToggle, ok := s.findRef("chat-rail-expand", "button", "右侧面板", 15)
+	railToggle, ok := s.findRef("chat-rail-expand", "", "右侧面板", 15)
 	if !ok {
 		return s.failCleanup()
 	}
