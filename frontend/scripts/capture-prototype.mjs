@@ -1,6 +1,11 @@
 // Capture same-condition prototype screenshots with the locally installed Edge.
 // Zero dependencies: Edge headless writes a PNG for a fixed window size.
-import { existsSync, mkdirSync, statSync } from 'node:fs'
+//
+// Edge occasionally exits with null/non-zero after writing a valid PNG. A
+// written file above the sanity threshold is therefore accepted and the exit
+// code is logged as tolerated. Missing/undersized files are retried once as a
+// whole suite; only a second failure exits non-zero.
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
@@ -12,6 +17,8 @@ const outDir = outIndex >= 0 && args[outIndex + 1]
   ? resolve(args[outIndex + 1])
   : join(repo, '.tmp', 'test', 'prototype')
 
+const MIN_BYTES = 10 * 1024
+const MAX_ATTEMPTS = 2
 const candidates = [
   process.env.EDGE_BIN,
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -38,30 +45,64 @@ if (!existsSync(join(prototype, 'index.html'))) {
   process.exit(1)
 }
 
-for (const screen of screens) {
-  for (const size of sizes) {
-    const file = join(outDir, `proto-${screen}-${size.width}x${size.height}.png`)
-    const url = pathToFileURL(join(prototype, `${screen}.html`)).href
-    const result = spawnSync(edge, [
-      '--headless=new',
-      '--disable-gpu',
-      '--hide-scrollbars',
-      '--force-device-scale-factor=1',
-      '--no-first-run',
-      `--window-size=${size.width},${size.height}`,
-      '--virtual-time-budget=5000',
-      `--user-data-dir=${profile}`,
-      `--screenshot=${file}`,
-      url,
-    ], { stdio: 'inherit', timeout: 120000 })
-    if (result.status !== 0) {
-      console.error(`capture-prototype: Edge exited ${result.status ?? 'null'} for ${screen} ${size.width}x${size.height}`)
-      process.exit(1)
+function fileState(path) {
+  const exists = existsSync(path)
+  const bytes = exists ? statSync(path).size : 0
+  return { exists, bytes, valid: exists && bytes > MIN_BYTES }
+}
+
+function captureOnce(screen, size) {
+  const file = join(outDir, `proto-${screen}-${size.width}x${size.height}.png`)
+  const url = pathToFileURL(join(prototype, `${screen}.html`)).href
+  rmSync(file, { force: true })
+  const result = spawnSync(edge, [
+    '--headless=new',
+    '--disable-gpu',
+    '--hide-scrollbars',
+    '--force-device-scale-factor=1',
+    '--no-first-run',
+    `--window-size=${size.width},${size.height}`,
+    '--virtual-time-budget=5000',
+    `--user-data-dir=${profile}`,
+    `--screenshot=${file}`,
+    url,
+  ], { stdio: 'inherit', timeout: 120000 })
+  const state = fileState(file)
+  const exit = result.status
+  const tolerated = exit !== 0 && state.valid
+  const ok = state.valid
+  const detail = `screen=${screen} size=${size.width}x${size.height} edgeExit=${exit} fileExists=${state.exists} fileSize=${state.bytes} result=${tolerated ? 'tolerated' : ok ? 'ok' : 'failed'}`
+  console.log(`capture-prototype: ${detail}`)
+  if (tolerated) {
+    console.log(`capture-prototype: tolerated Edge exit ${exit} because ${file} is ${state.bytes} bytes (>${MIN_BYTES})`)
+  }
+  if (!ok) {
+    console.error(`capture-prototype: ${detail} (expected ${file} to be >${MIN_BYTES} bytes)`)
+  }
+  return { ok, tolerated, detail, exit, file, state }
+}
+
+let lastAttempts = []
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  const results = []
+  let failed = false
+  for (const screen of screens) {
+    for (const size of sizes) {
+      const result = captureOnce(screen, size)
+      results.push(result)
+      if (!result.ok) failed = true
     }
-    if (!existsSync(file) || statSync(file).size < 1024) {
-      console.error(`capture-prototype: screenshot missing or too small: ${file}`)
-      process.exit(1)
-    }
-    console.log(`capture-prototype: ${file} (${statSync(file).size} bytes)`)
+  }
+  lastAttempts.push(results)
+  if (!failed) process.exit(0)
+  if (attempt < MAX_ATTEMPTS) {
+    const failedDetails = results.filter((result) => !result.ok).map((result) => result.detail).join('; ')
+    console.error(`capture-prototype: attempt ${attempt} failed (${failedDetails}); retrying the full suite once`)
   }
 }
+
+const failureDetails = lastAttempts.flatMap((results, index) =>
+  results.filter((result) => !result.ok).map((result) => `attempt=${index + 1} ${result.detail}`),
+)
+console.error(`capture-prototype: failed after ${MAX_ATTEMPTS} attempts: ${failureDetails.join('; ')}`)
+process.exit(1)
