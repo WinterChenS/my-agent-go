@@ -14,6 +14,13 @@ export default defineConfig({
     strictPort: true,
   },
   test: {
+    // jsdom + 16 React test files can exhaust the default forked worker pool
+    // on this Windows host (SIGABRT 134). Run one file at a time in a single
+    // worker so gate runs are deterministic; this does not change any test.
+    pool: 'forks',
+    fileParallelism: false,
+    minWorkers: 1,
+    maxWorkers: 1,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
