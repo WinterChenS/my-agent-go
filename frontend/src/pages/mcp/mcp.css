@@ -365,7 +365,7 @@
 
 .mcp-tools {
   position: relative;
-  max-height: 156px;
+  max-height: 96px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
