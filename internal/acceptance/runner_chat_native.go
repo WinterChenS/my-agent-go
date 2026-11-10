@@ -220,7 +220,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.screenshot("native/chat-rail-drawer-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	railClose, ok := s.findRef("chat-rail-close", "button", "关闭面板", 15)
+	railClose, ok := s.findRef("chat-rail-close", "", "关闭面板", 15)
 	if !ok {
 		return s.failCleanup()
 	}
@@ -235,7 +235,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	}
 
 	// Compact history drawer: open, screenshot, Escape and focus return.
-	historyToggle, ok := s.findRef("chat-history-open", "button", "历史会话", 15)
+	historyToggle, ok := s.findRef("chat-history-open", "", "历史会话", 15)
 	if !ok {
 		return s.failCleanup()
 	}
