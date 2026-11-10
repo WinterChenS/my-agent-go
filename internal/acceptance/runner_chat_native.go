@@ -328,7 +328,7 @@ func (s *shellNative) waitExpanded(ref string, want bool, label string) bool {
 		time.Sleep(200 * time.Millisecond)
 	}
 	s.out.Status = StatusFail
-	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("rail toggle did not report expanded=%t", want))
+	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("element did not report expanded=%t", want))
 	return false
 }
 

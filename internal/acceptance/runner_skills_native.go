@@ -168,7 +168,7 @@ func runNativeSkillsCase(r automationRunner, sha, target string, hooks *nativeHo
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.clickRefPhysical(step, "skills-expand-step") {
+	if !s.run(StepSpec{Name: "skills-expand-step", Command: "agent-desktop", Args: []string{"expand", step}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
 	if !s.waitExpanded(step, true, "skills-step") {
