@@ -42,6 +42,7 @@ type CasePlan struct {
 	NativeChat      bool
 	NativeAgents    bool
 	NativeSkills    bool
+	NativeMcp       bool
 	// CollectArtifacts lists case-directory globs whose files are hashed into
 	// result.json after the steps (e.g. screenshots written by a helper).
 	CollectArtifacts []string
@@ -259,6 +260,27 @@ func casePlans() []CasePlan {
 			EvidenceKind: EvidenceNativeDesktop,
 			NativeSkills: true,
 		},
+		{
+			ID:           "R0-08-mcp",
+			EvidenceKind: EvidenceAutomation,
+			Steps: []StepSpec{
+				{Name: "go-version", Command: "go", Args: []string{"version"}, ExpectOutputContains: "go1.27.3"},
+				{Name: "go-build", Command: "go", Args: []string{"build", "./..."}},
+				{Name: "go-vet", Command: "go", Args: []string{"vet", "./..."}},
+				{Name: "go-test", Command: "go", Args: []string{"test", "-count=1", "./..."}, Timeout: 30 * time.Minute},
+				{Name: "npm-ci", Command: "npm", Args: []string{"ci"}, Dir: "frontend", Timeout: 20 * time.Minute},
+				{Name: "npm-test", Command: "npm", Args: []string{"test"}, Dir: "frontend", Timeout: 15 * time.Minute},
+				{Name: "npm-build", Command: "npm", Args: []string{"run", "build"}, Dir: "frontend", Timeout: 10 * time.Minute},
+				{Name: "check-dist", Command: "node", Args: []string{"scripts/check-dist.mjs"}, Dir: "frontend"},
+				{Name: "capture-prototype", Command: "node", Args: []string{"scripts/capture-prototype.mjs", "--out", "{caseDir}/prototype"}, Dir: "frontend", Timeout: 5 * time.Minute},
+			},
+			CollectArtifacts: []string{"prototype/*.png"},
+		},
+		{
+			ID:           "R0-08-native-mcp",
+			EvidenceKind: EvidenceNativeDesktop,
+			NativeMcp:    true,
+		},
 	}
 }
 
@@ -353,9 +375,11 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 	)
 	artifacts = append(artifacts, envArtifact)
 
-	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n || plan.NativeWorkbench || plan.NativeChat || plan.NativeAgents || plan.NativeSkills {
+	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n || plan.NativeWorkbench || plan.NativeChat || plan.NativeAgents || plan.NativeSkills || plan.NativeMcp {
 		var native nativeOutcome
 		switch {
+		case plan.NativeMcp:
+			native = runNativeMcpCase(runner, sha, opts.Target, opts.native)
 		case plan.NativeSkills:
 			native = runNativeSkillsCase(runner, sha, opts.Target, opts.native)
 		case plan.NativeAgents:
@@ -422,7 +446,7 @@ func RunCase(opts VerifyOptions) VerifyOutcome {
 
 	versions := collectToolVersions(runner)
 	runtimeVersion := "n/a (no agent runtime in this case)"
-	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n || plan.NativeWorkbench || plan.NativeChat || plan.NativeAgents || plan.NativeSkills {
+	if plan.NativeWindow || plan.NativeShell || plan.NativeTheme || plan.NativeI18n || plan.NativeWorkbench || plan.NativeChat || plan.NativeAgents || plan.NativeSkills || plan.NativeMcp {
 		runtimeVersion = "wails " + moduleVersion(runner, "github.com/wailsapp/wails/v3")
 	}
 

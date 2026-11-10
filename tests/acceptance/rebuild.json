@@ -128,6 +128,18 @@
           "task": "R0-07",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-08-mcp",
+          "task": "R0-08",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-08-native-mcp",
+          "task": "R0-08",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },
