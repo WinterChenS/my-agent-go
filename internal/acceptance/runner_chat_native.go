@@ -115,10 +115,18 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 		out.Limitations = append(out.Limitations, "layout probe missing at 820x1180")
 		return s.failCleanup()
 	}
-	if !s.resize(s.windowIDValue, 390, 844, true) {
+	if !s.resize(s.windowIDValue, 1366, 768, true) {
 		return s.failCleanup()
 	}
 	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 3 {
+		out.Status = StatusFail
+		out.Limitations = append(out.Limitations, "layout probe missing at 1366x768")
+		return s.failCleanup()
+	}
+	if !s.resize(s.windowIDValue, 390, 844, true) {
+		return s.failCleanup()
+	}
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 4 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing at 390x844")
 		return s.failCleanup()
@@ -147,7 +155,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.screenshot("native/chat-sample-1440x900.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 4 {
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 5 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing for the sample chat")
 		return s.failCleanup()
@@ -194,7 +202,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.resize(s.windowIDValue, 390, 844, true) {
 		return s.failCleanup()
 	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 5 {
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 6 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing for the compact sample chat")
 		return s.failCleanup()
@@ -263,7 +271,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 		return out
 	}
 	probes := parseLayoutProbes(string(appLog))
-	if len(probes) < 5 {
+	if len(probes) < 6 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, fmt.Sprintf("only %d layout probes recorded", len(probes)))
 		return out
