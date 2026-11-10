@@ -30,7 +30,7 @@
       "navLabel": "对话",
       "group": "primary",
       "futureTask": "R0-05",
-      "marker": "R0-01 placeholder · /chat",
+      "marker": "R0-05 chat · /chat",
       "breadcrumbParent": "",
       "topbarActions": [],
       "chrome": "chat",

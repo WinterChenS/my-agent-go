@@ -163,3 +163,200 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `workbench.palette.hint.summon` | 呼出 | Summon |
 | `workbench.palette.hint.escape` | ESC | ESC |
 | `workbench.palette.unavailable` | 未接入：该操作将在后续任务开放 | Not connected: this action arrives in a later task |
+| `chat.back` | 返回工作台 | Back to dashboard |
+| `chat.normal.title` | 尚未接入会话 | No chat connected |
+| `chat.normal.subtitle` | 完成 G1/G2 后会在这里显示真实会话。 | Real chats will appear here after G1/G2. |
+| `chat.empty.title` | 尚未接入运行时/会话 | No runtime or chat connected |
+| `chat.empty.body` | 当前没有可显示的对话。接入运行时后，消息、思考、工具调用和产出会出现在这里。 | There is no conversation to show. Messages, thinking, tool calls, and artifacts will appear here after a runtime is connected. |
+| `chat.sampleBanner` | 原型样例数据 · 仅用于设计对照，不是真实状态 | Prototype sample data · design reference only, not a real state |
+| `chat.badge.clarification` | 1 项待澄清 | 1 clarification |
+| `chat.badge.pendingAuth` | 1 项待授权 | 1 approval |
+| `chat.badge.confirmed` | 已确认 | Confirmed |
+| `chat.export` | 导出 | Export |
+| `chat.more` | 更多操作 | More actions |
+| `chat.action.unavailable` | 未接入（G1/G2） | Not connected (G1/G2) |
+| `chat.sample.notice` | 样例模式：业务操作未接入，不会产生真实结果。 | Sample mode: business actions are not connected and produce no real result. |
+| `chat.notice.send` | 样例模式：消息发送未接入，不会生成回复。 | Sample mode: sending is not connected; no reply will be generated. |
+| `chat.notice.stop` | 样例模式：停止生成未接入。 | Sample mode: stop is not connected. |
+| `chat.notice.export` | 样例模式：导出未接入。 | Sample mode: export is not connected. |
+| `chat.notice.project` | 样例模式：项目切换未接入。 | Sample mode: project switching is not connected. |
+| `chat.notice.history` | 样例模式：历史会话操作未接入。 | Sample mode: history actions are not connected. |
+| `chat.notice.attachment` | 样例模式：附件仅作展示。 | Sample mode: attachments are display-only. |
+| `chat.notice.clarification` | 样例模式：澄清提交未接入。 | Sample mode: clarification submit is not connected. |
+| `chat.notice.approval` | 样例模式：审批操作未接入。 | Sample mode: approval is not connected. |
+| `chat.notice.rail` | 样例模式：面板操作未接入。 | Sample mode: panel actions are not connected. |
+| `chat.notice.mention` | 样例模式：引用仅作展示。 | Sample mode: mentions are display-only. |
+| `chat.notice.copy` | 样例模式：复制未接入。 | Sample mode: copy is not connected. |
+| `chat.status.generating` | 生成中 | Generating |
+| `chat.status.paused` | 已暂停，等待你的确认 · 已生成 {tokens} tokens | Paused pending your approval · {tokens} tokens generated |
+| `chat.status.done` | 已完成 | Done |
+| `chat.status.tokens` | 完成 · 本轮 1,284 tokens · 9.6 秒 | Done · 1,284 tokens · 9.6s |
+| `chat.message.copy` | 复制 | Copy |
+| `chat.message.regenerate` | 重新生成 | Regenerate |
+| `chat.message.artifacts` | 本轮输出物 · {count} | Turn artifacts · {count} |
+| `chat.message.openArtifacts` | 输出物 | Artifacts |
+| `chat.message.cite` | 引用 {num} | Source {num} |
+| `chat.thinking.toggle` | 展开或收起思考 | Toggle thinking |
+| `chat.tool.toggle` | 展开或收起工具结果 | Toggle tool output |
+| `chat.tool.pending` | 待确认 | Pending |
+| `chat.tool.failed` | 工具失败 | Tool failed |
+| `chat.clarification.kicker` | THIL · 内容确认 | THIL · Content decision |
+| `chat.clarification.view` | 查看 3 个方案 | View 3 options |
+| `chat.confirm.title` | 需要确认：写入 1 个文件 | Approval needed: write 1 file |
+| `chat.confirm.risk` | 中风险 | Medium risk |
+| `chat.confirm.desc` | Agent 想要在仓库中创建 docs/migration/v1-to-v2-plan.md。该目录当前为空，不会覆盖已有内容；操作可通过 git checkout 撤销。 | The agent wants to create docs/migration/v1-to-v2-plan.md. The folder is empty, so nothing is overwritten; the change can be undone with git checkout. |
+| `chat.confirm.deny` | 拒绝 | Deny |
+| `chat.confirm.always` | 总是允许 | Always allow |
+| `chat.confirm.once` | 允许本次 | Allow once |
+| `chat.confirm.hint` | 本次会话内有效 · 可撤销 | Valid for this chat · reversible |
+| `chat.state.detail` | 查看详情 | View details |
+| `chat.state.login` | 重新登录 | Sign in again |
+| `chat.state.compress` | 压缩并继续 | Compress and continue |
+| `chat.state.branch` | 新建分支 | Branch |
+| `chat.state.continue` | 继续 | Continue |
+| `chat.state.retry` | 重新检测 | Retry |
+| `chat.history.title` | 历史会话 | History |
+| `chat.history.new` | 新建对话 | New chat |
+| `chat.history.search` | 搜索会话或项目… | Search chats or projects… |
+| `chat.history.projects` | 项目会话 | Project chats |
+| `chat.history.personal` | 普通会话 | Personal chats |
+| `chat.history.loadMore` | 继续滚动加载 | Scroll to load more |
+| `chat.history.loadedAll` | 已加载全部会话 | All chats loaded |
+| `chat.history.noMatches` | 没有匹配的会话 | No matching chats |
+| `chat.history.empty` | 尚未接入会话 | No chats connected yet |
+| `chat.history.sessions` | {count} 个会话 | {count} chats |
+| `chat.history.actions` | 会话操作 | Chat actions |
+| `chat.history.pin` | 置顶 / 取消置顶 | Pin / Unpin |
+| `chat.history.rename` | 重命名 | Rename |
+| `chat.history.archive` | 归档 | Archive |
+| `chat.history.delete` | 删除 | Delete |
+| `chat.history.open` | 打开会话 | Open chat |
+| `chat.composer.placeholder` | 继续追问，或 @ 引用文件与 Agent… | Ask a follow-up, or @ mention files and agents… |
+| `chat.composer.normalPlaceholder` | 接入运行时后可发送消息 | Chat is unavailable until a runtime is connected |
+| `chat.composer.project.current` | 当前项目 | Current project |
+| `chat.composer.project.none` | 无项目 | No project |
+| `chat.composer.project.change` | 更换项目目录 | Change project folder |
+| `chat.composer.project.changeDesc` | 选择现有项目或新的本地目录 | Choose an existing project or a local folder |
+| `chat.composer.project.detach` | 取消项目 | Detach project |
+| `chat.composer.project.detachDesc` | 会话保留并移入普通会话 | Keep the chat and move it to personal chats |
+| `chat.composer.model` | 模型 | Model |
+| `chat.composer.thinking` | 思考深度 | Thinking depth |
+| `chat.composer.permission` | 权限模式 | Permission mode |
+| `chat.composer.thinking.off` | 思考 · 关 | Thinking · Off |
+| `chat.composer.thinking.low` | 思考 · 低 | Thinking · Low |
+| `chat.composer.thinking.medium` | 思考 · 中 | Thinking · Medium |
+| `chat.composer.thinking.high` | 思考 · 高 | Thinking · High |
+| `chat.composer.permission.readonly` | 只读 | Read only |
+| `chat.composer.permission.medium` | 中风险确认 | Confirm medium risk |
+| `chat.composer.permission.high` | 高风险确认 | Confirm high risk |
+| `chat.composer.permission.full` | 完全控制 | Full control |
+| `chat.composer.context` | 上下文 {count} | Context {count} |
+| `chat.composer.add` | 添加文件、目录或 Skill | Add files, folders, or Skills |
+| `chat.composer.addContext` | 添加上下文 | Add context |
+| `chat.composer.files` | 文件或目录 | Files or folders |
+| `chat.composer.filesDesc` | 添加本机上下文 | Add local context |
+| `chat.composer.chooseFiles` | 选择文件 | Choose files |
+| `chat.composer.chooseFilesDesc` | 支持多选 | Multiple selection |
+| `chat.composer.chooseDir` | 选择目录 | Choose folder |
+| `chat.composer.chooseDirDesc` | 添加整个文件夹 | Add an entire folder |
+| `chat.composer.skill` | Skill | Skill |
+| `chat.composer.skillDesc` | 调用已安装能力 | Use an installed capability |
+| `chat.composer.stop` | 停止 | Stop |
+| `chat.composer.send` | 发送 | Send |
+| `chat.composer.sendHint` | 发送 | Send |
+| `chat.composer.newlineHint` | 换行 | New line |
+| `chat.composer.pending` | 1 项操作等待确认。允许后 Agent 会继续生成。 | 1 action awaits approval. The agent continues after approval. |
+| `chat.composer.normalHint` | 接入运行时后可发送消息 | Connect a runtime to send messages |
+| `chat.composer.remove` | 移除 {name} | Remove {name} |
+| `chat.composer.mention` | 引用文件或 Agent | Mention files or agents |
+| `chat.composer.mentionFiles` | 文件 | Files |
+| `chat.composer.mentionAgents` | Agent | Agents |
+| `chat.composer.mentionEmpty` | 没有匹配的文件或 Agent | No matching files or agents |
+| `chat.rail.label` | 会话详情面板 | Chat details panel |
+| `chat.rail.collapse` | 折叠右侧面板 | Collapse details panel |
+| `chat.rail.expand` | 展开右侧面板 | Expand details panel |
+| `chat.rail.close` | 关闭面板 | Close panel |
+| `chat.rail.browser` | 浏览器 | Browser |
+| `chat.rail.artifacts` | 输出物 {count} | Artifacts {count} |
+| `chat.rail.sources` | 引用 {count} | Sources {count} |
+| `chat.rail.exec` | 执行 | Run |
+| `chat.rail.empty` | 尚未接入会话数据 | No chat data connected yet |
+| `chat.rail.browser.open` | 打开 | Open |
+| `chat.rail.browser.copy` | 复制路径 | Copy path |
+| `chat.rail.browser.rendered` | 渲染于 {time} | Rendered at {time} |
+| `chat.rail.browser.preview` | 预览由 Agent 在本地产出，尚未写入仓库。 | Preview produced locally by the agent; not yet written. |
+| `chat.rail.artifacts.heading` | 本次会话产出 · {count} | Artifacts from this chat · {count} |
+| `chat.rail.artifacts.return` | 返回原始轮次 | Return to turn |
+| `chat.rail.artifacts.saved` | 已保存 | Saved |
+| `chat.rail.artifacts.pending` | 待确认 | Pending |
+| `chat.rail.artifacts.foot` | 产出会同步到资源库 | Artifacts sync to the library |
+| `chat.rail.artifacts.library` | 资源库 | Library |
+| `chat.rail.artifacts.notice` | 样例模式：输出物操作未接入。 | Sample mode: artifact actions are not connected. |
+| `chat.rail.sources.heading` | 引用来源 · {count} | Sources · {count} |
+| `chat.rail.sources.foot` | 引用来自 {count} 个来源 | Citations from {count} sources |
+| `chat.rail.sources.export` | 导出 | Export |
+| `chat.rail.exec.heading` | 本轮执行 · {count} 步 | This run · {count} steps |
+| `chat.rail.exec.usage` | 本会话用量 | Chat usage |
+| `chat.rail.exec.input` | 输入 | Input |
+| `chat.rail.exec.output` | 输出 | Output |
+| `chat.rail.exec.cache` | 缓存命中 | Cache hits |
+| `chat.rail.exec.cost` | 预估成本 | Estimated cost |
+| `chat.rail.exec.done` | 完成 | Done |
+| `chat.rail.exec.pending` | 待确认 | Pending |
+| `chat.rail.exec.paused` | 已暂停 | Paused |
+| `chat.project.title` | 为当前对话选择项目 | Choose a project for this chat |
+| `chat.project.desc` | 项目会绑定本地目录，并将会话归入侧栏中的项目分组。 | A project binds a local folder and groups related chats in the sidebar. |
+| `chat.project.current` | 当前项目 | Current project |
+| `chat.project.opened` | 已打开 | Open |
+| `chat.project.recent` | 最近项目 | Recent projects |
+| `chat.project.openLocal` | 打开本地项目 | Open local project |
+| `chat.project.openLocalDesc` | 选择已有目录并开始对话 | Choose an existing folder and start chatting |
+| `chat.project.new` | 新建项目 | New project |
+| `chat.project.newDesc` | 选择目录并以文件夹名创建 | Choose a folder and create from its name |
+| `chat.project.security` | 选择目录只建立本地引用；Agent 仍受当前会话的读取与写入权限约束。 | Choosing a folder creates a local reference only. Agent read and write permissions still apply. |
+| `chat.project.cancel` | 取消 | Cancel |
+| `chat.project.continue` | 在此项目中继续 | Continue in project |
+| `chat.project.sessions` | {count} 个会话 | {count} chats |
+| `chat.project.notice` | 样例模式：项目选择未接入。 | Sample mode: project selection is not connected. |
+| `chat.export.title` | 导出会话 | Export chat |
+| `chat.export.desc` | 默认在本机生成快照，不上传会话、文件路径或工具输出。 | Create a local snapshot by default. No chat, file path, or tool output is uploaded. |
+| `chat.export.format` | 导出格式 | Export format |
+| `chat.export.html` | HTML · 可交互快照 | HTML · interactive snapshot |
+| `chat.export.markdown` | Markdown · 纯文本 | Markdown · plain text |
+| `chat.export.json` | JSON · 完整记录 | JSON · full record |
+| `chat.export.includeThinking` | 包含思考摘要 | Include thinking summaries |
+| `chat.export.includeThinkingDesc` | 仅导出折叠后的摘要，不包含隐藏推理 | Exports collapsed summaries only, never hidden reasoning |
+| `chat.export.includeToolOutput` | 包含工具原始输出 | Include raw tool output |
+| `chat.export.includeToolOutputDesc` | 可能包含本地路径、命令参数和内部链接 | May contain local paths, command arguments, and internal links |
+| `chat.export.cloudShare` | 创建云端只读链接 | Create a cloud read-only link |
+| `chat.export.optional` | 可选 | Optional |
+| `chat.export.cloudShareDesc` | 启用后会将经过脱敏的会话副本上传到分享服务。默认 7 天失效，可随时撤销。 | Uploads a redacted copy to the sharing service. It expires after 7 days by default and can be revoked. |
+| `chat.export.confirmUpload` | 我确认上传脱敏后的会话副本 | I confirm uploading a redacted chat copy |
+| `chat.export.createLink` | 创建链接 | Create link |
+| `chat.export.cancel` | 取消 | Cancel |
+| `chat.export.local` | 导出到本机 | Export locally |
+| `chat.export.notice` | 样例模式：导出未接入。 | Sample mode: export is not connected. |
+| `chat.thil.title` | 灰度方案需要你做一个业务判断 | Choose a rollout approach |
+| `chat.thil.desc` | Agent 已完成技术分析，但仓库中没有流量分组规则。请选择迁移计划采用的灰度口径。 | The technical analysis is complete, but the repository has no traffic segmentation rules. Choose how the migration plan should roll out. |
+| `chat.thil.choose` | 选择一个方案 | Choose an option |
+| `chat.thil.option.tenant` | 按租户白名单 | Tenant allowlist |
+| `chat.thil.option.tenantDesc` | 先选择 3–5 个内部租户，最容易回滚和对账 | Start with 3–5 internal tenants for the easiest rollback and reconciliation |
+| `chat.thil.option.traffic` | 按 10% 随机流量 | 10% random traffic |
+| `chat.thil.option.trafficDesc` | 覆盖更广，但需要稳定的用户分桶与指标看板 | Broader coverage, but requires stable user bucketing and dashboards |
+| `chat.thil.option.environment` | 先仅在预发布环境验证 | Staging only |
+| `chat.thil.option.environmentDesc` | 不进入生产流量，计划中保留生产灰度为待定项 | No production traffic; production rollout stays pending in the plan |
+| `chat.thil.note` | 补充约束（可选） | Additional constraints (optional) |
+| `chat.thil.placeholder` | 例如：支付链路不能进入第一批；错误率超过 0.5% 自动回滚 | Example: exclude payments from the first cohort; roll back above 0.5% errors |
+| `chat.thil.scope` | 这只确认任务内容，不会授予文件、终端或外部连接器权限；相关操作仍会单独请求授权。 | This confirms task content only. File, terminal, and connector permissions remain separate. |
+| `chat.thil.later` | 稍后处理 | Later |
+| `chat.thil.continue` | 确认并继续 | Confirm and continue |
+| `chat.thil.radioLabel` | 灰度方案 | Rollout options |
+| `chat.thil.notice` | 样例模式：澄清提交未接入。 | Sample mode: clarification submit is not connected. |
+| `chat.thread.title` | 会话操作 | Chat actions |
+| `chat.thread.branch` | 从这条消息分叉新会话 | Branch from this message |
+| `chat.thread.archive` | 归档到资源库 | Archive to library |
+| `chat.thread.export` | 导出为 Markdown | Export as Markdown |
+| `chat.thread.delete` | 删除会话 | Delete chat |
+| `chat.thread.close` | 关闭 | Close |
+| `chat.dialog.close` | 关闭 | Close |
+| `chat.dialog.cancel` | 取消 | Cancel |

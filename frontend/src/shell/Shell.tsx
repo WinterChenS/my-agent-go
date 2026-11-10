@@ -4,13 +4,16 @@ import { useI18n } from '../i18n/LanguageProvider'
 import GlobalSearchDialog from './GlobalSearchDialog'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
-import { resolveRoute, WORKBENCH_ROUTE } from './routes'
+import { resolveRoute, ROUTES_BY_ID, WORKBENCH_ROUTE } from './routes'
 import { useHistoryShortcuts } from './useHistoryShortcuts'
 import { useLayoutProbe } from './useLayoutProbe'
 
 export default function Shell() {
   const location = useLocation()
-  const route = resolveRoute(location.pathname) ?? WORKBENCH_ROUTE
+  const chatSample =
+    location.pathname === '/__sample/chat' ||
+    (location.pathname === '/' && new URLSearchParams(location.search).get('sample') === 'chat')
+  const route = (chatSample ? ROUTES_BY_ID.get('chat') : resolveRoute(location.pathname)) ?? WORKBENCH_ROUTE
   const { language, t } = useI18n()
   const searchButtonRef = useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -43,7 +46,7 @@ export default function Shell() {
         {route.chrome === 'shell' ? (
           <Topbar route={route} onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
         ) : null}
-        <main className="page" tabIndex={0} aria-label={t('main.content')}>
+        <main className={`page${route.chrome === 'chat' ? ' page-chat' : ''}`} tabIndex={0} aria-label={t('main.content')}>
           <div className="page-inner">
             <Outlet />
           </div>

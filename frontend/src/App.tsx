@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { LanguageProvider } from './i18n/LanguageProvider'
 import SettingsPage from './pages/settings/SettingsPage'
 import WorkbenchPage from './pages/workbench/WorkbenchPage'
+import ChatPage from './pages/chat/ChatPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
@@ -10,6 +11,12 @@ import { SHELL_ROUTES, WORKBENCH_ROUTE } from './shell/routes'
 function FallbackPage() {
   const { pathname } = useLocation()
   return <PagePlaceholder route={WORKBENCH_ROUTE} fallbackPath={pathname} />
+}
+
+function RootPage() {
+  const { search } = useLocation()
+  const sample = new URLSearchParams(search).get('sample')
+  return sample === 'chat' ? <ChatPage /> : <WorkbenchPage />
 }
 
 export function AppRoutes() {
@@ -23,11 +30,20 @@ export function AppRoutes() {
                 key={route.path}
                 path={route.path}
                 element={
-                  route.id === 'settings' ? <SettingsPage /> : route.id === 'workbench' ? <WorkbenchPage /> : <PagePlaceholder route={route} />
+                  route.id === 'settings' ? (
+                    <SettingsPage />
+                  ) : route.id === 'workbench' ? (
+                    <RootPage />
+                  ) : route.id === 'chat' ? (
+                    <ChatPage />
+                  ) : (
+                    <PagePlaceholder route={route} />
+                  )
                 }
               />
             ))}
             <Route path="/__sample/workbench" element={<WorkbenchPage />} />
+            <Route path="/__sample/chat" element={<ChatPage />} />
             <Route path="*" element={<FallbackPage />} />
           </Route>
         </Routes>

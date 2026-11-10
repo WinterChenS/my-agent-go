@@ -92,6 +92,18 @@
           "task": "R0-04",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-05-chat",
+          "task": "R0-05",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-05-native-chat",
+          "task": "R0-05",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },

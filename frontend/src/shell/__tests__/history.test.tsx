@@ -16,7 +16,7 @@ describe('history navigation', () => {
     expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
 
     await user.click(screen.getByRole('link', { name: '对话' }))
-    expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/chat')
+    expect(screen.getByTestId('chat-page')).toBeInTheDocument()
 
     window.history.back()
     await waitFor(() => expect(screen.getByTestId('workbench-page')).toBeInTheDocument())
@@ -26,7 +26,7 @@ describe('history navigation', () => {
     const user = userEvent.setup()
     render(<App />)
     await user.click(screen.getByRole('link', { name: '对话' }))
-    expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/chat')
+    expect(screen.getByTestId('chat-page')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true })
     await waitFor(() => expect(screen.getByTestId('workbench-page')).toBeInTheDocument())
   })

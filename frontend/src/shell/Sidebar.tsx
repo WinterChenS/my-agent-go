@@ -1,4 +1,6 @@
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
+import ChatHistoryPanel from '../pages/chat/ChatHistoryPanel'
+import { useChatSample } from '../pages/chat/sampleData'
 import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { PRIMARY_ROUTES } from './routes'
@@ -6,6 +8,9 @@ import ToolsMenu from './ToolsMenu'
 
 export default function Sidebar() {
   const { t } = useI18n()
+  const location = useLocation()
+  const chatSample = useChatSample()
+  const isChat = location.pathname === '/chat' || location.pathname === '/__sample/chat' || chatSample
   return (
     <aside className="sidebar" id="sidebar">
       <Link className="brand" to="/" aria-label="Anvil">
@@ -25,7 +30,7 @@ export default function Sidebar() {
             key={route.id}
             id={`nav-${route.id}`}
             to={route.path}
-            className={({ isActive }) => `nav-item${isActive ? ' is-active' : ''}`}
+            className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') ? ' is-active' : ''}`}
             aria-label={t(route.navKey)}
             data-nav-entry
             data-route-path={route.path}
@@ -38,6 +43,8 @@ export default function Sidebar() {
       </div>
 
       <ToolsMenu />
+
+      {isChat ? <ChatHistoryPanel sample={chatSample} /> : null}
 
       <div className="sidebar-foot">
         <div className="runtime-mini" aria-label={t('runtime.title')}>

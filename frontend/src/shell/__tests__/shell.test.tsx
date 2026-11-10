@@ -46,6 +46,8 @@ describe('shared shell', () => {
       expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
       if (route.id === 'workbench') {
         expect(screen.getByTestId('workbench-page')).toBeInTheDocument()
+      } else if (route.id === 'chat') {
+        expect(screen.getByTestId('chat-page')).toBeInTheDocument()
       } else {
         expect(screen.getByTestId('page-marker')).toHaveTextContent(route.marker)
       }
