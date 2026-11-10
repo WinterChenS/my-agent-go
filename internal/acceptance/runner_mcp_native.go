@@ -164,11 +164,18 @@ func runNativeMcpCase(r automationRunner, sha, target string, hooks *nativeHooks
 		return s.failCleanup()
 	}
 
-	tool, ok := s.findRef("mcp-tools-filesystem", "group", "filesystem 工具清单", 15)
+	tool, ok := s.findRef("mcp-tools-filesystem", "list", "filesystem 工具清单", 15)
 	if !ok {
 		return s.failCleanup()
 	}
-	if !s.run(StepSpec{Name: "mcp-scroll-tools", Command: "agent-desktop", Args: []string{"scroll", tool, "--direction", "down", "--amount", "2"}, Timeout: 60 * time.Second}) {
+	bounds, ok := s.elementBounds("mcp-tools-bounds", tool)
+	if !ok {
+		return s.failCleanup()
+	}
+	x := int(bounds.X + bounds.Width/2)
+	y := int(bounds.Y + bounds.Height/2)
+	_ = s.focusWindowRetry("mcp-scroll")
+	if !s.run(StepSpec{Name: "mcp-scroll-tools", Command: "agent-desktop", Args: []string{"--headed", "mouse-wheel", "--x", fmt.Sprint(x), "--y", fmt.Sprint(y), "--dy", "-3"}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/mcp-tools-scrolled-1440x900.png", s.windowIDValue) {
