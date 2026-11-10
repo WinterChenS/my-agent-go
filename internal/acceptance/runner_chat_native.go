@@ -359,7 +359,7 @@ func (s *shellNative) clickRefPhysical(ref, logID string) bool {
 	if !ok {
 		return false
 	}
-	if !s.run(StepSpec{Name: "focus-" + logID, Command: "agent-desktop", Args: []string{"focus-window", "--window-id", s.windowIDValue}, Timeout: 60 * time.Second}) {
+	if !s.focusWindowRetry(logID) {
 		return false
 	}
 	x := int(bounds.X + bounds.Width/2)
@@ -369,4 +369,31 @@ func (s *shellNative) clickRefPhysical(ref, logID string) bool {
 		Args:    []string{"--headed", "mouse-click", "--xy", fmt.Sprintf("%d,%d", x, y)},
 		Timeout: 60 * time.Second,
 	})
+}
+
+func (s *shellNative) focusWindowRetry(label string) bool {
+	for attempt := 1; attempt <= 3; attempt++ {
+		statusBefore := s.out.Status
+		limitationsBefore := len(s.out.Limitations)
+		ok := s.run(StepSpec{
+			Name:    fmt.Sprintf("focus-%s-%02d", label, attempt),
+			Command: "agent-desktop",
+			Args:    []string{"focus-window", "--window-id", s.windowIDValue},
+			Timeout: 60 * time.Second,
+		})
+		if ok {
+			return true
+		}
+		if s.out.Status == StatusBlocked {
+			return false
+		}
+		s.out.Status = statusBefore
+		if len(s.out.Limitations) > limitationsBefore {
+			s.out.Limitations = s.out.Limitations[:limitationsBefore]
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	s.out.Status = StatusFail
+	s.out.Limitations = append(s.out.Limitations, "could not focus the Anvil window after 3 attempts")
+	return false
 }
