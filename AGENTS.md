@@ -1,5 +1,7 @@
 # AGENTS.md — 现场作业规则（Anvil V1）
 
+> **Rust + Tauri 迁移**（2026-11-10）。重建分支的技术路线与派发顺序以 [ADR 0007](docs/adr/0007-rust-tauri-rebuild.md)、[Rust + Tauri 技术方案](docs/superpowers/specs/2026-11-10-anvil-rust-tauri-design.md)和[迁移实施计划](docs/superpowers/plans/2026-11-10-anvil-rust-tauri-migration-plan.md)为准。先结清旧宿主相关写入，再从 R0-RS01 开始。原型范围、指定模型、真实桌面、本机 Pi、D 盘和阶段门禁约定继续执行。
+
 > **重建分支优先规则**（2026-11-09）。在 `codex/anvil-rebuild` 上，先读 [重建设计](docs/superpowers/specs/2026-11-09-anvil-prototype-rebuild-design.md)、[实施计划](docs/superpowers/plans/2026-11-09-anvil-prototype-rebuild-plan.md) 和 [ADR 0006](docs/adr/0006-prototype-rebuild-scope.md)。下文 Anvil V1 任务现状、Pi 单运行时范围、命令与门禁表是旧实现历史。新分支按 G0 界面、G1 多 Agent 发现和同步、G2 会话顺序开发，使用新的任务 ID 和证据。Windows 10+ 优先，先验当前 Windows 10 22H2，再按 macOS/Linux 真机结果报告。技术栈、隔离、任务取证、提交及现场执行规则继续适用。
 
 
