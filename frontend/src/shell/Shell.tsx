@@ -13,7 +13,14 @@ export default function Shell() {
   const chatSample =
     location.pathname === '/__sample/chat' ||
     (location.pathname === '/' && new URLSearchParams(location.search).get('sample') === 'chat')
-  const route = (chatSample ? ROUTES_BY_ID.get('chat') : resolveRoute(location.pathname)) ?? WORKBENCH_ROUTE
+  const agentsSample =
+    location.pathname === '/__sample/agents' ||
+    (location.pathname === '/' && new URLSearchParams(location.search).get('sample') === 'agents')
+  const route = (chatSample
+    ? ROUTES_BY_ID.get('chat')
+    : agentsSample
+      ? ROUTES_BY_ID.get('agents')
+      : resolveRoute(location.pathname)) ?? WORKBENCH_ROUTE
   const { language, t } = useI18n()
   const searchButtonRef = useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)

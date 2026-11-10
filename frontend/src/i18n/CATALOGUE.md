@@ -368,3 +368,154 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `sample.nav.mcpMeta` | {count} 个服务 | {count} services |
 | `sample.nav.connectorsMeta` | {count} 个连接 | {count} connections |
 | `sample.nav.schedulesMeta` | {count} 个任务 | {count} tasks |
+| `agents.title` | Agent 管理 | Agent management |
+| `agents.description` | 配置主 Agent 与子 Agent 的模型、system prompt、可用工具与权限边界。子 Agent 继承主 Agent 的权限上限。 | Configure models, system prompts, tools, and permission boundaries for main and sub-agents. Sub-agents inherit the main agent's permission ceiling. |
+| `agents.import` | 导入 | Import |
+| `agents.new` | 新建 Agent | New Agent |
+| `agents.newSub` | 新建子 Agent | New sub-agent |
+| `agents.addSub` | 添加子 Agent | Add sub-agent |
+| `agents.searchPlaceholder` | 搜索 Agent… | Search agents… |
+| `agents.searchLabel` | 搜索 Agent | Search agents |
+| `agents.emptyList` | 尚未接入 Agent | No agents connected yet |
+| `agents.emptyListBody` | 运行时接入后会在这里显示主 Agent 与子 Agent。 | Main and sub-agents will appear here after a runtime is connected. |
+| `agents.emptyDetail` | 尚未接入 Agent 详情 | No agent details connected yet |
+| `agents.emptyDetailBody` | 接入运行时并选择 Agent 后，可在这里查看配置。 | Connect a runtime and select an agent to inspect its configuration. |
+| `agents.sampleBanner` | 原型样例数据 · 仅用于设计对照，不是真实状态 | Prototype sample data · design reference only, not a real state |
+| `agents.action.unavailable` | 未接入（G1） | Not connected (G1) |
+| `agents.notice.save` | 样例模式：保存未接入。 | Sample mode: save is not connected. |
+| `agents.notice.chat` | 样例模式：发起对话未接入。 | Sample mode: starting a chat is not connected. |
+| `agents.notice.create` | 样例模式：创建未接入。 | Sample mode: creation is not connected. |
+| `agents.notice.import` | 样例模式：导入未接入。 | Sample mode: import is not connected. |
+| `agents.notice.toggle` | 样例模式：设置切换未接入。 | Sample mode: toggling settings is not connected. |
+| `agents.notice.variable` | 样例模式：变量插入未接入。 | Sample mode: variable insertion is not connected. |
+| `agents.group.main` | 主 Agent · {count} | Main agents · {count} |
+| `agents.group.sub` | 子 Agent · {count} | Sub-agents · {count} |
+| `agents.status.ready` | 就绪 | Ready |
+| `agents.subBadge` | 子 | Sub |
+| `agents.subReadonly` | 只读 | Read only |
+| `agents.subDelegated` | 委派自 {name} | Delegated by {name} |
+| `agents.skills` | {count} skills | {count} skills |
+| `agents.listMeta` | {model} · {count} skills | {model} · {count} skills |
+| `agents.listNoMatch` | 没有匹配的 Agent | No matching agents |
+| `agents.tab.basic` | 基础配置 | Basic configuration |
+| `agents.tab.prompt` | 指令与工具 | Instructions & tools |
+| `agents.tab.sub` | 子 Agent {count} | Sub-agents {count} |
+| `agents.tab.perm` | 权限边界 | Permission boundaries |
+| `agents.tab.runs` | 运行记录 | Run history |
+| `agents.startChat` | 发起对话 | Start chat |
+| `agents.save` | 保存 | Save |
+| `agents.backToList` | 返回 Agent 列表 | Back to agent list |
+| `agents.permissionChip` | 权限 · {level} | Permission · {level} |
+| `agents.form.name` | 名称 | Name |
+| `agents.form.slug` | 标识 | Identifier |
+| `agents.form.description` | 简介 | Description |
+| `agents.form.runtime` | Agent 运行时 | Agent runtime |
+| `agents.form.model` | 运行时模型 | Runtime model |
+| `agents.form.thinking` | 思考深度 | Thinking depth |
+| `agents.form.context` | 上下文窗口 | Context window |
+| `agents.form.memory` | 跨会话记忆 | Cross-chat memory |
+| `agents.form.memoryDesc` | 在新会话中自动带入此 Agent 的历史结论摘要。 | Carry this agent's prior conclusions into new chats. |
+| `agents.form.autoCompact` | 自动压缩上下文 | Auto-compact context |
+| `agents.form.autoCompactDesc` | 超过 80% 上下文窗口时，自动摘要早期轮次。 | Summarize early turns automatically above 80% of the context window. |
+| `agents.form.runtimeHint` | 运行时决定可用工具协议、模型与子 Agent 能力。 | The runtime determines tool protocols, models, and sub-agent capabilities. |
+| `agents.form.modelHint` | 显示 {runtime} 当前可用的模型。 | Shows models currently available from {runtime}. |
+| `agents.form.thinkingHint` | 深度思考会增加延迟与 token 消耗。 | Deeper thinking increases latency and token use. |
+| `agents.form.contextHint` | 上限同时受运行时与模型能力约束。 | The limit is constrained by both the runtime and the model. |
+| `agents.form.unavailable` | 未接入 | Not connected |
+| `agents.thinking.off` | 关闭 | Off |
+| `agents.thinking.low` | 低 | Low |
+| `agents.thinking.medium` | 中 | Medium |
+| `agents.thinking.high` | 高 | High |
+| `agents.runtime.pi` | Pi Agent | Pi Agent |
+| `agents.runtime.codex` | Codex CLI | Codex CLI |
+| `agents.runtime.claude` | Claude Code | Claude Code |
+| `agents.runtime.piOption` | Pi Agent · 默认 | Pi Agent · default |
+| `agents.runtime.codexOption` | Codex CLI | Codex CLI |
+| `agents.runtime.claudeOption` | Claude Code | Claude Code |
+| `agents.validation.nameRequired` | 请填写 Agent 名称 | Enter an Agent name |
+| `agents.validation.slugRequired` | 请填写标识 | Enter an identifier |
+| `agents.validation.slugInvalid` | 标识只能包含小写字母、数字和连字符 | Use only lowercase letters, numbers, and hyphens |
+| `agents.prompt.system` | System prompt | System prompt |
+| `agents.prompt.variables` | 变量 | Variables |
+| `agents.prompt.tools` | 可用工具 | Available tools |
+| `agents.prompt.tool` | 工具 | Tool |
+| `agents.prompt.desc` | 说明 | Description |
+| `agents.prompt.risk` | 风险 | Risk |
+| `agents.prompt.enabled` | 启用 | Enabled |
+| `agents.prompt.skillCount` | 挂载 Skill · {count} | Mounted Skills · {count} |
+| `agents.risk.low` | 低 | Low |
+| `agents.risk.medium` | 中 | Medium |
+| `agents.risk.high` | 高 | High |
+| `agents.tool.read.desc` | 读取仓库文件 | Read repository files |
+| `agents.tool.search.desc` | 按模式检索调用点 | Find call sites by pattern |
+| `agents.tool.write.desc` | 创建或修改文件 | Create or change files |
+| `agents.tool.shell.desc` | 执行构建与测试命令 | Run build and test commands |
+| `agents.tool.push.desc` | 推送到远端分支 | Push to a remote branch |
+| `agents.skill.review` | 代码审查 | Code review |
+| `agents.skill.reviewDesc` | 按 diff 出具风险分级 | Grade risks from the diff |
+| `agents.skill.deps` | 依赖扫描 | Dependency scan |
+| `agents.skill.depsDesc` | 识别已知漏洞与许可冲突 | Find known vulnerabilities and licence conflicts |
+| `agents.skill.docs` | 文档写作 | Documentation |
+| `agents.skill.docsDesc` | 统一标题层级与语气 | Unify heading levels and tone |
+| `agents.skill.research` | 竞品调研 | Competitor research |
+| `agents.skill.researchDesc` | 需要浏览器权限 | Requires browser permission |
+| `agents.sub.notice` | 子 Agent 继承主 Agent 的权限上限：即使子 Agent 配置了「完全控制」，实际仍受主 Agent 的中风险确认约束。 | Sub-agents inherit the main agent's permission ceiling: even with full control configured, the main agent's medium-risk confirmation still applies. |
+| `agents.sub.table.agent` | 子 Agent | Sub-agent |
+| `agents.sub.table.runtime` | 运行时 | Runtime |
+| `agents.sub.table.model` | 模型 | Model |
+| `agents.sub.table.condition` | 委派条件 | Delegation condition |
+| `agents.sub.table.concurrency` | 并发 | Concurrency |
+| `agents.sub.table.enabled` | 启用 | Enabled |
+| `agents.sub.condition.audit` | diff > 200 行或涉及鉴权 | diff > 200 lines or authentication changes |
+| `agents.sub.condition.tests` | 改动命中测试覆盖目录 | Changes touch test-covered directories |
+| `agents.sub.policy` | 委派策略 | Delegation policy |
+| `agents.sub.policyHint` | 自动委派会并行消耗 token，可在观测页查看分支用量。 | Automatic delegation consumes tokens in parallel; branch usage is visible in observability. |
+| `agents.sub.policy.auto` | 按条件自动委派 | Delegate automatically by condition |
+| `agents.sub.policy.explicit` | 仅在我明确要求时 | Only when I ask explicitly |
+| `agents.sub.policy.never` | 禁止委派 | Never delegate |
+| `agents.sub.concurrency` | 全局并发上限 | Global concurrency limit |
+| `agents.sub.concurrencyHint` | 超过上限时，委派任务排队执行。 | Delegated work queues above this limit. |
+| `agents.sub.new` | 新建子 Agent | New sub-agent |
+| `agents.perm.mode` | 权限模式 | Permission mode |
+| `agents.perm.readonly` | 只读 | Read only |
+| `agents.perm.readonlyDesc` | 仅读取与检索，不产生任何写入 | Read and search only; never write |
+| `agents.perm.medium` | 中风险确认 | Confirm medium risk |
+| `agents.perm.mediumDesc` | 写入、执行命令需逐次确认（当前） | Writes and commands require confirmation each time (current) |
+| `agents.perm.high` | 高风险确认 | Confirm high risk |
+| `agents.perm.highDesc` | 仅推送、删除、外发数据时确认 | Confirm only pushes, deletions, and external sends |
+| `agents.perm.full` | 完全控制 | Full control |
+| `agents.perm.fullDesc` | 不再确认，权限等同当前登录用户 | No more confirmations; equal to the signed-in user |
+| `agents.perm.writable` | 可写目录 | Writable folders |
+| `agents.perm.writableHint` | 留空表示整个工作区可写。支持 glob。 | Leave empty to allow the whole workspace. Glob patterns are supported. |
+| `agents.perm.allowlist` | 命令白名单 | Command allowlist |
+| `agents.perm.network` | 允许访问网络 | Allow network access |
+| `agents.perm.networkDesc` | 关闭后，http_fetch 与浏览器工具将被禁用。 | When off, http_fetch and browser tools are disabled. |
+| `agents.perm.confirm` | 高危操作二次确认 | Confirm high-risk actions |
+| `agents.perm.confirmDesc` | 推送、删除分支、外发邮件时，强制要求输入确认短语。 | Require a confirmation phrase for pushes, branch deletion, and external email. |
+| `agents.runs.time` | 时间 | Time |
+| `agents.runs.chat` | 会话 | Chat |
+| `agents.runs.turns` | 轮次 | Turns |
+| `agents.runs.tools` | 工具调用 | Tool calls |
+| `agents.runs.tokens` | Token | Tokens |
+| `agents.runs.status` | 状态 | Status |
+| `agents.runs.pending` | 待确认 | Pending |
+| `agents.runs.done` | 完成 | Done |
+| `agents.runs.archived` | 已归档 | Archived |
+| `agents.dialog.newTitle` | 新建 Agent | New Agent |
+| `agents.dialog.newDesc` | 创建后可继续配置工具、Skill 与子 Agent。 | Configure tools, Skills, and sub-agents after creation. |
+| `agents.dialog.newType` | 类型 | Type |
+| `agents.dialog.newTypeMain` | 主 Agent | Main agent |
+| `agents.dialog.newTypeSub` | 子 Agent（由主 Agent 委派） | Sub-agent (delegated by a main agent) |
+| `agents.dialog.newRuntime` | Agent 运行时 | Agent runtime |
+| `agents.dialog.newModel` | 运行时模型 | Runtime model |
+| `agents.dialog.newNamePlaceholder` | 例如：发布检查员 | For example: Release checker |
+| `agents.dialog.newDescPlaceholder` | 一句话说明这个 Agent 负责什么 | Describe this agent in one sentence |
+| `agents.dialog.cancel` | 取消 | Cancel |
+| `agents.dialog.create` | 创建 | Create |
+| `agents.dialog.importTitle` | 导入 Agent | Import Agent |
+| `agents.dialog.importDesc` | 支持 Anvil 导出的 JSON，或包含 agent.yaml 的目录。 | Supports Anvil JSON exports or a folder containing agent.yaml. |
+| `agents.dialog.chooseFile` | 选择文件 | Choose file |
+| `agents.dialog.importNotice` | 导入会覆盖同名 Agent 的工具配置，但不会改动权限边界。 | Import overwrites tool configuration for same-named agents but never permission boundaries. |
+| `agents.dialog.importAction` | 导入 | Import |
+| `agents.dialog.close` | 关闭 | Close |
+| `agents.validation.fileRequired` | 请选择要导入的文件 | Choose a file to import |

@@ -134,7 +134,7 @@ describe('quick jump palette', () => {
     expect(within(dialog).getAllByRole('option')[2]).toHaveAttribute('aria-selected', 'true')
     await user.keyboard('{Enter}')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '快速跳转' })).toBeNull())
-    await waitFor(() => expect(screen.getByTestId('page-placeholder')).toHaveAttribute('data-route', '/agents'))
+    await waitFor(() => expect(screen.getByTestId('agents-page')).toBeInTheDocument())
     await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
 

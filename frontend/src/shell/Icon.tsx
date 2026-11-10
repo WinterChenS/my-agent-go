@@ -71,6 +71,7 @@ const ICONS: Record<string, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
   more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   download: <path d="M12 3v12M7 10l5 5 5-5M4 21h16" />,
+  upload: <path d="M12 21V9M7 14l5-5 5 5M4 3h16" />,
   panel: <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></>,
   brain: <path d="M9.5 4.5a3 3 0 0 0-3 3 3.2 3.2 0 0 0-1.3 5.8A3.3 3.3 0 0 0 8 18.8a3 3 0 0 0 4 1.7V4.5a3 3 0 0 0-2.5 0zM14.5 4.5a3 3 0 0 1 3 3 3.2 3.2 0 0 1 1.3 5.8 3.3 3.3 0 0 1-2.8 5.5 3 3 0 0 1-4 1.7V4.5a3 3 0 0 1 2.5 0z" />,
   file: <><path d="M6 3.5h7l5 5v12H6z" /><path d="M13 3.5v5h5M9 13h6M9 16.5h6" /></>,

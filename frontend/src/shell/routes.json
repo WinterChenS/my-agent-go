@@ -47,7 +47,7 @@
       "navLabel": "Agent",
       "group": "primary",
       "futureTask": "R0-06",
-      "marker": "R0-01 placeholder · /agents",
+      "marker": "R0-06 agents · /agents",
       "breadcrumbParent": "智能体",
       "topbarActions": [
         "search"
