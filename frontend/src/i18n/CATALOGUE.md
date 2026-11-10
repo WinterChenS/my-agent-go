@@ -276,6 +276,7 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `chat.rail.collapse` | 折叠右侧面板 | Collapse details panel |
 | `chat.rail.expand` | 展开右侧面板 | Expand details panel |
 | `chat.rail.close` | 关闭面板 | Close panel |
+| `chat.rail.closeScrim` | 关闭输出物面板 | Close details overlay |
 | `chat.rail.toggle` | 右侧面板 | Details panel |
 | `chat.rail.browser` | 浏览器 | Browser |
 | `chat.rail.artifacts` | 输出物 {count} | Artifacts {count} |

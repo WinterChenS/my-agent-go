@@ -241,7 +241,7 @@ export default function ChatPage() {
           <button
             type="button"
             className="chat-rail-scrim"
-            aria-label={t('chat.rail.close')}
+            aria-label={t('chat.rail.closeScrim')}
             tabIndex={-1}
             onClick={() => {
               setRailOpen(false)
