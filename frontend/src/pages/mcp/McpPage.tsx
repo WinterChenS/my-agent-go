@@ -195,8 +195,7 @@ function McpCard({ service, onNotice }: { service: McpService; onNotice: (messag
         </div>
       </div>
       {service.tools.length > 0 ? (
-        <div className="mcp-tools" data-testid="mcp-tools" role="region" aria-label={`${service.name} ${t('mcp.toolsLabel')}`}>
-          <button type="button" className="sr-only" tabIndex={-1} aria-label={`${service.name} ${t('mcp.toolsLabel')}`} />
+        <div className="mcp-tools" data-testid="mcp-tools" role="group" tabIndex={0} aria-label={`${service.name} ${t('mcp.toolsLabel')}`}>
           {service.tools.map((tool) => (
             <div key={tool.name} className="mcp-tool" data-testid="mcp-tool">
               <code>{tool.name}</code>
