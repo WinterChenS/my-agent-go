@@ -692,6 +692,7 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `mcp.status.disabled` | 已停用 | Disabled |
 | `mcp.configPath` | 配置文件 | Config file |
 | `mcp.toolsCount` | {count} 个工具 | {count} tools |
+| `mcp.toolsLabel` | 工具清单 | Tools |
 | `mcp.tag.stdio` | stdio | stdio |
 | `mcp.tag.readonly` | 只读 | Read only |
 | `mcp.tag.http` | HTTP / SSE | HTTP / SSE |
