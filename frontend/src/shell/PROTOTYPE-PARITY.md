@@ -232,3 +232,37 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   Windows work-area clamp limitation.
 - Sample navigation reuses `sample.nav.*` (Skill 9 个已安装 in the tool menu);
   normal `/skills` renders no fixed counts or metadata.
+
+## R0-08 MCP
+
+- Normal `/mcp` is the real entry: the four statistics show 0 / 0 / 0 / — with
+  「尚未接入」 subtext, the service grid is empty with an explicit empty state,
+  the connection log is empty, and 重连全部 / 添加服务 / 刷新 are disabled. No
+  server names, commands, tool counts, stats or log entries are prefilled.
+- The prototype state is isolated at `/?sample=mcp` and `/__sample/mcp` with a
+  sample banner. It renders the four prototype statistics (3 / 19 / 216 /
+  142ms), four service cards in a two-column grid, connected/needs-auth/
+  disconnected badges, command or URL, transport/permission/tool tags, tool
+  descriptions, call/error or authorization footers and the switch.
+- The toolbar searches service names and tool names, filters by transport and
+  status, shows the config path, and reports 「没有匹配的 MCP 服务」. The log
+  card shows six entries with time, service, result and detail; 刷新 only emits
+  a localized sample notice.
+- 添加 MCP 服务 is a focus-trapped dialog with name, transport, command/address,
+  per-line env, permission radios, agent checkboxes and the read-only 24-hour
+  note. Transport switches the command/remote hint and HTTP/SSE/WebSocket
+  addresses validate as http/https. Env lines are parsed as KEY=VALUE and the
+  preview renders masked `KEY=••••` values; no command is executed and no
+  network request is made. ESC/backdrop closes and focus returns to the opener.
+- Every card action (reconnect, switch, authorize, confirm, settings, install)
+  and dialog action only shows a sample-mode notice. No MCP process starts, no
+  config is written, and no secret value is rendered in text/screenshot preview.
+- All chrome, statuses, tool descriptions, hints, validation and aria names use
+  the zh/en `mcp.*` catalogue with equal key sets and `CATALOGUE.md` entries.
+  Server names, commands, URLs, env keys and paths remain user content.
+- Cards are two columns wide and one column at ≤900px; stats go 4 → 2 → 1 and
+  tool lists scroll locally. All nine manifest viewports were probed without
+  page-level horizontal overflow; 820×1180 keeps the existing Windows clamp
+  limitation.
+- Sample navigation reuses `sample.nav.*` (MCP 3 个服务 in the tool menu);
+  normal `/mcp` renders no fixed service/tool counts or metadata.

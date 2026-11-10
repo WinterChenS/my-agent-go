@@ -768,6 +768,10 @@
   accent-color: var(--fg);
 }
 
+.mcp-agent span {
+  white-space: nowrap;
+}
+
 .mcp-notice {
   display: flex;
   align-items: flex-start;
