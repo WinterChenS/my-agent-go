@@ -107,26 +107,28 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 		out.Limitations = append(out.Limitations, "layout probe missing for the normal chat")
 		return s.failCleanup()
 	}
-	if !s.resize(s.windowIDValue, 820, 1180, false) {
-		return s.failCleanup()
-	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 2 {
+	viewports, err := readManifestViewports(r.repo)
+	if err != nil {
 		out.Status = StatusFail
-		out.Limitations = append(out.Limitations, "layout probe missing at 820x1180")
+		out.Limitations = append(out.Limitations, err.Error())
 		return s.failCleanup()
 	}
-	if !s.resize(s.windowIDValue, 1366, 768, true) {
-		return s.failCleanup()
-	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 3 {
-		out.Status = StatusFail
-		out.Limitations = append(out.Limitations, "layout probe missing at 1366x768")
-		return s.failCleanup()
+	for _, viewport := range viewports {
+		if !s.resize(s.windowIDValue, viewport.Width, viewport.Height, false) {
+			return s.failCleanup()
+		}
+		next := s.waitProbe(probeCount, 10*time.Second)
+		if next <= probeCount {
+			out.Status = StatusFail
+			out.Limitations = append(out.Limitations, fmt.Sprintf("layout probe missing at %dx%d", viewport.Width, viewport.Height))
+			return s.failCleanup()
+		}
+		probeCount = next
 	}
 	if !s.resize(s.windowIDValue, 390, 844, true) {
 		return s.failCleanup()
 	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 4 {
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < len(viewports)+2 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing at 390x844")
 		return s.failCleanup()
@@ -155,7 +157,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.screenshot("native/chat-sample-1440x900.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 5 {
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < len(viewports)+3 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing for the sample chat")
 		return s.failCleanup()
@@ -202,7 +204,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.resize(s.windowIDValue, 390, 844, true) {
 		return s.failCleanup()
 	}
-	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < 6 {
+	if probeCount = s.waitProbe(probeCount, 10*time.Second); probeCount < len(viewports)+4 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, "layout probe missing for the compact sample chat")
 		return s.failCleanup()
@@ -271,7 +273,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 		return out
 	}
 	probes := parseLayoutProbes(string(appLog))
-	if len(probes) < 6 {
+	if len(probes) < len(viewports)+4 {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, fmt.Sprintf("only %d layout probes recorded", len(probes)))
 		return out
@@ -285,7 +287,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 			return out
 		}
 	}
-	if len(unique) < 4 {
+	if len(unique) < len(viewports) {
 		out.Status = StatusFail
 		out.Limitations = append(out.Limitations, fmt.Sprintf("only %d distinct viewports probed", len(unique)))
 		return out

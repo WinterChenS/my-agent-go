@@ -45,12 +45,11 @@ at 1440×900 and 390×844 and stored next to the R0-01 evidence.
   both `parent / title` at every breakpoint (no degraded parent state): the
   narrow native evidence asserts the parent `statictext` has non-zero bounds
   at 360×800 and 390×844.
-- **Sidebar history/projects/personal sections are deferred** to R0-05
-  (chat page) because they are session data, not shell chrome.
+- Sidebar history/projects/personal sections are rendered only on the chat
+  route; they are session data, not shell chrome, and arrived with R0-05.
 
 ## Follow-up tasks
 
-- R0-05: chat session header, history/project sidebar, chat page body.
 - R1-08: runtime status badge fed by real discovery.
 - R0-04..R0-12: page bodies and their empty/sample states.
 
@@ -94,3 +93,56 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   zh/en key sets stay identical and `CATALOGUE.md` lists every key.
 - The 820×1180 spot check has the same Windows 1080 work-area clamp documented
   in R0-01; horizontal overflow remains false.
+
+## R0-05 chat
+
+- Normal `/chat` is the real entry: a runtime/session empty state, empty
+  history/project/personal groups, disabled composer, send/stop, export, more,
+  project picker and every unconnected action. No prototype titles, agent
+  names, model IDs, token counts or file paths are rendered.
+- The filled prototype state is isolated at `/?sample=chat` and the path alias
+  `/__sample/chat` (used by the native case; not in navigation). The banner
+  marks it as design data. Sidebar history, the conversation, exception cards,
+  the four rail panes, composer draft/attachments and the dialogs come only
+  from this sample entry.
+- The chat header is its own 52px surface (no shared topbar): back-to-workbench,
+  title/subline, clarification and approval badges, language quick switch,
+  export, rail toggle and chat-actions trigger. On compact widths the subline,
+  badges, language and secondary actions collapse; the history and rail toggles
+  remain.
+- Sidebar history follows the prototype: search filters projects and personal
+  chats, project groups expand/collapse, the session action menu is present but
+  every item is disabled, and personal chats load in pages ending in
+  「已加载全部会话」. Sample session actions only show the localized
+  sample-mode notice; the normal entry shows 「尚未接入会话」.
+- Messages cover user bubbles, agent metadata, collapsible thinking duration
+  and steps, collapsible tool cards with arguments/results, citation superscripts,
+  turn artifacts, a stream status, an approval card and an inline THIL
+  clarification. The sample additionally renders authentication failure,
+  context-limit, stopped and recovery states with `status`/`alert` roles.
+- The composer supports a multi-line draft (the prototype's sample draft is
+  preserved), attachment/Skill chips with removal, `+` context menu, `@` mention
+  listbox, project picker, model/thinking/permission selects, stop/send, and
+  Ctrl/⌘+Enter. Every business action only emits the localized
+  「样例模式…未接入」 notice; no message, approval or file operation is faked.
+- The rail has 浏览器 / 输出物 / 引用 / 执行 tabs, browser preview, artifact rows,
+  citations, run steps and usage. It collapses at any width and becomes a fixed
+  bottom drawer at ≤900px. The compact history is a separate drawer. Both close
+  from their close control or Escape and restore focus to their toggles.
+- Project picker, export and chat-actions dialogs use `role="dialog"`,
+  `aria-modal`, focus-in, Tab trapping, ESC close and focus return. THIL shares
+  the same shell. Unwired actions inside them are disabled or show the
+  sample-mode notice; export never claims a file was written.
+- Chrome copy, status labels, aria labels and dynamic notices come from the
+  zh/en `chat.*` catalogue; both key sets are identical and `CATALOGUE.md`
+  lists every key. Conversation text, paths, file names and people names are
+  user content and intentionally stay in their original language in English
+  mode.
+- Responsive rules: 1180px narrows the rail to 340px, 900px turns both rail and
+  history into drawers with a single thread column, and 620px compacts the
+  header/composer. All nine manifest widths remain free of horizontal overflow;
+  the 820×1180 Windows work-area clamp uses the R0-01 limitation.
+- The sample composer keycap renders `Ctrl` on Windows and `⌘` where the host
+  reports macOS; the prototype's mac keycap is otherwise unchanged. The
+  prototype locale select is represented by the existing R0-03 quick-switch
+  control.

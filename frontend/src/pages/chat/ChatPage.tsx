@@ -159,6 +159,7 @@ export default function ChatPage() {
             onClick={(event) => openDialog('export', event.currentTarget)}
           >
             <Icon name="download" size={15} />
+            <span className="chat-export-label">{t('chat.export')}</span>
           </button>
           <button
             type="button"
@@ -555,7 +556,7 @@ function Composer({
   onProject: (trigger: HTMLElement) => void
 }) {
   const { t } = useI18n()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()

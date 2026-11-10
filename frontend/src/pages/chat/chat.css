@@ -114,6 +114,17 @@
     color var(--motion-base) var(--ease-standard);
 }
 
+.chat-export {
+  width: auto;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+}
+
+.chat-export-label {
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
 .chat-iconbtn:hover:not(:disabled),
 .chat-iconbtn.is-on {
   background: var(--surface-3);
@@ -2534,6 +2545,10 @@ button.chat-badge:hover {
 
   .chat-history-toggle {
     display: inline-grid;
+  }
+
+  .chat-export-label {
+    display: none;
   }
 
   .sidebar .chat-history {

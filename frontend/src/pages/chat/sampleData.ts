@@ -93,6 +93,7 @@ export interface ChatSample {
   sessionTitle: string
   agent: string
   model: string
+  composerDraft: string
   thinkingLevel: 'off' | 'low' | 'medium' | 'high'
   permission: 'readonly' | 'medium' | 'high' | 'full'
   projects: ChatProject[]
@@ -121,6 +122,7 @@ export const sampleChat: ChatSample = {
   sessionTitle: 'API 迁移评估：v1 → v2',
   agent: '迁移工程师',
   model: 'claude-sonnet-4.5',
+  composerDraft: '确认后继续，并把回滚步骤单独抽成一节。',
   thinkingLevel: 'medium',
   permission: 'medium',
   projects: [
