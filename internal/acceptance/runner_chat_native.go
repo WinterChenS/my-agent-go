@@ -174,7 +174,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.run(StepSpec{Name: "chat-open-thread-menu", Command: "agent-desktop", Args: []string{"click", more}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
-	if !s.waitText("chat-thread-menu", "会话操作", false, 10) {
+	if !s.waitRoleCount("chat-thread-menu", "window", "会话操作", 1, 10) {
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/chat-thread-menu-1440x900.png", s.windowIDValue) {
@@ -183,7 +183,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.run(StepSpec{Name: "chat-close-thread-menu", Command: "self", Args: []string{"key", "--title=Anvil", "--combo=escape"}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
-	if !s.waitTextGone("chat-thread-menu-escape", "会话操作", 10) {
+	if !s.waitRoleCount("chat-thread-menu-escape", "window", "会话操作", 0, 10) {
 		return s.failCleanup()
 	}
 	if !s.waitFocused(more, "chat-more") {
@@ -237,13 +237,16 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.run(StepSpec{Name: "chat-open-history-drawer", Command: "agent-desktop", Args: []string{"click", historyToggle}, Timeout: 60 * time.Second}) {
 		return s.failCleanup()
 	}
-	if !s.waitText("chat-history-drawer", "项目会话", false, 10) {
+	if !s.waitRoleCount("chat-history-drawer", "window", "历史会话", 1, 10) {
 		return s.failCleanup()
 	}
 	if !s.screenshot("native/chat-history-drawer-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
 	if !s.run(StepSpec{Name: "chat-close-history-drawer", Command: "self", Args: []string{"key", "--title=Anvil", "--combo=escape"}, Timeout: 60 * time.Second}) {
+		return s.failCleanup()
+	}
+	if !s.waitRoleCount("chat-history-drawer-escape", "window", "历史会话", 0, 10) {
 		return s.failCleanup()
 	}
 	if !s.waitFocused(historyToggle, "chat-history") {
@@ -316,5 +319,27 @@ func (s *shellNative) waitExpanded(ref string, want bool, label string) bool {
 	}
 	s.out.Status = StatusFail
 	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("rail toggle did not report expanded=%t", want))
+	return false
+}
+
+func (s *shellNative) waitRoleCount(logID, role, name string, want, attempts int) bool {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stepName := fmt.Sprintf("role-count-%s-%02d", logID, attempt)
+		if !s.run(StepSpec{
+			Name:    stepName,
+			Command: "agent-desktop",
+			Args:    []string{"find", "--role", role, "--name", name, "--exact", "--count", "--app", "anvil.exe", "--timeout-ms", "15000"},
+			Timeout: 60 * time.Second,
+		}) {
+			return false
+		}
+		body, _ := s.exec.read(stepName)
+		if parseFindCount(body) == want {
+			return true
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	s.out.Status = StatusFail
+	s.out.Limitations = append(s.out.Limitations, fmt.Sprintf("role %s %q count did not become %d", role, name, want))
 	return false
 }

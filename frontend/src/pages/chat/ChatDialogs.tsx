@@ -66,7 +66,16 @@ export default function ChatDialogs({
   }
 
   return (
-    <div className="chat-backdrop" onMouseDown={closeOnBackdrop}>
+    <div
+      className="chat-backdrop"
+      onMouseDown={closeOnBackdrop}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          onClose()
+        }
+      }}
+    >
       <div
         ref={dialogRef}
         className={`chat-dialog${kind === 'thil' ? ' chat-dialog-wide' : ''}`}
