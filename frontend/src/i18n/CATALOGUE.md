@@ -634,6 +634,7 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `skills.builder.progress` | 第 {current} / {total} 步 | Step {current} / {total} |
 | `skills.builder.name` | 名称 | Name |
 | `skills.builder.slug` | 标识 | Identifier |
+| `skills.builder.version` | 版本 | Version |
 | `skills.builder.descriptionLabel` | 用途说明 | Description |
 | `skills.builder.triggerLabel` | 触发条件 | Trigger conditions |
 | `skills.builder.triggerPlaceholder` | 例如：用户提到「交接」或每日 18:00 | For example: the user mentions handoff, or daily at 18:00 |
@@ -647,4 +648,6 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `skills.validation.nameRequired` | 请填写 Skill 名称 | Enter a Skill name |
 | `skills.validation.slugRequired` | 请填写标识 | Enter an identifier |
 | `skills.validation.slugInvalid` | 标识只能包含小写字母、数字和连字符 | Use only lowercase letters, numbers, and hyphens |
+| `skills.validation.versionRequired` | 请填写版本号 | Enter a version |
+| `skills.validation.versionInvalid` | 版本格式应为 v1.2.3 | Use a version like v1.2.3 |
 | `skills.validation.triggerRequired` | 请填写至少一个触发条件 | Enter at least one trigger condition |

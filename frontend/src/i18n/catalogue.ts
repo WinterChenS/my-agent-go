@@ -846,6 +846,7 @@ const skillsZh = {
   "skills.builder.progress": "第 {current} / {total} 步",
   "skills.builder.name": "名称",
   "skills.builder.slug": "标识",
+  "skills.builder.version": "版本",
   "skills.builder.descriptionLabel": "用途说明",
   "skills.builder.triggerLabel": "触发条件",
   "skills.builder.triggerPlaceholder": "例如：用户提到「交接」或每日 18:00",
@@ -859,6 +860,8 @@ const skillsZh = {
   "skills.validation.nameRequired": "请填写 Skill 名称",
   "skills.validation.slugRequired": "请填写标识",
   "skills.validation.slugInvalid": "标识只能包含小写字母、数字和连字符",
+  "skills.validation.versionRequired": "请填写版本号",
+  "skills.validation.versionInvalid": "版本格式应为 v1.2.3",
   "skills.validation.triggerRequired": "请填写至少一个触发条件",
 } as const
 
@@ -977,6 +980,7 @@ const skillsEn: Record<keyof typeof skillsZh, string> = {
   "skills.builder.progress": "Step {current} / {total}",
   "skills.builder.name": "Name",
   "skills.builder.slug": "Identifier",
+  "skills.builder.version": "Version",
   "skills.builder.descriptionLabel": "Description",
   "skills.builder.triggerLabel": "Trigger conditions",
   "skills.builder.triggerPlaceholder": "For example: the user mentions handoff, or daily at 18:00",
@@ -990,6 +994,8 @@ const skillsEn: Record<keyof typeof skillsZh, string> = {
   "skills.validation.nameRequired": "Enter a Skill name",
   "skills.validation.slugRequired": "Enter an identifier",
   "skills.validation.slugInvalid": "Use only lowercase letters, numbers, and hyphens",
+  "skills.validation.versionRequired": "Enter a version",
+  "skills.validation.versionInvalid": "Use a version like v1.2.3",
   "skills.validation.triggerRequired": "Enter at least one trigger condition",
 }
 

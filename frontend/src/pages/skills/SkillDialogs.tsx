@@ -19,6 +19,7 @@ export default function SkillDialogs({
   const [step, setStep] = useState(0)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
+  const [version, setVersion] = useState('')
   const [description, setDescription] = useState('')
   const [trigger, setTrigger] = useState('')
   const [error, setError] = useState('')
@@ -31,6 +32,7 @@ export default function SkillDialogs({
     setStep(0)
     setName('')
     setSlug('')
+    setVersion('')
     setDescription('')
     setTrigger('')
     setError('')
@@ -86,6 +88,14 @@ export default function SkillDialogs({
       }
       if (!/^[a-z0-9-]+$/.test(slug)) {
         setError(t('skills.validation.slugInvalid'))
+        return
+      }
+      if (!version.trim()) {
+        setError(t('skills.validation.versionRequired'))
+        return
+      }
+      if (!/^v?\d+\.\d+\.\d+$/.test(version.trim())) {
+        setError(t('skills.validation.versionInvalid'))
         return
       }
     } else if (step === 1 && !trigger.trim()) {
@@ -169,6 +179,7 @@ export default function SkillDialogs({
                     <h3>{t('skills.builder.step.basics')}</h3>
                     <label className="skills-field"><span>{t('skills.builder.name')}</span><input value={name} onChange={(event) => { setName(event.target.value); setError('') }} /></label>
                     <label className="skills-field"><span>{t('skills.builder.slug')}</span><input className="mono" value={slug} onChange={(event) => { setSlug(event.target.value); setError('') }} /></label>
+                    <label className="skills-field"><span>{t('skills.builder.version')}</span><input className="mono" value={version} placeholder="v1.0.0" onChange={(event) => { setVersion(event.target.value); setError('') }} /></label>
                     <label className="skills-field"><span>{t('skills.builder.descriptionLabel')}</span><textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
                   </div>
                 ) : null}

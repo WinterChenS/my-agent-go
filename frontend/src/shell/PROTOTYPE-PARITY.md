@@ -191,3 +191,42 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - Sample navigation reuses the R0-05 shell fixture: `对话 4` and the five tool
   metadata strings are present only in sample mode. Normal `/agents` keeps them
   absent.
+
+## R0-07 skills
+
+- Normal `/skills` is the real entry: the page header, three tabs (without
+  fixed counts), search/filter toolbar, empty list, empty detail and disabled
+  导入 Skill / 新建 Skill / 保存 / 启用 / 运行测试 actions. No Skill names,
+  versions, success rates, call counts or identifiers are prefilled.
+- The populated prototype state is isolated at `/?sample=skills` and
+  `/__sample/skills`. A sample banner marks it as design data. The installed
+  tab shows nine Skills with `已安装 9`, the market tab six packs, and drafts
+  two (`草稿 2`); the selected detail exposes version/source/calls/success
+  rate, enable/save, workflow, triggers/resources, checks and test results.
+- The list is a searchable master pane (name/description/tags) with local
+  source/Agent selects and 「没有匹配的 Skill」. Wide layout is list + detail;
+  ≤1180px narrows the list, ≤900px switches between detail and list with a
+  back control, and ≤620px folds the hero/sections. The prototype's card grid
+  is represented as the required list + detail surface; no fixture is lost.
+- Four workflow steps render as an expandable timeline with status, description
+  and tool/resource chips. Trigger conditions, cron schedule, resource
+  checkboxes and the sandbox note are present.
+- The test panel provides the prototype input, running/success/failure states,
+  the four checks, and 「试运行后启用」 which is enabled only after success.
+  Every action (save, enable, toggles, workflow resources, test, enable-after,
+  install/continue-draft) only emits a localized sample-mode notice; no file,
+  setting or real Skill command is written.
+- 新建 Skill opens a three-stage builder (基础信息 → 触发与资源 → 测试与发布)
+  with 上一步/继续/发布 Skill, progress labels and validation for name, slug,
+  version (`v1.2.3` shape) and trigger. 导入 Skill has 从链接 / 从文件 tabs,
+  URL required + http/https validation, file-required validation, ESC/backdrop
+  close and focus return.
+- All chrome, labels, hints, checks, table/tab text, validation and aria names
+  come from the `skills.*` zh/en catalogue; key sets stay equal and
+  `CATALOGUE.md` lists every key. Skill names, descriptions, prompt/test
+  content and user-entered values keep their original language.
+- All nine manifest viewports were probed without page-level horizontal
+  overflow (timeline/list/local tables may scroll internally); 820×1180 keeps
+  the existing Windows work-area clamp limitation.
+- Sample navigation reuses `sample.nav.*` (Skill 9 个已安装 in the tool menu);
+  normal `/skills` renders no fixed counts or metadata.
