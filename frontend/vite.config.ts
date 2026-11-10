@@ -19,7 +19,6 @@ export default defineConfig({
     // worker so gate runs are deterministic; this does not change any test.
     pool: 'forks',
     fileParallelism: false,
-    minWorkers: 1,
     maxWorkers: 1,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
