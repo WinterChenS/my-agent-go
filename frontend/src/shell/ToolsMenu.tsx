@@ -3,8 +3,18 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { TOOL_ROUTES } from './routes'
+import type { MessageKey } from '../i18n/catalogue'
+import { SHELL_SAMPLE_FIXTURE } from './sampleNavigation'
 
-export default function ToolsMenu() {
+const TOOL_META_KEYS: Record<string, MessageKey | undefined> = {
+  library: 'sample.nav.libraryMeta',
+  skills: 'sample.nav.skillsMeta',
+  mcp: 'sample.nav.mcpMeta',
+  connectors: 'sample.nav.connectorsMeta',
+  schedules: 'sample.nav.schedulesMeta',
+}
+
+export default function ToolsMenu({ sample = false }: { sample?: boolean }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -87,34 +97,42 @@ export default function ToolsMenu() {
         onKeyDown={onMenuKeyDown}
       >
         <div className="nav-flyout-head">{t('nav.tools')}</div>
-        {TOOL_ROUTES.map((route) => (
-          <NavLink
-            key={route.id}
-            id={`nav-${route.id}`}
-            to={route.path}
-            role="menuitem"
-            className={({ isActive }) => `nav-flyout-item${isActive ? ' is-active' : ''}`}
-            aria-label={t(route.navKey)}
-            tabIndex={open ? 0 : -1}
-            data-nav-entry
-            data-route-path={route.path}
-            data-group={route.group}
-            onClick={() => setOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === ' ') {
-                event.preventDefault()
-                event.currentTarget.click()
-              }
-            }}
-          >
-            <span className="nav-flyout-icon">
-              <Icon name={route.id} size={14} />
-            </span>
-            <span>
-              <b>{t(route.navKey)}</b>
-            </span>
-          </NavLink>
-        ))}
+        {TOOL_ROUTES.map((route) => {
+          const count = sample ? SHELL_SAMPLE_FIXTURE.toolCounts[route.id] : undefined
+          const metaKey = TOOL_META_KEYS[route.id]
+          const meta = count === undefined || !metaKey ? null : t(metaKey, { count })
+          return (
+            <NavLink
+              key={route.id}
+              id={`nav-${route.id}`}
+              to={route.path}
+              role="menuitem"
+              className={({ isActive }) => `nav-flyout-item${isActive ? ' is-active' : ''}`}
+              aria-label={meta === null ? t(route.navKey) : `${t(route.navKey)} · ${meta}`}
+              tabIndex={open ? 0 : -1}
+              data-nav-entry
+              data-route-path={route.path}
+              data-group={route.group}
+              onClick={() => setOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === ' ') {
+                  event.preventDefault()
+                  event.currentTarget.click()
+                }
+              }}
+            >
+              <span className="nav-flyout-icon">
+                <Icon name={route.id} size={14} />
+              </span>
+              <span>
+                <b>{t(route.navKey)}</b>
+                {meta === null ? null : (
+                  <small data-testid={`nav-tool-meta-${route.id}`}>{meta}</small>
+                )}
+              </span>
+            </NavLink>
+          )
+        })}
       </div>
     </div>
   )

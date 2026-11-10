@@ -35,6 +35,8 @@ describe('chat normal entry', () => {
     expect(screen.getByTestId('chat-stop')).toBeDisabled()
     expect(screen.getByTestId('chat-history-empty')).toHaveTextContent('尚未接入会话')
     expect(screen.getAllByRole('tab')).toHaveLength(4)
+    expect(screen.queryByTestId('nav-count-chat')).toBeNull()
+    expect(screen.queryByTestId('nav-tool-meta-library')).toBeNull()
     for (const fixture of [
       'API 迁移评估',
       '迁移工程师',
@@ -47,6 +49,19 @@ describe('chat normal entry', () => {
     ]) {
       expect(screen.queryByText(fixture), `fixture ${fixture}`).toBeNull()
     }
+  })
+
+  it('keeps the normal shell free of sample navigation counts and metadata', async () => {
+    const user = userEvent.setup()
+    renderAt('/chat')
+    await user.click(screen.getByRole('button', { name: '工具与自动化' }))
+    expect(screen.queryByTestId('nav-count-chat')).toBeNull()
+    expect(screen.queryByTestId('nav-tool-meta-library')).toBeNull()
+    expect(screen.queryByText('28 个输出物')).toBeNull()
+    expect(screen.queryByText('9 个已安装')).toBeNull()
+    expect(screen.queryByText('3 个服务')).toBeNull()
+    expect(screen.queryByText('5 个连接')).toBeNull()
+    expect(screen.queryByText('6 个任务')).toBeNull()
   })
 
   it('keeps history search honest without fixture results', async () => {
@@ -93,6 +108,18 @@ describe('chat sample entry', () => {
     expect(screen.getByTestId('chat-history')).toHaveTextContent('普通会话')
     expect(screen.getByText('API 迁移评估：v1 → v2')).toBeInTheDocument()
     expect(screen.getByText('周报数据核对与图表生成')).toBeInTheDocument()
+  })
+
+  it('reproduces the prototype shell counts and tool metadata only in sample mode', async () => {
+    const user = userEvent.setup()
+    renderAt('/?sample=chat')
+    expect(screen.getByTestId('nav-count-chat')).toHaveTextContent('4')
+    await user.click(screen.getByRole('button', { name: '工具与自动化' }))
+    expect(screen.getByTestId('nav-tool-meta-library')).toHaveTextContent('28 个输出物')
+    expect(screen.getByTestId('nav-tool-meta-skills')).toHaveTextContent('9 个已安装')
+    expect(screen.getByTestId('nav-tool-meta-mcp')).toHaveTextContent('3 个服务')
+    expect(screen.getByTestId('nav-tool-meta-connectors')).toHaveTextContent('5 个连接')
+    expect(screen.getByTestId('nav-tool-meta-schedules')).toHaveTextContent('6 个任务')
   })
 
   it('filters history, expands projects, paginates and exposes disabled session actions', async () => {

@@ -362,3 +362,9 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `chat.thread.close` | 关闭 | Close |
 | `chat.dialog.close` | 关闭 | Close |
 | `chat.dialog.cancel` | 取消 | Cancel |
+| `sample.nav.chat` | 对话 {count} | Chats {count} |
+| `sample.nav.libraryMeta` | {count} 个输出物 | {count} artifacts |
+| `sample.nav.skillsMeta` | {count} 个已安装 | {count} installed |
+| `sample.nav.mcpMeta` | {count} 个服务 | {count} services |
+| `sample.nav.connectorsMeta` | {count} 个连接 | {count} connections |
+| `sample.nav.schedulesMeta` | {count} 个任务 | {count} tasks |

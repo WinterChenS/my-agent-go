@@ -71,7 +71,9 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - The prototype-filled state is isolated at `/?sample=workbench` and the
   path alias `/__sample/workbench` (used by the native case; not in navigation).
   A visible sample banner marks it as design data, and its action buttons only
-  emit a sample-mode notice, never a fake success.
+  emit a sample-mode notice, never a fake success. In this sample mode the
+  shell also replays the prototype navigation counts (Chat 4 and the five tool
+  menu metadata strings); the normal entry keeps them absent.
 - Layout follows the prototype module order: header, 4 stats, activity
   heatmap, continue chats, recent artifacts, my agents, today's schedules,
   run status, global search, header actions. The split is two-column at wide
@@ -138,6 +140,13 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   lists every key. Conversation text, paths, file names and people names are
   user content and intentionally stay in their original language in English
   mode.
+- The sample shell replays the prototype Navigation fixture: `对话 4` on the
+  chat item and, when 工具与自动化 is expanded, 资源库 28 个输出物 / Skill
+  9 个已安装 / MCP 3 个服务 / 连接器 5 个连接 / 定时任务 6 个任务. The
+  values live in `shell/sampleNavigation.ts`, are formatted through the
+  `sample.nav.*` zh/en keys, and are asserted in both languages. Normal
+  `/chat` and `/` render no fixed count or metadata: the chat count, these five
+  meta strings and their `nav-*` test hooks are absent.
 - Responsive rules: 1180px narrows the rail to 340px, 900px turns both rail and
   history into drawers with a single thread column, and 620px compacts the
   header/composer. All nine manifest widths remain free of horizontal overflow;

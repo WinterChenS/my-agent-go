@@ -205,6 +205,12 @@ const chatZh = {
   "chat.thread.close": "关闭",
   "chat.dialog.close": "关闭",
   "chat.dialog.cancel": "取消",
+  "sample.nav.chat": "对话 {count}",
+  "sample.nav.libraryMeta": "{count} 个输出物",
+  "sample.nav.skillsMeta": "{count} 个已安装",
+  "sample.nav.mcpMeta": "{count} 个服务",
+  "sample.nav.connectorsMeta": "{count} 个连接",
+  "sample.nav.schedulesMeta": "{count} 个任务",
 } as const
 
 const chatEn: Record<keyof typeof chatZh, string> = {
@@ -407,6 +413,12 @@ const chatEn: Record<keyof typeof chatZh, string> = {
   "chat.thread.close": "Close",
   "chat.dialog.close": "Close",
   "chat.dialog.cancel": "Cancel",
+  "sample.nav.chat": "Chats {count}",
+  "sample.nav.libraryMeta": "{count} artifacts",
+  "sample.nav.skillsMeta": "{count} installed",
+  "sample.nav.mcpMeta": "{count} services",
+  "sample.nav.connectorsMeta": "{count} connections",
+  "sample.nav.schedulesMeta": "{count} tasks",
 }
 
 const zhCN = {

@@ -32,6 +32,7 @@ describe('workbench normal entry', () => {
     expect(screen.getByRole('heading', { name: '今日定时任务' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '运行状态' })).toBeInTheDocument()
     expect(screen.queryByTestId('sample-banner')).toBeNull()
+    expect(screen.queryByTestId('nav-count-chat')).toBeNull()
     await waitFor(() => expect(screen.getAllByText('尚未接入运行时').length).toBeGreaterThan(0))
     expect(screen.getByText('尚未接入会话')).toBeInTheDocument()
     expect(screen.getByText('尚未接入产出物')).toBeInTheDocument()
@@ -64,6 +65,7 @@ describe('workbench sample entry', () => {
   it('shows prototype data only through the isolated sample URL', async () => {
     renderAt('/?sample=workbench')
     expect(screen.getByTestId('sample-banner')).toHaveTextContent('原型样例数据')
+    expect(screen.getByTestId('nav-count-chat')).toHaveTextContent('4')
     expect(screen.getByText('34')).toBeInTheDocument()
     expect(screen.getByText('1,284')).toBeInTheDocument()
     expect(screen.getByText('6.2M')).toBeInTheDocument()

@@ -5,11 +5,13 @@ import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { PRIMARY_ROUTES } from './routes'
 import ToolsMenu from './ToolsMenu'
+import { SHELL_SAMPLE_FIXTURE, useShellSample } from './sampleNavigation'
 
 export default function Sidebar() {
   const { t } = useI18n()
   const location = useLocation()
   const chatSample = useChatSample()
+  const shellSample = useShellSample()
   const isChat = location.pathname === '/chat' || location.pathname === '/__sample/chat' || chatSample
   return (
     <aside className="sidebar" id="sidebar">
@@ -25,24 +27,32 @@ export default function Sidebar() {
 
       <div className="nav-group">
         <div className="nav-label">{t('nav.group.start')}</div>
-        {PRIMARY_ROUTES.map((route) => (
-          <NavLink
-            key={route.id}
-            id={`nav-${route.id}`}
-            to={route.path}
-            className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') ? ' is-active' : ''}`}
-            aria-label={t(route.navKey)}
-            data-nav-entry
-            data-route-path={route.path}
-            data-group={route.group}
-          >
-            <Icon name={route.id} size={15} />
-            <span>{t(route.navKey)}</span>
-          </NavLink>
-        ))}
+        {PRIMARY_ROUTES.map((route) => {
+          const count = shellSample && route.id === 'chat' ? SHELL_SAMPLE_FIXTURE.chatCount : null
+          return (
+            <NavLink
+              key={route.id}
+              id={`nav-${route.id}`}
+              to={route.path}
+              className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') ? ' is-active' : ''}`}
+              aria-label={count === null ? t(route.navKey) : t('sample.nav.chat', { count })}
+              data-nav-entry
+              data-route-path={route.path}
+              data-group={route.group}
+            >
+              <Icon name={route.id} size={15} />
+              <span>{t(route.navKey)}</span>
+              {count === null ? null : (
+                <span className="nav-count" data-testid="nav-count-chat">
+                  {count}
+                </span>
+              )}
+            </NavLink>
+          )
+        })}
       </div>
 
-      <ToolsMenu />
+      <ToolsMenu sample={shellSample} />
 
       {isChat ? <ChatHistoryPanel sample={chatSample} /> : null}
 
