@@ -1,9 +1,15 @@
-# Keep all Cargo build artifacts on the D: volume even when scripts/env-rs.ps1
-# has not been loaded (defence in depth for the D-drive-only write rule).
+# Keep all Cargo build artifacts on the D: volume (defence in depth for the
+# D-drive-only write rule).
 #
-# `target-dir` is resolved relative to this file's directory, so the artifacts
-# land in D:\project\anvil-wt\anvil-rebuild\.tmp\tooling\cargo-target.
+# `target-dir` here is resolved relative to the **workspace root**, not to this
+# config file's directory: with the value `.tmp/tooling/cargo-target`, cargo
+# reports and uses
+#   D:\project\anvil-wt\anvil-rebuild\.tmp\tooling\cargo-target
+# both from the repo root and from `crates/anvil-paths` (verified with
+# `cargo metadata --format-version 1 --no-deps`, R0-RS01 F1). A `../` prefix
+# would escape the worktree, so it must not be used.
+#
 # An explicit CARGO_TARGET_DIR environment variable still wins, and
 # scripts/env-rs.ps1 sets it to the same path.
 [build]
-target-dir = "../.tmp/tooling/cargo-target"
+target-dir = ".tmp/tooling/cargo-target"

@@ -10,8 +10,22 @@
 # Nothing silently falls back to a C: default.
 #
 # Exit codes: 0 = environment ready, 2 = a required item is missing or not on D:.
+#
+# Why RUSTUP_AUTO_INSTALL=0 (R0-RS01 F2):
+#   `rust-toolchain.toml` pins channel 1.95.0. If a cargo/rustup invocation runs
+#   with the machine-default RUSTUP_HOME (C:\Users\<user>\.rustup) and
+#   auto-install is enabled, rustup silently downloads the entire toolchain
+#   (~1.6 GB, host gnu on this machine) into C: before anything else runs.
+#   R0-RS01 hit exactly that twice. This script therefore disables auto-install
+#   in the process environment: a missing pinned toolchain must fail here with
+#   exit 2 plus the explicit install command, never write outside D:.
+#   Consequence: any cargo/rustup command in this worktree MUST be run after
+#   loading this script (or with the same D: environment).
 
 $ErrorActionPreference = 'Stop'
+
+# Must be set before the first rustc/rustup invocation in this process.
+$env:RUSTUP_AUTO_INSTALL = '0'
 
 function Fail([string]$Message) {
     [Console]::Error.WriteLine("env-rs: ERROR: $Message")
@@ -29,17 +43,24 @@ function Test-DriveD([string]$Value) {
     return $normalized.StartsWith('D:\', [StringComparison]::OrdinalIgnoreCase)
 }
 
+# Runs a console command without PowerShell's ErrorRecord wrapping of native
+# stderr, so failure messages stay readable in evidence logs.
 function Invoke-Capture([string]$Exe, [string[]]$Arguments) {
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = (& $Exe @Arguments 2>&1 | Out-String).Trim()
-        $code = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previous
-    }
-    return [pscustomobject]@{ Output = $output; ExitCode = $code }
+    $commandLine = '"' + $Exe + '"'
+    if ($Arguments.Count -gt 0) { $commandLine += ' ' + ($Arguments -join ' ') }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'cmd.exe'
+    $psi.Arguments = '/d /c ' + $commandLine
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    $output = (($stdout + $stderr).Trim())
+    return [pscustomobject]@{ Output = $output; ExitCode = $process.ExitCode }
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -172,9 +193,17 @@ Bootstrap the D: rustup controller once, then re-run this script:
 }
 
 $rustc = Invoke-Capture 'rustc' @('-V')
-if ($rustc.ExitCode -ne 0) { Fail "rustc -V failed ($($rustc.ExitCode)): $($rustc.Output)" }
-if (-not $rustc.Output.StartsWith('rustc 1.95.0')) {
-    Fail "rustc -V reported '$($rustc.Output)'; rust-toolchain.toml pins 1.95.0 (run from the repository root)"
+if ($rustc.ExitCode -ne 0 -or -not $rustc.Output.StartsWith('rustc 1.95.0')) {
+    Fail @"
+rustc does not resolve to the pinned 1.95.0 toolchain.
+  output        : $($rustc.Output)
+  exit          : $($rustc.ExitCode)
+  RUSTUP_HOME   : $env:RUSTUP_HOME
+  RUSTUP_AUTO_INSTALL : $env:RUSTUP_AUTO_INSTALL (auto-install is disabled on purpose)
+Nothing was downloaded. Install the pinned toolchain explicitly under the D: rustup home:
+  & '$cargoBin\rustup.exe' toolchain install 1.95.0 --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc
+and run this script from the repository root so rust-toolchain.toml applies.
+"@
 }
 $cargo = Invoke-Capture 'cargo' @('-V')
 if ($cargo.ExitCode -ne 0) { Fail "cargo -V failed ($($cargo.ExitCode)): $($cargo.Output)" }
@@ -186,6 +215,7 @@ Write-Output "env-rs: TEMP             = $env:TEMP"
 Write-Output "env-rs: TMP              = $env:TMP"
 Write-Output "env-rs: TMPDIR           = $env:TMPDIR"
 Write-Output "env-rs: CARGO_TARGET_DIR = $env:CARGO_TARGET_DIR"
+Write-Output "env-rs: RUSTUP_AUTO_INSTALL = $env:RUSTUP_AUTO_INSTALL"
 Write-Output "env-rs: MSVC             = $msvcRoot $msvcVer"
 Write-Output "env-rs: SDK              = $sdkRoot $sdkVer"
 Write-Output "env-rs: rustc            = $((Get-Command rustc -CommandType Application | Select-Object -First 1).Source) :: $($rustc.Output)"
