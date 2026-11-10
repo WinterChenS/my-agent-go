@@ -202,7 +202,7 @@ func runNativeChatCase(r automationRunner, sha, target string, hooks *nativeHook
 	if !s.screenshot("native/chat-sample-390x844.png", s.windowIDValue) {
 		return s.failCleanup()
 	}
-	railToggle, ok := s.findRef("chat-rail-expand", "button", "展开右侧面板", 15)
+	railToggle, ok := s.findRef("chat-rail-expand", "button", "右侧面板", 15)
 	if !ok {
 		return s.failCleanup()
 	}

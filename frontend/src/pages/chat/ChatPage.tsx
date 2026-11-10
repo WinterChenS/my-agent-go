@@ -164,7 +164,7 @@ export default function ChatPage() {
             type="button"
             className={`chat-iconbtn${railOpen ? ' is-on' : ''}`}
             data-testid="chat-rail-toggle"
-            aria-label={railOpen ? t('chat.rail.collapse') : t('chat.rail.expand')}
+            aria-label={t('chat.rail.toggle')}
             aria-expanded={railOpen}
             aria-controls="chat-rail"
             onClick={() => setRailOpen((open) => !open)}
