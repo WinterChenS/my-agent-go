@@ -402,21 +402,74 @@ fn run_window(runner: &AutomationRunner, sha: &str, target: &str) -> NativeOutco
         }
     }
 
-    if !run_steps(
-        runner,
-        &mut out,
-        &[
-            StepSpec::new("close-app", "agent-desktop", &["close-app", "anvil.exe"]).timeout(60),
-            StepSpec::new(
-                "list-windows-after-close",
-                "agent-desktop",
-                &["list-windows", "--app", "anvil.exe"],
-            )
-            .timeout(60)
-            .expect_contains("\"data\":[]"),
-        ],
-        false,
-    ) {
+    // Close the client. agent-desktop's semantic terminate does not reach a
+    // WebView2 host: it reports `terminate_request succeeded, verified=false`
+    // and then times out, while the same window closes on WM_CLOSE in about a
+    // second. Try it first (it is the documented graceful path), record the
+    // outcome, and fall back to `--force` so the case still proves the client
+    // can be shut down.
+    let graceful =
+        StepSpec::new("close-app", "agent-desktop", &["close-app", "anvil.exe"]).timeout(60);
+    let (command, artifact, failure) = runner.run_step(&graceful);
+    out.commands.push(command);
+    if let Some(artifact) = artifact {
+        out.artifacts.push(artifact);
+    }
+    let graceful_failed = failure.is_some();
+    if graceful_failed {
+        out.limitations.push(format!(
+            "agent-desktop semantic close did not terminate the Tauri host ({}); closed with --force",
+            failure.unwrap_or_default()
+        ));
+    }
+    let mut closed = windows_gone(&runner.read_log("close-app"));
+    if !closed {
+        let force = StepSpec::new(
+            "close-app-force",
+            "agent-desktop",
+            &["close-app", "anvil.exe", "--force"],
+        )
+        .timeout(60);
+        let (command, artifact, failure) = runner.run_step(&force);
+        out.commands.push(command);
+        if let Some(artifact) = artifact {
+            out.artifacts.push(artifact);
+        }
+        if let Some(failure) = failure {
+            out.status = STATUS_FAIL.to_string();
+            out.limitations.push(failure);
+            return out;
+        }
+    }
+    // Wait for the window to disappear instead of trusting the close command.
+    for attempt in 1..=10 {
+        let step = StepSpec::new(
+            &format!("list-windows-after-close-{attempt:02}"),
+            "agent-desktop",
+            &["list-windows", "--app", "anvil.exe"],
+        )
+        .timeout(60);
+        let (command, artifact, failure) = runner.run_step(&step);
+        out.commands.push(command);
+        if let Some(artifact) = artifact {
+            out.artifacts.push(artifact);
+        }
+        if failure.is_some() {
+            out.status = STATUS_FAIL.to_string();
+            out.limitations
+                .push(failure.unwrap_or_else(|| "list-windows failed".to_string()));
+            return out;
+        }
+        if windows_gone(&runner.read_log(&format!("list-windows-after-close-{attempt:02}"))) {
+            closed = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    if !closed {
+        out.status = STATUS_FAIL.to_string();
+        out.limitations
+            .push("the client window was still reported after close".to_string());
         return out;
     }
 
@@ -816,6 +869,18 @@ fn copy_app_log(case_dir: &Path, data_dir: &Path) -> Option<Artifact> {
     hash_artifact(case_dir, "native/anvil.log").ok()
 }
 
+/// Whether `list-windows` reported no window for the app.
+fn windows_gone(body: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Envelope {
+        #[serde(default)]
+        data: Vec<serde_json::Value>,
+    }
+    serde_json::from_str::<Envelope>(&last_json_object(body))
+        .map(|envelope| envelope.data.is_empty())
+        .unwrap_or(false)
+}
+
 /// Resolve the agent-desktop CLI: `ANVIL_AGENT_DESKTOP`, then the pinned
 /// install, then PATH.
 pub(crate) fn agent_desktop_executable() -> Option<PathBuf> {
@@ -923,6 +988,15 @@ mod tests {
         assert_eq!(once, format!("boom; {REVERIFY_CONDITION}"));
         assert_eq!(with_reverify(&once), once);
         assert_eq!(with_reverify(""), REVERIFY_CONDITION);
+    }
+
+    #[test]
+    fn closed_window_is_an_empty_window_list() {
+        assert!(windows_gone(br#"{"ok":true,"data":[]}"#));
+        assert!(!windows_gone(
+            br#"{"ok":true,"data":[{"id":"w1","title":"Anvil"}]}"#
+        ));
+        assert!(!windows_gone(b"not json"));
     }
 
     #[test]
