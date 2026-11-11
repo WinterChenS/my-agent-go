@@ -114,12 +114,6 @@ pub fn run_case(opts: &VerifyOptions) -> VerifyOutcome {
             opts.case_id, plan.evidence_kind, registered.evidence_kind
         ));
     }
-    if plan.native.is_some() {
-        return VerifyOutcome::fail(format!(
-            "case {:?} needs the native agent-desktop runner, which is ported in R0-RS03 phase 2",
-            opts.case_id
-        ));
-    }
 
     let resolver = SystemResolver;
     let root = match ensure_dir(&resolver, Path::new(&opts.evidence_root)) {
@@ -167,15 +161,29 @@ pub fn run_case(opts: &VerifyOptions) -> VerifyOutcome {
     let mut commands: Vec<Command> = Vec::new();
     let mut artifacts: Vec<Artifact> = vec![env_artifact];
     let mut limitations: Vec<String> = Vec::new();
-    let status = match run_automation(
-        &runner,
-        &plan,
-        &mut commands,
-        &mut artifacts,
-        &mut limitations,
-    ) {
-        Ok(status) => status,
-        Err(err) => return VerifyOutcome::fail(err),
+    let status = if let Some(kind) = plan.native {
+        // Native desktop cases drive the real client; the shared step loop,
+        // artifact hashing and exit-code mapping stay in this module.
+        let native = crate::native::run(kind, &runner, &sha, &opts.target);
+        commands.extend(native.commands);
+        artifacts.extend(native.artifacts);
+        limitations.extend(native.limitations);
+        if native.status.is_empty() {
+            STATUS_BLOCKED.to_string()
+        } else {
+            native.status
+        }
+    } else {
+        match run_automation(
+            &runner,
+            &plan,
+            &mut commands,
+            &mut artifacts,
+            &mut limitations,
+        ) {
+            Ok(status) => status,
+            Err(err) => return VerifyOutcome::fail(err),
+        }
     };
 
     // The launched client inherits the launch command's stdout and keeps writing
@@ -271,15 +279,31 @@ fn run_automation(
     Ok(status)
 }
 
-struct AutomationRunner {
-    repo: PathBuf,
-    case_dir: PathBuf,
-    env: Vec<(String, String)>,
-    evidence: PathBuf,
+pub(crate) struct AutomationRunner {
+    pub(crate) repo: PathBuf,
+    pub(crate) case_dir: PathBuf,
+    pub(crate) env: Vec<(String, String)>,
+    pub(crate) evidence: PathBuf,
 }
 
 impl AutomationRunner {
-    fn run_step(&self, step: &StepSpec) -> (Command, Option<Artifact>, Option<String>) {
+    /// Repository root the case runs against.
+    pub(crate) fn repo(&self) -> &Path {
+        &self.repo
+    }
+
+    /// Case evidence directory (`<root>/<sha>/<target>/<caseId>`).
+    pub(crate) fn case_dir(&self) -> &Path {
+        &self.case_dir
+    }
+
+    /// Read the merged stdout/stderr log of a finished step.
+    pub(crate) fn read_log(&self, step_name: &str) -> Vec<u8> {
+        std::fs::read(self.case_dir.join("logs").join(format!("{step_name}.log")))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn run_step(&self, step: &StepSpec) -> (Command, Option<Artifact>, Option<String>) {
         let command_name = expand(&step.command, self);
         let args: Vec<String> = step.args.iter().map(|arg| expand(arg, self)).collect();
         let work_dir = match &step.dir {
@@ -461,6 +485,13 @@ impl AutomationRunner {
                 let mut full = vec!["/c".to_string(), npm];
                 full.extend_from_slice(args);
                 Ok(("cmd".to_string(), full))
+            }
+            "agent-desktop" => {
+                let cli = crate::native::agent_desktop_executable().ok_or_else(|| {
+                    "agent-desktop CLI not found (set ANVIL_AGENT_DESKTOP or install agent-desktop)"
+                        .to_string()
+                })?;
+                Ok((cli.display().to_string(), args.to_vec()))
             }
             other => {
                 let lower = other.to_ascii_lowercase();

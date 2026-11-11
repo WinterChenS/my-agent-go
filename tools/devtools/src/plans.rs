@@ -33,7 +33,7 @@ pub struct StepSpec {
 }
 
 impl StepSpec {
-    fn new(name: &str, command: &str, args: &[&str]) -> Self {
+    pub(crate) fn new(name: &str, command: &str, args: &[&str]) -> Self {
         Self {
             name: name.to_string(),
             command: command.to_string(),
@@ -46,27 +46,27 @@ impl StepSpec {
         }
     }
 
-    fn dir(mut self, dir: &str) -> Self {
+    pub(crate) fn dir(mut self, dir: &str) -> Self {
         self.dir = Some(dir.to_string());
         self
     }
 
-    fn timeout(mut self, seconds: u64) -> Self {
+    pub(crate) fn timeout(mut self, seconds: u64) -> Self {
         self.timeout = Duration::from_secs(seconds);
         self
     }
 
-    fn expect_exit(mut self, code: i32) -> Self {
+    pub(crate) fn expect_exit(mut self, code: i32) -> Self {
         self.expect_exit = code;
         self
     }
 
-    fn expect_contains(mut self, text: &str) -> Self {
+    pub(crate) fn expect_contains(mut self, text: &str) -> Self {
         self.expect_output_contains = Some(text.to_string());
         self
     }
 
-    fn mkdir(mut self, dir: &str) -> Self {
+    pub(crate) fn mkdir(mut self, dir: &str) -> Self {
         self.mkdir.push(dir.to_string());
         self
     }

@@ -12,6 +12,7 @@ pub mod evidence;
 pub mod gate;
 pub mod hash;
 pub mod matrix;
+pub(crate) mod native;
 pub mod osinfo;
 pub mod plans;
 pub mod preflight;

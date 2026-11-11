@@ -453,24 +453,25 @@ fn verify_rejects_an_unregistered_case_and_a_dirty_tree_rule_is_documented() {
 }
 
 #[test]
-fn verify_refuses_native_cases_until_the_desktop_runner_is_ported() {
+fn verify_reports_unported_native_cases_as_blocked() {
     let dir = fixture_dir("verify-native-pending");
     let matrix = write_matrix(
         &dir,
         &["R0-00"],
-        json!({ "id": "R0-00-native-window", "task": "R0-00", "evidenceKind": "native-desktop", "required": true }),
+        json!({ "id": "R0-02-native-theme", "task": "R0-00", "evidenceKind": "native-desktop", "required": true }),
     );
     let outcome = run_case(&VerifyOptions {
         repo_root: repo_root(),
         matrix_path: matrix,
         evidence_root: dir.display().to_string(),
-        case_id: "R0-00-native-window".to_string(),
+        case_id: "R0-02-native-theme".to_string(),
         target: TARGET.to_string(),
         git_sha: SHA.to_string(),
     });
     assert_eq!(outcome.code, EXIT_INCOMPLETE);
+    assert_eq!(outcome.status, "BLOCKED");
     assert!(
-        outcome.problems[0].contains("R0-RS03 phase 2"),
+        outcome.problems.join(" ").contains("not ported yet"),
         "{:?}",
         outcome.problems
     );
