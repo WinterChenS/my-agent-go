@@ -616,6 +616,12 @@ fn case_env(
     for (key, value) in &settings {
         set_env(&mut env, key, value);
     }
+    // The agent host injects its own Node preload through NODE_OPTIONS. That
+    // preload refuses bulk deletions, which makes `npm ci` and `vite`'s own
+    // output-directory cleanup fail inside a process the product owns. It is
+    // harness instrumentation, not part of the product environment, so the
+    // case runs without it.
+    drop_env(&mut env, "NODE_OPTIONS");
     if let Some(dir) = node_directory() {
         let existing = std::env::var("PATH").unwrap_or_default();
         let prefix = dir.display().to_string();
@@ -627,6 +633,10 @@ fn case_env(
         set_env(&mut env, "PATH", &path);
     }
     (env, settings)
+}
+
+fn drop_env(env: &mut Vec<(String, String)>, key: &str) {
+    env.retain(|(name, _)| !name.eq_ignore_ascii_case(key));
 }
 
 fn set_env(env: &mut Vec<(String, String)>, key: &str, value: &str) {

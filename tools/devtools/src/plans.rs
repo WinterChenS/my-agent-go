@@ -182,6 +182,7 @@ fn build_suite() -> Vec<StepSpec> {
             .timeout(900),
         StepSpec::new("npm-build", "npm", &["run", "build"])
             .dir("frontend")
+            .remove("frontend/dist")
             .timeout(600),
         StepSpec::new("check-dist", "node", &["scripts/check-dist.mjs"]).dir("frontend"),
     ]

@@ -247,6 +247,7 @@ impl<'a> Session<'a> {
         self.run(&[
             StepSpec::new("npm-build", "npm", &["run", "build"])
                 .dir("frontend")
+                .remove("frontend/dist")
                 .timeout(600),
             StepSpec::new(
                 "cargo-build",
