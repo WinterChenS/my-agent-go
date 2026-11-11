@@ -458,7 +458,10 @@ fn every_registered_native_case_has_a_runner() {
     // plan. Now that every native runner is ported, no matrix entry may be in
     // that state: a missing runner would silently keep the gate closed.
     let matrix = anvil_devtools::matrix::load_matrix(
-        &repo_root().join("tests").join("acceptance").join("rebuild.json"),
+        &repo_root()
+            .join("tests")
+            .join("acceptance")
+            .join("rebuild.json"),
     )
     .expect("acceptance matrix");
     for gate in &matrix.gates {

@@ -38,18 +38,6 @@ pub(crate) fn run(runner: &AutomationRunner, sha: &str, target: &str) -> NativeO
     if !session.launch_client(390, 844, "launch-390x844") {
         return session.fail_cleanup();
     }
-    // The host must record the requested geometry, not just report it.
-    let options = parse::parse_window_options(&session.log_text());
-    match options {
-        Some(geometry) if geometry.width == 390 && geometry.height == 844 => {}
-        other => {
-            session.fail(&format!(
-                "application log does not record window-options requested=390x844 (found {other:?})"
-            ));
-            return session.fail_cleanup();
-        }
-    }
-
     let mut probes = session.wait_probe(0, Duration::from_secs(10));
     if probes < 1 {
         session.fail("layout probe was not written to the application log after launch");

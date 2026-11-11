@@ -387,13 +387,27 @@ impl<'a> Session<'a> {
             self.fail("no Anvil window was reported after launch");
             return false;
         };
-        if window.title != "Anvil"
-            || !near(window.width, width as f64)
-            || !near(window.height, height as f64)
+        if window.title != "Anvil" {
+            self.fail(&format!("window title = {:?}, want Anvil", window.title));
+            return false;
+        }
+        // The Tauri host applies `ANVIL_WINDOW_WIDTH/HEIGHT` to the client
+        // area, while the window manager reports the decorated frame. The host
+        // log records what was requested; the reported bounds must then be the
+        // request plus a plausible title bar and border.
+        let recorded = self.last_window_options();
+        if recorded.map(|geometry| (geometry.width, geometry.height)) != Some((width, height)) {
+            self.fail(&format!(
+                "application log does not record window-options requested={width}x{height} (found {recorded:?})"
+            ));
+            return false;
+        }
+        if !within_frame(window.width, width as f64, 64.0)
+            || !within_frame(window.height, height as f64, 96.0)
         {
             self.fail(&format!(
-                "window bounds = {:?} {}x{}, want Anvil {}x{}",
-                window.title, window.width, window.height, width, height
+                "window frame {}x{} is not {width}x{height} plus a title bar and border",
+                window.width, window.height
             ));
             return false;
         }
@@ -1203,12 +1217,22 @@ impl<'a> Session<'a> {
             return false;
         }
         let window = parse::parse_first_window(&self.read(&list_name)).unwrap_or_default();
-        let width_ok = near(window.width, width as f64);
-        let height_ok = near(window.height, height as f64);
+        let width_ok = within_frame(window.width, width as f64, 64.0);
+        let height_ok = within_frame(window.height, height as f64, 96.0);
         if !width_ok || (strict && !height_ok) {
             self.fail(&format!(
                 "resize to {width}x{height} reported bounds {}x{}",
                 window.width, window.height
+            ));
+            return false;
+        }
+        // The frame is decoration; the assertion that matters is the client
+        // area the page actually renders. The frontend logs it on every
+        // resize, so require that exact viewport instead of trusting the
+        // window manager's outer rectangle.
+        if !self.wait_viewport(&format!("{width}x{height}"), Duration::from_secs(10)) {
+            self.fail(&format!(
+                "layout probe did not report viewport {width}x{height} after the resize"
             ));
             return false;
         }
@@ -1228,6 +1252,31 @@ impl<'a> Session<'a> {
             }
             if Instant::now() >= deadline {
                 return after;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    /// The most recent `window-options:` line of the application log.
+    pub(crate) fn last_window_options(&self) -> Option<crate::native::parse::WindowGeometry> {
+        let log = self.log_text();
+        log.lines()
+            .filter_map(parse::parse_window_options)
+            .next_back()
+    }
+
+    /// Wait until the newest layout probe reports `viewport`.
+    pub(crate) fn wait_viewport(&mut self, viewport: &str, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if parse::parse_layout_probes(&self.log_text())
+                .last()
+                .is_some_and(|probe| probe.viewport == viewport)
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
@@ -1809,9 +1858,14 @@ fn resize_landed_after_timeout(body: &[u8]) -> bool {
     error.code == "TIMEOUT" && delivery == "delivered_unverified"
 }
 
-/// `true` when the window dimension is within 8 px of the request.
-pub(crate) fn near(actual: f64, want: f64) -> bool {
-    (actual - want).abs() <= 8.0
+/// `true` when `outer` is `inner` plus at most `allowance` pixels of frame.
+///
+/// The host sizes the client area and Windows reports the decorated window, so
+/// the difference is the title bar and border: never negative beyond rounding,
+/// never larger than a real frame.
+pub(crate) fn within_frame(outer: f64, inner: f64, allowance: f64) -> bool {
+    let delta = outer - inner;
+    (-8.0..=allowance).contains(&delta)
 }
 
 #[cfg(test)]
@@ -1833,9 +1887,13 @@ mod tests {
     }
 
     #[test]
-    fn window_dimensions_tolerate_eight_pixels() {
-        assert!(near(390.0, 390.0));
-        assert!(near(398.0, 390.0));
-        assert!(!near(399.0, 390.0));
+    fn the_frame_allowance_covers_a_title_bar_but_not_a_different_size() {
+        // 390x844 client area -> 406x883 decorated window on this machine.
+        assert!(within_frame(406.0, 390.0, 64.0));
+        assert!(within_frame(883.0, 844.0, 96.0));
+        assert!(!within_frame(390.0, 844.0, 96.0));
+        assert!(!within_frame(1200.0, 390.0, 64.0));
+        // A frame narrower than the client area is a real mismatch, not rounding.
+        assert!(!within_frame(370.0, 390.0, 64.0));
     }
 }
