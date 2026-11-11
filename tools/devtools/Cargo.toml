@@ -1,0 +1,26 @@
+[package]
+name = "anvil-devtools"
+description = "Anvil verification and gate CLI (Rust replacement for cmd/devtools)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "anvil-devtools"
+path = "src/main.rs"
+
+[lib]
+name = "anvil_devtools"
+path = "src/lib.rs"
+
+[dependencies]
+anvil-paths = { path = "../../crates/anvil-paths" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }
