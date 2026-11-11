@@ -6,7 +6,7 @@
 
 | 依赖 | 影响 | 现状 | 由谁提供 |
 |---|---|---|---|
-| Windows 11 24H2 x64 验收机 | win-x64 上所有 case 的验收结论 | 本机是 Windows 10 22H2（build 19045），低于基线最低版本。本机证据只算开发证据；GOV05 实现后门禁会自动拒绝 | 用户：提供机器，或授权使用符合要求的 CI runner |
+| win-x64 验收机 | win-x64 上所有 case 的验收结论 | **已解决**：[ADR 0005](../adr/0005-narrow-acceptance-to-win-x64-windows-10.md) 把本轮验收收敛为 `win-x64` / Windows 10 22H2（build 19045），本机就是验收平台；[ADR 0008](../adr/0008-acceptance-platform-after-rust-migration.md) 确认 Rust 迁移后不变 | 无需提供 |
 | win-arm64、mac-x64、mac-arm64、linux-x64、linux-arm64 五台目标机（或等价 CI runner） | 所有 scope=ALL/NATIVE 的 case；G0–G4 全矩阵 | 本机只有 win-x64。历史上 CI 跑过六目标（`docs/evidence/ci-verify-round3.md`），重跑需要推送/触发授权 | 用户：提供机器或授权触发 CI |
 | Ubuntu 24.04 的 X11 与 Wayland 两种会话 | BR03 及 Linux 上所有 NATIVE case | 无 | 同上 |
 | macOS 机器（Intel 与 Apple Silicon） | B02、BR02，以及 macOS 上的更新替换（UPD08/UPD13） | 无 | 同上 |
