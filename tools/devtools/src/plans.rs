@@ -30,6 +30,12 @@ pub struct StepSpec {
     pub expect_output_contains: Option<String>,
     /// Directories to create before the step runs (repo-relative or absolute).
     pub mkdir: Vec<String>,
+    /// Paths removed before the step runs.
+    ///
+    /// `npm ci` deletes `node_modules` itself, and this host's delete guard
+    /// refuses bulk deletions from a child process. Pruning from Rust first
+    /// keeps the install deterministic.
+    pub remove: Vec<String>,
 }
 
 impl StepSpec {
@@ -43,6 +49,7 @@ impl StepSpec {
             expect_exit: 0,
             expect_output_contains: None,
             mkdir: Vec::new(),
+            remove: Vec::new(),
         }
     }
 
@@ -75,6 +82,12 @@ impl StepSpec {
 
     pub(crate) fn mkdir(mut self, dir: &str) -> Self {
         self.mkdir.push(dir.to_string());
+        self
+    }
+
+    /// Remove `path` (repo-relative or absolute) before the step runs.
+    pub(crate) fn remove(mut self, path: &str) -> Self {
+        self.remove.push(path.to_string());
         self
     }
 }
@@ -162,6 +175,7 @@ fn build_suite() -> Vec<StepSpec> {
         StepSpec::new("npm-version", "npm", &["-v"]),
         StepSpec::new("npm-ci", "npm", &["ci"])
             .dir("frontend")
+            .remove("frontend/node_modules")
             .timeout(1200),
         StepSpec::new("npm-test", "npm", &["test"])
             .dir("frontend")

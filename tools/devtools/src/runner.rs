@@ -328,6 +328,31 @@ impl AutomationRunner {
             exit_code: -1,
         };
 
+        // Prune before creating the log so a failed prune is reported in the
+        // step's own log rather than as a mysterious delete error later.
+        for relative in &step.remove {
+            let expanded = expand(relative, self);
+            let path = Path::new(&expanded);
+            let target = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                self.repo.join(path)
+            };
+            if let Err(err) = std::fs::remove_dir_all(&target)
+                && err.kind() != std::io::ErrorKind::NotFound
+            {
+                return (
+                    record,
+                    None,
+                    Some(format!(
+                        "step {:?}: remove {}: {err}",
+                        step.name,
+                        target.display()
+                    )),
+                );
+            }
+        }
+
         let Ok(log_file) = std::fs::File::create(&log_path) else {
             record.command = "log open failed".to_string();
             return (
