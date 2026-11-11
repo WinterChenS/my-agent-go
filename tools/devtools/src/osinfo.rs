@@ -139,17 +139,54 @@ fn query_value(key: HKEY, name: &str) -> Option<String> {
     if status != ERROR_SUCCESS {
         return None;
     }
-    let end = buffer
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(buffer.len());
-    let units: Vec<u16> = buffer[..end]
+    Some(decode_utf16z(&buffer))
+}
+
+/// Decode a NUL-terminated UTF-16LE registry value.
+///
+/// The terminator must be searched per code unit: an ASCII character in
+/// UTF-16LE has a zero high byte, so scanning for the first zero *byte* would
+/// stop after the first character and return an empty string.
+fn decode_utf16z(buffer: &[u8]) -> String {
+    let units: Vec<u16> = buffer
         .chunks_exact(2)
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
-    Some(String::from_utf16_lossy(&units).trim().to_string())
+    let end = units
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(units.len());
+    String::from_utf16_lossy(&units[..end]).trim().to_string()
 }
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_strings_are_decoded_per_code_unit() {
+        // "Windows 10 Pro" in UTF-16LE with a NUL terminator. Every ASCII
+        // character has a zero high byte, so a byte-wise scan would truncate.
+        let mut bytes: Vec<u8> = "Windows 10 Pro"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        bytes.extend_from_slice(&[0, 0]);
+        assert_eq!(decode_utf16z(&bytes), "Windows 10 Pro");
+
+        assert_eq!(decode_utf16z(&[]), "");
+        assert_eq!(decode_utf16z(&[b'D', 0, 0, 0, b'X', 0]), "D");
+    }
+
+    #[test]
+    fn architecture_uses_the_go_names_for_evidence_continuity() {
+        assert!(matches!(
+            go_arch(),
+            "amd64" | "arm64" | "386" | "x86_64" | "aarch64"
+        ));
+    }
 }
