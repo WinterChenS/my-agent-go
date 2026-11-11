@@ -402,12 +402,11 @@ fn run_window(runner: &AutomationRunner, sha: &str, target: &str) -> NativeOutco
         }
     }
 
-    // Close the client. agent-desktop's semantic terminate does not reach a
-    // WebView2 host: it reports `terminate_request succeeded, verified=false`
-    // and then times out, while the same window closes on WM_CLOSE in about a
-    // second. Try it first (it is the documented graceful path), record the
-    // outcome, and fall back to `--force` so the case still proves the client
-    // can be shut down.
+    // Close the client. agent-desktop's semantic terminate reaches the window
+    // but never confirms it: the process exits within a second while the CLI
+    // reports `verified=false` and then TIMEOUT. So the CLI result is recorded
+    // but the window list is what decides, and `--force` is only used when the
+    // window is still there afterwards.
     let graceful =
         StepSpec::new("close-app", "agent-desktop", &["close-app", "anvil.exe"]).timeout(60);
     let (command, artifact, failure) = runner.run_step(&graceful);
@@ -415,14 +414,18 @@ fn run_window(runner: &AutomationRunner, sha: &str, target: &str) -> NativeOutco
     if let Some(artifact) = artifact {
         out.artifacts.push(artifact);
     }
-    let graceful_failed = failure.is_some();
-    if graceful_failed {
-        out.limitations.push(format!(
-            "agent-desktop semantic close did not terminate the Tauri host ({}); closed with --force",
-            failure.unwrap_or_default()
-        ));
-    }
+    let graceful_failure = failure;
     let mut closed = windows_gone(&runner.read_log("close-app"));
+    if !closed {
+        closed = match wait_windows_gone(runner, &mut out, "after-close") {
+            Ok(closed) => closed,
+            Err(failure) => {
+                out.status = STATUS_FAIL.to_string();
+                out.limitations.push(failure);
+                return out;
+            }
+        };
+    }
     if !closed {
         let force = StepSpec::new(
             "close-app-force",
@@ -435,36 +438,28 @@ fn run_window(runner: &AutomationRunner, sha: &str, target: &str) -> NativeOutco
         if let Some(artifact) = artifact {
             out.artifacts.push(artifact);
         }
-        if let Some(failure) = failure {
+        // APP_NOT_FOUND after a successful graceful close means the process is
+        // already gone; only a real failure keeps the case open.
+        if let Some(failure) = &failure
+            && !app_not_found(&runner.read_log("close-app-force"))
+        {
             out.status = STATUS_FAIL.to_string();
-            out.limitations.push(failure);
+            out.limitations.push(failure.clone());
             return out;
         }
+        closed = match wait_windows_gone(runner, &mut out, "after-force") {
+            Ok(closed) => closed,
+            Err(failure) => {
+                out.status = STATUS_FAIL.to_string();
+                out.limitations.push(failure);
+                return out;
+            }
+        };
     }
-    // Wait for the window to disappear instead of trusting the close command.
-    for attempt in 1..=10 {
-        let step = StepSpec::new(
-            &format!("list-windows-after-close-{attempt:02}"),
-            "agent-desktop",
-            &["list-windows", "--app", "anvil.exe"],
-        )
-        .timeout(60);
-        let (command, artifact, failure) = runner.run_step(&step);
-        out.commands.push(command);
-        if let Some(artifact) = artifact {
-            out.artifacts.push(artifact);
-        }
-        if failure.is_some() {
-            out.status = STATUS_FAIL.to_string();
-            out.limitations
-                .push(failure.unwrap_or_else(|| "list-windows failed".to_string()));
-            return out;
-        }
-        if windows_gone(&runner.read_log(&format!("list-windows-after-close-{attempt:02}"))) {
-            closed = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
+    if let Some(failure) = graceful_failure {
+        out.limitations.push(format!(
+            "agent-desktop close-app exited 1 without confirming shutdown ({failure}); the empty window list is the confirmation"
+        ));
     }
     if !closed {
         out.status = STATUS_FAIL.to_string();
@@ -869,6 +864,45 @@ fn copy_app_log(case_dir: &Path, data_dir: &Path) -> Option<Artifact> {
     hash_artifact(case_dir, "native/anvil.log").ok()
 }
 
+/// Poll `list-windows` until the app reports no window.
+fn wait_windows_gone(
+    runner: &AutomationRunner,
+    out: &mut NativeOutcome,
+    tag: &str,
+) -> Result<bool, String> {
+    for attempt in 1..=10 {
+        let name = format!("list-windows-{tag}-{attempt:02}");
+        let step = StepSpec::new(
+            &name,
+            "agent-desktop",
+            &["list-windows", "--app", "anvil.exe"],
+        )
+        .timeout(60);
+        let (command, artifact, failure) = runner.run_step(&step);
+        out.commands.push(command);
+        if let Some(artifact) = artifact {
+            out.artifacts.push(artifact);
+        }
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+        if windows_gone(&runner.read_log(&name)) {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Ok(false)
+}
+
+/// Whether agent-desktop reported that the app no longer exists.
+fn app_not_found(body: &[u8]) -> bool {
+    serde_json::from_str::<ErrorEnvelope>(&last_json_object(body))
+        .ok()
+        .and_then(|envelope| envelope.error)
+        .map(|error| error.code.trim().eq_ignore_ascii_case("APP_NOT_FOUND"))
+        .unwrap_or(false)
+}
+
 /// Whether `list-windows` reported no window for the app.
 fn windows_gone(body: &[u8]) -> bool {
     #[derive(Deserialize)]
@@ -988,6 +1022,17 @@ mod tests {
         assert_eq!(once, format!("boom; {REVERIFY_CONDITION}"));
         assert_eq!(with_reverify(&once), once);
         assert_eq!(with_reverify(""), REVERIFY_CONDITION);
+    }
+
+    #[test]
+    fn a_missing_app_after_close_is_not_a_failure() {
+        assert!(app_not_found(
+            br#"{"ok":false,"error":{"code":"APP_NOT_FOUND","message":"Application 'anvil.exe' was not found"}}"#
+        ));
+        assert!(!app_not_found(
+            br#"{"ok":false,"error":{"code":"TIMEOUT","message":"Operation exceeded its deadline"}}"#
+        ));
+        assert!(!app_not_found(b"not json"));
     }
 
     #[test]
