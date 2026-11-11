@@ -15,7 +15,7 @@
 | `verify --case= --target= [--evidence] [--matrix] [--sha]` | 同名同参数 | 已迁移 |
 | `gate --id= --target= --evidence= [--matrix] [--sha]` | 同名同参数 | 已迁移 |
 | `preflight --path= [--create]` | 同名同参数 | 已迁移 |
-| `key --title= --combo=` | 同名同参数 | **phase 2**（原生 shell 用例需要 alt+left 注入） |
+| `key --title= --combo=alt+left\|escape` | 同名同参数（SendInput） | 已迁移 |
 | `version` | 同名 | 已迁移 |
 
 退出码契约不变：0 通过、1 有效 FAIL 证据、2 输入/证据不完整或 BLOCKED/NOT_RUN。
@@ -58,17 +58,40 @@
 `R0-03-native-i18n`、`R0-04-native-workbench`、`R0-05-native-chat`、
 `R0-06-native-agents`、`R0-07-native-skills`、`R0-08-native-mcp`。
 
-## 尚未迁移（明确记录，不伪装成通过）
+## 原生运行器映射（phase 2 完成）
 
-| 项 | 现状 | 计划 |
+九个原生用例的 agent-desktop 运行器已全部移植。共享的"启动 → 观察 → 断言 → 关闭"链路
+集中在 `native/session.rs`，解析集中在 `native/parse.rs`，每个用例只保留自己的断言：
+
+| Go 源文件 | Rust 模块 | 用例 |
 | --- | --- | --- |
-| 9 个原生用例的 agent-desktop 运行器 | `verify` 返回 exit 2，问题文本写明"needs the native agent-desktop runner, which is ported in R0-RS03 phase 2"；**不会**生成 PASS 证据 | R0-RS03 phase 2 |
-| `key` 子命令（alt+left 注入） | 返回 exit 2 并说明 phase 2 | R0-RS03 phase 2 |
-| 原生用例的截图/UIA 断言解析 | 依赖 phase 2 的运行器 | R0-RS03 phase 2 |
+| `runner_native_desktop.go` | `native/case_window.rs` + `native/session.rs` | `R0-00-native-window` |
+| `runner_shell_native.go` + `runner_shell_parse.go` | `native/case_shell.rs` | `R0-01-native-shell` |
+| `runner_theme_native.go` + `runner_theme_parse.go` + `runner_theme_robust.go` | `native/case_theme.rs` | `R0-02-native-theme` |
+| `runner_i18n_native.go` + `runner_i18n_parse.go` | `native/case_i18n.rs` | `R0-03-native-i18n` |
+| `runner_workbench_native.go` + `runner_workbench_focus.go` | `native/case_workbench.rs` | `R0-04-native-workbench` |
+| `runner_chat_native.go` | `native/case_chat.rs` + `native/pages.rs` | `R0-05-native-chat` |
+| `runner_agents_native.go` | `native/case_agents.rs` + `native/pages.rs` | `R0-06-native-agents` |
+| `runner_skills_native.go` | `native/case_skills.rs` + `native/pages.rs` | `R0-07-native-skills` |
+| `runner_mcp_native.go` | `native/case_mcp.rs` + `native/pages.rs` | `R0-08-native-mcp` |
+| `cmd/devtools/key_windows.go` | `src/key.rs` | `key --title= --combo=` |
+
+端口与 Go 的差异只有三处，都源于客户端从 Wails 换成 Tauri：
+
+| 项 | Go（Wails） | Rust（Tauri） | 原因 |
+| --- | --- | --- | --- |
+| 构建 | `go build -o .tmp/bin/anvil.exe ./cmd/anvil` | `cargo build --locked -p anvil` → `.tmp/tooling/cargo-target/debug/anvil.exe` | Go 已废弃 |
+| 窗口尺寸 | `list-windows` 的 bounds 直接等于请求值 | `ANVIL_WINDOW_WIDTH/HEIGHT` 定**客户区**，`resize-window` 定**外框**；断言改用前端 `layout-probe` 的视口，并用实测边框换算 | 宿主语义不同 |
+| 关闭判定 | `close-app` + 空窗口列表 | 同上，但 `close-app` 之后追加 `--force` 清理进程 | 窗口消失不等于进程退出，残留会让下一次 `launch` 报 "Application is already running" |
+
+失败分类不变：`INTERNAL`/`PERM_DENIED`/`POLICY_DENIED`/`ACCESS_DENIED`/`E_ACCESSDENIED`、
+DACL 投诉、CLI 缺失、`icacls` 失败 → BLOCKED(2)；无窗口、标题不符、标记缺失、截图过小、
+视口不符 → FAIL(1)。
 
 ## 契约夹具（`tools/devtools/tests/fixtures.rs`）
 
-12 例，覆盖计划要求的八类场景 + 4 个边界：
+12 例，覆盖计划要求的八类场景 + 4 个边界（第 12 例改为"矩阵里每个 native 用例都必须有
+运行器"，因为原生运行器已全部迁移，缺运行器会让门禁静默关闭）：
 
 1. 空矩阵（`gates: []`）
 2. 遗漏任务（required task 无 case）
@@ -81,6 +104,8 @@
 9. 完整 PASS → exit 0
 10. `BLOCKED` 缺 `limitations`
 11. `result.json` 缺字段（报"missing field"而非默认值）
-12. 未注册 case / 原生用例未迁移 → exit 2
+12. 未注册 case → exit 2；矩阵登记为 native 却无运行器 → 测试直接失败
 
-单测另 11 例覆盖标识符、SHA、通配符、卷名归一化与词法越界。
+单测另 33 例覆盖标识符、SHA、通配符、卷名归一化与词法越界，以及原生侧的日志解析
+（layout-probe / window-options / theme / i18n / 标题 / reg DWORD）、元素矩形、
+`find` 的 `null` 属性、边框换算与按键序列。
