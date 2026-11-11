@@ -463,7 +463,11 @@ pub(crate) fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Option<T>
             continue;
         }
         let candidate = &trimmed[index..];
-        if let Ok(value) = serde_json::from_str::<T>(candidate) {
+        // Decode one value and ignore whatever follows: the step log appends a
+        // `[verify] …` note after the CLI reply when the step failed, and
+        // `from_str` would reject the trailing text.
+        let mut values = serde_json::Deserializer::from_str(candidate).into_iter::<T>();
+        if let Some(Ok(value)) = values.next() {
             return Some(value);
         }
     }
@@ -568,6 +572,15 @@ mod tests {
             vec!["R0-04 workbench · /".to_string()]
         );
         assert!(parse_find_ref(with_nulls).is_none());
+    }
+
+    #[test]
+    fn a_trailing_verify_note_does_not_hide_the_reply() {
+        // The runner appends this note to a failing step's log, so every parser
+        // has to decode the first JSON value and ignore the text after it.
+        let body = b"$ agent-desktop close-app anvil.exe --force\n\n{\"ok\":false,\"error\":{\"code\":\"APP_NOT_FOUND\",\"message\":\"Application 'anvil.exe' was not found\"}}\n\n[verify] step \"x\" exited 1, want 0\n";
+        let envelope: Option<super::super::ErrorEnvelope> = parse_json(body);
+        assert!(envelope.is_some(), "the reply must survive the note");
     }
 
     #[test]
