@@ -11,6 +11,7 @@
 pub mod evidence;
 pub mod gate;
 pub mod hash;
+mod key;
 pub mod matrix;
 pub(crate) mod native;
 pub mod osinfo;
@@ -222,15 +223,11 @@ fn run_key(args: &[String]) -> i32 {
     };
     let title = parsed.value("title").unwrap_or_else(|| "Anvil".to_string());
     let combo = parsed.value("combo").unwrap_or_default();
-    let report = json!({
-        "title": title,
-        "combo": combo,
-        "ok": false,
-        "error": "the key injector is ported in R0-RS03 phase 2",
-    });
-    write_json(&report);
-    eprintln!("key: the key injector is ported in R0-RS03 phase 2");
-    gate::EXIT_INCOMPLETE
+    if combo.trim().is_empty() {
+        eprintln!("key: --combo is required (alt+left or escape)");
+        return gate::EXIT_INCOMPLETE;
+    }
+    key::run(&title, &combo)
 }
 
 fn run_preflight(args: &[String]) -> i32 {

@@ -453,26 +453,26 @@ fn verify_rejects_an_unregistered_case_and_a_dirty_tree_rule_is_documented() {
 }
 
 #[test]
-fn verify_reports_unported_native_cases_as_blocked() {
-    let dir = fixture_dir("verify-native-pending");
-    let matrix = write_matrix(
-        &dir,
-        &["R0-00"],
-        json!({ "id": "R0-02-native-theme", "task": "R0-00", "evidenceKind": "native-desktop", "required": true }),
-    );
-    let outcome = run_case(&VerifyOptions {
-        repo_root: repo_root(),
-        matrix_path: matrix,
-        evidence_root: dir.display().to_string(),
-        case_id: "R0-02-native-theme".to_string(),
-        target: TARGET.to_string(),
-        git_sha: SHA.to_string(),
-    });
-    assert_eq!(outcome.code, EXIT_INCOMPLETE);
-    assert_eq!(outcome.status, "BLOCKED");
-    assert!(
-        outcome.problems.join(" ").contains("not ported yet"),
-        "{:?}",
-        outcome.problems
-    );
+fn every_registered_native_case_has_a_runner() {
+    // `verify` reports "no automated runner" (exit 2) for a case without a
+    // plan. Now that every native runner is ported, no matrix entry may be in
+    // that state: a missing runner would silently keep the gate closed.
+    let matrix = anvil_devtools::matrix::load_matrix(
+        &repo_root().join("tests").join("acceptance").join("rebuild.json"),
+    )
+    .expect("acceptance matrix");
+    for gate in &matrix.gates {
+        for case in &gate.cases {
+            if case.evidence_kind != "native-desktop" {
+                continue;
+            }
+            let plan = anvil_devtools::plans::lookup(&case.id)
+                .unwrap_or_else(|| panic!("{} has no case plan", case.id));
+            assert!(
+                plan.native.is_some(),
+                "{} is registered as native-desktop but its plan has no native runner",
+                case.id
+            );
+        }
+    }
 }

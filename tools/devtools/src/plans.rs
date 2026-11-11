@@ -46,6 +46,13 @@ impl StepSpec {
         }
     }
 
+    /// Build a step whose arguments are computed at run time.
+    pub(crate) fn owned(name: &str, command: &str, args: Vec<String>) -> Self {
+        let mut spec = Self::new(name, command, &[]);
+        spec.args = args;
+        spec
+    }
+
     pub(crate) fn dir(mut self, dir: &str) -> Self {
         self.dir = Some(dir.to_string());
         self
