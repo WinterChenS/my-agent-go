@@ -355,8 +355,35 @@ impl<'a> Session<'a> {
         let launch = StepSpec::owned(label, "agent-desktop", args)
             .timeout(90)
             .expect_contains("\"title\":\"Anvil\"");
-        if !self.run(&[launch]) {
-            return false;
+        if !self.run(std::slice::from_ref(&launch)) {
+            // A previous case can leave `anvil.exe` alive after its window is
+            // gone; agent-desktop then refuses to launch a second instance.
+            // Close it and try once more before calling this a failure.
+            if !String::from_utf8_lossy(&self.read(label)).contains("already running") {
+                return false;
+            }
+            let force = StepSpec::owned(
+                &format!("{label}-stale-close"),
+                "agent-desktop",
+                vec![
+                    "close-app".to_string(),
+                    "anvil.exe".to_string(),
+                    "--force".to_string(),
+                ],
+            )
+            .timeout(60);
+            self.run_raw(&force);
+            std::thread::sleep(Duration::from_millis(500));
+            let retry = StepSpec::owned(
+                &format!("{label}-retry"),
+                "agent-desktop",
+                launch.args.clone(),
+            )
+            .timeout(90)
+            .expect_contains("\"title\":\"Anvil\"");
+            if !self.run(&[retry]) {
+                return false;
+            }
         }
         let wait = StepSpec::owned(
             &format!("{label}-wait-window"),
@@ -525,11 +552,27 @@ impl<'a> Session<'a> {
             self.fail("could not parse the pre-launch window list");
             return false;
         };
-        if windows.is_empty() {
-            return true;
+        if !windows.is_empty() {
+            let close = StepSpec::owned(
+                &format!("preclean-{label}-close"),
+                "agent-desktop",
+                vec![
+                    "close-app".to_string(),
+                    "anvil.exe".to_string(),
+                    "--force".to_string(),
+                ],
+            )
+            .timeout(STEP_TIMEOUT);
+            if !self.run(&[close]) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(300));
         }
-        let close = StepSpec::owned(
-            &format!("preclean-{label}-close"),
+        // A window list can be empty while the process lives on (the client is
+        // still tearing down). `launch` refuses in that state, so terminate the
+        // process explicitly and accept APP_NOT_FOUND as "already gone".
+        let sweep = StepSpec::owned(
+            &format!("preclean-{label}-sweep"),
             "agent-desktop",
             vec![
                 "close-app".to_string(),
@@ -538,12 +581,15 @@ impl<'a> Session<'a> {
             ],
         )
         .timeout(STEP_TIMEOUT);
-        if !self.run(&[close]) {
+        let (_, failure) = self.run_raw(&sweep);
+        if let Some(failure) = failure
+            && !app_not_found(&self.read(&format!("preclean-{label}-sweep")))
+        {
+            self.fail(&failure);
             return false;
         }
-        std::thread::sleep(Duration::from_millis(300));
         self.wait_windows_gone(&format!("preclean-{label}-empty"))
-            .is_ok()
+            .unwrap_or(false)
     }
 
     /// Close the client and prove the window list is empty.
@@ -596,14 +642,36 @@ impl<'a> Session<'a> {
                 }
             }
         }
+        if !closed {
+            self.fail("the client window was still reported after close");
+            return false;
+        }
+        // The window is gone but the process can outlive it, and a lingering
+        // `anvil.exe` makes the next launch fail with "Application is already
+        // running". Terminate it explicitly; APP_NOT_FOUND means it is gone.
+        let sweep = StepSpec::owned(
+            &format!("{label}-close-sweep"),
+            "agent-desktop",
+            vec![
+                "close-app".to_string(),
+                "anvil.exe".to_string(),
+                "--force".to_string(),
+            ],
+        )
+        .timeout(STEP_TIMEOUT);
+        let (_, sweep_failure) = self.run_raw(&sweep);
+        if let Some(failure) = sweep_failure
+            && !app_not_found(&self.read(&format!("{label}-close-sweep")))
+            && !windows_gone(&self.read(&format!("{label}-close-sweep")))
+        {
+            self.out
+                .limitations
+                .push(format!("process sweep after close reported {failure}"));
+        }
         if let Some(failure) = failure {
             self.out.limitations.push(format!(
                 "agent-desktop close-app exited without confirming shutdown ({failure}); the empty window list is the confirmation"
             ));
-        }
-        if !closed {
-            self.fail("the client window was still reported after close");
-            return false;
         }
         true
     }
