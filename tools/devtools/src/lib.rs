@@ -17,6 +17,7 @@ pub(crate) mod native;
 pub mod osinfo;
 pub mod plans;
 pub mod preflight;
+mod registry;
 pub mod runner;
 
 use std::collections::BTreeMap;
@@ -33,6 +34,7 @@ const USAGE: &str = "usage:
   anvil-devtools verify --case=<id> --target=<target> [--evidence=<abs path>] [--matrix=<path>] [--sha=<sha>]
   anvil-devtools gate --id=<gate> --target=<target> --evidence=<abs path> [--matrix=<path>] [--sha=<sha>]
   anvil-devtools preflight --path=<path> [--create]
+  anvil-devtools registry --get | --set=<0|1>
   anvil-devtools key --title=<window title> --combo=alt+left
 ";
 
@@ -47,6 +49,7 @@ pub fn run(args: &[String]) -> i32 {
         "gate" => run_gate(&args[1..]),
         "verify" => run_verify(&args[1..]),
         "preflight" => run_preflight(&args[1..]),
+        "registry" => run_registry(&args[1..]),
         "key" => run_key(&args[1..]),
         "version" => {
             println!("anvil-devtools (Anvil rebuild, Rust)");
@@ -228,6 +231,55 @@ fn run_key(args: &[String]) -> i32 {
         return gate::EXIT_INCOMPLETE;
     }
     key::run(&title, &combo)
+}
+
+/// Read or write `AppsUseLightTheme` in the current user's personalize key.
+///
+/// The native theme case flips the real Windows value; going through this
+/// command keeps the flip a recorded step instead of an invisible FFI call.
+fn run_registry(args: &[String]) -> i32 {
+    let parsed = match Parsed::parse_with_flags(args, &["set"], &["get"]) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("registry: {err}");
+            return gate::EXIT_INCOMPLETE;
+        }
+    };
+    if parsed.flag("get") {
+        return match registry::read_apps_use_light() {
+            Ok(value) => {
+                write_json(&json!({ "ok": true, "value": value }));
+                gate::EXIT_PASS
+            }
+            Err(err) => {
+                write_json(&json!({ "ok": false, "error": err }));
+                eprintln!("registry: {err}");
+                gate::EXIT_INCOMPLETE
+            }
+        };
+    }
+    let Some(value) = parsed.value("set") else {
+        eprintln!("registry: pass --get or --set=<0|1>");
+        return gate::EXIT_INCOMPLETE;
+    };
+    let parsed_value = match value.trim().parse::<i64>() {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("registry: --set={value:?} is not a number: {err}");
+            return gate::EXIT_INCOMPLETE;
+        }
+    };
+    match registry::write_apps_use_light(parsed_value) {
+        Ok(()) => {
+            write_json(&json!({ "ok": true, "value": parsed_value }));
+            gate::EXIT_PASS
+        }
+        Err(err) => {
+            write_json(&json!({ "ok": false, "error": err }));
+            eprintln!("registry: {err}");
+            gate::EXIT_INCOMPLETE
+        }
+    }
 }
 
 fn run_preflight(args: &[String]) -> i32 {

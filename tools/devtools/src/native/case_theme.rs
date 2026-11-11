@@ -16,9 +16,6 @@ use super::parse;
 use super::session::Session;
 use super::{NativeOutcome, write_json_artifact};
 
-const APPS_USE_LIGHT_THEME_KEY: &str =
-    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
-
 #[derive(Debug, Default, Serialize)]
 struct RegistryEvidence {
     original: i64,
@@ -306,43 +303,30 @@ fn run_case(session: &mut Session<'_>, guard: &mut RegistryGuard) {
     session.collect_app_log();
 }
 
+/// Read `AppsUseLightTheme` through the devtools registry command.
 fn registry_query(session: &mut Session<'_>, name: &str) -> Option<i64> {
     let step = StepSpec::owned(
         name,
-        "reg",
-        vec![
-            "query".to_string(),
-            APPS_USE_LIGHT_THEME_KEY.to_string(),
-            "/v".to_string(),
-            "AppsUseLightTheme".to_string(),
-        ],
+        "self",
+        vec!["registry".to_string(), "--get".to_string()],
     )
     .timeout(60);
     if !session.run(&[step]) {
         return None;
     }
-    let value = parse::parse_reg_apps_use_light(&String::from_utf8_lossy(&session.read(name)));
+    let value = parse::parse_registry_value(&session.read(name));
     if value.is_none() {
-        session.fail("could not parse AppsUseLightTheme from reg query");
+        session.fail("could not parse the AppsUseLightTheme reply");
     }
     value
 }
 
+/// Write `AppsUseLightTheme` through the devtools registry command.
 fn registry_set(session: &mut Session<'_>, value: i64, name: &str) -> bool {
     let step = StepSpec::owned(
         name,
-        "reg",
-        vec![
-            "add".to_string(),
-            APPS_USE_LIGHT_THEME_KEY.to_string(),
-            "/v".to_string(),
-            "AppsUseLightTheme".to_string(),
-            "/t".to_string(),
-            "REG_DWORD".to_string(),
-            "/d".to_string(),
-            value.to_string(),
-            "/f".to_string(),
-        ],
+        "self",
+        vec!["registry".to_string(), format!("--set={value}")],
     )
     .timeout(60);
     session.run(&[step])

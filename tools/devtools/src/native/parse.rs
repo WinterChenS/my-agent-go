@@ -391,6 +391,16 @@ pub(crate) fn parse_language_preference(body: &[u8]) -> Option<String> {
     (!preference.language.is_empty()).then_some(preference.language)
 }
 
+/// The `value` field of a `registry --get` / `--set` reply.
+pub(crate) fn parse_registry_value(body: &[u8]) -> Option<i64> {
+    #[derive(Deserialize)]
+    struct Report {
+        #[serde(default)]
+        value: Option<i64>,
+    }
+    parse_json::<Report>(body).and_then(|report| report.value)
+}
+
 /// Pids a refused `launch` reported as already running.
 pub(crate) fn parse_candidate_pids(body: &[u8]) -> Vec<i64> {
     let Some(value) = parse_json::<serde_json::Value>(body) else {
@@ -403,19 +413,6 @@ pub(crate) fn parse_candidate_pids(body: &[u8]) -> Vec<i64> {
         .and_then(|pids| pids.as_array())
         .map(|pids| pids.iter().filter_map(serde_json::Value::as_i64).collect())
         .unwrap_or_default()
-}
-
-/// The first `0x…` DWORD printed by `reg query`.
-pub(crate) fn parse_reg_apps_use_light(output: &str) -> Option<i64> {
-    let index = output.find("0x")?;
-    let digits: String = output[index + 2..]
-        .chars()
-        .take_while(char::is_ascii_hexdigit)
-        .collect();
-    if digits.is_empty() {
-        return None;
-    }
-    i64::from_str_radix(&digits, 16).ok()
 }
 
 /// The nine screens declared by the shell.
@@ -550,19 +547,6 @@ mod tests {
         assert_eq!(entries[1].html_lang, "en-US");
         assert_eq!(parse_title_log(log).expect("title"), "Settings · Anvil");
         assert!(parse_title_log("nothing").is_none());
-    }
-
-    #[test]
-    fn registry_output_yields_the_dword() {
-        assert_eq!(
-            parse_reg_apps_use_light("    AppsUseLightTheme    REG_DWORD    0x1"),
-            Some(1)
-        );
-        assert_eq!(
-            parse_reg_apps_use_light("    AppsUseLightTheme    REG_DWORD    0x0"),
-            Some(0)
-        );
-        assert_eq!(parse_reg_apps_use_light("ERROR: not found"), None);
     }
 
     #[test]

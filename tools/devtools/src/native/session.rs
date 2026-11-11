@@ -355,13 +355,17 @@ impl<'a> Session<'a> {
         let launch = StepSpec::owned(label, "agent-desktop", args)
             .timeout(90)
             .expect_contains("\"title\":\"Anvil\"");
+        let checkpoint = self.checkpoint();
         if !self.run(std::slice::from_ref(&launch)) {
             // A previous case can leave `anvil.exe` alive after its window is
             // gone; agent-desktop then refuses to launch a second instance.
-            // Close it and try once more before calling this a failure.
+            // Close it and try once more before calling this a failure. The
+            // refusal is not a verdict, so the first attempt's failure is
+            // rolled back and both commands stay in the evidence.
             if !String::from_utf8_lossy(&self.read(label)).contains("already running") {
                 return false;
             }
+            self.restore(&checkpoint);
             let stale = StepSpec::owned(
                 &format!("{label}-stale-close"),
                 "agent-desktop",
