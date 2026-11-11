@@ -1,8 +1,9 @@
 # R0-RS03 · Go → Rust 用例映射
 
 迁移基准 `e376787`（R0-RS02 之后）。Go 已于本次迁移中彻底废弃：原来的 `go` 步骤全部换成
-**Rust 工具链自己的命令**，`tools/devtools` 是该栈里唯一的验收入口。Go 源码在 RS04 删除，
-本文件记录"原来跑什么、现在跑什么"，以及尚未迁移的部分。
+**Rust 工具链自己的命令**，`tools/devtools` 是该栈里唯一的验收入口。Go 源码（`cmd/`、`internal/`、
+`go.mod`、`go.sum`，共 45 个 `.go` 文件）已在 R0-RS04 从工作树删除，需要对照时从 git 历史取。
+本文件记录"原来跑什么、现在跑什么"。
 
 > 术语：`cargo` 不是另一种技术栈，它就是 Rust 自带的构建与依赖管理工具，等价于
 > `go build` + `go mod` + `go test` 的组合。所以"`go build` → `cargo build`"是同一个位置

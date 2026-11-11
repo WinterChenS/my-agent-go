@@ -31,7 +31,7 @@
 **Rust 1.95.0（`rust-toolchain.toml` 锁定）+ Tauri v2（桌面宿主）+ React/TS/Vite/Tailwind/shadcn（前端）**
 + SQLite（计划 `rusqlite` bundled，需 FTS5 trigram）+ 宿主 Pi（最低 1.5.0，候选范围 `>=1.5.0 <2.0.0`，必须经能力协商和隔离契约探测；agent loop 由 Pi 负责）。六目标：win-x64、win-arm64、mac-x64、mac-arm64、linux-x64、linux-arm64。
 
-Go 与 Wails 已按 [ADR 0007](docs/adr/0007-rust-tauri-rebuild.md) 停用：`cmd/`、`internal/`、`go.mod` 只是**冻结参考**，不构建、不测试、不运行，由 R0-RS04 删除。任何新代码、新脚本、新文档命令一律用 Rust 工具链——`cargo` 是 Rust 自带的构建与依赖管理工具（相当于 `go build` + `go mod`），不是独立技术栈。
+Go 与 Wails 已按 [ADR 0007](docs/adr/0007-rust-tauri-rebuild.md) 停用并在 R0-RS04 从工作树删除（`cmd/`、`internal/`、`go.mod`、`go.sum` 不再存在，需要时从 git 历史 `e376787` 之前取）。任何新代码、新脚本、新文档命令一律用 Rust 工具链——`cargo` 是 Rust 自带的构建与依赖管理工具（相当于 `go build` + `go mod`），不是独立技术栈。
 
 正式产品名为 Anvil。用户可见可执行文件、安装包、数据目录、URI 和环境变量迁移到 `Anvil` / `anvil://` / `ANVIL_*`；仓库目录本轮不改名。`MYAGENT_*` 仅保留一个开发兼容周期，冲突时 `ANVIL_*` 优先。
 
@@ -96,7 +96,7 @@ PASS 由证据确定，不由"看起来能用"确定。缺机器/凭证/签名/�
 
 ## 7. 目录所有权
 
-- `internal/contracts`、`schemas/`、`cmd/devtools` 的门禁判定：**串行维护**，同一时间只能有一个写者。
+- `crates/anvil-paths`、`schemas/`、`tools/devtools` 的门禁判定：**串行维护**，同一时间只能有一个写者。
 - 其余包按模块计划表的 Task 归属，跨包改动先在对应用户计划任务里登记。
 - 产品代码不得引用 `docs/` 里的示例当作已实现契约。
 
