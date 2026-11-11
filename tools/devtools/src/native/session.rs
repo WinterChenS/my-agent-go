@@ -987,6 +987,11 @@ impl<'a> Session<'a> {
     }
 
     /// Count the nodes whose text contains `text`.
+    ///
+    /// `find --text X --count` answers 0 on this CLI build even when the text is
+    /// present, so the count is read from the matches themselves. The reply
+    /// lists every node the text appears in *and* its ancestors, which is why
+    /// only zero/non-zero is meaningful here.
     pub(crate) fn text_count(&mut self, text: &str, log_id: &str) -> Option<i64> {
         let name = format!("text-count-{log_id}");
         let step = StepSpec::owned(
@@ -1007,6 +1012,50 @@ impl<'a> Session<'a> {
             return None;
         }
         Some(parse::parse_find_count(&self.read(&name)))
+    }
+
+    /// Bounds of the node whose accessible name is exactly `text`.
+    ///
+    /// Tool rows are plain text nodes without a ref, so `get --property bounds`
+    /// cannot be used; the `find` reply already carries their rectangle.
+    pub(crate) fn text_node_bounds(
+        &mut self,
+        log_id: &str,
+        text: &str,
+        attempts: u32,
+    ) -> Option<ElementBounds> {
+        for attempt in 1..=attempts {
+            let name = format!("bounds-text-{log_id}-{attempt:02}");
+            let step = StepSpec::owned(
+                &name,
+                "agent-desktop",
+                vec![
+                    "find".to_string(),
+                    "--text".to_string(),
+                    text.to_string(),
+                    "--app".to_string(),
+                    "anvil.exe".to_string(),
+                    "--timeout-ms".to_string(),
+                    "15000".to_string(),
+                ],
+            )
+            .timeout(STEP_TIMEOUT);
+            if !self.run(&[step]) {
+                return None;
+            }
+            for entry in parse::parse_find_matches(&self.read(&name)) {
+                let bounds = entry.bounds.unwrap_or_default();
+                if entry.name.as_deref() == Some(text) && bounds.width > 0.0 && bounds.height > 0.0
+                {
+                    return Some(bounds);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        self.fail(&format!(
+            "text {text:?} had no node with a non-zero rectangle after {attempts} attempts"
+        ));
+        None
     }
 
     /// Poll until `role`/`name` matches exactly `want` times.
@@ -1087,44 +1136,6 @@ impl<'a> Session<'a> {
         let role = role.unwrap_or("any");
         self.fail(&format!(
             "could not find {role} {name:?} in the accessibility tree after {attempts} attempts"
-        ));
-        None
-    }
-
-    /// The first ref whose text contains `text`.
-    pub(crate) fn find_text_ref(
-        &mut self,
-        log_id: &str,
-        text: &str,
-        attempts: u32,
-    ) -> Option<String> {
-        for attempt in 1..=attempts {
-            let step_name = format!("find-text-{log_id}-{attempt:02}");
-            let step = StepSpec::owned(
-                &step_name,
-                "agent-desktop",
-                vec![
-                    "find".to_string(),
-                    "--text".to_string(),
-                    text.to_string(),
-                    "--first".to_string(),
-                    "--app".to_string(),
-                    "anvil.exe".to_string(),
-                    "--timeout-ms".to_string(),
-                    "15000".to_string(),
-                ],
-            )
-            .timeout(STEP_TIMEOUT);
-            if !self.run(&[step]) {
-                return None;
-            }
-            if let Some(reference) = parse::parse_find_ref(&self.read(&step_name)) {
-                return Some(reference);
-            }
-            std::thread::sleep(Duration::from_millis(400));
-        }
-        self.fail(&format!(
-            "could not find text {text:?} in the accessibility tree after {attempts} attempts"
         ));
         None
     }

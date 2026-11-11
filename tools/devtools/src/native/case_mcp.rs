@@ -53,16 +53,14 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    // Every exposed tool row must be a real, non-zero rectangle.
+    // Every exposed tool row must be a real, non-zero rectangle. The rows are
+    // plain text nodes (no ref), so the rectangle comes from the `find` reply
+    // rather than from `get --property bounds`.
     for tool in ["read_file", "list_directory", "search_files", "write_file"] {
-        let Some(reference) = session.find_text_ref(&format!("mcp-tool-{tool}"), tool, 15) else {
-            return;
-        };
-        let Some(bounds) = session.element_bounds(&format!("mcp-bounds-{tool}"), &reference) else {
-            return;
-        };
-        if bounds.width <= 0.0 || bounds.height <= 0.0 {
-            session.fail(&format!("tool {tool:?} has zero bounds"));
+        if session
+            .text_node_bounds(&format!("mcp-tool-{tool}"), tool, 15)
+            .is_none()
+        {
             return;
         }
     }
