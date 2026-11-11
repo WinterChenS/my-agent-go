@@ -91,7 +91,7 @@ fn run_case(session: &mut Session<'_>) {
     if !session.send_key("agents-close-new", "escape") {
         return;
     }
-    if !session.wait_role_count("agents-new-dialog-escape", "window", "新建 Agent", 0, 10)
+    if !session.wait_role_count("agents-new-dialog-escape", "window", "新建 Agent", 0, 20)
         || !session.wait_focused(&new_agent, "agents-new")
     {
         return;

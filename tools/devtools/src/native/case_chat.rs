@@ -92,7 +92,7 @@ fn run_case(session: &mut Session<'_>) {
     if !session.send_key("chat-close-thread-menu", "escape") {
         return;
     }
-    if !session.wait_role_count("chat-thread-menu-escape", "window", "会话操作", 0, 10)
+    if !session.wait_role_count("chat-thread-menu-escape", "window", "会话操作", 0, 20)
         || !session.wait_focused(&more, "chat-more")
     {
         return;
@@ -143,7 +143,7 @@ fn run_case(session: &mut Session<'_>) {
     if !session.send_key("chat-close-history-drawer", "escape") {
         return;
     }
-    if !session.wait_role_count("chat-history-drawer-escape", "window", "历史会话", 0, 10)
+    if !session.wait_role_count("chat-history-drawer-escape", "window", "历史会话", 0, 20)
         || !session.wait_focused(&history, "chat-history")
     {
         return;

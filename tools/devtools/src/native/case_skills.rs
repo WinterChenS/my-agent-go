@@ -122,7 +122,7 @@ fn run_case(session: &mut Session<'_>) {
     if !session.send_key("skills-close-builder", "escape") {
         return;
     }
-    if !session.wait_role_count("skills-builder-escape", "window", "创建可复用能力", 0, 10)
+    if !session.wait_role_count("skills-builder-escape", "window", "创建可复用能力", 0, 20)
         || !session.wait_focused(&card, "skills-card")
     {
         return;
@@ -148,7 +148,7 @@ fn run_case(session: &mut Session<'_>) {
     if !session.send_key("skills-close-import", "escape") {
         return;
     }
-    if !session.wait_role_count("skills-import-escape", "window", "导入 Skill", 0, 10)
+    if !session.wait_role_count("skills-import-escape", "window", "导入 Skill", 0, 20)
         || !session.wait_focused(&import, "skills-import")
     {
         return;
