@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  browserLanguageEnvironment,
+  hostLanguageEnvironment,
   initialLanguageFromWindow,
   normalizeLanguage,
   type LanguageEnvironment,
@@ -20,7 +20,7 @@ const I18nContext = createContext<I18nContextValue | null>(null)
 
 export function LanguageProvider({
   children,
-  environment = browserLanguageEnvironment,
+  environment = hostLanguageEnvironment,
 }: {
   children: ReactNode
   environment?: LanguageEnvironment

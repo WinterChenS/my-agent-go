@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import { reportHostLog } from '../host/tauri'
 
 interface Probe {
   viewport: string
@@ -23,17 +24,8 @@ export function probeLine(probe: Probe): string {
 }
 
 export async function reportLayoutProbe(): Promise<void> {
-  const line = probeLine(readProbe())
-  try {
-    await fetch('/__anvil/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: line,
-      keepalive: true,
-    })
-  } catch {
-    // The probe is diagnostic only; a missing host endpoint must not break UI.
-  }
+  // Tauri host: typed `log_event`; browser/jsdom: the historical endpoint.
+  reportHostLog(probeLine(readProbe()))
 }
 
 // Report the real WebView viewport on mount and after every resize. The native

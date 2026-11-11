@@ -124,7 +124,40 @@ fn writable_c_temp_dir() -> Option<PathBuf> {
     temp.is_dir().then_some(temp)
 }
 
+/// Denies creating files/subdirectories inside `dir` while still allowing a
+/// metadata-only handle to be opened on it.
+///
+/// The mask is deliberately `(WD,AD)` and **not** `(W)`: `(W)` is
+/// `FILE_GENERIC_WRITE`, which also carries `SYNCHRONIZE`. Windows adds
+/// `SYNCHRONIZE` to every synchronous `CreateFileW`, so `(W)` makes even the
+/// access-0 metadata open in `anvil_paths::final_path` fail with
+/// `ERROR_ACCESS_DENIED`; the write check then never runs and the case reports
+/// `Resolve` instead of `NotWritable`. That variant is token-dependent — a
+/// process with `SeBackupPrivilege` enabled bypasses the DACL for
+/// `FILE_FLAG_BACKUP_SEMANTICS` opens and passes — which made this contract
+/// case non-deterministic across executors (found in the R0-RS02 review).
+/// `(WD,AD)` blocks the probe's file creation but not the handle open, so the
+/// assertion holds for any token.
 fn deny_writes(dir: &Path) {
+    let output = Command::new("icacls")
+        .arg(dir)
+        .arg("/deny")
+        .arg("*S-1-1-0:(WD,AD)")
+        .output()
+        .expect("run icacls");
+    assert!(
+        output.status.success(),
+        "icacls /deny on {} failed: {}{}",
+        dir.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Denies even the metadata-only open (see [`deny_writes`] for why `(W)` does
+/// that). Used to pin down the behaviour of a directory whose DACL is fully
+/// opaque to the current token.
+fn deny_all_handle_access(dir: &Path) {
     let output = Command::new("icacls")
         .arg(dir)
         .arg("/deny")
@@ -491,6 +524,42 @@ fn rejects_unwritable_directory_when_create_is_requested() {
     assert!(
         matches!(error, PathError::NotWritable { .. }),
         "expected NotWritable, got {error:?}"
+    );
+}
+
+/// A directory the token cannot open a handle on at all must still be refused,
+/// and still without a fallback. Which error variant appears depends on the
+/// token (`Resolve` when the metadata open is denied, `NotWritable` when it is
+/// allowed and only the write probe fails), so this case asserts the contract
+/// — refusal, no fallback, no residue — instead of the variant. `(WD,AD)` and
+/// `(W)` together cover both token shapes for unrelated reasons: see
+/// [`deny_writes`].
+#[test]
+fn rejects_directory_whose_dacl_blocks_even_a_metadata_open() {
+    let dir = TestDir::new("unwritable-opaque");
+    let denied = dir.join("denied");
+    fs::create_dir_all(&denied).expect("create denied dir");
+    deny_all_handle_access(&denied);
+
+    let before = entry_names(dir.path());
+    let error = validate_d_path(&denied, true).expect_err("opaque directory must be rejected");
+    let after = entry_names(dir.path());
+    restore_writes(&denied);
+
+    assert!(
+        matches!(
+            error,
+            PathError::NotWritable { .. } | PathError::Resolve { .. }
+        ),
+        "expected NotWritable or Resolve, got {error:?}"
+    );
+    assert_eq!(
+        before, after,
+        "a fallback directory was created next to the unreachable target"
+    );
+    assert!(
+        denied.exists(),
+        "the denied directory must be left in place (no rename/delete workaround)"
     );
 }
 

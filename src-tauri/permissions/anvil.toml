@@ -1,0 +1,23 @@
+# App-level ACL for the Anvil host commands (R0-RS02).
+#
+# The main-window capability in `capabilities/main.json` is the only place that
+# lists these permissions, so no other window (and no future external content
+# webview) can call the host commands.
+[[permission]]
+identifier = "allow-get-preferences"
+description = "Allows reading the persisted theme/language and the current system theme."
+commands.allow = ["get_preferences"]
+
+[[permission]]
+identifier = "allow-set-preferences"
+description = "Allows persisting the theme and/or language preference."
+commands.allow = ["set_preferences"]
+
+[[permission]]
+identifier = "allow-log-event"
+description = "Allows writing one diagnostic line to the host log (theme/i18n/layout probes)."
+commands.allow = ["log_event"]
+
+[default]
+description = "Default Anvil host command set: read/write preferences and write one log line."
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event"]

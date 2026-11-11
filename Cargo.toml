@@ -1,15 +1,15 @@
 # Anvil Rust + Tauri workspace root.
 #
-# Scope note (R0-RS01): only the shared D: path contract is a member today.
-#   * `src-tauri/` is added by R0-RS02.
-#   * `tools/devtools/` is added by R0-RS03.
-# They are intentionally NOT listed as members before those tasks land, so a
-# `--locked` build never silently relies on a crate that does not exist yet.
+# Scope note: R0-RS01 added the shared D: path contract, R0-RS02 adds the
+# Tauri v2 desktop host (`src-tauri/`, package `anvil`).
+#   * `tools/devtools/` is added by R0-RS03 and is intentionally NOT a member
+#     before that task lands, so a `--locked` build never silently relies on a
+#     crate that does not exist yet.
 # Every build must use `Cargo.lock` (`--locked`) and a D: target directory
 # (`.cargo/config.toml`, overridable through `CARGO_TARGET_DIR`).
 [workspace]
 resolver = "3"
-members = ["crates/anvil-paths"]
+members = ["crates/anvil-paths", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

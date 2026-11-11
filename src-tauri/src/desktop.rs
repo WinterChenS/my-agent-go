@@ -1,0 +1,53 @@
+//! Desktop host wiring: preflight → assets → Tauri builder → window.
+//!
+//! The order is significant and matches the Go host: nothing Tauri-related
+//! happens until `HostConfig::prepare` validated `ANVIL_DATA_DIR`,
+//! `ANVIL_WEBVIEW_DATA_DIR`, the log directory and the built frontend. A failed
+//! preflight returns before any window (or Tauri event loop) exists.
+
+use tauri::Manager;
+
+use crate::assets::DiskAssets;
+use crate::host::HostConfig;
+use crate::inject::InitialState;
+use crate::state::{HostState, create_main_window, start_system_theme_poller};
+use crate::system_theme;
+
+/// Runs the desktop host. Returns an error when preflight fails.
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let config = HostConfig::from_env()?;
+    let system_dark = system_theme::system_dark();
+    config.log_startup(system_dark);
+
+    let assets = DiskAssets::load(&config.dist_dir)
+        .map_err(|error| format!("frontend assets {}: {error}", config.dist_dir.display()))?;
+    let initial = InitialState::new(&config.preferences.snapshot(), system_dark);
+    assets.set_injection(initial);
+    let injection = assets.injection_handle();
+
+    // `assets = ...` keeps `frontend/dist` out of the compile-time dependency
+    // set (see build.rs): the bundle is served from disk like the Go host.
+    let context = tauri::generate_context!("tauri.conf.json", assets = assets);
+    let state = HostState::new(config, system_dark, injection);
+
+    tauri::Builder::default()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            crate::commands::get_preferences,
+            crate::commands::set_preferences,
+            crate::commands::log_event
+        ])
+        .setup(|app| {
+            create_main_window(app)?;
+            start_system_theme_poller(app.handle().clone());
+            Ok(())
+        })
+        .build(context)?
+        .run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                handle.state::<HostState>().stop();
+            }
+        });
+
+    Ok(())
+}

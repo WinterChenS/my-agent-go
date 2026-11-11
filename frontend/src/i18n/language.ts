@@ -1,3 +1,9 @@
+import {
+  getHostPreferences,
+  isTauriHost,
+  reportHostLog,
+  setHostPreferences,
+} from '../host/tauri'
 import { DEFAULT_LANGUAGE, LANGUAGES, type Language } from './catalogue'
 
 export { LANGUAGES, DEFAULT_LANGUAGE }
@@ -89,3 +95,49 @@ export function createBrowserLanguageEnvironment(): LanguageEnvironment {
 }
 
 export const browserLanguageEnvironment = createBrowserLanguageEnvironment()
+
+// ---------------------------------------------------------------------------
+// Tauri desktop host (R0-RS02): typed commands, same document/lang side effects.
+// ---------------------------------------------------------------------------
+
+export function createTauriLanguageEnvironment(): LanguageEnvironment {
+  return {
+    initialLanguage: initialLanguageFromWindow,
+    storage: {
+      async load() {
+        try {
+          const preferences = await getHostPreferences()
+          return preferences.language
+        } catch {
+          return undefined
+        }
+      },
+      async save(language) {
+        try {
+          await setHostPreferences({ language })
+        } catch {
+          throw new Error('set_preferences failed')
+        }
+        try {
+          window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+        } catch {
+          // The host preferences file is authoritative.
+        }
+      },
+    },
+    apply(language) {
+      document.documentElement.lang = language
+      reportHostLog(`i18n: language=${language} htmlLang=${document.documentElement.lang}`)
+    },
+  }
+}
+
+export const tauriLanguageEnvironment = isTauriHost() ? createTauriLanguageEnvironment() : null
+
+/** Environment used by the app: Tauri commands in the desktop host, `fetch`
+ * plus `localStorage` in a browser or jsdom. */
+export function createHostLanguageEnvironment(): LanguageEnvironment {
+  return isTauriHost() ? createTauriLanguageEnvironment() : createBrowserLanguageEnvironment()
+}
+
+export const hostLanguageEnvironment = createHostLanguageEnvironment()

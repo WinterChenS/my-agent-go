@@ -1,0 +1,29 @@
+[package]
+name = "anvil"
+description = "Anvil desktop host (Tauri v2) carrying the existing React frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "anvil"
+path = "src/lib.rs"
+
+[[bin]]
+name = "anvil"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anvil-paths = { path = "../crates/anvil-paths" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }

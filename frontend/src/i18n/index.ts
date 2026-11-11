@@ -13,6 +13,7 @@ export { default as LanguageSettings } from './LanguageSettings'
 export { default as LanguageQuickSwitch } from './LanguageQuickSwitch'
 export {
   browserLanguageEnvironment,
+  hostLanguageEnvironment,
   initialLanguageFromWindow,
   normalizeLanguage,
   type LanguageEnvironment,

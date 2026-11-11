@@ -11,6 +11,9 @@ node_modules/
 frontend/dist/
 *.tsbuildinfo
 
+# Tauri build-generated ACL schemas (recreated by tauri-build on every build)
+/src-tauri/gen/
+
 # 运行时产物
 /dist/
 /build/bin/

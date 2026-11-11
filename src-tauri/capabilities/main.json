@@ -1,0 +1,11 @@
+{
+  "identifier": "main-window",
+  "description": "The only capability granted in R0-RS02. It is limited to the trusted Anvil main window and to the host commands that window actually uses (preferences read/write and the diagnostic log line). Event listen/unlisten is needed for the system-theme push.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "allow-get-preferences",
+    "allow-set-preferences",
+    "allow-log-event"
+  ]
+}

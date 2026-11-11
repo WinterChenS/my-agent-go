@@ -11,5 +11,10 @@
 #
 # An explicit CARGO_TARGET_DIR environment variable still wins, and
 # scripts/env-rs.ps1 sets it to the same path.
+#
+# Build concurrency is capped because this host has 16 GB of RAM: compiling
+# Tauri's generated `windows` crate with debuginfo at full parallelism ran the
+# toolchain out of memory (R0-RS02). Two jobs keep the toolchain inside budget.
 [build]
 target-dir = ".tmp/tooling/cargo-target"
+jobs = 2

@@ -7,6 +7,7 @@ import Topbar from './Topbar'
 import { resolveRoute, ROUTES_BY_ID, WORKBENCH_ROUTE } from './routes'
 import { useHistoryShortcuts } from './useHistoryShortcuts'
 import { useLayoutProbe } from './useLayoutProbe'
+import { reportHostLog } from '../host/tauri'
 
 export default function Shell() {
   const location = useLocation()
@@ -50,10 +51,7 @@ export default function Shell() {
 
   useEffect(() => {
     document.title = t('document.titleFormat', { title: t(route.titleKey) })
-    void fetch('/__anvil/log', {
-      method: 'POST',
-      body: `i18n-title: title=${document.title}`,
-    }).catch(() => {})
+    reportHostLog(`i18n-title: title=${document.title}`)
   }, [language, route.titleKey, t])
 
   return (

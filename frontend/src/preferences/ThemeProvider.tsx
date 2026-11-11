@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  browserThemeEnvironment,
+  hostThemeEnvironment,
   initialThemeFromWindow,
   normalizeTheme,
   resolveTheme,
@@ -23,7 +23,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({
   children,
-  environment = browserThemeEnvironment,
+  environment = hostThemeEnvironment,
 }: {
   children: ReactNode
   environment?: ThemeEnvironment

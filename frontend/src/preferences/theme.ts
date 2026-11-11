@@ -1,3 +1,13 @@
+import {
+  SYSTEM_THEME_EVENT,
+  getHostPreferences,
+  isTauriHost,
+  listenHost,
+  reportHostLog,
+  setHostPreferences,
+  type SystemThemePayload,
+} from '../host/tauri'
+
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
 
@@ -22,6 +32,7 @@ declare global {
     __ANVIL_INITIAL_THEME__?: {
       mode?: unknown
       resolved?: unknown
+      systemDark?: unknown
     }
   }
 }
@@ -140,3 +151,104 @@ export function createBrowserThemeEnvironment(): ThemeEnvironment {
 }
 
 export const browserThemeEnvironment = createBrowserThemeEnvironment()
+
+// ---------------------------------------------------------------------------
+// Tauri desktop host (R0-RS02): typed commands + pushed system-theme event.
+// ---------------------------------------------------------------------------
+
+let cachedSystemDark: boolean | null = null
+
+function initialSystemDark(): boolean {
+  if (typeof window !== 'undefined') {
+    const initial = window.__ANVIL_INITIAL_THEME__
+    if (initial && typeof initial === 'object') {
+      if (typeof initial.systemDark === 'boolean') return initial.systemDark
+      if (initial.resolved === 'dark') return true
+      if (initial.resolved === 'light') return false
+    }
+  }
+  return readSystemDark()
+}
+
+function applyTheme(resolved: ResolvedTheme): void {
+  const root = document.documentElement
+  root.dataset.theme = resolved
+  root.style.colorScheme = resolved
+}
+
+function themeProbe(mode: ThemeMode, resolved: ResolvedTheme): string {
+  const background = typeof getComputedStyle === 'function'
+    ? getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+    : ''
+  return `theme: mode=${mode} resolved=${resolved} bg=${background || 'unknown'}`
+}
+
+export function createTauriThemeEnvironment(): ThemeEnvironment {
+  return {
+    storage: {
+      async load() {
+        try {
+          const preferences = await getHostPreferences()
+          cachedSystemDark = preferences.systemDark
+          return preferences.theme
+        } catch {
+          return undefined
+        }
+      },
+      async save(mode) {
+        try {
+          await setHostPreferences({ theme: mode })
+        } catch {
+          // The host file is authoritative; a rejected write surfaces as notice.
+          throw new Error('set_preferences failed')
+        }
+        try {
+          window.localStorage.setItem(THEME_STORAGE_KEY, mode)
+        } catch {
+          // localStorage can be unavailable; the host file already has the value.
+        }
+      },
+    },
+    systemDark() {
+      if (cachedSystemDark === null) cachedSystemDark = initialSystemDark()
+      return cachedSystemDark
+    },
+    subscribeSystem(listener) {
+      cachedSystemDark = cachedSystemDark ?? initialSystemDark()
+      let unlisten: (() => void) | null = null
+      let disposed = false
+      void listenHost<SystemThemePayload>(SYSTEM_THEME_EVENT, (payload) => {
+        if (!payload || typeof payload.systemDark !== 'boolean') return
+        cachedSystemDark = payload.systemDark
+        listener(payload.systemDark)
+      })
+        .then((cleanup) => {
+          if (disposed) cleanup()
+          else unlisten = cleanup
+        })
+        .catch(() => {
+          // Without the event bridge the last known value stays in place; the
+          // browser fallback below is not used inside the desktop host because
+          // the host pushes every flip.
+        })
+      return () => {
+        disposed = true
+        if (unlisten) unlisten()
+      }
+    },
+    apply(resolved, mode) {
+      applyTheme(resolved)
+      reportHostLog(themeProbe(mode, resolved))
+    },
+  }
+}
+
+export const tauriThemeEnvironment = isTauriHost() ? createTauriThemeEnvironment() : null
+
+/** Environment used by the app: Tauri commands/events in the desktop host,
+ * `fetch`/`matchMedia` in a browser or jsdom. */
+export function createHostThemeEnvironment(): ThemeEnvironment {
+  return isTauriHost() ? createTauriThemeEnvironment() : createBrowserThemeEnvironment()
+}
+
+export const hostThemeEnvironment = createHostThemeEnvironment()

@@ -173,6 +173,19 @@ foreach ($name in $defaults.Keys) {
     }
 }
 
+# Node 24 baseline (.nvmrc: 24.16.0). The machine PATH can resolve an old
+# node.exe (WeChat devtools, pi-node, hermes); pin the supported install so
+# `npm --prefix frontend test/build` is deterministic.
+$nodeRoot = if ($env:ANVIL_NODE_ROOT) { $env:ANVIL_NODE_ROOT } else { 'D:\Program Files\nodejs' }
+if (-not (Test-Path -LiteralPath (Join-Path $nodeRoot 'node.exe'))) {
+    Fail "Node runtime not found at '$nodeRoot\node.exe' (set ANVIL_NODE_ROOT)"
+}
+$env:PATH = (@($nodeRoot, $env:PATH) -join ';')
+$nodeVersion = Invoke-Capture 'node' @('-v')
+if ($nodeVersion.ExitCode -ne 0 -or -not $nodeVersion.Output.StartsWith('v24.')) {
+    Fail "node resolved to '$($nodeVersion.Output)' from '$nodeRoot'; the frontend baseline is Node 24 (24.16.0 in .nvmrc)"
+}
+
 foreach ($tool in @('rustc', 'cargo', 'rustup', 'cl', 'link')) {
     $command = Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
@@ -223,5 +236,7 @@ Write-Output "env-rs: cargo            = $((Get-Command cargo -CommandType Appli
 Write-Output "env-rs: cl               = $((Get-Command cl -CommandType Application | Select-Object -First 1).Source)"
 Write-Output "env-rs: link             = $((Get-Command link -CommandType Application | Select-Object -First 1).Source)"
 Write-Output "env-rs: rc               = $env:RC"
+Write-Output "env-rs: node             = $((Get-Command node -CommandType Application | Select-Object -First 1).Source) :: $($nodeVersion.Output)"
+Write-Output "env-rs: npm              = $((Get-Command npm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source)"
 Write-Output "env-rs: OK"
 exit 0
