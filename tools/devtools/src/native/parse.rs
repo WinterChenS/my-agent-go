@@ -391,6 +391,20 @@ pub(crate) fn parse_language_preference(body: &[u8]) -> Option<String> {
     (!preference.language.is_empty()).then_some(preference.language)
 }
 
+/// Pids a refused `launch` reported as already running.
+pub(crate) fn parse_candidate_pids(body: &[u8]) -> Vec<i64> {
+    let Some(value) = parse_json::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    value
+        .get("error")
+        .and_then(|error| error.get("details"))
+        .and_then(|details| details.get("candidate_pids"))
+        .and_then(|pids| pids.as_array())
+        .map(|pids| pids.iter().filter_map(serde_json::Value::as_i64).collect())
+        .unwrap_or_default()
+}
+
 /// The first `0x…` DWORD printed by `reg query`.
 pub(crate) fn parse_reg_apps_use_light(output: &str) -> Option<i64> {
     let index = output.find("0x")?;

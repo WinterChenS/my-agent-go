@@ -362,7 +362,7 @@ impl<'a> Session<'a> {
             if !String::from_utf8_lossy(&self.read(label)).contains("already running") {
                 return false;
             }
-            let force = StepSpec::owned(
+            let stale = StepSpec::owned(
                 &format!("{label}-stale-close"),
                 "agent-desktop",
                 vec![
@@ -372,8 +372,22 @@ impl<'a> Session<'a> {
                 ],
             )
             .timeout(60);
-            self.run_raw(&force);
-            std::thread::sleep(Duration::from_millis(500));
+            self.run_raw(&stale);
+            // `close-app` can answer APP_NOT_FOUND while the refused launch
+            // named the live pid, so terminate exactly those processes.
+            for (index, pid) in parse::parse_candidate_pids(&self.read(label))
+                .into_iter()
+                .enumerate()
+            {
+                let kill = StepSpec::owned(
+                    &format!("{label}-stale-kill-{index:02}"),
+                    "taskkill",
+                    vec!["/F".to_string(), "/PID".to_string(), pid.to_string()],
+                )
+                .timeout(30);
+                self.run_raw(&kill);
+            }
+            std::thread::sleep(Duration::from_millis(800));
             let retry = StepSpec::owned(
                 &format!("{label}-retry"),
                 "agent-desktop",
@@ -673,7 +687,58 @@ impl<'a> Session<'a> {
                 "agent-desktop close-app exited without confirming shutdown ({failure}); the empty window list is the confirmation"
             ));
         }
+        // An empty window list is not the same as an exited process, and a
+        // lingering `anvil.exe` makes the next launch fail with "Application is
+        // already running". Wait for the pid we launched, then terminate it.
+        if !self.wait_process_exit(self.window_pid, Duration::from_secs(20)) {
+            let pid = self.window_pid;
+            let kill = StepSpec::owned(
+                &format!("{label}-kill-client"),
+                "taskkill",
+                vec!["/F".to_string(), "/PID".to_string(), pid.to_string()],
+            )
+            .timeout(30);
+            let (_, kill_failure) = self.run_raw(&kill);
+            if let Some(failure) = kill_failure {
+                self.fail(&format!(
+                    "client process {pid} did not exit and could not be terminated: {failure}"
+                ));
+                return false;
+            }
+            if !self.wait_process_exit(pid, Duration::from_secs(10)) {
+                self.fail(&format!("client process {pid} survived taskkill /F"));
+                return false;
+            }
+        }
         true
+    }
+
+    /// Whether `pid` is still running, from `tasklist`.
+    fn process_alive(pid: i64) -> bool {
+        if pid <= 0 {
+            return false;
+        }
+        let Ok(output) = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+        else {
+            return false;
+        };
+        String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
+    }
+
+    /// Poll until the process is gone.
+    fn wait_process_exit(&self, pid: i64, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if !Self::process_alive(pid) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
     }
 
     /// Poll `list-windows` until the app reports no window.
