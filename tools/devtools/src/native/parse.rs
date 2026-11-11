@@ -116,12 +116,14 @@ pub(crate) struct ManifestViewport {
 /// One accessibility match from `agent-desktop find`.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct FindMatch {
+    // The CLI emits `null` for every property a node does not have, so these
+    // are optional rather than defaulted strings: `null` is not a missing key.
     #[serde(default)]
-    pub name: String,
+    pub name: Option<String>,
     #[serde(default)]
-    pub role: String,
+    pub role: Option<String>,
     #[serde(default, rename = "ref_id")]
-    pub ref_id: String,
+    pub ref_id: Option<String>,
     #[serde(default)]
     pub bounds: Option<ElementBounds>,
 }
@@ -160,7 +162,7 @@ fn find_matches(body: &[u8]) -> Vec<FindMatch> {
 pub(crate) fn parse_find_ref(body: &[u8]) -> Option<String> {
     find_matches(body)
         .into_iter()
-        .map(|entry| entry.ref_id)
+        .filter_map(|entry| entry.ref_id)
         .find(|ref_id| !ref_id.is_empty())
 }
 
@@ -182,7 +184,7 @@ pub(crate) fn parse_find_count(body: &[u8]) -> i64 {
 pub(crate) fn parse_find_names(body: &[u8]) -> Vec<String> {
     find_matches(body)
         .into_iter()
-        .map(|entry| entry.name)
+        .filter_map(|entry| entry.name)
         .filter(|name| !name.is_empty())
         .collect()
 }
@@ -556,6 +558,16 @@ mod tests {
             parse_find_names(body),
             vec!["Anvil".to_string(), "Anvil".to_string()]
         );
+
+        // The CLI writes `null` for absent properties; a plain `String` field
+        // would fail the whole envelope and silently hide every match.
+        let with_nulls = br#"{"ok":true,"data":{"matches":[{"bounds":null,"name":null,"ref_id":null,"role":"group"},{"bounds":{"x":1,"y":2,"width":3,"height":4},"name":"R0-04 workbench \u00b7 /","ref_id":null,"role":"statictext"}],"total_matches":2}}"#;
+        assert_eq!(parse_find_count(with_nulls), 2);
+        assert_eq!(
+            parse_find_names(with_nulls),
+            vec!["R0-04 workbench · /".to_string()]
+        );
+        assert!(parse_find_ref(with_nulls).is_none());
     }
 
     #[test]

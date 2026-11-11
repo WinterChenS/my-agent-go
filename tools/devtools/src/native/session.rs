@@ -1012,8 +1012,8 @@ impl<'a> Session<'a> {
             }
             for entry in parse::parse_find_matches(&self.read(&step_name)) {
                 let bounds = entry.bounds.unwrap_or_default();
-                if entry.name == name
-                    && entry.role == "statictext"
+                if entry.name.as_deref() == Some(name)
+                    && entry.role.as_deref() == Some("statictext")
                     && bounds.width > 0.0
                     && bounds.height > 0.0
                 {
@@ -1446,10 +1446,11 @@ impl<'a> Session<'a> {
             let matches = parse::parse_find_matches(&self.read(&name));
             if matches.len() >= 3 {
                 let entry = matches.get(index)?;
-                if entry.ref_id.is_empty() {
+                let reference = entry.ref_id.clone()?;
+                if reference.is_empty() {
                     return None;
                 }
-                return Some(entry.ref_id.clone());
+                return Some(reference);
             }
             std::thread::sleep(Duration::from_millis(400));
         }
