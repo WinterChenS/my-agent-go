@@ -6,6 +6,9 @@ import ChatPage from './pages/chat/ChatPage'
 import AgentsPage from './pages/agents/AgentsPage'
 import SkillsPage from './pages/skills/SkillsPage'
 import McpPage from './pages/mcp/McpPage'
+import ConnectorsPage from './pages/connectors/ConnectorsPage'
+import SchedulesPage from './pages/schedules/SchedulesPage'
+import LibraryPage from './pages/library/LibraryPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
@@ -19,7 +22,7 @@ function FallbackPage() {
 function RootPage() {
   const { search } = useLocation()
   const sample = new URLSearchParams(search).get('sample')
-  return sample === 'chat' ? <ChatPage /> : sample === 'agents' ? <AgentsPage /> : sample === 'skills' ? <SkillsPage /> : sample === 'mcp' ? <McpPage /> : <WorkbenchPage />
+  return sample === 'chat' ? <ChatPage /> : sample === 'agents' ? <AgentsPage /> : sample === 'skills' ? <SkillsPage /> : sample === 'mcp' ? <McpPage /> : sample === 'connectors' ? <ConnectorsPage /> : sample === 'schedules' ? <SchedulesPage /> : sample === 'library' ? <LibraryPage /> : sample === 'settings' ? <SettingsPage /> : <WorkbenchPage />
 }
 
 export function AppRoutes() {
@@ -45,6 +48,12 @@ export function AppRoutes() {
                     <SkillsPage />
                   ) : route.id === 'mcp' ? (
                     <McpPage />
+                  ) : route.id === 'connectors' ? (
+                    <ConnectorsPage />
+                  ) : route.id === 'schedules' ? (
+                    <SchedulesPage />
+                  ) : route.id === 'library' ? (
+                    <LibraryPage />
                   ) : (
                     <PagePlaceholder route={route} />
                   )
@@ -56,6 +65,10 @@ export function AppRoutes() {
             <Route path="/__sample/agents" element={<AgentsPage />} />
             <Route path="/__sample/skills" element={<SkillsPage />} />
             <Route path="/__sample/mcp" element={<McpPage />} />
+            <Route path="/__sample/connectors" element={<ConnectorsPage />} />
+            <Route path="/__sample/schedules" element={<SchedulesPage />} />
+            <Route path="/__sample/library" element={<LibraryPage />} />
+            <Route path="/__sample/settings" element={<SettingsPage />} />
             <Route path="*" element={<FallbackPage />} />
           </Route>
         </Routes>

@@ -37,6 +37,18 @@ const expected = [
   ['settings.html', '/settings', '设置', 'screen'],
 ] as const
 
+const markers: Record<string, string> = {
+  '/': 'R0-04 workbench · /',
+  '/chat': 'R0-05 chat · /chat',
+  '/agents': 'R0-06 agents · /agents',
+  '/library': 'R0-11 library · /library',
+  '/skills': 'R0-07 skills · /skills',
+  '/mcp': 'R0-08 mcp · /mcp',
+  '/connectors': 'R0-09 connectors · /connectors',
+  '/schedules': 'R0-10 schedules · /schedules',
+  '/settings': 'R0-12 settings · /settings',
+}
+
 describe('shell routes', () => {
   it('freezes the prototype commit and nine screens', () => {
     expect(PROTOTYPE_COMMIT).toBe('112fcae854b324d2e75fdf5c890083ef9c1d3d6e')
@@ -55,7 +67,7 @@ describe('shell routes', () => {
       expect(route?.path).toBe(path)
       expect(route?.title).toBe(title)
       expect(route?.role).toBe(role)
-      expect(route?.marker).toBe(path === '/' ? 'R0-04 workbench · /' : path === '/chat' ? 'R0-05 chat · /chat' : path === '/agents' ? 'R0-06 agents · /agents' : path === '/skills' ? 'R0-07 skills · /skills' : path === '/mcp' ? 'R0-08 mcp · /mcp' : `R0-01 placeholder · ${path}`)
+      expect(route?.marker).toBe(markers[path])
     }
   })
 

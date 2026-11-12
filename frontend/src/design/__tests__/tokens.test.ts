@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REQUIRED_TOKEN_GROUPS, TOKEN_GROUPS } from '../tokens'
@@ -8,6 +8,7 @@ const tokensCss = readFileSync(join(srcRoot, 'design', 'tokens.css'), 'utf8')
 
 function filesUnder(dir: string): string[] {
   const out: string[] = []
+  if (!existsSync(dir)) return out
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) {
@@ -62,6 +63,10 @@ describe('design tokens', () => {
     const agentsDir = join(srcRoot, 'pages', 'agents')
     const skillsDir = join(srcRoot, 'pages', 'skills')
     const mcpDir = join(srcRoot, 'pages', 'mcp')
+    const libraryDir = join(srcRoot, 'pages', 'library')
+    const connectorsDir = join(srcRoot, 'pages', 'connectors')
+    const schedulesDir = join(srcRoot, 'pages', 'schedules')
+    const settingsDir = join(srcRoot, 'pages', 'settings')
     const files = [
       ...filesUnder(shellDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(preferencesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
@@ -70,6 +75,10 @@ describe('design tokens', () => {
       ...filesUnder(agentsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(skillsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(mcpDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(libraryDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(connectorsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(schedulesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(settingsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       join(srcRoot, 'styles.css'),
     ]
     const rawColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\(/

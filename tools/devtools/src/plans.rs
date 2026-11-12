@@ -104,6 +104,10 @@ pub enum NativeKind {
     Agents,
     Skills,
     Mcp,
+    Connectors,
+    Schedules,
+    Library,
+    Settings,
 }
 
 /// The executable form of a registered case.
@@ -338,6 +342,18 @@ pub fn case_plans() -> Vec<CasePlan> {
         CasePlan::automation("R0-08-mcp", with_prototype_capture(build_suite()))
             .collects(&["prototype/*.png"]),
         CasePlan::native("R0-08-native-mcp", NativeKind::Mcp),
+        CasePlan::automation("R0-09-connectors", with_prototype_capture(build_suite()))
+            .collects(&["prototype/*.png"]),
+        CasePlan::native("R0-09-native-connectors", NativeKind::Connectors),
+        CasePlan::automation("R0-10-schedules", with_prototype_capture(build_suite()))
+            .collects(&["prototype/*.png"]),
+        CasePlan::native("R0-10-native-schedules", NativeKind::Schedules),
+        CasePlan::automation("R0-11-library", with_prototype_capture(build_suite()))
+            .collects(&["prototype/*.png"]),
+        CasePlan::native("R0-11-native-library", NativeKind::Library),
+        CasePlan::automation("R0-12-settings", with_prototype_capture(build_suite()))
+            .collects(&["prototype/*.png"]),
+        CasePlan::native("R0-12-native-settings", NativeKind::Settings),
     ]
 }
 

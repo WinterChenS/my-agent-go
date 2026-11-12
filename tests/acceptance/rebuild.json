@@ -140,6 +140,54 @@
           "task": "R0-08",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R0-09-connectors",
+          "task": "R0-09",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-09-native-connectors",
+          "task": "R0-09",
+          "evidenceKind": "native-desktop",
+          "required": true
+        },
+        {
+          "id": "R0-10-schedules",
+          "task": "R0-10",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-10-native-schedules",
+          "task": "R0-10",
+          "evidenceKind": "native-desktop",
+          "required": true
+        },
+        {
+          "id": "R0-11-library",
+          "task": "R0-11",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-11-native-library",
+          "task": "R0-11",
+          "evidenceKind": "native-desktop",
+          "required": true
+        },
+        {
+          "id": "R0-12-settings",
+          "task": "R0-12",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R0-12-native-settings",
+          "task": "R0-12",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     },
