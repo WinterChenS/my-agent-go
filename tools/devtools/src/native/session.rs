@@ -1710,6 +1710,28 @@ impl<'a> Session<'a> {
     }
 
     /// Click one theme option and wait for the matching log entry.
+    /// Bring an element into view before a physical click.
+    ///
+    /// The settings page is taller than the 390x844 viewport, so the theme and
+    /// language cards can sit below the fold. Their rectangles are still
+    /// reported, and a click there would land outside the visible area.
+    fn scroll_into_view(&mut self, log_id: &str, reference: &str) -> bool {
+        let step = StepSpec::owned(
+            &format!("scroll-to-{log_id}"),
+            "agent-desktop",
+            vec!["scroll-to".to_string(), reference.to_string()],
+        )
+        .timeout(STEP_TIMEOUT);
+        let (_, failure) = self.run_raw(&step);
+        match failure {
+            None => true,
+            Some(failure) => {
+                self.fail(&format!("could not scroll {log_id} into view ({failure})"));
+                false
+            }
+        }
+    }
+
     pub(crate) fn click_theme_option(
         &mut self,
         index: usize,
@@ -1752,6 +1774,9 @@ impl<'a> Session<'a> {
         expected_mode: &str,
     ) -> Option<ThemeLogEntry> {
         let reference = self.find_radio(log_id, index)?;
+        if !self.scroll_into_view(log_id, &reference) {
+            return None;
+        }
         let bounds = self.element_bounds(log_id, &reference)?;
         if !self.click_at(&format!("theme-option-{log_id}"), bounds) {
             return None;
@@ -1786,6 +1811,9 @@ impl<'a> Session<'a> {
         let Some(reference) = self.find_radio(log_id, index) else {
             return false;
         };
+        if !self.scroll_into_view(log_id, &reference) {
+            return false;
+        }
         let Some(bounds) = self.element_bounds(log_id, &reference) else {
             return false;
         };

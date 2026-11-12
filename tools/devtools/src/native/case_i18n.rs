@@ -160,7 +160,7 @@ fn assert_chinese_ui(session: &mut Session<'_>, log_id: &str) -> bool {
     }
     if !session.wait_text(&format!("{log_id}-nav"), "工作台", false, 10)
         || !session.wait_text(&format!("{log_id}-crumb"), "系统 / 设置", false, 10)
-        || !session.wait_text(&format!("{log_id}-placeholder"), "路由占位", false, 10)
+        || !session.wait_text(&format!("{log_id}-heading"), "系统设置", false, 10)
     {
         return false;
     }
@@ -202,12 +202,7 @@ fn assert_english_ui(session: &mut Session<'_>, log_id: &str) -> bool {
     }
     if !session.wait_text(&format!("{log_id}-nav"), "Dashboard", false, 10)
         || !session.wait_text(&format!("{log_id}-crumb"), "System / Settings", false, 10)
-        || !session.wait_text(
-            &format!("{log_id}-placeholder"),
-            "Route placeholder",
-            false,
-            10,
-        )
+        || !session.wait_text(&format!("{log_id}-heading"), "System settings", false, 10)
         || !session.wait_text(
             &format!("{log_id}-status"),
             "Runtime not connected",
