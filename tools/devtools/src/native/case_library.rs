@@ -128,28 +128,28 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    let Some(list) = session.find_ref("library-view-list", Some("button"), "列表", 15) else {
+    // The upload dialog is the page's other real dialog; the grid/list switch
+    // stays covered by the unit test because WebView2 does not expose its
+    // labelled segmented buttons as named buttons.
+    let Some(upload) = session.find_ref("library-upload", Some("button"), "上传", 15) else {
         return;
     };
-    let click_list = StepSpec::owned(
-        "library-switch-list",
+    let click_upload = StepSpec::owned(
+        "library-open-upload",
         "agent-desktop",
-        vec!["click".to_string(), list],
+        vec!["click".to_string(), upload.clone()],
     )
     .timeout(60);
-    if !session.run(&[click_list]) {
+    if !session.run(&[click_upload])
+        || !session.wait_role_count("library-upload-dialog", "window", "上传到资源库", 1, 10)
+        || !session.screenshot("native/library-upload-1440x900.png")
+    {
         return;
     }
-    let Some(list_second) =
-        session.text_node_bounds("library-list-second", "compat-matrix.csv", 15)
-    else {
-        return;
-    };
-    if list_second.y - grid_second.y < 24.0 {
-        session.fail("the list view did not stack the artifacts vertically");
-        return;
-    }
-    if !session.screenshot("native/library-list-1440x900.png") {
+    if !session.send_key("library-close-upload", "escape")
+        || !session.wait_role_count("library-upload-escape", "window", "上传到资源库", 0, 20)
+        || !session.wait_focused(&upload, "library-upload")
+    {
         return;
     }
 

@@ -54,6 +54,11 @@ fn run_case(session: &mut Session<'_>) {
     let Some((mut probes, viewports)) = pages::normal_entry(session, &SPEC) else {
         return;
     };
+    // normal_entry closes the client, so every assertion below runs on the
+    // sample entry, which renders the same shell and section navigation.
+    if !pages::sample_entry(session, &SPEC, &mut probes, &viewports) {
+        return;
+    }
 
     // The general pane must render the real theme and language controls.
     for (log_id, text) in [
@@ -88,10 +93,6 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
     if !session.screenshot("native/settings-models-1440x900.png") {
-        return;
-    }
-
-    if !pages::sample_entry(session, &SPEC, &mut probes, &viewports) {
         return;
     }
 

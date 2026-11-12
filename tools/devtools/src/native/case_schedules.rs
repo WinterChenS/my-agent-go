@@ -15,7 +15,9 @@ const SPEC: PageSpec<'static> = PageSpec {
     normal_url: "/schedules",
     normal_marker: "定时任务",
     normal_exact: true,
-    fixtures: &["每日站会纪要汇总", "0 9 * * 1-5", "6m08s", "98.2%"],
+    // Fixture strings become log file names, so they must not contain "/" or
+    // ":"; the cron expression itself is asserted further down.
+    fixtures: &["每日站会纪要汇总", "6m08s", "98.2%"],
     normal_shot: "native/schedules-normal-1440x900.png",
     normal_compact_shot: "native/schedules-normal-390x844.png",
     sample_url: "/__sample/schedules",
