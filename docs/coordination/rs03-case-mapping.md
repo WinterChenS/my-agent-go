@@ -49,15 +49,21 @@
 | `node scripts/capture-prototype.mjs` | 不变 | |
 | `cmd /c mklink /J` + 拒绝 + `rmdir` | 不变 | 跨卷 junction 拒绝用例保留 |
 
-## 用例 ID（19 个，未改名、未减项）
+## 用例 ID（27 个）
 
-自动化（9）：`R0-00-build-gate`、`R0-00-d-drive-preflight`、`R0-01-shell`、
+R0-00..R0-08 的 19 个用例保持 Go 时代的 ID 与语义不变（未改名、未减项）。
+R0-09..R0-12 是 RS05 新增的四页，各配一条自动化用例与一条原生用例。
+
+自动化（14）：`R0-00-build-gate`、`R0-00-d-drive-preflight`、`R0-01-shell`、
 `R0-02-theme`、`R0-03-i18n`、`R0-04-workbench`、`R0-05-chat`、`R0-06-agents`、
-`R0-07-skills`、`R0-08-mcp`。
+`R0-07-skills`、`R0-08-mcp`、`R0-09-connectors`、`R0-10-schedules`、
+`R0-11-library`、`R0-12-settings`。
 
-原生（9 + 1）：`R0-00-native-window`、`R0-01-native-shell`、`R0-02-native-theme`、
+原生（13）：`R0-00-native-window`、`R0-01-native-shell`、`R0-02-native-theme`、
 `R0-03-native-i18n`、`R0-04-native-workbench`、`R0-05-native-chat`、
-`R0-06-native-agents`、`R0-07-native-skills`、`R0-08-native-mcp`。
+`R0-06-native-agents`、`R0-07-native-skills`、`R0-08-native-mcp`、
+`R0-09-native-connectors`、`R0-10-native-schedules`、`R0-11-native-library`、
+`R0-12-native-settings`。
 
 ## 原生运行器映射（phase 2 完成）
 
@@ -76,6 +82,16 @@
 | `runner_skills_native.go` | `native/case_skills.rs` + `native/pages.rs` | `R0-07-native-skills` |
 | `runner_mcp_native.go` | `native/case_mcp.rs` + `native/pages.rs` | `R0-08-native-mcp` |
 | `cmd/devtools/key_windows.go` | `src/key.rs` | `key --title= --combo=` |
+
+R0-09..R0-12 没有 Go 前身（Go 时代这四页是路由占位），新建的四个运行器直接复用了
+`native/pages.rs` 的"普通入口 → 样例入口 → 紧凑视口"链路：
+
+| Rust 模块 | 用例 | 该页独有的断言 |
+| --- | --- | --- |
+| `native/case_connectors.rs` | `R0-09-native-connectors` | 六张连接器卡、策略表、凭据健康、添加连接器对话框 |
+| `native/case_schedules.rs` | `R0-10-native-schedules` | 任务表、行选中切换详情、新建任务对话框与焦点回归 |
+| `native/case_library.rs` | `R0-11-native-library` | 网格两列并排、上传对话框与 Escape 回归 |
+| `native/case_settings.rs` | `R0-12-native-settings` | 五个分区按 ref 可达、模型/观测/安全面板切换 |
 
 端口与 Go 的差异只有三处，都源于客户端从 Wails 换成 Tauri：
 

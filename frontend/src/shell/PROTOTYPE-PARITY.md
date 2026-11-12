@@ -51,7 +51,9 @@ at 1440×900 and 390×844 and stored next to the R0-01 evidence.
 ## Follow-up tasks
 
 - R1-08: runtime status badge fed by real discovery.
-- R0-04..R0-12: page bodies and their empty/sample states.
+- R0-04..R0-12: page bodies landed between `98a419d` and `22f69ae`; each page keeps
+  the honest empty state on its normal entry and reproduces the prototype fixtures
+  only behind `/__sample/<page>`.
 
 ## Manual review conclusion
 
