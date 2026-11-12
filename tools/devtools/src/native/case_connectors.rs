@@ -61,10 +61,10 @@ fn run_case(session: &mut Session<'_>) {
 
     // Every connector card and the policy rows must be real, painted text.
     for (log_id, text) in [
-        ("connectors-card-mail", "邮箱"),
+        ("connectors-card-mail", "邮箱 · 搜索与读取"),
         ("connectors-unverified", "需重新授权"),
-        ("connectors-policy", "mail.send_group"),
-        ("connectors-health", "53 天后续期"),
+        ("connectors-policy", "高风险确认"),
+        ("connectors-health", "邮箱 OAuth"),
     ] {
         if session.text_node_bounds(log_id, text, 15).is_none() {
             return;
