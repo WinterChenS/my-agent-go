@@ -70,7 +70,9 @@ fn run_case(session: &mut Session<'_>) {
     }
 
     // Selecting the second row must switch the detail pane to that task.
-    let Some(row) = session.find_ref("schedules-row-vuln", None, "依赖漏洞扫描", 15) else {
+    // The row name is its cells joined, so it is matched by contained text.
+    let Some(row) = session.find_ref_contains("schedules-row-vuln", "row", "依赖漏洞扫描", 15)
+    else {
         return;
     };
     let click_row = StepSpec::owned(

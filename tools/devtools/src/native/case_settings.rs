@@ -60,14 +60,19 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    // The general pane must render the real theme and language controls.
-    for (log_id, text) in [
+    // The section navigation must expose all five sections. WebView2 reports the
+    // nav buttons without a rectangle, so they are asserted by ref instead.
+    for (log_id, label) in [
         ("settings-general", "通用"),
-        ("settings-theme", "主题"),
-        ("settings-language", "语言"),
         ("settings-models-nav", "模型管理"),
+        ("settings-runtime-nav", "运行时"),
+        ("settings-observability-nav", "观测"),
+        ("settings-security-nav", "安全与权限"),
     ] {
-        if session.text_node_bounds(log_id, text, 15).is_none() {
+        if session
+            .find_ref(log_id, Some("button"), label, 15)
+            .is_none()
+        {
             return;
         }
     }

@@ -1141,6 +1141,53 @@ impl<'a> Session<'a> {
         None
     }
 
+    /// The first interactive ref whose role matches and whose subtree contains `needle`.
+    ///
+    /// `find --name X --exact` cannot target a table row: the row's accessible name
+    /// is the concatenation of its cells, so an exact match never hits. Searching by
+    /// text and taking the row that owns the match is the reliable way to click it.
+    pub(crate) fn find_ref_contains(
+        &mut self,
+        log_id: &str,
+        role: &str,
+        needle: &str,
+        attempts: u32,
+    ) -> Option<String> {
+        for attempt in 1..=attempts {
+            let step_name = format!("find-{log_id}-{attempt:02}");
+            let step = StepSpec::owned(
+                &step_name,
+                "agent-desktop",
+                vec![
+                    "find".to_string(),
+                    "--text".to_string(),
+                    needle.to_string(),
+                    "--app".to_string(),
+                    "anvil.exe".to_string(),
+                    "--timeout-ms".to_string(),
+                    "15000".to_string(),
+                ],
+            )
+            .timeout(STEP_TIMEOUT);
+            if !self.run(&[step]) {
+                return None;
+            }
+            let body = self.read(&step_name);
+            for entry in parse::parse_find_matches(&body) {
+                if entry.role.as_deref() == Some(role)
+                    && let Some(reference) = entry.ref_id
+                {
+                    return Some(reference);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        self.fail(&format!(
+            "could not find a {role} containing {needle:?} after {attempts} attempts"
+        ));
+        None
+    }
+
     /// Require a visible (non-zero bounds) static text node named `name`.
     pub(crate) fn visible_static_text(&mut self, log_id: &str, name: &str, attempts: u32) -> bool {
         for attempt in 1..=attempts {
