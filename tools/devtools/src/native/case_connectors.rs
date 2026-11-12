@@ -93,10 +93,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("connectors-close-add", "escape") {
-        return;
-    }
-    if !session.wait_role_count("connectors-add-escape", "window", "添加连接器", 0, 20)
+    if !session.close_dialog("connectors-add-escape", "window", "添加连接器", 20)
         || !session.wait_focused(&add, "connectors-add")
     {
         return;
@@ -119,9 +116,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("connectors-close-settings", "escape")
-        || !session.wait_role_count("connectors-settings-escape", "window", "邮箱", 0, 20)
-    {
+    if !session.close_dialog("connectors-settings-escape", "window", "邮箱", 20) {
         return;
     }
 

@@ -85,10 +85,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("mcp-close-add", "escape") {
-        return;
-    }
-    if !session.wait_role_count("mcp-add-escape", "window", "添加 MCP 服务", 0, 20)
+    if !session.close_dialog("mcp-add-escape", "window", "添加 MCP 服务", 20)
         || !session.wait_focused(&add, "mcp-add")
     {
         return;

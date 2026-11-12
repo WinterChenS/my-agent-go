@@ -112,10 +112,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("schedules-close-new", "escape") {
-        return;
-    }
-    if !session.wait_role_count("schedules-new-escape", "window", "新建定时任务", 0, 20)
+    if !session.close_dialog("schedules-new-escape", "window", "新建定时任务", 20)
         || !session.wait_focused(&new_task, "schedules-new")
     {
         return;

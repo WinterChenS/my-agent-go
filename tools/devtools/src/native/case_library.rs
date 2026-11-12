@@ -146,8 +146,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("library-close-upload", "escape")
-        || !session.wait_role_count("library-upload-escape", "window", "上传到资源库", 0, 20)
+    if !session.close_dialog("library-upload-escape", "window", "上传到资源库", 20)
         || !session.wait_focused(&upload, "library-upload")
     {
         return;

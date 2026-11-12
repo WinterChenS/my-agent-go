@@ -119,10 +119,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("skills-close-builder", "escape") {
-        return;
-    }
-    if !session.wait_role_count("skills-builder-escape", "window", "创建可复用能力", 0, 20)
+    if !session.close_dialog("skills-builder-escape", "window", "创建可复用能力", 20)
         || !session.wait_focused(&card, "skills-card")
     {
         return;

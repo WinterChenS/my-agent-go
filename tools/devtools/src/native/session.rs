@@ -1100,12 +1100,14 @@ impl<'a> Session<'a> {
         false
     }
 
-    /// Close a dialog with Escape, retrying once when the tree still shows it.
+    /// Close a dialog with Escape, retrying while the tree still shows it.
     ///
-    /// A single keystroke can be dropped while the WebView is still painting the
-    /// dialog; that showed up as a rare failure in a full-suite run while the
-    /// same case passed on its own. The first attempt is undone from a
-    /// checkpoint so a successful retry does not leave a FAIL behind.
+    /// A keystroke can be dropped in two ways: the window can lose the
+    /// foreground, and the dialog's key listener is attached one frame after the
+    /// dialog reaches the accessibility tree, so an Escape sent the moment the
+    /// dialog appears can arrive before anything listens for it. Both are timing
+    /// problems, not product failures, so the keystroke is repeated from a
+    /// checkpoint and the window is re-activated in between.
     pub(crate) fn close_dialog(
         &mut self,
         log_id: &str,
@@ -1113,19 +1115,33 @@ impl<'a> Session<'a> {
         name: &str,
         attempts: u32,
     ) -> bool {
-        let checkpoint = self.checkpoint();
-        if self.send_key(&format!("{log_id}-close"), "escape")
-            && self.wait_role_count(&format!("{log_id}-closed"), role, name, 0, attempts)
-        {
-            return true;
+        for round in 0..2 {
+            let checkpoint = self.checkpoint();
+            if round > 0 {
+                self.activate();
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            if self.send_key(&format!("{log_id}-escape-{round}"), "escape")
+                && self.wait_role_count(
+                    &format!("{log_id}-closed-{round}"),
+                    role,
+                    name,
+                    0,
+                    attempts,
+                )
+            {
+                return true;
+            }
+            if self.out.status == STATUS_BLOCKED {
+                return false;
+            }
+            self.restore(&checkpoint);
+            std::thread::sleep(Duration::from_millis(300));
         }
-        if self.out.status == STATUS_BLOCKED {
-            return false;
-        }
-        self.restore(&checkpoint);
-        std::thread::sleep(Duration::from_millis(300));
-        self.send_key(&format!("{log_id}-close-retry"), "escape")
-            && self.wait_role_count(&format!("{log_id}-closed-retry"), role, name, 0, attempts)
+        self.fail(&format!(
+            "{role} {name:?} stayed open after two Escape attempts"
+        ));
+        false
     }
 
     /// The first matching ref, retried while the tree settles.
