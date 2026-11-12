@@ -1102,12 +1102,12 @@ impl<'a> Session<'a> {
 
     /// Close a dialog with Escape, retrying while the tree still shows it.
     ///
-    /// A keystroke can be dropped in two ways: the window can lose the
-    /// foreground, and the dialog's key listener is attached one frame after the
-    /// dialog reaches the accessibility tree, so an Escape sent the moment the
-    /// dialog appears can arrive before anything listens for it. Both are timing
-    /// problems, not product failures, so the keystroke is repeated from a
-    /// checkpoint and the window is re-activated in between.
+    /// A keystroke can be lost three ways: the window can lose the foreground,
+    /// the dialog only attaches its key listener a frame after it appears in the
+    /// accessibility tree, and `SendInput` itself can be dropped while the
+    /// WebView is busy. All three are timing problems, not product failures, so
+    /// the key is repeated from a checkpoint and the second attempt uses the
+    /// CLI's own delivery path instead of `SendInput`.
     pub(crate) fn close_dialog(
         &mut self,
         log_id: &str,
@@ -1115,13 +1115,14 @@ impl<'a> Session<'a> {
         name: &str,
         attempts: u32,
     ) -> bool {
-        for round in 0..2 {
+        for round in 0..3 {
             let checkpoint = self.checkpoint();
-            if round > 0 {
-                self.activate();
-                std::thread::sleep(Duration::from_millis(200));
-            }
-            if self.send_key(&format!("{log_id}-escape-{round}"), "escape")
+            let delivered = match round {
+                0 => self.send_key(&format!("{log_id}-escape-0"), "escape"),
+                1 => self.activate() && self.press_key(&format!("{log_id}-press-1"), "escape"),
+                _ => self.activate() && self.send_key(&format!("{log_id}-escape-2"), "escape"),
+            };
+            if delivered
                 && self.wait_role_count(
                     &format!("{log_id}-closed-{round}"),
                     role,
@@ -1139,9 +1140,27 @@ impl<'a> Session<'a> {
             std::thread::sleep(Duration::from_millis(300));
         }
         self.fail(&format!(
-            "{role} {name:?} stayed open after two Escape attempts"
+            "{role} {name:?} stayed open after three Escape attempts"
         ));
         false
+    }
+
+    /// Deliver a key combo through agent-desktop instead of `SendInput`.
+    fn press_key(&mut self, log_id: &str, combo: &str) -> bool {
+        let step = StepSpec::owned(
+            log_id,
+            "agent-desktop",
+            vec![
+                "press".to_string(),
+                combo.to_string(),
+                "--app".to_string(),
+                "anvil.exe".to_string(),
+                "--timeout-ms".to_string(),
+                "15000".to_string(),
+            ],
+        )
+        .timeout(STEP_TIMEOUT);
+        self.run(&[step])
     }
 
     /// The first matching ref, retried while the tree settles.
