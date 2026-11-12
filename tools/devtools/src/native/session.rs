@@ -1100,6 +1100,34 @@ impl<'a> Session<'a> {
         false
     }
 
+    /// Close a dialog with Escape, retrying once when the tree still shows it.
+    ///
+    /// A single keystroke can be dropped while the WebView is still painting the
+    /// dialog; that showed up as a rare failure in a full-suite run while the
+    /// same case passed on its own. The first attempt is undone from a
+    /// checkpoint so a successful retry does not leave a FAIL behind.
+    pub(crate) fn close_dialog(
+        &mut self,
+        log_id: &str,
+        role: &str,
+        name: &str,
+        attempts: u32,
+    ) -> bool {
+        let checkpoint = self.checkpoint();
+        if self.send_key(&format!("{log_id}-close"), "escape")
+            && self.wait_role_count(&format!("{log_id}-closed"), role, name, 0, attempts)
+        {
+            return true;
+        }
+        if self.out.status == STATUS_BLOCKED {
+            return false;
+        }
+        self.restore(&checkpoint);
+        std::thread::sleep(Duration::from_millis(300));
+        self.send_key(&format!("{log_id}-close-retry"), "escape")
+            && self.wait_role_count(&format!("{log_id}-closed-retry"), role, name, 0, attempts)
+    }
+
     /// The first matching ref, retried while the tree settles.
     pub(crate) fn find_ref(
         &mut self,

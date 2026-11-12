@@ -145,10 +145,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    if !session.send_key("skills-close-import", "escape") {
-        return;
-    }
-    if !session.wait_role_count("skills-import-escape", "window", "导入 Skill", 0, 20)
+    if !session.close_dialog("skills-import-escape", "window", "导入 Skill", 20)
         || !session.wait_focused(&import, "skills-import")
     {
         return;
