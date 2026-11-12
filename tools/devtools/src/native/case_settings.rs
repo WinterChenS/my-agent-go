@@ -117,7 +117,7 @@ fn run_case(session: &mut Session<'_>) {
     {
         return;
     }
-    let Some(traces) = session.find_ref("settings-tab-traces", Some("button"), "链路", 15) else {
+    let Some(traces) = session.find_ref("settings-tab-traces", Some("tab"), "链路", 15) else {
         return;
     };
     let click_traces = StepSpec::owned(
