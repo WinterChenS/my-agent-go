@@ -80,28 +80,7 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    // Models, observability and security sections must switch in place.
-    let Some(models) = session.find_ref("settings-nav-models", Some("button"), "模型管理", 15)
-    else {
-        return;
-    };
-    let click_models = StepSpec::owned(
-        "settings-open-models",
-        "agent-desktop",
-        vec!["click".to_string(), models],
-    )
-    .timeout(60);
-    if !session.run(&[click_models])
-        || !session.wait_text("settings-models-heading", "模型供应商", false, 15)
-        || !session.wait_text("settings-models-empty", "尚未接入模型供应商", false, 15)
-    {
-        return;
-    }
-    if !session.screenshot("native/settings-models-1440x900.png") {
-        return;
-    }
-
-    // Sample mode: the fixture provider table and the observability tabs.
+    // Models: the fixture provider table replaces the normal empty state.
     let Some(models) = session.find_ref("settings-sample-models", Some("button"), "模型管理", 15)
     else {
         return;
@@ -113,6 +92,7 @@ fn run_case(session: &mut Session<'_>) {
     )
     .timeout(60);
     if !session.run(&[click_models])
+        || !session.wait_text("settings-models-heading", "模型供应商", false, 15)
         || !session.wait_text("settings-provider", "api.openai.com", false, 15)
     {
         return;

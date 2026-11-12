@@ -108,6 +108,17 @@ describe('settings sample entry', () => {
     expect(screen.getByTestId('settings-runtime')).toHaveTextContent('pi · v0.48.2')
   })
 
+  it('keeps the isolated sample entry when switching sections', async () => {
+    const user = userEvent.setup()
+    renderAt('/__sample/settings')
+    expect(screen.getByTestId('settings-page')).toHaveAttribute('data-sample', 'true')
+    await user.click(screen.getByTestId('settings-nav-models'))
+    // The section switch must not drop back to the normal entry, which would
+    // hide the fixtures the native case asserts against.
+    expect(screen.getByTestId('settings-page')).toHaveAttribute('data-sample', 'true')
+    expect(screen.getAllByTestId('settings-provider-row')).toHaveLength(3)
+  })
+
   it('changes the default permission mode and reports it', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=settings#runtime')

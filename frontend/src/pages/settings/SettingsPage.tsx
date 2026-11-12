@@ -56,7 +56,10 @@ export default function SettingsPage() {
     return `${t(entry.labelKey)} ${entry.keywords}`.toLowerCase().includes(query)
   })
 
-  const open = (id: SectionId) => navigate({ pathname: '/settings', search: location.search, hash: id === 'general' ? '' : `#${id}` })
+  // The isolated sample entry must survive a section switch; otherwise the
+  // fixtures disappear as soon as the user opens another section.
+  const base = sample ? '/__sample/settings' : '/settings'
+  const open = (id: SectionId) => navigate({ pathname: base, search: location.search, hash: id === 'general' ? '' : `#${id}` })
   const announce = (message: string) => setNotice(message)
 
   return (
