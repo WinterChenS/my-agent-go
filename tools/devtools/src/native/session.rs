@@ -1115,12 +1115,17 @@ impl<'a> Session<'a> {
         name: &str,
         attempts: u32,
     ) -> bool {
-        for round in 0..3 {
+        for round in 0..4 {
             let checkpoint = self.checkpoint();
             let delivered = match round {
                 0 => self.send_key(&format!("{log_id}-escape-0"), "escape"),
-                1 => self.activate() && self.press_key(&format!("{log_id}-press-1"), "escape"),
-                _ => self.activate() && self.send_key(&format!("{log_id}-escape-2"), "escape"),
+                1 => {
+                    self.activate() && self.press_key(&format!("{log_id}-press-1"), "escape", false)
+                }
+                2 => self.activate() && self.send_key(&format!("{log_id}-escape-2"), "escape"),
+                _ => {
+                    self.activate() && self.press_key(&format!("{log_id}-press-3"), "escape", true)
+                }
             };
             if delivered
                 && self.wait_role_count(
@@ -1140,26 +1145,28 @@ impl<'a> Session<'a> {
             std::thread::sleep(Duration::from_millis(300));
         }
         self.fail(&format!(
-            "{role} {name:?} stayed open after three Escape attempts"
+            "{role} {name:?} stayed open after four Escape attempts"
         ));
         false
     }
 
     /// Deliver a key combo through agent-desktop instead of `SendInput`.
-    fn press_key(&mut self, log_id: &str, combo: &str) -> bool {
-        let step = StepSpec::owned(
-            log_id,
-            "agent-desktop",
-            vec![
-                "press".to_string(),
-                combo.to_string(),
-                "--app".to_string(),
-                "anvil.exe".to_string(),
-                "--timeout-ms".to_string(),
-                "15000".to_string(),
-            ],
-        )
-        .timeout(STEP_TIMEOUT);
+    ///
+    /// `headed` asks the CLI for physical delivery after focusing the window,
+    /// which is the path that survives a busy WebView.
+    fn press_key(&mut self, log_id: &str, combo: &str, headed: bool) -> bool {
+        let mut args = vec![
+            "press".to_string(),
+            combo.to_string(),
+            "--app".to_string(),
+            "anvil.exe".to_string(),
+            "--timeout-ms".to_string(),
+            "15000".to_string(),
+        ];
+        if headed {
+            args.push("--headed".to_string());
+        }
+        let step = StepSpec::owned(log_id, "agent-desktop", args).timeout(STEP_TIMEOUT);
         self.run(&[step])
     }
 
