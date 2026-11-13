@@ -68,10 +68,18 @@ fn run_case(session: &mut Session<'_>) {
     else {
         return;
     };
+    // A Chromium textarea has no UIA write pattern, so semantic delivery cannot
+    // type into it; `--headed` is the documented physical path and needs the
+    // window to hold focus, which `activate` already established.
     let typed = StepSpec::owned(
         "chat-type-prompt",
         "agent-desktop",
-        vec!["type".to_string(), composer, PROMPT.to_string()],
+        vec![
+            "type".to_string(),
+            "--headed".to_string(),
+            composer,
+            PROMPT.to_string(),
+        ],
     )
     .timeout(60);
     if !session.run(&[typed]) {
