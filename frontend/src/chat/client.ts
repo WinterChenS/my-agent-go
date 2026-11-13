@@ -95,6 +95,85 @@ export interface ApprovalRequest {
 
 export type ApprovalDecision = 'allow' | 'deny' | 'cancel'
 
+/** One row of the right rail's execution pane. */
+export interface RailExec {
+  turn: number
+  runId: string
+  tool: string
+  label: string
+  status: 'done' | 'failed' | 'running' | 'no_result'
+  seq: number
+  at: string
+}
+
+/** A file a turn wrote; the path is always inside the project. */
+export interface RailArtifact {
+  path: string
+  relative: string
+  bytes: number
+  turn: number
+  runId: string
+  seq: number
+  touches: number
+  ext: string
+}
+
+/** A cited URL; `number` is the marker that appears in the transcript. */
+export interface RailSource {
+  number: number
+  url: string
+  host: string
+  turn: number
+  runId: string
+  origin: string
+}
+
+export interface RailTurn {
+  turn: number
+  runId: string
+  status: string
+  startedAt: string
+  endedAt: string
+  calls: number
+}
+
+export interface RailUsage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  cost: number
+  events: number
+}
+
+/** The local page the browser pane may render, and its sandbox. */
+export interface RailPage {
+  relative: string
+  /** Empty string means: no scripts, no forms, no same-origin, no navigation. */
+  sandbox: string
+  html: string
+  bytes: number
+}
+
+export interface RailBrowser {
+  state: 'local' | 'unavailable'
+  reason: string
+  page?: RailPage
+}
+
+/** Everything the four rail panes render, for one session. */
+export interface RailView {
+  turns: RailTurn[]
+  exec: RailExec[]
+  artifacts: RailArtifact[]
+  sources: RailSource[]
+  usage?: RailUsage
+  browser: RailBrowser
+  /** Paths a turn named outside the project: counted, never listed. */
+  outsidePaths: number
+  empty: boolean
+}
+
 /** What one compaction did. */
 export interface CompactReport {
   collapsed: number
@@ -252,6 +331,11 @@ export function approveRequest(
   decision: ApprovalDecision,
 ): Promise<void> {
   return hostCall<void>('session_approve', { sessionId, approvalId, decision })
+}
+
+/** The right rail's four panes, derived from the session's own ledger. */
+export function loadRail(sessionId: string): Promise<RailView> {
+  return hostCall<RailView>('session_rail', { sessionId })
 }
 
 /** Files and directories the composer may offer, confined to the project. */

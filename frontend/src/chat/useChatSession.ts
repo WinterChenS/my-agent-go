@@ -25,6 +25,7 @@ import {
   forkSession,
   latestSeq,
   listContext,
+  loadRail,
   listProjects,
   listSessions,
   loadSession,
@@ -40,6 +41,7 @@ import {
   type ContextEntry,
   type ContextRef,
   type ProjectSummary,
+  type RailView,
   type SessionDetail,
   type SessionEvent,
   type SessionSummary,
@@ -89,6 +91,8 @@ export interface ChatSessionView {
   pending: ApprovalRequest | null
   /** Tool calls of the turn in flight, paired with their results. */
   tools: LiveTool[]
+  /** The right rail's four panes, re-read after every turn. */
+  rail: RailView | null
   running: boolean
   select: (sessionId: string) => Promise<void>
   startNew: () => void
@@ -204,6 +208,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [streamText, setStreamText] = useState('')
   const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
+  const [rail, setRail] = useState<RailView | null>(null)
   const [running, setRunning] = useState(false)
   const pollStop = useRef(false)
   const mounted = useRef(true)
@@ -327,21 +332,43 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     }
   }, [available])
 
-  const select = useCallback(async (sessionId: string) => {
+  // The rail is a second read of the same ledger. It is loaded after the
+  // transcript so the page renders first, and a rail failure never blanks a
+  // conversation that loaded fine.
+  const refreshRail = useCallback(async (sessionId: string | null) => {
+    if (!sessionId) {
+      setRail(null)
+      return
+    }
     try {
-      const detail = await loadSession(sessionId)
-      if (!mounted.current) return
-      setCurrent(detail)
-      setStreamText('')
-      setError(null)
-    } catch (cause) {
-      if (mounted.current) setError(describeSessionError(cause))
+      const view = await loadRail(sessionId)
+      if (mounted.current) setRail(view)
+    } catch {
+      if (mounted.current) setRail(null)
     }
   }, [])
+
+  const select = useCallback(
+    async (sessionId: string) => {
+      try {
+        const detail = await loadSession(sessionId)
+        if (!mounted.current) return
+        setCurrent(detail)
+        setStreamText('')
+        setError(null)
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+      }
+      await refreshRail(sessionId)
+    },
+    [refreshRail],
+  )
 
   const startNew = useCallback(() => {
     setCurrent(null)
     setStreamText('')
+    setTurnEvents([])
+    setRail(null)
     setError(null)
   }, [])
 
@@ -434,11 +461,12 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
         // Keep the optimistic view; the next refresh will retry.
       }
       await reloadSessions().catch(() => undefined)
+      await refreshRail(sessionId)
       if (mounted.current) setRunning(false)
       if (failure) setError(failure)
       return failure
     },
-    [current, model, reloadSessions],
+    [current, model, reloadSessions, refreshRail],
   )
 
   const approve = useCallback(
@@ -474,12 +502,14 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     const sessionId = current?.session.id
     if (!sessionId) return false
     try {
-      return await abortTurn(sessionId)
+      const stopped = await abortTurn(sessionId)
+      await refreshRail(sessionId)
+      return stopped
     } catch (cause) {
       if (mounted.current) setError(describeSessionError(cause))
       return false
     }
-  }, [current])
+  }, [current, refreshRail])
 
   const rename = useCallback(
     async (sessionId: string, title: string) => {
@@ -562,6 +592,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     turnEvents,
     pending,
     tools,
+    rail,
     running,
     select,
     startNew,

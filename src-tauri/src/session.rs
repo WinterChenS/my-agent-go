@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use anvil_session::rail::RailView;
 use anvil_session::{
     ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, Message,
     ProjectSummary, RunEvent, SessionContext, SessionDetail, SessionInput, SessionPage,
@@ -370,6 +371,38 @@ pub async fn session_context_list(
             limit.unwrap_or(30) as usize,
         )
         .map_err(|error| error.to_wire().to_string())
+    })
+}
+
+/// The right rail: execution rows, produced files, citations and the page this
+/// build can preview.
+///
+/// A read, deliberately: the panels refresh while a turn is streaming, and a
+/// rail that needed the write lock would freeze the transcript it describes.
+#[tauri::command]
+pub async fn session_rail(
+    state: State<'_, SessionState>,
+    session_id: String,
+) -> Result<RailView, String> {
+    state.with_reader(|store| {
+        let session = store
+            .session(&session_id)
+            .map_err(|error| error.to_wire().to_string())?;
+        let messages = store
+            .messages(&session_id)
+            .map_err(|error| error.to_wire().to_string())?;
+        let runs = store
+            .runs(&session_id)
+            .map_err(|error| error.to_wire().to_string())?;
+        let events = store
+            .events(&session_id)
+            .map_err(|error| error.to_wire().to_string())?;
+        Ok(anvil_session::rail::build(
+            &session.project_path,
+            &messages,
+            &runs,
+            &events,
+        ))
     })
 }
 

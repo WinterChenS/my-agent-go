@@ -726,6 +726,23 @@ impl SessionService {
         self.approvals.resolve(session_id, approval_id, decision)
     }
 
+    /// The right rail, aggregated from this session's own ledger.
+    ///
+    /// Read-only by construction: it opens no runtime and writes nothing, so
+    /// the panels can refresh while a turn is still streaming.
+    pub fn rail(&self, session_id: &str) -> Result<crate::rail::RailView> {
+        let summary = self.store.session(session_id)?;
+        let messages = self.store.messages(session_id)?;
+        let runs = self.store.runs(session_id)?;
+        let events = self.store.events(session_id)?;
+        Ok(crate::rail::build(
+            &summary.project_path,
+            &messages,
+            &runs,
+            &events,
+        ))
+    }
+
     /// Entries for the composer's `@` list, confined to the session's project.
     pub fn context_entries(
         &self,

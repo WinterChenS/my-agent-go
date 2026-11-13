@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useChatSession, type ModelChoice } from '../../chat/useChatSession'
 import { useI18n } from '../../i18n/LanguageProvider'
@@ -72,6 +72,9 @@ export default function ChatPage() {
   const narrow = useNarrow()
   const [railOpen, setRailOpen] = useState(!narrow)
   const [railTab, setRailTab] = useState<RailTab>('browser')
+  // The turn the rail sent the reader back to; highlighted briefly so the jump
+  // is visible instead of leaving them to guess which bubble moved.
+  const [focusedRun, setFocusedRun] = useState<string | null>(null)
   const [dialog, setDialog] = useState<ChatDialogKind>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -111,6 +114,33 @@ export default function ChatPage() {
   }, [historyOpen])
 
   const showNotice = (message: string) => setNotice(message)
+
+  // Jumping from a rail row to the turn it came from. The highlight is cleared
+  // by a timer, so a second jump does not leave two rows lit.
+  const jumpToTurn = (runId: string) => {
+    const thread = document.querySelector('[data-testid="chat-thread"]')
+    const target = thread
+      ? Array.from(thread.querySelectorAll<HTMLElement>('[data-run]')).find(
+          (node) => node.dataset.run === runId,
+        )
+      : undefined
+    if (!target) {
+      showNotice(t('chat.rail.turnMissing'))
+      return
+    }
+    // `scrollIntoView` is absent in the test DOM and in some webviews; the
+    // highlight still lands, so a missing scroll must not abort the jump.
+    target.scrollIntoView?.({ block: 'center' })
+    setFocusedRun(runId)
+    window.setTimeout(() => setFocusedRun((current) => (current === runId ? null : current)), 2400)
+  }
+
+  // A `[n]` marker is a real link to the sources pane: the number in the text
+  // and the number in the rail are the same number, from the same read.
+  const showSource = () => {
+    setRailOpen(true)
+    setRailTab('sources')
+  }
 
   // Live mode is the real desktop path: the ledger holds the conversation.
   // Sample mode keeps the prototype data and every control inert.
@@ -356,7 +386,12 @@ export default function ChatPage() {
               <div className="chat-thread-inner" data-testid="chat-message-list" aria-label={liveSession.title}>
                 {liveMessages.map((message) =>
                   message.role === 'user' ? (
-                    <article className="chat-msg chat-msg-user" data-testid="chat-message-user" key={message.id}>
+                    <article
+                      className={`chat-msg chat-msg-user${focusedRun === message.runId ? ' is-focused' : ''}`}
+                      data-testid="chat-message-user"
+                      data-run={message.runId}
+                      key={message.id}
+                    >
                       <ContextChips meta={message.meta} />
                       <div className="chat-bubble">{message.text}</div>
                     </article>
@@ -377,13 +412,20 @@ export default function ChatPage() {
                       </div>
                     </section>
                   ) : (
-                    <article className="chat-msg" data-testid="chat-message-agent" key={message.id}>
+                    <article
+                      className={`chat-msg${focusedRun === message.runId ? ' is-focused' : ''}`}
+                      data-testid="chat-message-agent"
+                      data-run={message.runId}
+                      key={message.id}
+                    >
                       <div className="chat-agent-head">
                         <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
                         <span className="chat-agent-name">{liveSession.runtimeId}</span>
                         <span className="chat-agent-model">{liveSession.model}</span>
                       </div>
-                      <div className="chat-prose chat-live-text">{message.text}</div>
+                      <div className="chat-prose chat-live-text">
+                        {renderCites(message.text, live.rail?.sources.length ?? 0, showSource)}
+                      </div>
                     </article>
                   ),
                 )}
@@ -466,7 +508,7 @@ export default function ChatPage() {
             }}
           />
         ) : null}
-        <ChatRail sample={sample} open={railOpen} tab={railTab} onTab={setRailTab} onClose={() => {
+        <ChatRail sample={sample} live={{ view: live.rail, running: live.running, onTurn: jumpToTurn }} open={railOpen} tab={railTab} onTab={setRailTab} onClose={() => {
           setRailOpen(false)
           railToggle.current?.focus()
         }} onNotice={showNotice} />
@@ -1222,4 +1264,43 @@ function ApprovalCard({
       </div>
     </section>
   )
+}
+
+/**
+ * `[n]` markers in an agent message become buttons that open the sources pane.
+ *
+ * The count comes from the same rail read that produced the numbers, so a
+ * bracket whose number has no source stays literal text: linking to a source
+ * that does not exist would be worse than showing the bracket.
+ */
+function renderCites(text: string, sources: number, onCite: () => void): ReactNode {
+  if (sources === 0 || !text.includes('[')) return text
+  const nodes: ReactNode[] = []
+  const pattern = /\[(\d{1,3})\]/g
+  let cursor = 0
+  let match: RegExpExecArray | null = pattern.exec(text)
+  while (match !== null) {
+    const number = Number(match[1])
+    if (number >= 1 && number <= sources) {
+      if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
+      nodes.push(
+        <button
+          key={`${number}-${match.index}`}
+          type="button"
+          className="chat-cite"
+          data-testid="chat-cite"
+          data-number={number}
+          aria-label={`[${number}]`}
+          onClick={onCite}
+        >
+          {number}
+        </button>,
+      )
+      cursor = match.index + match[0].length
+    }
+    match = pattern.exec(text)
+  }
+  if (nodes.length === 0) return text
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return <>{nodes}</>
 }

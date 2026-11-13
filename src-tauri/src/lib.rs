@@ -65,4 +65,5 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_compact",
     "session_approve",
     "session_context_list",
+    "session_rail",
 ];

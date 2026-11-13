@@ -351,6 +351,24 @@
           "task": "R2-03",
           "evidenceKind": "automation",
           "required": true
+        },
+        {
+          "id": "R2-04-rail-contract",
+          "task": "R2-04",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-04-rail-live",
+          "task": "R2-04",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-04-rail-native",
+          "task": "R2-04",
+          "evidenceKind": "native-desktop",
+          "required": true
         }
       ]
     }

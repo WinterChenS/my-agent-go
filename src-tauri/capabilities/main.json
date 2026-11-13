@@ -30,6 +30,7 @@
     "allow-session-fork",
     "allow-session-compact",
     "allow-session-approve",
-    "allow-session-context-list"
+    "allow-session-context-list",
+    "allow-session-rail"
   ]
 }

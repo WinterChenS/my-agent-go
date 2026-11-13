@@ -118,6 +118,7 @@ pub enum NativeKind {
     Workbench,
     Chat,
     ChatLive,
+    RailLive,
     Agents,
     Skills,
     Mcp,
@@ -835,6 +836,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         ),
         CasePlan::native("R1-08-native-catalog", NativeKind::Catalog),
         CasePlan::native("R2-01-native-chat", NativeKind::ChatLive),
+        CasePlan::native("R2-04-rail-native", NativeKind::RailLive),
         CasePlan::automation("R2-01-session-contract", session_contract_suite()),
         CasePlan::automation(
             "R2-01-pi-live",
@@ -926,6 +928,66 @@ pub fn case_plans() -> Vec<CasePlan> {
             )],
         ),
         CasePlan::automation("R2-03-context-contract", history_contract_suite()),
+        CasePlan::automation("R2-04-rail-contract", history_contract_suite()),
+        // The four panes over one real ledger: the runtime is a local double so
+        // the case costs no tokens, but the files, the events, the turn ids and
+        // the citations are all real, and an outside path is really excluded.
+        CasePlan::automation(
+            "R2-04-rail-live",
+            vec![session_step_fresh(
+                "rail-live",
+                "rail",
+                &[
+                    "--action",
+                    "rail",
+                    "--model",
+                    "rail-acceptance",
+                    "--expect",
+                    "action:ok=true",
+                    "--expect",
+                    "action:artifacts=2",
+                    "--expect",
+                    "action:artifactsInside=true",
+                    // The same file written twice is one row; the second write
+                    // shows up as a touch, not as a second artifact.
+                    "--expect",
+                    "action:artifactTouches=[2,1]",
+                    "--expect",
+                    "action:outsidePaths=1",
+                    "--expect",
+                    "action:sources=2",
+                    "--expect",
+                    "action:sourceTurn=1",
+                    "--expect",
+                    "action:exec=5",
+                    "--expect",
+                    "action:turns=2",
+                    "--expect",
+                    "action:turnsLinked=true",
+                    // Four of five markers have a source; the fifth must stay
+                    // plain text instead of pointing at nothing.
+                    "--expect",
+                    "action:cites=5",
+                    "--expect",
+                    "action:citesResolved=4",
+                    "--expect",
+                    "action:browserState=local",
+                    "--expect",
+                    "action:browserMarker=true",
+                    "--expect",
+                    "action:usageInput=240",
+                    // An empty session stays empty: no rows, no page, no usage.
+                    "--expect",
+                    "action:emptyRailEmpty=true",
+                    "--expect",
+                    "action:emptyRailArtifacts=0",
+                    "--expect",
+                    "action:emptyRailSources=0",
+                    "--expect",
+                    "action:emptyRailBrowser=unavailable",
+                ],
+            )],
+        ),
         // Attachments, approvals and a restricted tool against the real pi
         // runtime. Every step is a separate process, so nothing leaks between
         // them; the fixtures live under `tests/fixtures`, which keeps the

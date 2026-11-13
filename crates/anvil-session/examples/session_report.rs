@@ -119,6 +119,7 @@ fn run() -> Result<ExitCode, String> {
         }
         "history" => history(&options)?,
         "context" => context_action(&mut service, &options)?,
+        "rail" => rail_action(&mut service, &options)?,
         "resume" => resume(&mut service, &options)?,
         "projects" => {
             let projects = service.projects().map_err(|error| error.to_string())?;
@@ -291,6 +292,271 @@ fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::
 /// The history semantics — projects, paging, search, branch, compaction — are
 /// about the ledger, not about a model. Proving them against a fake adapter
 /// keeps the case deterministic and free; the live cases prove the runtimes.
+/// Aggregate the right rail from a two-turn session and check the facts the
+/// panes claim.
+///
+/// Every number here comes from the ledger or from the filesystem; the case
+/// asserts them by name (`action:sources=2`), so a pane that invents a row or
+/// loses the turn a row came from fails instead of looking plausible.
+fn rail_action(
+    service: &mut SessionService,
+    options: &Options,
+) -> Result<serde_json::Value, String> {
+    let project = match &options.cwd {
+        Some(dir) => PathBuf::from(dir),
+        None => options.data_dir.join("project"),
+    };
+    std::fs::create_dir_all(&project).map_err(|error| format!("project dir: {error}"))?;
+    let spec = SessionSpec {
+        runtime_id: "rail".into(),
+        model: options.model.clone(),
+        cwd: project.display().to_string(),
+        title: Some("rail".into()),
+        native_id: None,
+        allow_tools: true,
+        tools: vec!["write".into(), "read".into(), "command".into()],
+    };
+
+    let session = service.open(&spec).map_err(|error| error.to_string())?;
+    service
+        .send(&session.id, "write the report")
+        .map_err(|error| error.to_string())?;
+    service
+        .send(&session.id, "same sources again")
+        .map_err(|error| error.to_string())?;
+    let view = service
+        .rail(&session.id)
+        .map_err(|error| error.to_string())?;
+
+    // An empty session must produce an empty rail: no rows, no page, and the
+    // flag that tells the UI to show its empty states.
+    let idle = service.open(&spec).map_err(|error| error.to_string())?;
+    let idle_view = service.rail(&idle.id).map_err(|error| error.to_string())?;
+
+    let detail = service
+        .detail(&session.id)
+        .map_err(|error| error.to_string())?;
+    let mut markers = 0usize;
+    let mut resolved = 0usize;
+    for message in &detail.messages {
+        if message.role != anvil_session::Role::Assistant {
+            continue;
+        }
+        for number in cite_numbers(&message.text) {
+            markers += 1;
+            if number >= 1 && number as usize <= view.sources.len() {
+                resolved += 1;
+            }
+        }
+    }
+
+    let canonical = std::fs::canonicalize(&project).unwrap_or(project.clone());
+    let artifacts_inside = view
+        .artifacts
+        .iter()
+        .all(|artifact| PathBuf::from(&artifact.path).starts_with(&canonical));
+    // "A row goes back to its turn" is only true when the turn index and the
+    // run id agree with the ledger, in both directions.
+    let turns_linked = view.artifacts.iter().all(|artifact| {
+        view.turns
+            .iter()
+            .any(|turn| turn.run_id == artifact.run_id && turn.turn == artifact.turn)
+    }) && view.exec.iter().all(|row| {
+        view.turns
+            .iter()
+            .any(|turn| turn.run_id == row.run_id && turn.turn == row.turn)
+    });
+
+    let artifacts: Vec<&str> = view
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.relative.as_str())
+        .collect();
+    let calls: Vec<usize> = view.turns.iter().map(|turn| turn.calls).collect();
+    let all_done = view.exec.iter().all(|row| row.status == "done");
+    let page = view.browser.page.as_ref();
+
+    Ok(serde_json::json!({
+        "ok": view.artifacts.len() == 2
+            && view.sources.len() == 2
+            && view.exec.len() == 5
+            && artifacts_inside
+            && turns_linked
+            && all_done,
+        "sessionId": session.id,
+        "project": project.display().to_string(),
+        "artifacts": view.artifacts.len(),
+        "artifactNames": artifacts,
+        "artifactTouches": view.artifacts.iter().map(|artifact| artifact.touches).collect::<Vec<_>>(),
+        "artifactsInside": artifacts_inside,
+        "outsidePaths": view.outside_paths,
+        "sources": view.sources.len(),
+        "sourceNumbers": view.sources.iter().map(|source| source.number).collect::<Vec<_>>(),
+        "sourceTurn": view.sources.first().map(|source| source.turn),
+        "exec": view.exec.len(),
+        "execStatuses": view.exec.iter().map(|row| row.status.clone()).collect::<Vec<_>>(),
+        "turns": view.turns.len(),
+        "turnCalls": calls,
+        "turnsLinked": turns_linked,
+        "cites": markers,
+        "citesResolved": resolved,
+        "usageInput": view.usage.as_ref().map(|usage| usage.input),
+        "usageCost": view.usage.as_ref().map(|usage| usage.cost),
+        "browserState": view.browser.state,
+        "browserSandbox": page.map(|page| page.sandbox.clone()),
+        "browserMarker": page.map(|page| page.html.contains("RAIL-PAGE-OK")),
+        "emptyRailEmpty": idle_view.empty,
+        "emptyRailArtifacts": idle_view.artifacts.len(),
+        "emptyRailSources": idle_view.sources.len(),
+        "emptyRailBrowser": idle_view.browser.state,
+    }))
+}
+
+/// The `[n]` markers in one message, as numbers.
+fn cite_numbers(text: &str) -> Vec<u32> {
+    let bytes: Vec<char> = text.chars().collect();
+    let mut numbers = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != '[' {
+            index += 1;
+            continue;
+        }
+        let mut cursor = index + 1;
+        let mut digits = String::new();
+        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() && digits.len() < 3 {
+            digits.push(bytes[cursor]);
+            cursor += 1;
+        }
+        if !digits.is_empty() && cursor < bytes.len() && bytes[cursor] == ']' {
+            if let Ok(number) = digits.parse::<u32>() {
+                numbers.push(number);
+            }
+            index = cursor + 1;
+            continue;
+        }
+        index += 1;
+    }
+    numbers
+}
+
+/// A runtime that writes real files and reports real tool calls, locally.
+///
+/// The rail reads four things: tool calls, produced files, citations and one
+/// previewable page. This double produces exactly those, on disk, so the panes
+/// are proven against files and a ledger rather than against a fixture object.
+struct RailAdapter {
+    turns: AtomicUsize,
+}
+
+impl RailAdapter {
+    fn new() -> Self {
+        Self {
+            turns: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl SessionAdapter for RailAdapter {
+    fn id(&self) -> &str {
+        "rail"
+    }
+
+    fn capabilities(&self) -> SessionCapabilities {
+        SessionCapabilities::full()
+    }
+
+    fn open(&self, _context: &SessionContext, spec: &SessionSpec) -> SessionResult<OpenedSession> {
+        Ok(OpenedSession {
+            runtime_id: "rail".into(),
+            native_id: "rail-native".into(),
+            model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
+        })
+    }
+
+    fn send(
+        &self,
+        _context: &SessionContext,
+        opened: &OpenedSession,
+        _prompt: &str,
+        _cancel: &Cancel,
+        sink: &mut dyn FnMut(AdapterEvent),
+    ) -> SessionResult<RunOutcome> {
+        let turn = self.turns.fetch_add(1, Ordering::SeqCst) + 1;
+        let root = PathBuf::from(&opened.cwd);
+        let write = |relative: &str, body: &str| -> bool {
+            let path = root.join(relative);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(&path, body).is_ok()
+        };
+
+        let mut call = |tool: &str, args: serde_json::Value, ok: bool| {
+            sink(AdapterEvent::new(
+                EventKind::ToolCall,
+                serde_json::json!({ "tool": tool, "args": args }),
+            ));
+            sink(AdapterEvent::new(
+                EventKind::ToolResult,
+                serde_json::json!({ "tool": tool, "ok": ok }),
+            ));
+        };
+
+        let text = if turn == 1 {
+            let wrote = write("out/report.md", "RAIL-REPORT-BODY\n");
+            call(
+                "write",
+                serde_json::json!({ "path": "out/report.md" }),
+                wrote,
+            );
+            let page = write(
+                "out/page.html",
+                "<!doctype html><h1>RAIL-PAGE-OK</h1><p>local preview</p>",
+            );
+            call(
+                "write",
+                serde_json::json!({ "path": "out/page.html" }),
+                page,
+            );
+            // A path outside the project: it exists, so only the confinement
+            // check keeps it out of the pane.
+            let _ = std::fs::write(root.join("../outside-rail.txt"), "OUTSIDE-RAIL\n");
+            call(
+                "command",
+                serde_json::json!("echo x > ../outside-rail.txt"),
+                true,
+            );
+            call("read", serde_json::json!({ "path": "out/report.md" }), true);
+            // The numbers the model writes must line up with the URLs below:
+            // the rail numbers sources by first appearance, so `[1]` is the
+            // first URL and `[2]` the second.
+            "Wrote the report [1] and the page [2]. Sources: https://docs.example.com/a , https://news.example.org/b"
+        } else {
+            // Same file again: the pane lists it once and counts the touches.
+            let wrote = write("out/report.md", "RAIL-REPORT-BODY v2\n");
+            call(
+                "write",
+                serde_json::json!({ "path": "out/report.md" }),
+                wrote,
+            );
+            // `[9]` has no source behind it, and must stay plain text in the UI.
+            "Same sources [1] [2], and a marker with no source [9]."
+        };
+
+        sink(AdapterEvent::new(
+            EventKind::Usage,
+            serde_json::json!({
+                "usage": { "input": 240, "output": 9, "cacheRead": 6912, "cost": { "total": 0.5 } }
+            }),
+        ));
+        Ok(RunOutcome::completed(text, None))
+    }
+}
+
 struct EchoAdapter {
     opens: AtomicUsize,
 }
@@ -852,6 +1118,16 @@ fn resume(service: &mut SessionService, options: &Options) -> Result<serde_json:
 }
 
 fn registry_for(options: &Options) -> Result<Registry, String> {
+    if options.action == "rail" {
+        // The rail is a read of the ledger; the runtime only has to produce a
+        // believable ledger, so a local double keeps the case token-free while
+        // every row the panes render is still real.
+        let mut registry = Registry::new();
+        registry
+            .register(std::sync::Arc::new(RailAdapter::new()))
+            .map_err(|error| error.to_string())?;
+        return Ok(registry);
+    }
     // `--list-runtime` narrows the registry to one adapter, so a case can prove
     // failure handling for a runtime that is absent on this machine.
     let mut registry = match options.list_runtime.as_deref() {

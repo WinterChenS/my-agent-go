@@ -1,3 +1,4 @@
+import type { RailExec, RailView } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
 import { sampleChat } from './sampleData'
@@ -11,8 +12,18 @@ const TABS: Array<{ id: RailTab; icon: string; key: 'chat.rail.browser' | 'chat.
   { id: 'exec', icon: 'terminal', key: 'chat.rail.exec' },
 ]
 
+/** What the live rail needs from the page. */
+export interface RailLive {
+  view: RailView | null
+  /** A turn is in flight: a call without a result is pending, not lost. */
+  running: boolean
+  /** Send the reader back to the turn a row came from. */
+  onTurn: (runId: string) => void
+}
+
 export default function ChatRail({
   sample,
+  live,
   open,
   tab,
   onTab,
@@ -20,6 +31,7 @@ export default function ChatRail({
   onNotice,
 }: {
   sample: boolean
+  live?: RailLive
   open: boolean
   tab: RailTab
   onTab: (tab: RailTab) => void
@@ -27,9 +39,15 @@ export default function ChatRail({
   onNotice: (message: string) => void
 }) {
   const { t } = useI18n()
+  const view = live?.view ?? null
   const counts = sample
     ? { browser: 0, artifacts: 3, sources: 4, exec: 0 }
-    : { browser: 0, artifacts: 0, sources: 0, exec: 0 }
+    : {
+        browser: view?.browser.state === 'local' ? 1 : 0,
+        artifacts: view?.artifacts.length ?? 0,
+        sources: view?.sources.length ?? 0,
+        exec: view?.exec.length ?? 0,
+      }
 
   return (
     <aside
@@ -65,10 +83,34 @@ export default function ChatRail({
       </div>
 
       <div className="chat-rail-body">
-        {!sample ? (
+        {!sample && !view ? (
           <div className="chat-rail-empty">
             <Icon name="panel" size={20} />
             <p>{t('chat.rail.empty')}</p>
+          </div>
+        ) : null}
+
+        {!sample && view && tab === 'exec' ? (
+          <div role="tabpanel" id="chat-rail-pane-exec" aria-labelledby="chat-rail-tab-exec" className="chat-rail-pane">
+            <LiveExec view={view} running={live?.running ?? false} onTurn={live?.onTurn} />
+          </div>
+        ) : null}
+
+        {!sample && view && tab === 'artifacts' ? (
+          <div role="tabpanel" id="chat-rail-pane-artifacts" aria-labelledby="chat-rail-tab-artifacts" className="chat-rail-pane">
+            <LiveArtifacts view={view} onTurn={live?.onTurn} />
+          </div>
+        ) : null}
+
+        {!sample && view && tab === 'sources' ? (
+          <div role="tabpanel" id="chat-rail-pane-sources" aria-labelledby="chat-rail-tab-sources" className="chat-rail-pane">
+            <LiveSources view={view} onTurn={live?.onTurn} />
+          </div>
+        ) : null}
+
+        {!sample && view && tab === 'browser' ? (
+          <div role="tabpanel" id="chat-rail-pane-browser" aria-labelledby="chat-rail-tab-browser" className="chat-rail-pane">
+            <LiveBrowser view={view} />
           </div>
         ) : null}
 
@@ -221,4 +263,237 @@ export default function ChatRail({
       </div>
     </aside>
   )
+}
+
+/** Execution: one row per tool call, each one pointing at its turn. */
+function LiveExec({
+  view,
+  running,
+  onTurn,
+}: {
+  view: RailView
+  running: boolean
+  onTurn?: (runId: string) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div className="chat-rail-section-head">
+        <span>{t('chat.rail.exec.heading', { count: view.exec.length })}</span>
+      </div>
+      {view.exec.length === 0 ? (
+        <div className="chat-rail-hint" data-testid="chat-rail-exec-empty">
+          {t('chat.rail.exec.empty')}
+        </div>
+      ) : (
+        view.exec.map((row) => (
+          <button
+            key={`${row.runId}:${row.seq}`}
+            type="button"
+            className="chat-exec-row is-button"
+            data-testid="chat-rail-exec"
+            data-turn={row.turn}
+            data-run={row.runId}
+            data-status={row.status}
+            onClick={() => onTurn?.(row.runId)}
+          >
+            <span className="chat-exec-time">{timeOf(row.at)}</span>
+            <div>
+              <div className="chat-exec-name">
+                {row.tool}
+                <span className="chat-exec-turn">{t('chat.rail.exec.turn', { turn: row.turn })}</span>
+              </div>
+              <div className="chat-exec-sub">{row.label}</div>
+            </div>
+            <ExecBadge status={row.status} running={running} />
+          </button>
+        ))
+      )}
+      {view.turns.length > 0 ? <div className="chat-rail-section-head">{t('chat.rail.exec.usage')}</div> : null}
+      {view.turns.length > 0 ? (
+        <div className="chat-usage-card" data-testid="chat-rail-usage">
+          <div>
+            <span>{t('chat.rail.exec.turns')}</span>
+            <b>{view.turns.length}</b>
+          </div>
+          <div>
+            <span>{t('chat.rail.exec.input')}</span>
+            <b>{view.usage ? compact(view.usage.input) : t('chat.rail.exec.noUsage')}</b>
+          </div>
+          <div>
+            <span>{t('chat.rail.exec.output')}</span>
+            <b>{view.usage ? compact(view.usage.output) : t('chat.rail.exec.noUsage')}</b>
+          </div>
+          <div>
+            <span>{t('chat.rail.exec.cache')}</span>
+            <b>{view.usage ? compact(view.usage.cacheRead) : t('chat.rail.exec.noUsage')}</b>
+          </div>
+          <div>
+            <span>{t('chat.rail.exec.cost')}</span>
+            <b>{view.usage && view.usage.cost > 0 ? `$${view.usage.cost.toFixed(4)}` : t('chat.rail.exec.noUsage')}</b>
+          </div>
+        </div>
+      ) : null}
+      {view.outsidePaths > 0 ? (
+        <div className="chat-rail-hint" data-testid="chat-rail-outside">
+          {t('chat.rail.exec.outside', { count: view.outsidePaths })}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function ExecBadge({ status, running }: { status: RailExec['status']; running: boolean }) {
+  const { t } = useI18n()
+  if (status === 'running' && !running) {
+    // A call that never got a result because the process went away.
+    return <span className="chat-badge chat-tone-warn">{t('chat.rail.exec.noresult')}</span>
+  }
+  if (status === 'running') {
+    return <span className="chat-badge">{t('chat.rail.exec.running')}</span>
+  }
+  if (status === 'failed') {
+    return <span className="chat-badge chat-tone-danger">{t('chat.rail.exec.failed')}</span>
+  }
+  if (status === 'no_result') {
+    return <span className="chat-badge chat-tone-warn">{t('chat.rail.exec.noresult')}</span>
+  }
+  return <span className="chat-badge chat-tone-success">{t('chat.rail.exec.done')}</span>
+}
+
+/** Artifacts: real files, each one returning to the turn that wrote it. */
+function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div className="chat-rail-section-head">
+        <span>{t('chat.rail.artifacts.heading', { count: view.artifacts.length })}</span>
+      </div>
+      {view.artifacts.length === 0 ? (
+        <div className="chat-rail-hint" data-testid="chat-rail-artifacts-empty">
+          {t('chat.rail.artifacts.empty')}
+        </div>
+      ) : (
+        view.artifacts.map((artifact) => (
+          <button
+            key={artifact.path}
+            type="button"
+            className="chat-file-row"
+            data-testid="chat-rail-artifact"
+            data-turn={artifact.turn}
+            data-run={artifact.runId}
+            title={artifact.path}
+            onClick={() => onTurn?.(artifact.runId)}
+          >
+            <span className="chat-file-ext">{(artifact.ext || 'file').slice(0, 4)}</span>
+            <span className="chat-file-main">
+              <span className="chat-file-name">{artifact.relative}</span>
+              <span className="chat-file-sub">
+                {t('chat.rail.artifacts.turn', { turn: artifact.turn })} · {size(artifact.bytes)}
+              </span>
+            </span>
+            <span className="chat-badge chat-tone-success">{t('chat.rail.artifacts.saved')}</span>
+          </button>
+        ))
+      )}
+      <div className="chat-rail-foot">
+        <span>{t('chat.rail.artifacts.confined')}</span>
+      </div>
+    </>
+  )
+}
+
+/** Sources: the same numbers the transcript prints as `[n]`. */
+function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div className="chat-rail-section-head">
+        <span>{t('chat.rail.sources.heading', { count: view.sources.length })}</span>
+      </div>
+      {view.sources.length === 0 ? (
+        <div className="chat-rail-hint" data-testid="chat-rail-sources-empty">
+          {t('chat.rail.sources.empty')}
+        </div>
+      ) : (
+        view.sources.map((source) => (
+          <button
+            key={source.url}
+            type="button"
+            className="chat-source is-button"
+            data-testid="chat-rail-source"
+            data-number={source.number}
+            data-run={source.runId}
+            onClick={() => onTurn?.(source.runId)}
+          >
+            <div className="chat-source-head">
+              <span className="chat-source-num">{source.number}</span>
+              <span className="chat-source-title">{source.host}</span>
+              <span className="chat-source-turn">{t('chat.rail.sources.turn', { turn: source.turn })}</span>
+            </div>
+            <div className="chat-source-url">{source.url}</div>
+          </button>
+        ))
+      )}
+    </>
+  )
+}
+
+/** Browser: a local page in a frame with no permissions, or the reason there
+ *  is none. It never shows a page this build did not read from the project. */
+function LiveBrowser({ view }: { view: RailView }) {
+  const { t } = useI18n()
+  const page = view.browser.page
+  if (view.browser.state !== 'local' || !page) {
+    return (
+      <div className="chat-rail-empty" data-testid="chat-rail-browser-unavailable">
+        <Icon name="globe" size={20} />
+        <p>{t('chat.rail.browser.unavailable')}</p>
+        {view.browser.reason ? <small className="mono">{view.browser.reason}</small> : null}
+      </div>
+    )
+  }
+  return (
+    <div className="chat-browser" data-testid="chat-rail-browser">
+      <div className="chat-browser-chrome">
+        <span className="chat-browser-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="chat-browser-url">
+          <Icon name="file" size={10} />
+          {page.relative}
+        </span>
+      </div>
+      <iframe
+        className="chat-browser-frame"
+        data-testid="chat-rail-browser-frame"
+        title={page.relative}
+        sandbox={page.sandbox}
+        srcDoc={page.html}
+      />
+      <div className="chat-browser-actions">
+        <span className="chat-browser-note">{t('chat.rail.browser.sandboxed')}</span>
+        <span className="mono chat-browser-rendered">{size(page.bytes)}</span>
+      </div>
+    </div>
+  )
+}
+
+function timeOf(at: string): string {
+  const match = /T(\d{2}:\d{2})/.exec(at)
+  return match ? match[1] : ''
+}
+
+function size(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
+function compact(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
+  return String(value)
 }

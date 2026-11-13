@@ -479,3 +479,213 @@ describe('chat context and approvals', () => {
     })
   })
 })
+
+describe('chat rail', () => {
+  /** A rail view shaped like the host's, with one of everything. */
+  function railView(empty = false) {
+    if (empty) {
+      return {
+        turns: [],
+        exec: [],
+        artifacts: [],
+        sources: [],
+        browser: { state: 'unavailable', reason: 'no local page in this session' },
+        outsidePaths: 0,
+        empty: true,
+      }
+    }
+    return {
+      turns: [
+        {
+          turn: 1,
+          runId: 'pi-1:r1',
+          status: 'completed',
+          startedAt: '2026-11-13T00:00:00Z',
+          endedAt: '2026-11-13T00:00:01Z',
+          calls: 1,
+        },
+      ],
+      exec: [
+        {
+          turn: 1,
+          runId: 'pi-1:r1',
+          tool: 'write',
+          label: 'out/report.md',
+          status: 'done',
+          seq: 3,
+          at: '2026-11-13T00:00:00Z',
+        },
+      ],
+      artifacts: [
+        {
+          path: 'D:/project/out/report.md',
+          relative: 'out/report.md',
+          bytes: 2048,
+          turn: 1,
+          runId: 'pi-1:r1',
+          seq: 3,
+          touches: 1,
+          ext: 'md',
+        },
+      ],
+      sources: [
+        {
+          number: 1,
+          url: 'https://docs.example.com/a',
+          host: 'docs.example.com',
+          turn: 1,
+          runId: 'pi-1:r1',
+          origin: 'message',
+        },
+      ],
+      usage: { input: 240, output: 9, cacheRead: 6912, cacheWrite: 0, cost: 0.5, events: 1 },
+      browser: {
+        state: 'local',
+        reason: '',
+        page: { relative: 'out/page.html', sandbox: '', html: '<h1>preview</h1>', bytes: 19 },
+      },
+      outsidePaths: 1,
+      empty: false,
+    }
+  }
+
+  function installRailHost(empty = false) {
+    const calls: string[] = []
+    const internals = {
+      invoke: async (command: string) => {
+        calls.push(command)
+        if (command === 'catalog_snapshot' || command === 'catalog_refresh') {
+          return catalogSnapshot(false)
+        }
+        if (command === 'session_list') return { sessions: [], total: 0 }
+        if (command === 'session_projects') return []
+        if (command === 'session_open') return summary()
+        if (command === 'session_events') return []
+        if (command === 'session_send') return { runId: 'pi-1:r1', status: 'completed', eventCount: 0 }
+        if (command === 'session_detail') return detail('see [1] for details')
+        if (command === 'session_rail') return railView(empty)
+        if (command === 'session_context_list') return []
+        return null
+      },
+    }
+    ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+      internals as unknown as TauriInternals
+    return { calls }
+  }
+
+  async function sendOneTurn() {
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'write the report')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    // The rail is read after the turn, and the artifact pane is not the tab
+    // that opens first: wait for the count it announces, then switch.
+    await waitFor(() => expect(screen.getByRole('tab', { name: '输出物 1' })).toBeInTheDocument())
+  }
+
+  it('lists real artifacts and sends the reader back to the turn that wrote them', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await sendOneTurn()
+
+    await userEvent.click(screen.getByRole('tab', { name: '输出物 1' }))
+    const row = screen.getByTestId('chat-rail-artifact')
+    expect(row).toHaveTextContent('out/report.md')
+    expect(row).toHaveTextContent('第 1 轮')
+    expect(row).toHaveAttribute('data-turn', '1')
+
+    // Clicking the row highlights the turn it came from: the artifact is
+    // traceable, not just listed.
+    const turn = document.querySelector('[data-testid="chat-message-agent"][data-run="pi-1:r1"]')
+    expect(turn).not.toBeNull()
+    await userEvent.click(row)
+    await waitFor(() => expect(turn).toHaveClass('is-focused'))
+  })
+
+  it('shows execution rows with their turn and the runtime-reported usage', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await sendOneTurn()
+
+    await userEvent.click(screen.getByRole('tab', { name: '执行' }))
+    const row = screen.getByTestId('chat-rail-exec')
+    expect(row).toHaveAttribute('data-status', 'done')
+    expect(row).toHaveTextContent('write')
+    expect(row).toHaveTextContent('out/report.md')
+    expect(screen.getByTestId('chat-rail-usage')).toHaveTextContent('$0.5000')
+    // Paths outside the project are counted, and say so, instead of appearing
+    // as rows the user could click.
+    expect(screen.getByTestId('chat-rail-outside')).toHaveTextContent('1 个路径')
+  })
+
+  it('turns a [n] marker into the link to the same numbered source', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await sendOneTurn()
+
+    const cite = await screen.findByTestId('chat-cite')
+    expect(cite).toHaveAttribute('data-number', '1')
+    await userEvent.click(cite)
+    const source = await screen.findByTestId('chat-rail-source')
+    expect(source).toHaveAttribute('data-number', '1')
+    expect(source).toHaveTextContent('https://docs.example.com/a')
+  })
+
+  it('renders a local page only inside an empty sandbox', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await sendOneTurn()
+
+    await userEvent.click(screen.getByRole('tab', { name: '浏览器' }))
+    const frame = screen.getByTestId('chat-rail-browser-frame')
+    // sandbox="" is the permission: no scripts, no same-origin, no navigation.
+    expect(frame).toHaveAttribute('sandbox', '')
+    expect(frame).toHaveAttribute('title', 'out/page.html')
+  })
+
+  it('says a pane is empty instead of showing placeholder rows', async () => {
+    installRailHost(true)
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.type(composer, 'hello')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '执行' })).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('tab', { name: '执行' }))
+    await waitFor(() => expect(screen.getByTestId('chat-rail-exec-empty')).toBeInTheDocument())
+
+    expect(screen.queryAllByTestId('chat-rail-exec')).toHaveLength(0)
+    await userEvent.click(screen.getByRole('tab', { name: '输出物 0' }))
+    expect(screen.getByTestId('chat-rail-artifacts-empty')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '引用 0' }))
+    expect(screen.getByTestId('chat-rail-sources-empty')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '浏览器' }))
+    expect(screen.getByTestId('chat-rail-browser-unavailable')).toHaveTextContent(
+      '没有可在本机预览的页面',
+    )
+  })
+})

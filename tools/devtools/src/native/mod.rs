@@ -18,6 +18,7 @@ mod case_connectors;
 mod case_i18n;
 mod case_library;
 mod case_mcp;
+mod case_rail_live;
 mod case_schedules;
 mod case_settings;
 mod case_shell;
@@ -65,6 +66,7 @@ pub(crate) fn run(
         NativeKind::Workbench => case_workbench::run(runner, sha, target),
         NativeKind::Chat => case_chat::run(runner, sha, target),
         NativeKind::ChatLive => case_chat_live::run(runner, sha, target),
+        NativeKind::RailLive => case_rail_live::run(runner, sha, target),
         NativeKind::Agents => case_agents::run(runner, sha, target),
         NativeKind::Skills => case_skills::run(runner, sha, target),
         NativeKind::Mcp => case_mcp::run(runner, sha, target),

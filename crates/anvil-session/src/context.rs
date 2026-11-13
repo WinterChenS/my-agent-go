@@ -359,7 +359,7 @@ fn resolve_path(root: &Path, reference: &str) -> Result<PathBuf> {
 ///
 /// Windows paths compare case-insensitively; on every platform the comparison is
 /// by component so `D:\work\anvil` does not contain `D:\work\anvil-other`.
-fn is_within(root: &Path, path: &Path) -> bool {
+pub(crate) fn is_within(root: &Path, path: &Path) -> bool {
     let Ok(root) = std::fs::canonicalize(root) else {
         return false;
     };

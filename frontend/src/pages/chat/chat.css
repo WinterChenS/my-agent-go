@@ -2832,3 +2832,102 @@ button.chat-badge:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---- live rail rows -------------------------------------------------------
+   Every row is a button: the panes exist to send the reader back to a turn, so
+   a row that cannot be clicked would be a dead end. The reset keeps the button
+   looking like the read-only row it replaced. */
+.chat-exec-row.is-button,
+.chat-source.is-button {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-exec-row.is-button:hover,
+.chat-source.is-button:hover {
+  background: var(--surface-2);
+}
+
+.chat-exec-row.is-button:focus-visible,
+.chat-source.is-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.chat-exec-turn {
+  margin-left: var(--space-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+}
+
+.chat-source {
+  width: 100%;
+}
+
+.chat-source-turn {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+/* An honest empty pane: one sentence, no placeholder rows. */
+.chat-rail-hint {
+  padding: var(--space-5) var(--space-7);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* The local page preview. Sandbox="" already blocks scripts; the border keeps
+   it visually inside the pane so it cannot be mistaken for app chrome. */
+.chat-browser-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 220px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.chat-browser-note {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+/* A citation marker in the transcript: the number is the link. */
+.chat-cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  vertical-align: super;
+  cursor: pointer;
+}
+
+.chat-cite:hover {
+  border-color: var(--accent);
+}
+
+/* The turn a rail row jumped to. */
+.chat-msg.is-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
