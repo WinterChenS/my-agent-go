@@ -286,10 +286,30 @@
         "R2-05"
       ],
       "cases": [
-        "R2-01-session-contract",
-        "R2-01-pi-live",
-        "R2-01-codex-live",
-        "R2-01-abort-live"
+        {
+          "id": "R2-01-session-contract",
+          "task": "R2-01",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-01-pi-live",
+          "task": "R2-01",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-01-codex-live",
+          "task": "R2-01",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-01-abort-live",
+          "task": "R2-01",
+          "evidenceKind": "automation",
+          "required": true
+        }
       ]
     }
   ]
