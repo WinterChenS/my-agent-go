@@ -270,6 +270,31 @@ impl SessionAdapter for CodexAdapter {
 }
 
 /// Map one notification onto the ledger vocabulary.
+/// Text of one finished message item, whatever shape codex used.
+///
+/// The runtime has shipped `content: [{type, text}]`, a bare `text` and, in
+/// 0.153, an item whose content array carries `output_text` parts; all three are
+/// accepted rather than guessing one.
+fn item_text(item: &Value) -> String {
+    let from_parts = item
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .unwrap_or_default();
+    if !from_parts.is_empty() {
+        return from_parts;
+    }
+    item.get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn translate(method: &str, params: &Value) -> Vec<AdapterEvent> {
     match method {
         "item/agentMessage/delta" => {
@@ -280,21 +305,24 @@ fn translate(method: &str, params: &Value) -> Vec<AdapterEvent> {
             let item = params.get("item").cloned().unwrap_or(Value::Null);
             match item.get("type").and_then(Value::as_str).unwrap_or("") {
                 "agentMessage" => {
-                    let text = item
-                        .get("content")
-                        .and_then(Value::as_array)
-                        .map(|parts| {
-                            parts
-                                .iter()
-                                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                                .collect::<String>()
-                        })
-                        .unwrap_or_default();
-                    vec![AdapterEvent::new(
-                        EventKind::MessageCompleted,
-                        json!({ "text": text, "finalText": text }),
-                    )]
+                    // Codex reports the finished message twice: a
+                    // `message/completed`-style item with content, and the
+                    // deltas that built it. Only a non-empty item is an event of
+                    // its own; an empty one would put a blank assistant message
+                    // in the ledger right before the real text.
+                    let text = item_text(&item);
+                    if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![AdapterEvent::new(
+                            EventKind::MessageCompleted,
+                            json!({ "text": text }),
+                        )]
+                    }
                 }
+                // The prompt is already in the ledger from `send`; echoing it
+                // back as an event only adds noise.
+                "userMessage" => Vec::new(),
                 "commandExecution" => vec![AdapterEvent::new(
                     EventKind::ToolResult,
                     json!({
@@ -319,11 +347,25 @@ fn translate(method: &str, params: &Value) -> Vec<AdapterEvent> {
                         "args": item.get("command").cloned().unwrap_or(Value::Null),
                     }),
                 )],
+                // Messages are carried by their deltas and their completion;
+                // announcing them at `started` says nothing the UI can show.
+                "agentMessage" | "userMessage" => Vec::new(),
                 other => vec![AdapterEvent::new(
                     EventKind::Unknown,
                     json!({ "type": other }),
                 )],
             }
+        }
+        // Token accounting is per thread and arrives as its own notification.
+        "thread/tokenUsage/updated" => {
+            let usage = params
+                .get("usage")
+                .cloned()
+                .unwrap_or_else(|| params.clone());
+            vec![AdapterEvent::new(
+                EventKind::Usage,
+                json!({ "usage": usage }),
+            )]
         }
         "error" => {
             let message = params
@@ -542,6 +584,61 @@ mod tests {
     fn unknown_notifications_are_kept() {
         let events = translate("brand/new", &json!({}));
         assert_eq!(events[0].kind, EventKind::Unknown);
+    }
+
+    #[test]
+    fn message_items_do_not_double_report_a_turn() {
+        // Observed on 0.153: `item/started` and `item/completed` for both the
+        // user message and the agent message. Only a completed message with
+        // text is an event; the prompt is already in the ledger.
+        assert!(
+            translate(
+                "item/started",
+                &json!({ "item": { "type": "userMessage" } })
+            )
+            .is_empty()
+        );
+        assert!(
+            translate(
+                "item/completed",
+                &json!({ "item": { "type": "userMessage" } })
+            )
+            .is_empty()
+        );
+        assert!(
+            translate(
+                "item/started",
+                &json!({ "item": { "type": "agentMessage" } })
+            )
+            .is_empty()
+        );
+        // An empty completion would be a blank assistant message.
+        assert!(
+            translate(
+                "item/completed",
+                &json!({ "item": { "type": "agentMessage" } })
+            )
+            .is_empty()
+        );
+
+        let full = translate(
+            "item/completed",
+            &json!({ "item": { "type": "agentMessage", "content": [{ "type": "output_text", "text": "ok" }] } }),
+        );
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].kind, EventKind::MessageCompleted);
+        assert_eq!(full[0].payload["text"], "ok");
+    }
+
+    #[test]
+    fn thread_token_usage_becomes_a_usage_event() {
+        let events = translate(
+            "thread/tokenUsage/updated",
+            &json!({ "threadId": "t", "usage": { "totalTokens": 42 } }),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::Usage);
+        assert_eq!(events[0].payload["usage"]["totalTokens"], 42);
     }
 
     #[test]

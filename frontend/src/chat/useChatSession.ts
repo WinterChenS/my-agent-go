@@ -65,8 +65,15 @@ export interface ChatSessionView {
 }
 
 function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
+  // The catalog's row order is whatever the adapters discovered in; sorting
+  // makes the default pick — and the dropdown — the same on every launch.
   return models
     .filter((model) => keep.includes(model.runtimeId))
+    .sort((left, right) =>
+      left.runtimeId === right.runtimeId
+        ? left.modelId.localeCompare(right.modelId)
+        : left.runtimeId.localeCompare(right.runtimeId),
+    )
     .map((model) => ({
       runtimeId: model.runtimeId,
       modelId: model.modelId,
