@@ -354,6 +354,7 @@ fn service_on(path: &std::path::Path, adapters: Vec<Arc<dyn SessionAdapter>>) ->
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
+        .join("..")
         .join(".tmp")
         .join("test")
         .join("session-contract")
