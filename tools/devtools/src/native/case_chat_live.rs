@@ -12,9 +12,11 @@ use crate::runner::AutomationRunner;
 use super::NativeOutcome;
 use super::session::Session;
 
-/// The composer's accessible name is its `aria-label`; nothing else on the page
-/// shares it, so a name lookup is enough and no role guess is needed.
-const COMPOSER_LABEL: &str = "继续追问，或 @ 引用文件与 Agent…";
+/// WebView2 puts the textarea's `aria-label` on an unnamed wrapper group, so the
+/// control is located by role. The page has exactly one textbox at this point
+/// (the history drawer is closed), and the composer is the only thing that can
+/// accept text here.
+const COMPOSER_ROLE: &str = "textbox";
 
 /// Asking for a fixed word makes the assertion unambiguous: the reply either is
 /// `ok` or the case fails.
@@ -52,7 +54,7 @@ fn run_case(session: &mut Session<'_>) {
 
     // The composer stays disabled until the catalog scan has produced a model
     // list, so this lookup doubles as the "the scan finished" wait.
-    let Some(composer) = session.find_ref("chat-composer", None, COMPOSER_LABEL, 60) else {
+    let Some(composer) = session.find_ref_role("chat-composer", COMPOSER_ROLE, 60) else {
         return;
     };
     let typed = StepSpec::owned(
