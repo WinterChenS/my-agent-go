@@ -58,9 +58,16 @@ fn run_case(session: &mut Session<'_>) {
     else {
         return;
     };
-    // A Chromium textarea has no UIA write pattern, so semantic delivery cannot
-    // type into it; `--headed` is the documented physical path and needs the
-    // window to hold focus, which `activate` already established.
+    // A Chromium textarea has no UIA write pattern, so semantic delivery is
+    // refused. Physical delivery needs the caret already in the control: focus
+    // the window, click the composer's centre, then type. `type --headed` alone
+    // loses focus to the WebView between focusing and delivering.
+    let Some(bounds) = session.element_bounds("chat-composer", &composer) else {
+        return;
+    };
+    if !session.click_at("chat-composer", bounds) {
+        return;
+    }
     let typed = StepSpec::owned(
         "chat-type-prompt",
         "agent-desktop",
