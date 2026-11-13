@@ -11,6 +11,7 @@ use crate::assets::DiskAssets;
 use crate::catalog::CatalogState;
 use crate::host::HostConfig;
 use crate::inject::InitialState;
+use crate::session::SessionState;
 use crate::state::{HostState, create_main_window, start_system_theme_poller};
 use crate::system_theme;
 
@@ -37,11 +38,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "catalog: database {}",
         catalog.database().display()
     ));
+    let session = SessionState::new(
+        config.data_dir.join("sessions.sqlite"),
+        config.data_dir.join("sessions"),
+    );
+    config
+        .log
+        .info(&format!("session: ledger {}", session.database().display()));
     let state = HostState::new(config, system_dark, injection);
 
     tauri::Builder::default()
         .manage(state)
         .manage(catalog)
+        .manage(session)
         .invoke_handler(tauri::generate_handler![
             crate::commands::get_preferences,
             crate::commands::set_preferences,
@@ -52,7 +61,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_add_model,
             crate::catalog::catalog_verify_model,
             crate::catalog::catalog_set_default_model,
-            crate::catalog::catalog_probe_mcp
+            crate::catalog::catalog_probe_mcp,
+            crate::session::session_list,
+            crate::session::session_detail,
+            crate::session::session_events,
+            crate::session::session_open,
+            crate::session::session_send,
+            crate::session::session_abort,
+            crate::session::session_rename,
+            crate::session::session_pin,
+            crate::session::session_archive,
+            crate::session::session_delete
         ])
         .setup(|app| {
             create_main_window(app)?;

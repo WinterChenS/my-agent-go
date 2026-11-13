@@ -117,6 +117,7 @@ pub enum NativeKind {
     I18n,
     Workbench,
     Chat,
+    ChatLive,
     Agents,
     Skills,
     Mcp,
@@ -821,6 +822,7 @@ pub fn case_plans() -> Vec<CasePlan> {
             ],
         ),
         CasePlan::native("R1-08-native-catalog", NativeKind::Catalog),
+        CasePlan::native("R2-01-native-chat", NativeKind::ChatLive),
         CasePlan::automation("R2-01-session-contract", session_contract_suite()),
         CasePlan::automation(
             "R2-01-pi-live",

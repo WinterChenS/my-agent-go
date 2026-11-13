@@ -309,6 +309,12 @@
           "task": "R2-01",
           "evidenceKind": "automation",
           "required": true
+        },
+        {
+          "id": "R2-01-native-chat",
+          "task": "R2-01",
+          "evidenceKind": "native",
+          "required": true
         }
       ]
     }

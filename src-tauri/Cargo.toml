@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 anvil-catalog = { path = "../crates/anvil-catalog" }
 anvil-paths = { path = "../crates/anvil-paths" }
+anvil-session = { path = "../crates/anvil-session" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }

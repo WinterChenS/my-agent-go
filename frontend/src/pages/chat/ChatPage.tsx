@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { useChatSession, type ModelChoice } from '../../chat/useChatSession'
 import { useI18n } from '../../i18n/LanguageProvider'
 import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
@@ -12,6 +13,26 @@ import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMe
 import './chat.css'
 
 type Attachment = { id: string; name: string; kind: 'file' | 'skill'; size?: string }
+
+/** What the composer may do when a runtime is actually connected. */
+interface LiveComposer {
+  models: ModelChoice[]
+  model: ModelChoice | null
+  onModel: (choice: ModelChoice) => void
+  onSend: (text: string) => void
+  onStop: () => void
+  running: boolean
+}
+
+/** `runtime::model` is unique even when two runtimes publish the same id. */
+function modelKey(choice: ModelChoice): string {
+  return `${choice.runtimeId}::${choice.modelId}`
+}
+
+function basename(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts.length > 0 ? parts[parts.length - 1] : ''
+}
 
 function useNarrow() {
   const [narrow, setNarrow] = useState(() => {
@@ -32,6 +53,7 @@ function useNarrow() {
 export default function ChatPage() {
   const { t, language } = useI18n()
   const sample = useChatSample()
+  const live = useChatSession({ enabled: !sample })
   const narrow = useNarrow()
   const [railOpen, setRailOpen] = useState(!narrow)
   const [railTab, setRailTab] = useState<RailTab>('browser')
@@ -75,6 +97,45 @@ export default function ChatPage() {
 
   const showNotice = (message: string) => setNotice(message)
 
+  // Live mode is the real desktop path: the ledger holds the conversation.
+  // Sample mode keeps the prototype data and every control inert.
+  // The composer waits for the model list: a chat with no model can only fail.
+  const liveReady = !sample && live.status === 'ready' && live.models.length > 0
+  const liveSession = live.current?.session ?? null
+  const liveMessages = live.current?.messages ?? []
+
+  const sendLive = (text: string) => {
+    // `send` resolves with the failure message (when there is one) instead of
+    // rejecting, so a failed turn never becomes an unhandled rejection.
+    void live.send(text).then((failure) => {
+      if (failure) setNotice(t('chat.live.failed', { message: failure }))
+    })
+  }
+
+  const stopLive = () => {
+    void live.abort().then((stopped) => {
+      setNotice(stopped ? t('chat.live.stopped') : t('chat.live.nothingRunning'))
+    })
+  }
+
+  const openHistorySession = (id: string) => {
+    void live.select(id)
+    setHistoryOpen(false)
+  }
+
+  const renameHistorySession = (id: string) => {
+    const session = live.sessions.find((item) => item.id === id)
+    if (!session || typeof window.prompt !== 'function') return
+    const next = window.prompt(t('chat.live.rename'), session.title)
+    if (!next || !next.trim() || next.trim() === session.title) return
+    void live.rename(id, next.trim())
+  }
+
+  const deleteHistorySession = (id: string) => {
+    if (typeof window.confirm === 'function' && !window.confirm(t('chat.live.delete'))) return
+    void live.remove(id)
+  }
+
   const openDialog = (kind: ChatDialogKind, trigger: HTMLElement) => {
     dialogTrigger.current = trigger
     setDialog(kind)
@@ -117,8 +178,21 @@ export default function ChatPage() {
                 <span className="sep">/</span>
                 <span className="mono">{t(`chat.composer.permission.${sampleChat.permission}` as MessageKey)}</span>
               </>
+            ) : liveSession ? (
+              <>
+                <span className="chat-project-mark">
+                  <Icon name="folder" size={10} />
+                  {basename(liveSession.projectPath) || t('chat.live.localProject')}
+                </span>
+                <span className="sep">/</span>
+                <span>{liveSession.runtimeId}</span>
+                <span className="sep">/</span>
+                <span className="mono">{liveSession.model}</span>
+                <span className="sep">/</span>
+                <span className="mono">{liveSession.status}</span>
+              </>
             ) : (
-              <span>{t('chat.normal.subtitle')}</span>
+              <span>{live.status === 'unavailable' ? t('chat.normal.subtitle') : t('chat.live.title')}</span>
             )}
           </div>
         </div>
@@ -213,7 +287,30 @@ export default function ChatPage() {
                   />
                 ))}
               </div>
-            ) : (
+            ) : live.status === 'loading' ? (
+              <div className="chat-empty" data-testid="chat-loading" role="status">
+                <span className="chat-empty-icon">
+                  <Icon name="refresh" size={22} />
+                </span>
+                <h2>{t('chat.live.loading')}</h2>
+              </div>
+            ) : live.status === 'error' ? (
+              <div className="chat-empty" data-testid="chat-error" role="alert">
+                <span className="chat-empty-icon">
+                  <Icon name="alert" size={22} />
+                </span>
+                <h2>{t('chat.live.emptyTitle')}</h2>
+                <p>{t('chat.live.error', { message: live.error ?? '' })}</p>
+              </div>
+            ) : live.status === 'ready' && live.models.length === 0 ? (
+              <div className="chat-empty" data-testid="chat-connecting" role="status">
+                <span className="chat-empty-icon">
+                  <Icon name="refresh" size={22} />
+                </span>
+                <h2>{t('chat.live.connecting')}</h2>
+                <p>{t('chat.live.loading')}</p>
+              </div>
+            ) : live.status === 'unavailable' ? (
               <div className="chat-empty" data-testid="chat-empty" role="status">
                 <span className="chat-empty-icon">
                   <Icon name="message" size={22} />
@@ -221,11 +318,63 @@ export default function ChatPage() {
                 <h2>{t('chat.empty.title')}</h2>
                 <p>{t('chat.empty.body')}</p>
               </div>
+            ) : liveSession ? (
+              <div className="chat-thread-inner" data-testid="chat-message-list" aria-label={liveSession.title}>
+                {liveMessages.map((message) =>
+                  message.role === 'user' ? (
+                    <article className="chat-msg chat-msg-user" data-testid="chat-message-user" key={message.id}>
+                      <div className="chat-bubble">{message.text}</div>
+                    </article>
+                  ) : (
+                    <article className="chat-msg" data-testid="chat-message-agent" key={message.id}>
+                      <div className="chat-agent-head">
+                        <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
+                        <span className="chat-agent-name">{liveSession.runtimeId}</span>
+                        <span className="chat-agent-model">{liveSession.model}</span>
+                      </div>
+                      <div className="chat-prose chat-live-text">{message.text}</div>
+                    </article>
+                  ),
+                )}
+                {live.running ? (
+                  <article className="chat-msg" data-testid="chat-message-streaming">
+                    <div className="chat-agent-head">
+                      <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
+                      <span className="chat-agent-name">{liveSession.runtimeId}</span>
+                      <span className="chat-badge">
+                        <i className="chat-dot" aria-hidden="true" />
+                        {t('chat.live.generating')}
+                      </span>
+                    </div>
+                    <div className="chat-prose chat-live-text">{live.streamText}</div>
+                  </article>
+                ) : null}
+              </div>
+            ) : (
+              <div className="chat-empty" data-testid="chat-empty" role="status">
+                <span className="chat-empty-icon">
+                  <Icon name="message" size={22} />
+                </span>
+                <h2>{t('chat.live.emptyTitle')}</h2>
+                <p>{t('chat.live.emptyBody')}</p>
+              </div>
             )}
           </div>
 
           <Composer
             sample={sample}
+            live={
+              liveReady
+                ? {
+                    models: live.models,
+                    model: live.model,
+                    onModel: live.chooseModel,
+                    onSend: sendLive,
+                    onStop: stopLive,
+                    running: live.running,
+                  }
+                : null
+            }
             language={language}
             attachments={attachments}
             setAttachments={setAttachments}
@@ -259,10 +408,34 @@ export default function ChatPage() {
       {historyOpen ? (
         <div className="chat-drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setHistoryOpen(false)}>
           <div className="chat-history-drawer" role="dialog" aria-modal="true" aria-label={t('chat.history.title')}>
-            <ChatHistoryPanel sample={sample} variant="drawer" onClose={() => {
-              setHistoryOpen(false)
-              historyToggle.current?.focus()
-            }} />
+            <ChatHistoryPanel
+              sample={sample}
+              live={
+                sample
+                  ? undefined
+                  : {
+                      sessions: live.sessions,
+                      activeId: liveSession?.id ?? null,
+                      onOpen: openHistorySession,
+                      onNew: () => {
+                        live.startNew()
+                        setHistoryOpen(false)
+                      },
+                      onRename: renameHistorySession,
+                      onPin: (id) => {
+                        const session = live.sessions.find((item) => item.id === id)
+                        void live.setPinned(id, !(session?.pinned ?? false))
+                      },
+                      onArchive: (id) => void live.setArchived(id, true),
+                      onDelete: deleteHistorySession,
+                    }
+              }
+              variant="drawer"
+              onClose={() => {
+                setHistoryOpen(false)
+                historyToggle.current?.focus()
+              }}
+            />
           </div>
         </div>
       ) : null}
@@ -534,6 +707,7 @@ scope docs/**                               允许
 
 function Composer({
   sample,
+  live,
   language,
   attachments,
   setAttachments,
@@ -545,6 +719,7 @@ function Composer({
   onProject,
 }: {
   sample: boolean
+  live: LiveComposer | null
   language: string
   attachments: Attachment[]
   setAttachments: (next: Attachment[]) => void
@@ -556,12 +731,19 @@ function Composer({
   onProject: (trigger: HTMLElement) => void
 }) {
   const { t } = useI18n()
+  const enabled = sample || live !== null
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
-    if (!sample) return
-    onNotice(t('chat.notice.send'))
+    if (sample) {
+      onNotice(t('chat.notice.send'))
+      return
+    }
+    if (!live || live.running || !text.trim()) return
+    live.onSend(text)
+    setText('')
+    setMentionOpen(false)
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -575,7 +757,8 @@ function Composer({
     }
   }
 
-  const shown = sample ? text : ''
+  const shown = enabled ? text : ''
+  const selectedModel = live?.model ? modelKey(live.model) : ''
 
   return (
     <div className="chat-composer-wrap">
@@ -599,13 +782,13 @@ function Composer({
           data-testid="chat-composer"
           rows={2}
           value={shown}
-          disabled={!sample}
-          placeholder={sample ? t('chat.composer.placeholder') : t('chat.composer.normalPlaceholder')}
+          disabled={!enabled}
+          placeholder={enabled ? t('chat.composer.placeholder') : t('chat.composer.normalPlaceholder')}
           aria-label={t('chat.composer.placeholder')}
           onChange={(event) => {
-            if (!sample) return
+            if (!enabled) return
             setText(event.target.value)
-            setMentionOpen(event.target.value.endsWith('@'))
+            setMentionOpen(sample && event.target.value.endsWith('@'))
           }}
           onKeyDown={onKeyDown}
         />
@@ -630,7 +813,7 @@ function Composer({
             ))}
           </div>
         ) : null}
-        {mentionOpen ? (
+        {mentionOpen && sample ? (
           <div className="chat-mention-list" role="listbox" aria-label={t('chat.composer.mention')}>
             {[sampleChat.attachments[0].name, sampleChat.agent].map((name) => (
               <button
@@ -684,15 +867,36 @@ function Composer({
             className="chat-composer-plus"
             aria-label={t('chat.composer.add')}
             aria-expanded={attachmentOpen}
-            disabled={!sample}
+            disabled={!enabled}
             onClick={() => setAttachmentOpen(!attachmentOpen)}
           >
             <Icon name="plus" size={14} />
           </button>
           <label className="chat-ctl" title={t('chat.composer.model')}>
             <Icon name="sparkle" size={13} />
-            <select aria-label={t('chat.composer.model')} disabled={!sample}>
-              {sample ? <option>{sampleChat.model}</option> : <option>{t('chat.composer.normalPlaceholder')}</option>}
+            <select
+              aria-label={t('chat.composer.model')}
+              data-testid="chat-model-select"
+              disabled={!enabled}
+              value={sample ? undefined : selectedModel}
+              onChange={(event) => {
+                const choice = live?.models.find((item) => modelKey(item) === event.target.value)
+                if (choice) live?.onModel(choice)
+              }}
+            >
+              {sample ? (
+                <option>{sampleChat.model}</option>
+              ) : live && live.models.length > 0 ? (
+                live.models.map((choice) => (
+                  // The id is what the runtime is actually asked for, so it is
+                  // what the composer shows; the display name is the tooltip.
+                  <option key={modelKey(choice)} value={modelKey(choice)} title={choice.displayName}>
+                    {choice.runtimeId} · {choice.modelId}
+                  </option>
+                ))
+              ) : (
+                <option>{live ? t('chat.live.noModel') : t('chat.composer.normalPlaceholder')}</option>
+              )}
             </select>
           </label>
           <label className="chat-ctl" title={t('chat.composer.thinking')}>
@@ -725,12 +929,18 @@ function Composer({
               )}
             </select>
           </label>
-          <button type="button" className="chat-ctl" disabled={!sample} onClick={() => onNotice(t('chat.notice.attachment'))}>
+          <button type="button" className="chat-ctl" disabled={!enabled} onClick={() => onNotice(t('chat.notice.attachment'))}>
             <Icon name="paperclip" size={13} />
             <span>{t('chat.composer.context', { count: attachments.length })}</span>
           </button>
           <div className="chat-composer-actions">
-            <button type="button" className="chat-btn chat-btn-sm" data-testid="chat-stop" disabled={!sample} onClick={() => onNotice(t('chat.notice.stop'))}>
+            <button
+              type="button"
+              className="chat-btn chat-btn-sm"
+              data-testid="chat-stop"
+              disabled={!enabled || (live !== null && !live.running)}
+              onClick={() => (live ? live.onStop() : onNotice(t('chat.notice.stop')))}
+            >
               <Icon name="pause" size={12} />
               {t('chat.composer.stop')}
             </button>
@@ -739,7 +949,7 @@ function Composer({
               className="chat-send"
               data-testid="chat-send"
               aria-label={t('chat.composer.send')}
-              disabled={!sample}
+              disabled={!enabled || (live !== null && (live.running || !text.trim()))}
             >
               <Icon name="send" size={14} />
             </button>
@@ -747,7 +957,7 @@ function Composer({
         </div>
       </form>
       <div className="chat-composer-foot">
-        <span>{sample ? t('chat.composer.pending') : t('chat.composer.normalHint')}</span>
+        <span>{sample ? t('chat.composer.pending') : live ? t('chat.live.hint') : t('chat.composer.normalHint')}</span>
         <span className="chat-kbdset">
           <span className="kbd">{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}</span>
           <span className="kbd">↵</span> {t('chat.composer.sendHint')}

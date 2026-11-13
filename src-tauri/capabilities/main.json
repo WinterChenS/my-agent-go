@@ -1,6 +1,6 @@
 {
   "identifier": "main-window",
-  "description": "The only capability granted to the app. It is limited to the trusted Anvil main window and to the host commands that window actually uses: preferences, the diagnostic log line and the phase-1 catalog (discovery, sync, custom model, verification, MCP probe). Event listen/unlisten is needed for the system-theme push.",
+  "description": "The only capability granted to the app. It is limited to the trusted Anvil main window and to the host commands that window actually uses: preferences, the diagnostic log line and the phase-1 catalog (discovery, sync, custom model, verification, MCP probe). Event listen/unlisten is needed for the system-theme push; and the phase-2 chat session commands (open, send, stream, stop, history).",
   "windows": [
     "main"
   ],
@@ -15,6 +15,16 @@
     "allow-catalog-add-model",
     "allow-catalog-verify-model",
     "allow-catalog-set-default-model",
-    "allow-catalog-probe-mcp"
+    "allow-catalog-probe-mcp",
+    "allow-session-list",
+    "allow-session-detail",
+    "allow-session-events",
+    "allow-session-open",
+    "allow-session-send",
+    "allow-session-abort",
+    "allow-session-rename",
+    "allow-session-pin",
+    "allow-session-archive",
+    "allow-session-delete"
   ]
 }

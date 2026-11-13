@@ -54,6 +54,56 @@ identifier = "allow-catalog-probe-mcp"
 description = "Allows connecting to one declared MCP server and enumerating its tools."
 commands.allow = ["catalog_probe_mcp"]
 
+[[permission]]
+identifier = "allow-session-list"
+description = "Allows listing chat sessions (pinned first, paging cursor, search)."
+commands.allow = ["session_list"]
+
+[[permission]]
+identifier = "allow-session-detail"
+description = "Allows reading one session with its messages and runs."
+commands.allow = ["session_detail"]
+
+[[permission]]
+identifier = "allow-session-events"
+description = "Allows reading the event ledger after a sequence number (the streaming poll)."
+commands.allow = ["session_events"]
+
+[[permission]]
+identifier = "allow-session-open"
+description = "Allows creating a session on one runtime; nothing is sent yet."
+commands.allow = ["session_open"]
+
+[[permission]]
+identifier = "allow-session-send"
+description = "Allows running one turn on a runtime and writing it to the ledger."
+commands.allow = ["session_send"]
+
+[[permission]]
+identifier = "allow-session-abort"
+description = "Allows asking the in-flight run to stop."
+commands.allow = ["session_abort"]
+
+[[permission]]
+identifier = "allow-session-rename"
+description = "Allows renaming a session."
+commands.allow = ["session_rename"]
+
+[[permission]]
+identifier = "allow-session-pin"
+description = "Allows pinning or unpinning a session in the history list."
+commands.allow = ["session_pin"]
+
+[[permission]]
+identifier = "allow-session-archive"
+description = "Allows archiving a session out of the default list, or restoring it."
+commands.allow = ["session_archive"]
+
+[[permission]]
+identifier = "allow-session-delete"
+description = "Allows deleting a session and everything derived from it."
+commands.allow = ["session_delete"]
+
 [default]
-description = "Default Anvil host command set: preferences, the diagnostic log line and the phase-1 catalog."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp"]
+description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete"]

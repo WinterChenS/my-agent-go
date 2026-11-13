@@ -15,6 +15,8 @@
 //!   log commands, and the system-theme event push;
 //! * `catalog` — runtime discovery, resource sync and the phase-1 actions
 //!   (custom model, verification, default model, MCP probe).
+//! * `session` — the phase-2 chat path: open a session on a real runtime, send a
+//!   turn, stream it by polling the ledger, stop it, and manage history.
 //!
 //! The crate is Windows-first like the rest of this migration phase, but all
 //! modules here are platform-neutral except `system_theme` (registry read).
@@ -28,6 +30,7 @@ pub mod inject;
 pub mod log;
 pub mod options;
 pub mod prefs;
+pub mod session;
 pub mod state;
 pub mod system_theme;
 
@@ -47,4 +50,14 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_verify_model",
     "catalog_set_default_model",
     "catalog_probe_mcp",
+    "session_list",
+    "session_detail",
+    "session_events",
+    "session_open",
+    "session_send",
+    "session_abort",
+    "session_rename",
+    "session_pin",
+    "session_archive",
+    "session_delete",
 ];

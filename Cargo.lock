@@ -47,6 +47,7 @@ version = "0.1.0"
 dependencies = [
  "anvil-catalog",
  "anvil-paths",
+ "anvil-session",
  "serde",
  "serde_json",
  "tauri",

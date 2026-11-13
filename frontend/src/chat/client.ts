@@ -1,0 +1,208 @@
+// Typed access to the phase-2 chat commands.
+//
+// The desktop host answers these; a plain browser (or jsdom) has no session
+// ledger, so every call rejects with `SessionUnavailable` and the page keeps its
+// honest "not connected" state instead of inventing messages.
+
+import { invokeHost, isTauriHost } from '../host/tauri'
+
+export type SessionStatus = 'idle' | 'running' | 'aborted' | 'failed' | 'archived'
+export type SessionRole = 'system' | 'user' | 'assistant' | 'tool'
+export type RunStatus = 'running' | 'completed' | 'aborted' | 'failed'
+export type SessionEventKind =
+  | 'session_started'
+  | 'turn_started'
+  | 'text_delta'
+  | 'message_completed'
+  | 'tool_call'
+  | 'tool_result'
+  | 'approval_request'
+  | 'approval_resolved'
+  | 'usage'
+  | 'error'
+  | 'turn_completed'
+  | 'aborted'
+  | 'unknown'
+
+export interface SessionSummary {
+  id: string
+  runtimeId: string
+  title: string
+  status: SessionStatus
+  nativeId: string
+  model: string
+  projectPath: string
+  pinned: boolean
+  archived: boolean
+  messageCount: number
+  createdAt: string
+  updatedAt: string
+  preview: string
+}
+
+export interface SessionMessage {
+  id: string
+  sessionId: string
+  runId?: string
+  role: SessionRole
+  text: string
+  seq: number
+  createdAt: string
+  meta?: Record<string, unknown>
+}
+
+export interface SessionRun {
+  id: string
+  sessionId: string
+  status: RunStatus
+  startedAt: string
+  endedAt?: string
+  error?: string
+  prompt: string
+}
+
+export interface SessionDetail {
+  session: SessionSummary
+  messages: SessionMessage[]
+  runs: SessionRun[]
+}
+
+export interface SessionPage {
+  sessions: SessionSummary[]
+  nextCursor?: string
+  total: number
+}
+
+export interface SessionEvent {
+  sessionId: string
+  runId: string
+  seq: number
+  kind: SessionEventKind
+  at: string
+  payload: Record<string, unknown>
+}
+
+export interface SendReport {
+  runId: string
+  status: RunStatus
+  error?: string
+  message?: SessionMessage
+  eventCount: number
+}
+
+/** Marker error so callers can tell "no host" from a real failure. */
+export class SessionUnavailable extends Error {
+  constructor() {
+    super('the session ledger is only available inside the desktop host')
+    this.name = 'SessionUnavailable'
+  }
+}
+
+/**
+ * The host reports failures as `{code, message}` JSON; anything else is passed
+ * through unchanged so a transport error is never swallowed.
+ */
+export function describeSessionError(error: unknown): string {
+  if (typeof error === 'string') {
+    const start = error.indexOf('{')
+    if (start >= 0) {
+      try {
+        const parsed = JSON.parse(error.slice(start)) as { code?: string; message?: string }
+        if (parsed.message) return parsed.code ? `${parsed.code}: ${parsed.message}` : parsed.message
+      } catch {
+        // Not the host shape; keep the raw text.
+      }
+    }
+    return error
+  }
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+function hostCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauriHost()) return Promise.reject(new SessionUnavailable())
+  return invokeHost<T>(command, args)
+}
+
+export function listSessions(input?: {
+  runtimeId?: string
+  includeArchived?: boolean
+  search?: string
+  limit?: number
+  cursor?: string
+}): Promise<SessionPage> {
+  return hostCall<SessionPage>('session_list', {
+    runtimeId: input?.runtimeId,
+    includeArchived: input?.includeArchived,
+    search: input?.search,
+    limit: input?.limit,
+    cursor: input?.cursor,
+  })
+}
+
+export function loadSession(sessionId: string): Promise<SessionDetail> {
+  return hostCall<SessionDetail>('session_detail', { sessionId })
+}
+
+/** Incremental poll of the ledger; `afterSeq: 0` returns the whole stream. */
+export function loadSessionEvents(sessionId: string, afterSeq = 0): Promise<SessionEvent[]> {
+  return hostCall<SessionEvent[]>('session_events', { sessionId, afterSeq })
+}
+
+export function openSession(input: {
+  runtimeId: string
+  model: string
+  cwd?: string
+  title?: string
+}): Promise<SessionSummary> {
+  return hostCall<SessionSummary>('session_open', {
+    runtimeId: input.runtimeId,
+    model: input.model,
+    cwd: input.cwd,
+    title: input.title,
+  })
+}
+
+export function sendTurn(sessionId: string, text: string): Promise<SendReport> {
+  return hostCall<SendReport>('session_send', { sessionId, text })
+}
+
+export function abortTurn(sessionId: string): Promise<boolean> {
+  return hostCall<boolean>('session_abort', { sessionId })
+}
+
+export function renameSession(sessionId: string, title: string): Promise<void> {
+  return hostCall<void>('session_rename', { sessionId, title })
+}
+
+export function pinSession(sessionId: string, pinned: boolean): Promise<void> {
+  return hostCall<void>('session_pin', { sessionId, pinned })
+}
+
+export function archiveSession(sessionId: string, archived: boolean): Promise<void> {
+  return hostCall<void>('session_archive', { sessionId, archived })
+}
+
+export function deleteSession(sessionId: string): Promise<void> {
+  return hostCall<void>('session_delete', { sessionId })
+}
+
+/**
+ * Text carried by a batch of events, in ledger order.
+ *
+ * Exported because the merge is the part worth testing: a poll that overlaps
+ * with the previous one must not duplicate a token, and an event that is not a
+ * delta must not contribute text.
+ */
+export function mergeDeltaText(events: SessionEvent[], previous: string): string {
+  const added = events
+    .filter((event) => event.kind === 'text_delta')
+    .map((event) => (typeof event.payload.delta === 'string' ? event.payload.delta : ''))
+    .join('')
+  return previous + added
+}
+
+/** Highest sequence number in a batch, so the next poll resumes after it. */
+export function latestSeq(events: SessionEvent[], fallback: number): number {
+  return events.reduce((highest, event) => (event.seq > highest ? event.seq : highest), fallback)
+}

@@ -2740,3 +2740,13 @@ button.chat-badge:hover {
     overflow-x: hidden;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Live session text (phase 2)
+   The ledger stores the runtime's text verbatim, so the page must not collapse
+   its line breaks; it also must not pretend to be a markdown renderer yet.
+   --------------------------------------------------------------------------- */
+.chat-live-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

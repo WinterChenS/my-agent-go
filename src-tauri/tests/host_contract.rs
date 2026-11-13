@@ -801,7 +801,17 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-catalog-add-model",
             "allow-catalog-verify-model",
             "allow-catalog-set-default-model",
-            "allow-catalog-probe-mcp"
+            "allow-catalog-probe-mcp",
+            "allow-session-list",
+            "allow-session-detail",
+            "allow-session-events",
+            "allow-session-open",
+            "allow-session-send",
+            "allow-session-abort",
+            "allow-session-rename",
+            "allow-session-pin",
+            "allow-session-archive",
+            "allow-session-delete"
         ]
     );
     for permission in &permissions {

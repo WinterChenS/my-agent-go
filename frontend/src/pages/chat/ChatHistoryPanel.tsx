@@ -1,16 +1,33 @@
 import { useMemo, useState } from 'react'
+import type { SessionSummary } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
 import { sampleChat } from './sampleData'
 
 type Session = { id: string; title: string; meta: string; state?: 'pending'; pinned?: boolean }
 
+type HistoryAction = 'pin' | 'rename' | 'archive' | 'delete'
+
+/** The real ledger, when the desktop host is connected. */
+export interface LiveHistory {
+  sessions: SessionSummary[]
+  activeId: string | null
+  onOpen: (id: string) => void
+  onNew: () => void
+  onRename: (id: string) => void
+  onPin: (id: string) => void
+  onArchive: (id: string) => void
+  onDelete: (id: string) => void
+}
+
 export default function ChatHistoryPanel({
   sample,
+  live,
   variant = 'sidebar',
   onClose,
 }: {
   sample: boolean
+  live?: LiveHistory
   variant?: 'sidebar' | 'drawer'
   onClose?: () => void
 }) {
@@ -43,12 +60,40 @@ export default function ChatHistoryPanel({
   const visiblePersonal = personal
     .filter((session) => !normalized || matches(`${session.title} ${session.meta}`))
     .slice(0, normalized ? personal.length : visible)
-  const noResults = normalized && visibleProjects.length === 0 && visiblePersonal.length === 0
+
+  // Live rows are the ledger's own list: already ordered (pinned first, then
+  // most recent) and already paged by the host, so only the text filter runs
+  // here.
+  const visibleLive = (live?.sessions ?? [])
+    .filter((session) => !normalized || matches(`${session.title} ${session.preview} ${session.runtimeId}`))
+    .map<Session>((session) => ({
+      id: session.id,
+      title: session.title,
+      meta: t('chat.live.sessionMeta', {
+        runtime: session.runtimeId,
+        count: session.messageCount,
+      }),
+      pinned: session.pinned,
+    }))
+
+  const noResults = normalized
+    ? visibleProjects.length === 0 && visiblePersonal.length === 0 && visibleLive.length === 0
+    : !sample && visibleLive.length === 0
   const allLoaded = visible >= personal.length
+  const actionsEnabled = !sample && live !== undefined
 
   const toggleProject = (id: string) => {
     if (normalized) return
     setProjects((current) => current.map((project) => (project.id === id ? { ...project, open: !project.open } : project)))
+  }
+
+  const runAction = (action: HistoryAction, sessionId: string) => {
+    setMenuFor(null)
+    if (!live) return
+    if (action === 'pin') live.onPin(sessionId)
+    if (action === 'rename') live.onRename(sessionId)
+    if (action === 'archive') live.onArchive(sessionId)
+    if (action === 'delete') live.onDelete(sessionId)
   }
 
   return (
@@ -63,10 +108,17 @@ export default function ChatHistoryPanel({
           <button
             type="button"
             className="chat-iconbtn"
-            aria-label={t('chat.history.new')}
-            title={sample ? t('chat.action.unavailable') : t('chat.action.unavailable')}
-            disabled={!sample}
-            onClick={() => setNotice(t('chat.notice.history'))}
+            data-testid="chat-history-new"
+            aria-label={t('chat.live.newSession')}
+            title={actionsEnabled ? t('chat.live.newSession') : t('chat.action.unavailable')}
+            disabled={!sample && !actionsEnabled}
+            onClick={() => {
+              if (live) {
+                live.onNew()
+                return
+              }
+              setNotice(t('chat.notice.history'))
+            }}
           >
             <Icon name="plus" size={12} />
           </button>
@@ -99,7 +151,9 @@ export default function ChatHistoryPanel({
         </p>
       ) : null}
       <div className="chat-history-scroll">
-        <div className="chat-history-label">{t('chat.history.projects')}</div>
+        {visibleProjects.length > 0 ? (
+          <div className="chat-history-label">{t('chat.history.projects')}</div>
+        ) : null}
         {visibleProjects.map((project) => {
           const open = project.forcedOpen || project.open
           return (
@@ -149,7 +203,19 @@ export default function ChatHistoryPanel({
         })}
 
         <div className="chat-history-label chat-history-personal-label">{t('chat.history.personal')}</div>
-        <div className="chat-history-list">
+        <div className="chat-history-list" data-testid="chat-history-live-list">
+          {visibleLive.map((session) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              active={session.id === live?.activeId}
+              menuOpen={menuFor === session.id}
+              onOpen={() => live?.onOpen(session.id)}
+              onMenu={() => setMenuFor((current) => (current === session.id ? null : session.id))}
+              onCloseMenu={() => setMenuFor(null)}
+              onAction={actionsEnabled ? (action) => runAction(action, session.id) : undefined}
+            />
+          ))}
           {visiblePersonal.map((session) => (
             <SessionRow
               key={session.id}
@@ -169,9 +235,9 @@ export default function ChatHistoryPanel({
           ))}
         </div>
 
-        {noResults || (!sample && !normalized) ? (
+        {noResults ? (
           <div className="chat-history-empty" data-testid="chat-history-empty">
-            {noResults ? t('chat.history.noMatches') : t('chat.history.empty')}
+            {normalized ? t('chat.history.noMatches') : live ? t('chat.live.historyEmpty') : t('chat.history.empty')}
           </div>
         ) : null}
 
@@ -198,6 +264,7 @@ function SessionRow({
   onOpen,
   onMenu,
   onCloseMenu,
+  onAction,
 }: {
   session: Session
   active: boolean
@@ -205,6 +272,7 @@ function SessionRow({
   onOpen: () => void
   onMenu: () => void
   onCloseMenu: () => void
+  onAction?: (action: HistoryAction) => void
 }) {
   const { t } = useI18n()
   const id = `session-${session.id}`
@@ -248,11 +316,15 @@ function SessionRow({
               type="button"
               role="menuitem"
               className={action === 'delete' ? 'is-danger' : ''}
-              disabled
-              title={t('chat.action.unavailable')}
+              disabled={!onAction}
+              title={onAction ? t(`chat.history.${action}` as 'chat.history.pin') : t('chat.action.unavailable')}
               onClick={() => {
-                onCloseMenu()
-                onOpen()
+                if (!onAction) {
+                  onCloseMenu()
+                  onOpen()
+                  return
+                }
+                onAction(action)
               }}
             >
               <Icon name={action === 'pin' ? 'pin' : action === 'delete' ? 'trash' : action === 'archive' ? 'archive' : 'file'} size={11} />
