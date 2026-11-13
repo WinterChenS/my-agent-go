@@ -228,6 +228,8 @@ fn with_prototype_capture(mut steps: Vec<StepSpec>) -> Vec<StepSpec> {
 ///
 /// `case` keeps the databases of different R1 cases apart; the directory is
 /// removed before the step so every run starts from an empty catalog.
+/// One catalog step inside a case. Steps share `.tmp/test/r1/<case>`, so only
+/// the first step of a case may wipe it (`catalog_step_fresh`).
 fn catalog_step(name: &str, case: &str, args: &[&str]) -> StepSpec {
     let data_dir = format!(".tmp/test/r1/{case}");
     let mut all: Vec<String> = vec![
@@ -240,12 +242,16 @@ fn catalog_step(name: &str, case: &str, args: &[&str]) -> StepSpec {
         "catalog_report".into(),
         "--".into(),
         "--data-dir".into(),
-        data_dir.clone(),
+        data_dir,
     ];
     all.extend(args.iter().map(|arg| (*arg).to_string()));
-    StepSpec::owned(name, "cargo", all)
-        .timeout(600)
-        .remove(&data_dir)
+    StepSpec::owned(name, "cargo", all).timeout(600)
+}
+
+/// The first step of a case: clears the case database so the run starts clean.
+fn catalog_step_fresh(name: &str, case: &str, args: &[&str]) -> StepSpec {
+    let data_dir = format!(".tmp/test/r1/{case}");
+    catalog_step(name, case, args).remove(&data_dir)
 }
 
 /// Contract tests for the catalog (unit + injected-adapter suite).
@@ -274,9 +280,16 @@ fn catalog_contract_suite() -> Vec<StepSpec> {
         )
         .timeout(900),
         StepSpec::new(
-            "search-text-contract",
+            "catalog-contract-tests",
             "cargo",
-            &["test", "-p", "anvil-catalog", "--test", "catalog_contract"],
+            &[
+                "test",
+                "-p",
+                "anvil-catalog",
+                "--test",
+                "catalog_contract",
+                "--locked",
+            ],
         )
         .timeout(600),
     ]
@@ -429,7 +442,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         CasePlan::automation(
             "R1-01-scan-live",
             vec![
-                catalog_step(
+                catalog_step_fresh(
                     "scan-once",
                     "scan",
                     &[
@@ -469,7 +482,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         ),
         CasePlan::automation(
             "R1-02-pi-live",
-            vec![catalog_step(
+            vec![catalog_step_fresh(
                 "pi-scan",
                 "pi",
                 &[
@@ -497,7 +510,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         CasePlan::automation(
             "R1-03-codex-live",
             vec![
-                catalog_step(
+                catalog_step_fresh(
                     "codex-scan",
                     "codex",
                     &[
@@ -542,7 +555,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         ),
         CasePlan::automation(
             "R1-04-claude-opencode-live",
-            vec![catalog_step(
+            vec![catalog_step_fresh(
                 "others-scan",
                 "others",
                 &[
@@ -568,7 +581,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         CasePlan::automation(
             "R1-05-models-live",
             vec![
-                catalog_step(
+                catalog_step_fresh(
                     "add-gateway-model",
                     "models",
                     &[
@@ -641,7 +654,7 @@ pub fn case_plans() -> Vec<CasePlan> {
         ),
         CasePlan::automation(
             "R1-06-skills-live",
-            vec![catalog_step(
+            vec![catalog_step_fresh(
                 "skills-scan",
                 "skills",
                 &[
@@ -652,16 +665,21 @@ pub fn case_plans() -> Vec<CasePlan> {
                     "--expect",
                     "runtime:pi:skills-total=11",
                     "--expect",
-                    "runtime:claude:skills-total=36",
-                    "--expect",
                     "runtime:opencode:skills-total=36",
+                    // ~/.claude/skills exists on this machine but the claude CLI
+                    // does not, and an uninstalled runtime keeps an empty
+                    // inventory: the row is listed, its skills are not.
+                    "--expect",
+                    "runtime:claude:status=not_installed",
+                    "--expect",
+                    "runtime:claude:skills-total=0",
                 ],
             )],
         ),
         CasePlan::automation(
             "R1-07-mcp-live",
             vec![
-                catalog_step(
+                catalog_step_fresh(
                     "mcp-scan",
                     "mcp",
                     &[

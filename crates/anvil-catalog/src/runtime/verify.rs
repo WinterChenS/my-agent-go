@@ -127,14 +127,20 @@ fn is_loopback(url: &str) -> bool {
     let rest = url
         .trim_start_matches("http://")
         .trim_start_matches("https://");
-    let host = rest
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .rsplit_once(':')
-        .map(|(host, _port)| host)
-        .unwrap_or(rest.split('/').next().unwrap_or(""));
-    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+    let authority = rest.split('/').next().unwrap_or("");
+    let authority = match authority.rsplit_once('@') {
+        Some((_userinfo, host)) => host,
+        None => authority,
+    };
+    let host = match authority.strip_prefix('[') {
+        // IPv6 literal: `[::1]` or `[::1]:8080`.
+        Some(bracketed) => bracketed.split(']').next().unwrap_or(""),
+        None => match authority.rsplit_once(':') {
+            Some((host, _port)) => host,
+            None => authority,
+        },
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 /// curl config values are quoted; only quotes and backslashes need escaping.

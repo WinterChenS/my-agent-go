@@ -234,6 +234,7 @@ fn run(options: &Options) -> Result<(serde_json::Value, Vec<String>), String> {
 /// * `runtime:<id>:status|version|rows`
 /// * `runtime:<id>:capability:<name>`
 /// * `runtime:<id>:models-total|skills-total|mcp-total`
+/// * `action:ok`, `action:tools-count`, `action:detail-contains:<text>`
 fn check_expectations(expectations: &[String], report: &serde_json::Value) -> Vec<String> {
     let mut failures = Vec::new();
     for expectation in expectations {
@@ -293,14 +294,14 @@ fn resolve(selector: &str, report: &serde_json::Value) -> Option<String> {
     }
 
     let parts: Vec<&str> = selector.split(':').collect();
-    if parts.first() == Some(&"action") && parts.len() >= 3 {
+    if parts.first() == Some(&"action") {
         let action = &report["action"];
-        return match parts[1] {
-            "ok" => action["ok"].as_bool().map(|ok| ok.to_string()),
-            "detail-contains" => action["detail"]
+        return match (parts.get(1).copied(), parts.get(2).copied()) {
+            (Some("ok"), _) => action["ok"].as_bool().map(|ok| ok.to_string()),
+            (Some("detail-contains"), Some(needle)) => action["detail"]
                 .as_str()
-                .map(|detail| detail.contains(parts[2]).to_string()),
-            "tools-count" => action["tools"]
+                .map(|detail| detail.contains(needle).to_string()),
+            (Some("tools-count"), _) => action["tools"]
                 .as_array()
                 .map(|tools| tools.len().to_string()),
             _ => None,
