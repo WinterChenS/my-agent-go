@@ -20,6 +20,10 @@ use crate::store::Store;
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Runs are created in the same millisecond when a case sends twice in a row;
+/// the counter keeps their ids unique.
+static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Result of one `send`.
 #[derive(Debug, Clone)]
 pub struct SendOutcome {
@@ -198,7 +202,11 @@ impl SessionService {
         let adapter = self.registry.require(&summary.runtime_id)?;
         let cancel = self.cancels.register(session_id);
 
-        let run_id = format!("{session_id}:r{}", unix_millis());
+        let run_id = format!(
+            "{session_id}:r{}-{}",
+            unix_millis(),
+            RUN_COUNTER.fetch_add(1, Ordering::SeqCst)
+        );
         let started_at = now_rfc3339();
         let run = Run {
             id: run_id.clone(),
