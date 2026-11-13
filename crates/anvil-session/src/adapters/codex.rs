@@ -61,54 +61,6 @@ impl CodexAdapter {
             .map_err(|error| Error::Failed(format!("spawn codex app-server: {error}")))?;
         Client::new(child)
     }
-
-    /// Start or resume a thread and return its id.
-    fn thread_id(
-        &self,
-        client: &mut Client,
-        spec: &SessionSpec,
-        timeout: Duration,
-    ) -> Result<String> {
-        if let Some(native_id) = spec
-            .native_id
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-        {
-            let resumed = client.call(
-                "thread/resume",
-                json!({ "threadId": native_id }),
-                timeout,
-                &mut |_| {},
-            )?;
-            if let Some(result) = resumed.get("result") {
-                let id = result
-                    .pointer("/thread/id")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&native_id)
-                    .to_string();
-                return Ok(id);
-            }
-            if let Some(error) = resumed.get("error") {
-                return Err(Error::Failed(format!("thread/resume failed: {error}")));
-            }
-        }
-        let started = client.call(
-            "thread/start",
-            json!({ "model": spec.model }),
-            timeout,
-            &mut |_| {},
-        )?;
-        started
-            .pointer("/result/thread/id")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                Error::Failed(format!(
-                    "codex did not return a thread id: {}",
-                    truncate(&started.to_string())
-                ))
-            })
-    }
 }
 
 impl SessionAdapter for CodexAdapter {
@@ -132,14 +84,14 @@ impl SessionAdapter for CodexAdapter {
     }
 
     fn open(&self, _context: &SessionContext, spec: &SessionSpec) -> Result<OpenedSession> {
-        let mut client = self.spawn()?;
-        let timeout = Duration::from_secs(60);
-        client.handshake(timeout)?;
-        let native_id = self.thread_id(&mut client, spec, timeout)?;
-        client.shutdown();
+        // Codex writes a thread's rollout only after its first turn, and a
+        // thread without a rollout cannot be resumed. Creating one here would
+        // therefore produce an identifier that `send` could never reopen, so the
+        // identifier is minted by the first run instead (see `RunOutcome`).
+        self.executable()?;
         Ok(OpenedSession {
             runtime_id: ID.to_string(),
-            native_id,
+            native_id: spec.native_id.clone().unwrap_or_default(),
             model: spec.model.clone(),
         })
     }
@@ -155,26 +107,47 @@ impl SessionAdapter for CodexAdapter {
         let mut client = self.spawn()?;
         client.handshake(context.run_timeout)?;
 
-        // Resume the thread; if the runtime lost it, say so instead of
-        // silently starting a new one and losing the user's history.
-        let resumed = client.call(
-            "thread/resume",
-            json!({ "threadId": opened.native_id }),
-            context.run_timeout,
-            &mut |_| {},
-        )?;
-        if let Some(error) = resumed.get("error") {
-            client.shutdown();
-            return Err(Error::Failed(format!(
-                "cannot resume thread {}: {error}",
-                opened.native_id
-            )));
-        }
+        // First turn creates the thread; later turns must resume it. A resume
+        // failure is fatal on purpose: silently starting a new thread would lose
+        // the user's history while looking like success.
+        let thread_id = if opened.native_id.trim().is_empty() {
+            let started = client.call(
+                "thread/start",
+                json!({ "model": opened.model }),
+                context.run_timeout,
+                &mut |_| {},
+            )?;
+            started
+                .pointer("/result/thread/id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    Error::Failed(format!(
+                        "codex did not return a thread id: {}",
+                        truncate(&started.to_string())
+                    ))
+                })?
+        } else {
+            let resumed = client.call(
+                "thread/resume",
+                json!({ "threadId": opened.native_id }),
+                context.run_timeout,
+                &mut |_| {},
+            )?;
+            if let Some(error) = resumed.get("error") {
+                client.shutdown();
+                return Err(Error::Failed(format!(
+                    "cannot resume thread {}: {error}",
+                    opened.native_id
+                )));
+            }
+            opened.native_id.clone()
+        };
 
         let turn = client.call(
             "turn/start",
             json!({
-                "threadId": opened.native_id,
+                "threadId": thread_id,
                 "input": [{ "type": "text", "text": prompt }],
             }),
             context.run_timeout,
@@ -196,7 +169,7 @@ impl SessionAdapter for CodexAdapter {
             if cancel.is_cancelled() {
                 let _ = client.call(
                     "turn/interrupt",
-                    json!({ "threadId": opened.native_id }),
+                    json!({ "threadId": thread_id }),
                     Duration::from_secs(5),
                     &mut |_| {},
                 );
@@ -222,10 +195,10 @@ impl SessionAdapter for CodexAdapter {
                         .unwrap_or("")
                         .to_string();
                     let params = message.get("params").cloned().unwrap_or(Value::Null);
-                    if method == "item/agentMessage/delta" {
-                        if let Some(delta) = params.get("delta").and_then(Value::as_str) {
-                            deltas.push_str(delta);
-                        }
+                    if method == "item/agentMessage/delta"
+                        && let Some(delta) = params.get("delta").and_then(Value::as_str)
+                    {
+                        deltas.push_str(delta);
                     }
                     for event in translate(&method, &params) {
                         if event.kind == EventKind::Error {
@@ -239,10 +212,10 @@ impl SessionAdapter for CodexAdapter {
                         {
                             final_text = Some(found.to_string());
                         }
-                        if let Some(found) = event.payload.get("usage") {
-                            if !found.is_null() {
-                                usage = Some(found.clone());
-                            }
+                        if let Some(found) = event.payload.get("usage")
+                            && !found.is_null()
+                        {
+                            usage = Some(found.clone());
                         }
                         sink(event);
                     }
@@ -266,28 +239,33 @@ impl SessionAdapter for CodexAdapter {
                 text,
                 error: Some(failure),
                 usage,
+                native_id: None,
             });
         }
-        match completed.as_deref() {
-            Some("completed") => Ok(RunOutcome {
+        let base = match completed.as_deref() {
+            Some("completed") => RunOutcome {
                 status: RunStatus::Completed,
                 text,
                 error: None,
                 usage,
-            }),
-            Some(other) => Ok(RunOutcome {
+                native_id: None,
+            },
+            Some(other) => RunOutcome {
                 status: RunStatus::Failed,
                 text,
                 error: Some(format!("turn ended as {other}")),
                 usage,
-            }),
-            None => Ok(RunOutcome {
+                native_id: None,
+            },
+            None => RunOutcome {
                 status: RunStatus::Failed,
                 text,
                 error: Some("the turn ended without a terminal notification".into()),
                 usage,
-            }),
-        }
+                native_id: None,
+            },
+        };
+        Ok(base.with_native_id(&thread_id))
     }
 }
 
@@ -378,8 +356,9 @@ fn translate(method: &str, params: &Value) -> Vec<AdapterEvent> {
             }
             events
         }
-        "thread/status/changed" | "mcpServer/startupStatus/updated" | "turn/started" => Vec::new(),
-        other if other.is_empty() => Vec::new(),
+        "thread/status/changed" | "mcpServer/startupStatus/updated" | "turn/started" | "" => {
+            Vec::new()
+        }
         other => vec![AdapterEvent::new(
             EventKind::Unknown,
             json!({ "type": other }),
@@ -415,10 +394,10 @@ impl Client {
                 if !trimmed.starts_with('{') {
                     continue;
                 }
-                if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-                    if sender.send(value).is_err() {
-                        break;
-                    }
+                if let Ok(value) = serde_json::from_str::<Value>(trimmed)
+                    && sender.send(value).is_err()
+                {
+                    break;
                 }
             }
         });

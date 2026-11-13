@@ -285,7 +285,12 @@
         "R2-04",
         "R2-05"
       ],
-      "cases": []
+      "cases": [
+        "R2-01-session-contract",
+        "R2-01-pi-live",
+        "R2-01-codex-live",
+        "R2-01-abort-live"
+      ]
     }
   ]
 }

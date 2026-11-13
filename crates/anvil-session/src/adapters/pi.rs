@@ -175,11 +175,10 @@ impl SessionAdapter for PiAdapter {
                         continue;
                     };
                     for event in translate(&value) {
-                        if event.kind == EventKind::TextDelta {
-                            if let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
-                            {
-                                deltas.push_str(delta);
-                            }
+                        if event.kind == EventKind::TextDelta
+                            && let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
+                        {
+                            deltas.push_str(delta);
                         }
                         if event.kind == EventKind::Error {
                             failure = event
@@ -193,10 +192,10 @@ impl SessionAdapter for PiAdapter {
                         {
                             final_text = Some(found.to_string());
                         }
-                        if let Some(found) = event.payload.get("usage") {
-                            if !found.is_null() {
-                                usage = Some(found.clone());
-                            }
+                        if let Some(found) = event.payload.get("usage")
+                            && !found.is_null()
+                        {
+                            usage = Some(found.clone());
                         }
                         sink(event);
                     }
@@ -217,6 +216,7 @@ impl SessionAdapter for PiAdapter {
                 text,
                 error: Some(failure),
                 usage,
+                native_id: None,
             });
         }
         if !status.success() {
@@ -225,6 +225,7 @@ impl SessionAdapter for PiAdapter {
                 text,
                 error: Some(format!("pi exited with {status}")),
                 usage,
+                native_id: None,
             });
         }
         Ok(RunOutcome {
@@ -232,6 +233,7 @@ impl SessionAdapter for PiAdapter {
             text,
             error: None,
             usage,
+            native_id: None,
         })
     }
 }

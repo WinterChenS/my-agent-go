@@ -258,6 +258,78 @@ fn catalog_step_fresh(name: &str, case: &str, args: &[&str]) -> StepSpec {
     catalog_step(name, case, args).remove(&data_dir)
 }
 
+/// One session step inside a case. Steps share `.tmp/test/r2/<case>` and its
+/// state directory, so a case can send twice into the same ledger.
+fn session_step(name: &str, case: &str, args: &[&str]) -> StepSpec {
+    let data_dir = format!(".tmp/test/r2/{case}");
+    let state_dir = format!(".tmp/test/r2/{case}-state");
+    let mut all: Vec<String> = vec![
+        "run".into(),
+        "--locked".into(),
+        "-q".into(),
+        "-p".into(),
+        "anvil-session".into(),
+        "--example".into(),
+        "session_report".into(),
+        "--".into(),
+        "--data-dir".into(),
+        data_dir,
+        "--state-dir".into(),
+        state_dir,
+    ];
+    all.extend(args.iter().map(|arg| (*arg).to_string()));
+    StepSpec::owned(name, "cargo", all).timeout(600)
+}
+
+/// First step of a case: clears the database and the runtime state directory so
+/// the run starts from an empty ledger.
+fn session_step_fresh(name: &str, case: &str, args: &[&str]) -> StepSpec {
+    session_step(name, case, args)
+        .remove(&format!(".tmp/test/r2/{case}"))
+        .remove(&format!(".tmp/test/r2/{case}-state"))
+}
+
+/// Contract tests for the session layer (unit + injected-adapter suite).
+fn session_contract_suite() -> Vec<StepSpec> {
+    vec![
+        StepSpec::new("cargo-fmt", "cargo", &["fmt", "--all", "--", "--check"]),
+        StepSpec::new(
+            "cargo-clippy-session",
+            "cargo",
+            &[
+                "clippy",
+                "-p",
+                "anvil-session",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        .timeout(600),
+        StepSpec::new(
+            "session-tests",
+            "cargo",
+            &["test", "-p", "anvil-session", "--locked"],
+        )
+        .timeout(900),
+        StepSpec::new(
+            "session-contract-tests",
+            "cargo",
+            &[
+                "test",
+                "-p",
+                "anvil-session",
+                "--test",
+                "session_contract",
+                "--locked",
+            ],
+        )
+        .timeout(600),
+    ]
+}
+
 /// Contract tests for the catalog (unit + injected-adapter suite).
 fn catalog_contract_suite() -> Vec<StepSpec> {
     vec![
@@ -749,6 +821,96 @@ pub fn case_plans() -> Vec<CasePlan> {
             ],
         ),
         CasePlan::native("R1-08-native-catalog", NativeKind::Catalog),
+        CasePlan::automation("R2-01-session-contract", session_contract_suite()),
+        CasePlan::automation(
+            "R2-01-pi-live",
+            vec![session_step_fresh(
+                "pi-live",
+                "pi",
+                &[
+                    "--action",
+                    "live",
+                    "--runtime",
+                    "pi",
+                    "--model",
+                    "auto/gpt-5.6-sol",
+                    "--prompt",
+                    "Reply with exactly: ok",
+                    "--timeout",
+                    "180",
+                    "--expect",
+                    "action:status=completed",
+                    "--expect",
+                    "text-contains=ok",
+                    "--expect",
+                    "deltas-min=1",
+                    "--expect",
+                    "usage-present=true",
+                    "--expect",
+                    "session-files-min=1",
+                    "--expect",
+                    "native-id-present=true",
+                ],
+            )],
+        ),
+        CasePlan::automation(
+            "R2-01-codex-live",
+            vec![session_step_fresh(
+                "codex-live",
+                "codex",
+                &[
+                    "--action",
+                    "live",
+                    "--runtime",
+                    "codex",
+                    // The account does not accept codex's default model; the
+                    // supported one has to be named explicitly.
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--prompt",
+                    "Reply with exactly: ok",
+                    "--turns",
+                    "2",
+                    "--timeout",
+                    "180",
+                    "--expect",
+                    "action:status=completed",
+                    "--expect",
+                    "text-contains=ok",
+                    "--expect",
+                    "messages-min=4",
+                    "--expect",
+                    "native-id-present=true",
+                ],
+            )],
+        ),
+        CasePlan::automation(
+            "R2-01-abort-live",
+            vec![session_step_fresh(
+                "abort-live",
+                "abort",
+                &[
+                    "--action",
+                    "abort",
+                    "--runtime",
+                    "pi",
+                    "--model",
+                    "auto/gpt-5.6-sol",
+                    "--prompt",
+                    "Count slowly from 1 to 200, one number per line.",
+                    "--abort-after-ms",
+                    "1200",
+                    "--timeout",
+                    "90",
+                    "--expect",
+                    "action:status=aborted",
+                    "--expect",
+                    "action:ok=true",
+                    "--expect",
+                    "action:stopped=true",
+                ],
+            )],
+        ),
     ]
 }
 

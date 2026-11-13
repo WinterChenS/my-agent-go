@@ -27,6 +27,8 @@ struct Options {
     model: String,
     prompt: String,
     timeout: u64,
+    turns: u32,
+    abort_after_ms: u64,
     expect: Vec<String>,
     list_runtime: Option<String>,
 }
@@ -77,6 +79,7 @@ fn run() -> Result<ExitCode, String> {
     let action_report = match options.action.as_str() {
         "ping" => serde_json::json!({ "ok": true, "adapters": service.registry().len() }),
         "live" => live(&mut service, &options)?,
+        "abort" => abort(&mut service, &options)?,
         "list" => {
             let page = service
                 .page(None, true, None, 50, None)
@@ -128,9 +131,19 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
         allow_tools: false,
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
-    let outcome = service
+    let mut outcome = service
         .send(&session.id, &options.prompt)
         .map_err(|error| error.to_string())?;
+    // Extra turns prove the runtime resumes what the first turn created; a
+    // fresh thread per turn would pass a single-turn check just as well.
+    let mut turns = 1;
+    while turns < options.turns.max(1) {
+        turns += 1;
+        let prompt = format!("{} ({turns})", options.prompt);
+        outcome = service
+            .send(&session.id, &prompt)
+            .map_err(|error| error.to_string())?;
+    }
 
     let detail = service
         .detail(&session.id)
@@ -165,8 +178,9 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
         "ok": outcome.run.status == anvil_session::RunStatus::Completed,
         "status": outcome.run.status.as_str(),
         "sessionId": session.id,
-        "nativeId": session.native_id,
-        "model": session.model,
+        "nativeId": detail.session.native_id,
+        "model": detail.session.model,
+        "turns": turns,
         "text": outcome.message.as_ref().map(|message| message.text.clone()).unwrap_or_default(),
         "runId": outcome.run.id,
         "error": outcome.run.error,
@@ -177,6 +191,56 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
         "roles": detail.messages.iter().map(|message| message.role.as_str()).collect::<Vec<_>>(),
         "usage": usage,
         "stream": stream_path.display().to_string(),
+    }))
+}
+
+/// Send one turn and stop it from another thread, the way the UI does.
+fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::Value, String> {
+    let spec = SessionSpec {
+        runtime_id: options.runtime.clone(),
+        model: options.model.clone(),
+        cwd: std::env::current_dir()
+            .map_err(|error| format!("cwd: {error}"))?
+            .display()
+            .to_string(),
+        title: Some("abort".into()),
+        native_id: None,
+        allow_tools: false,
+    };
+    let session = service.open(&spec).map_err(|error| error.to_string())?;
+    let cancels = service.cancels();
+    let id = session.id.clone();
+    let prompt = options.prompt.clone();
+    let wait = Duration::from_millis(options.abort_after_ms);
+
+    // `send` holds `&mut`, so the stop arrives through the cloned registry —
+    // exactly the path the host uses when the UI's stop button fires.
+    let (outcome, stopped) = std::thread::scope(|scope| {
+        let handle = scope.spawn(|| service.send(&id, &prompt));
+        std::thread::sleep(wait);
+        let stopped = cancels.cancel(&id);
+        (handle.join().expect("join").expect("send"), stopped)
+    });
+
+    let detail = service
+        .detail(&session.id)
+        .map_err(|error| error.to_string())?;
+    let events = service
+        .events(&session.id)
+        .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "ok": outcome.run.status == anvil_session::RunStatus::Aborted,
+        "status": outcome.run.status.as_str(),
+        "stopped": stopped,
+        "sessionId": session.id,
+        "nativeId": detail.session.native_id,
+        "runId": outcome.run.id,
+        "endedAt": outcome.run.ended_at,
+        "error": outcome.run.error,
+        "messages": detail.messages.len(),
+        "eventCount": events.len(),
+        "lastEvent": events.last().map(|event| event.kind.as_str()),
+        "text": outcome.message.as_ref().map(|message| message.text.clone()).unwrap_or_default(),
     }))
 }
 
@@ -324,6 +388,21 @@ fn check(
                     ));
                 }
             }
+            // `action:<field>=<value>` reads any report field directly, so a
+            // new fact does not need a new selector.
+            other if other.starts_with("action:") => {
+                let field = &other["action:".len()..];
+                let actual = report
+                    .pointer(&format!("/action/{field}"))
+                    .map(|value| match value {
+                        serde_json::Value::String(text) => text.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_else(|| "missing".into());
+                if actual != want {
+                    failures.push(format!("action {field} = {actual:?}, want {want:?}"));
+                }
+            }
             other => failures.push(format!("unknown selector {other:?}")),
         }
     }
@@ -359,6 +438,8 @@ fn parse() -> Result<Options, String> {
         model: "auto/gpt-5.6-sol".into(),
         prompt: "Reply with exactly: ok".into(),
         timeout: 120,
+        turns: 1,
+        abort_after_ms: 300,
         expect: Vec::new(),
         list_runtime: None,
     };
@@ -378,6 +459,16 @@ fn parse() -> Result<Options, String> {
                 options.timeout = value()?
                     .parse()
                     .map_err(|_| "--timeout needs seconds".to_string())?
+            }
+            "--turns" => {
+                options.turns = value()?
+                    .parse()
+                    .map_err(|_| "--turns needs a count".to_string())?
+            }
+            "--abort-after-ms" => {
+                options.abort_after_ms = value()?
+                    .parse()
+                    .map_err(|_| "--abort-after-ms needs milliseconds".to_string())?
             }
             "--expect" => options.expect.push(value()?),
             "--list-runtime" => options.list_runtime = Some(value()?),

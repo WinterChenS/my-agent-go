@@ -68,6 +68,12 @@ pub struct RunOutcome {
     pub text: String,
     pub error: Option<String>,
     pub usage: Option<Value>,
+    /// Set when the runtime only minted its identifier during the run.
+    ///
+    /// Codex does not write a rollout for a thread that never ran a turn, so a
+    /// thread created at open time cannot be resumed; the identifier therefore
+    /// arrives with the first run and the service stores it then.
+    pub native_id: Option<String>,
 }
 
 impl RunOutcome {
@@ -78,6 +84,7 @@ impl RunOutcome {
             text: text.to_string(),
             error: None,
             usage,
+            native_id: None,
         }
     }
 
@@ -88,6 +95,7 @@ impl RunOutcome {
             text: text.to_string(),
             error: None,
             usage: None,
+            native_id: None,
         }
     }
 
@@ -98,7 +106,17 @@ impl RunOutcome {
             text: String::new(),
             error: Some(error.to_string()),
             usage: None,
+            native_id: None,
         }
+    }
+
+    /// Record the identifier the runtime minted during this run.
+    #[must_use]
+    pub fn with_native_id(mut self, native_id: &str) -> Self {
+        if !native_id.trim().is_empty() {
+            self.native_id = Some(native_id.to_string());
+        }
+        self
     }
 }
 

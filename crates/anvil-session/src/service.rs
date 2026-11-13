@@ -240,10 +240,10 @@ impl SessionService {
         let mut deltas = String::new();
         let mut sink = |event: AdapterEvent| {
             event_count += 1;
-            if event.kind == crate::model::EventKind::TextDelta {
-                if let Some(delta) = event.payload.get("delta").and_then(|value| value.as_str()) {
-                    deltas.push_str(delta);
-                }
+            if event.kind == crate::model::EventKind::TextDelta
+                && let Some(delta) = event.payload.get("delta").and_then(|value| value.as_str())
+            {
+                deltas.push_str(delta);
             }
             // Ledger writes are cheap (WAL) and keep the UI live; an error here
             // cannot be reported through the sink, so it is retried on flush.
@@ -255,10 +255,26 @@ impl SessionService {
         let outcome = adapter.send(&self.context, &opened, prompt, &cancel, &mut sink);
         let ended_at = now_rfc3339();
 
-        let (status, text, error) = match outcome {
-            Ok(outcome) => (outcome.status, outcome.text, outcome.error),
-            Err(error) => (RunStatus::Failed, String::new(), Some(error.to_string())),
+        let (status, text, error, minted) = match outcome {
+            Ok(outcome) => (
+                outcome.status,
+                outcome.text,
+                outcome.error,
+                outcome.native_id,
+            ),
+            Err(error) => (
+                RunStatus::Failed,
+                String::new(),
+                Some(error.to_string()),
+                None,
+            ),
         };
+        if let Some(native_id) = minted
+            && summary.native_id.trim().is_empty()
+        {
+            self.store
+                .set_native_id(session_id, &native_id, &ended_at)?;
+        }
         let final_text = if text.is_empty() { deltas } else { text };
 
         let message = if final_text.trim().is_empty() {
