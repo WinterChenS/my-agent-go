@@ -86,6 +86,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "anvil-session"
+version = "0.1.0"
+dependencies = [
+ "anvil-paths",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
