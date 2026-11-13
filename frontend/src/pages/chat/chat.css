@@ -1762,6 +1762,28 @@ button.chat-badge:hover {
   border-top: 1px solid var(--border);
 }
 
+/* One project's rows in the live history: the label carries the directory name
+   and the row count, the rows follow unindented so the list stays scannable. */
+.chat-history-live-group + .chat-history-live-group {
+  margin-top: var(--space-2);
+}
+
+.chat-history-live-project {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+}
+
+.chat-history-live-project small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
 .chat-history-list {
   display: flex;
   flex-direction: column;

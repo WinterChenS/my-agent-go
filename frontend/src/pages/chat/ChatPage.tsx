@@ -28,6 +28,9 @@ interface LiveComposer {
   running: boolean
 }
 
+/** How many trailing messages a compaction leaves verbatim. */
+const COMPACT_KEEP_LAST = 6
+
 /** `runtime::model` is unique even when two runtimes publish the same id. */
 function modelKey(choice: ModelChoice): string {
   return `${choice.runtimeId}::${choice.modelId}`
@@ -138,6 +141,16 @@ export default function ChatPage() {
   const deleteHistorySession = (id: string) => {
     if (typeof window.confirm === 'function' && !window.confirm(t('chat.live.delete'))) return
     void live.remove(id)
+  }
+
+  const forkHistorySession = (id: string) => {
+    void live.fork(id).then((branch) => {
+      if (branch) setNotice(t('chat.live.forked'))
+    })
+  }
+
+  const compactHistorySession = (id: string) => {
+    void live.compact(id, COMPACT_KEEP_LAST).then(() => setNotice(t('chat.live.compacted')))
   }
 
   const openDialog = (kind: ChatDialogKind, trigger: HTMLElement) => {
@@ -338,6 +351,22 @@ export default function ChatPage() {
                     <article className="chat-msg chat-msg-user" data-testid="chat-message-user" key={message.id}>
                       <div className="chat-bubble">{message.text}</div>
                     </article>
+                  ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (
+                    <section
+                      className="chat-state-card"
+                      data-testid="chat-message-compacted"
+                      role="status"
+                      aria-label={t('chat.live.compacted')}
+                      key={message.id}
+                    >
+                      <span className="chat-state-icon">
+                        <Icon name="archive" size={14} />
+                      </span>
+                      <div className="chat-state-copy">
+                        <b>{t('chat.live.compacted')}</b>
+                        <span>{message.text}</span>
+                      </div>
+                    </section>
                   ) : (
                     <article className="chat-msg" data-testid="chat-message-agent" key={message.id}>
                       <div className="chat-agent-head">
@@ -430,6 +459,7 @@ export default function ChatPage() {
                   ? undefined
                   : {
                       sessions: live.sessions,
+                      projects: live.projects,
                       activeId: liveSession?.id ?? null,
                       onOpen: openHistorySession,
                       onNew: () => {
@@ -443,6 +473,8 @@ export default function ChatPage() {
                       },
                       onArchive: (id) => void live.setArchived(id, true),
                       onDelete: deleteHistorySession,
+                      onFork: forkHistorySession,
+                      onCompact: compactHistorySession,
                     }
               }
               variant="drawer"

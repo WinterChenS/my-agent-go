@@ -1,16 +1,26 @@
 import { useMemo, useState } from 'react'
-import type { SessionSummary } from '../../chat/client'
+import type { ProjectSummary, SessionSummary } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
 import { sampleChat } from './sampleData'
 
-type Session = { id: string; title: string; meta: string; state?: 'pending'; pinned?: boolean }
+type Session = {
+  id: string
+  title: string
+  meta: string
+  state?: 'pending'
+  pinned?: boolean
+  /** Directory the session ran in; the history panel groups rows by it. */
+  projectPath?: string
+}
 
-type HistoryAction = 'pin' | 'rename' | 'archive' | 'delete'
+type HistoryAction = 'pin' | 'rename' | 'archive' | 'fork' | 'compact' | 'delete'
 
 /** The real ledger, when the desktop host is connected. */
 export interface LiveHistory {
   sessions: SessionSummary[]
+  /** Project index the rows are grouped by; empty until the first read. */
+  projects: ProjectSummary[]
   activeId: string | null
   onOpen: (id: string) => void
   onNew: () => void
@@ -18,6 +28,8 @@ export interface LiveHistory {
   onPin: (id: string) => void
   onArchive: (id: string) => void
   onDelete: (id: string) => void
+  onFork: (id: string) => void
+  onCompact: (id: string) => void
 }
 
 export default function ChatHistoryPanel({
@@ -74,7 +86,35 @@ export default function ChatHistoryPanel({
         count: session.messageCount,
       }),
       pinned: session.pinned,
+      projectPath: session.projectPath,
     }))
+
+  // Group live rows by the project index the host returned. The index decides
+  // the order (most recently used first); a row whose directory is missing from
+  // it still renders, under "no project", instead of disappearing.
+  const liveGroups = useMemo(() => {
+    if (visibleLive.length === 0) return []
+    const names = new Map((live?.projects ?? []).map((project) => [project.path, project.name]))
+    const order: string[] = (live?.projects ?? []).map((project) => project.path)
+    const groups = new Map<string, Session[]>()
+    for (const session of visibleLive) {
+      const key = session.projectPath ?? ''
+      groups.set(key, [...(groups.get(key) ?? []), session])
+    }
+    const keys = [...groups.keys()].sort((left, right) => {
+      const leftIndex = order.indexOf(left)
+      const rightIndex = order.indexOf(right)
+      if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right)
+      if (leftIndex === -1) return 1
+      if (rightIndex === -1) return -1
+      return leftIndex - rightIndex
+    })
+    return keys.map((path) => ({
+      path,
+      name: names.get(path) ?? (path || t('chat.history.noProject')),
+      sessions: groups.get(path) ?? [],
+    }))
+  }, [live?.projects, t, visibleLive])
 
   const noResults = normalized
     ? visibleProjects.length === 0 && visiblePersonal.length === 0 && visibleLive.length === 0
@@ -93,6 +133,8 @@ export default function ChatHistoryPanel({
     if (action === 'pin') live.onPin(sessionId)
     if (action === 'rename') live.onRename(sessionId)
     if (action === 'archive') live.onArchive(sessionId)
+    if (action === 'fork') live.onFork(sessionId)
+    if (action === 'compact') live.onCompact(sessionId)
     if (action === 'delete') live.onDelete(sessionId)
   }
 
@@ -204,17 +246,32 @@ export default function ChatHistoryPanel({
 
         <div className="chat-history-label chat-history-personal-label">{t('chat.history.personal')}</div>
         <div className="chat-history-list" data-testid="chat-history-live-list">
-          {visibleLive.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              active={session.id === live?.activeId}
-              menuOpen={menuFor === session.id}
-              onOpen={() => live?.onOpen(session.id)}
-              onMenu={() => setMenuFor((current) => (current === session.id ? null : session.id))}
-              onCloseMenu={() => setMenuFor(null)}
-              onAction={actionsEnabled ? (action) => runAction(action, session.id) : undefined}
-            />
+          {liveGroups.map((group) => (
+            <div key={group.path || 'unassigned'} className="chat-history-live-group">
+              {live?.projects.length ? (
+                <div
+                  className="chat-history-label chat-history-live-project"
+                  data-testid="chat-history-live-project"
+                  data-project-path={group.path}
+                >
+                  <Icon name="folder" size={10} />
+                  <span>{group.name}</span>
+                  <small>{t('chat.history.sessions', { count: group.sessions.length })}</small>
+                </div>
+              ) : null}
+              {group.sessions.map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  active={session.id === live?.activeId}
+                  menuOpen={menuFor === session.id}
+                  onOpen={() => live?.onOpen(session.id)}
+                  onMenu={() => setMenuFor((current) => (current === session.id ? null : session.id))}
+                  onCloseMenu={() => setMenuFor(null)}
+                  onAction={actionsEnabled ? (action) => runAction(action, session.id) : undefined}
+                />
+              ))}
+            </div>
           ))}
           {visiblePersonal.map((session) => (
             <SessionRow
@@ -310,7 +367,7 @@ function SessionRow({
       </button>
       {menuOpen ? (
         <div className="chat-history-action-menu" role="menu" aria-label={t('chat.history.actions')}>
-          {(['pin', 'rename', 'archive', 'delete'] as const).map((action) => (
+          {(['pin', 'rename', 'archive', 'fork', 'compact', 'delete'] as const).map((action) => (
             <button
               key={action}
               type="button"
@@ -327,7 +384,20 @@ function SessionRow({
                 onAction(action)
               }}
             >
-              <Icon name={action === 'pin' ? 'pin' : action === 'delete' ? 'trash' : action === 'archive' ? 'archive' : 'file'} size={11} />
+              <Icon
+                name={
+                  action === 'pin'
+                    ? 'pin'
+                    : action === 'delete'
+                      ? 'trash'
+                      : action === 'archive'
+                        ? 'archive'
+                        : action === 'fork'
+                          ? 'branch'
+                          : 'file'
+                }
+                size={11}
+              />
               <span>{t(`chat.history.${action}` as 'chat.history.pin')}</span>
             </button>
           ))}

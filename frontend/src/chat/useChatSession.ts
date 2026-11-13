@@ -18,9 +18,12 @@ import { isTauriHost } from '../host/tauri'
 import {
   abortTurn,
   archiveSession,
+  compactSession,
   deleteSession,
   describeSessionError,
+  forkSession,
   latestSeq,
+  listProjects,
   listSessions,
   loadSession,
   loadSessionEvents,
@@ -30,6 +33,7 @@ import {
   renameSession,
   sendTurn,
   SessionUnavailable,
+  type ProjectSummary,
   type SessionDetail,
   type SessionSummary,
 } from './client'
@@ -58,6 +62,8 @@ export interface ChatSessionView {
   /** Re-scan the machine and rebuild the picker from the result. */
   syncModels: () => Promise<void>
   sessions: SessionSummary[]
+  /** Directories the history panel groups the sessions by. */
+  projects: ProjectSummary[]
   current: SessionDetail | null
   /** Text of the turn in flight, merged from text deltas. */
   streamText: string
@@ -71,6 +77,10 @@ export interface ChatSessionView {
   setPinned: (sessionId: string, pinned: boolean) => Promise<void>
   setArchived: (sessionId: string, archived: boolean) => Promise<void>
   remove: (sessionId: string) => Promise<void>
+  /** Branch a session at its last message and open the branch. */
+  fork: (sessionId: string) => Promise<string | null>
+  /** Fold all but the last `keepLast` messages into one summary row. */
+  compact: (sessionId: string, keepLast: number) => Promise<void>
 }
 
 function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
@@ -116,6 +126,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [model, setModel] = useState<ModelChoice | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [streamText, setStreamText] = useState('')
   const [running, setRunning] = useState(false)
@@ -130,10 +141,14 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     }
   }, [])
 
+  // The list and the project index are read together: the panel groups the
+  // rows by project, so a list without the index would render every session
+  // twice (once grouped, once flat) or lose the counts.
   const reloadSessions = useCallback(async () => {
-    const page = await listSessions({ limit: 50 })
+    const [page, index] = await Promise.all([listSessions({ limit: 50 }), listProjects()])
     if (!mounted.current) return
     setSessions(page.sessions)
+    setProjects(index)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -166,9 +181,10 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     // models instead of the whole page waiting for them.
     void (async () => {
       try {
-        const page = await listSessions({ limit: 50 })
+        const [page, index] = await Promise.all([listSessions({ limit: 50 }), listProjects()])
         if (!mounted.current) return
         setSessions(page.sessions)
+        setProjects(index)
         setStatus('ready')
       } catch (cause) {
         if (!mounted.current) return
@@ -390,6 +406,35 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     [current, refresh],
   )
 
+  const fork = useCallback(
+    async (sessionId: string): Promise<string | null> => {
+      try {
+        const branch = await forkSession(sessionId)
+        await reloadSessions()
+        await select(branch.id)
+        return branch.id
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+        return null
+      }
+    },
+    [reloadSessions, select],
+  )
+
+  const compact = useCallback(
+    async (sessionId: string, keepLast: number) => {
+      try {
+        await compactSession(sessionId, keepLast)
+        const detail = await loadSession(sessionId)
+        if (mounted.current) setCurrent(detail)
+        await reloadSessions()
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+      }
+    },
+    [reloadSessions],
+  )
+
   return {
     status,
     error,
@@ -399,6 +444,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     syncing,
     syncModels,
     sessions,
+    projects,
     current,
     streamText,
     running,
@@ -411,5 +457,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     setPinned,
     setArchived,
     remove,
+    fork,
+    compact,
   }
 }

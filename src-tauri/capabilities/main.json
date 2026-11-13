@@ -25,6 +25,9 @@
     "allow-session-rename",
     "allow-session-pin",
     "allow-session-archive",
-    "allow-session-delete"
+    "allow-session-delete",
+    "allow-session-projects",
+    "allow-session-fork",
+    "allow-session-compact"
   ]
 }

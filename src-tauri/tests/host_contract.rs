@@ -811,7 +811,10 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-session-rename",
             "allow-session-pin",
             "allow-session-archive",
-            "allow-session-delete"
+            "allow-session-delete",
+            "allow-session-projects",
+            "allow-session-fork",
+            "allow-session-compact"
         ]
     );
     for permission in &permissions {

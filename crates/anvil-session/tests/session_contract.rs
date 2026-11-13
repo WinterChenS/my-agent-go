@@ -10,7 +10,8 @@ use std::time::Duration;
 use anvil_session::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter};
 use anvil_session::{
     EventKind, Message, OpenedSession, Registry, Result as SessionResult, Role, RunStatus,
-    SessionCapabilities, SessionContext, SessionService, SessionSpec, SessionStatus, Store,
+    SessionCapabilities, SessionContext, SessionPage, SessionQuery, SessionService, SessionSpec,
+    SessionStatus, Store,
 };
 
 struct Scripted {
@@ -125,6 +126,13 @@ fn spec(runtime_id: &str) -> SessionSpec {
     }
 }
 
+fn list(service: &SessionService, include_archived: bool) -> SessionResult<SessionPage> {
+    service.page(&SessionQuery {
+        include_archived,
+        ..SessionQuery::default()
+    })
+}
+
 #[test]
 fn unknown_runtime_is_rejected_before_any_row_is_written() {
     let (adapter, _) = Scripted::new("pi", Behaviour::Echo);
@@ -132,7 +140,7 @@ fn unknown_runtime_is_rejected_before_any_row_is_written() {
     let error = service.open(&spec("ghost")).expect_err("unknown runtime");
     assert_eq!(error.code(), "not_found");
     assert!(error.to_string().contains("pi"), "{error}");
-    let page = service.page(None, true, None, 10, None).expect("page");
+    let page = list(&service, true).expect("page");
     assert_eq!(page.total, 0, "a refused open must not leave a row");
 }
 
@@ -285,19 +293,19 @@ fn archive_rename_pin_and_delete_keep_the_index_consistent() {
 
     service.rename(&session.id, "Renamed").expect("rename");
     service.set_pinned(&session.id, true).expect("pin");
-    let page = service.page(None, false, None, 10, None).expect("page");
+    let page = list(&service, false).expect("page");
     assert_eq!(page.sessions[0].title, "Renamed");
     assert!(page.sessions[0].pinned);
 
     service.set_archived(&session.id, true).expect("archive");
-    let visible = service.page(None, false, None, 10, None).expect("page");
+    let visible = list(&service, false).expect("page");
     assert!(visible.sessions.is_empty());
-    let all = service.page(None, true, None, 10, None).expect("page");
+    let all = list(&service, true).expect("page");
     assert_eq!(all.sessions.len(), 1);
     assert_eq!(all.sessions[0].status, SessionStatus::Archived);
 
     service.delete(&session.id).expect("delete");
-    let after = service.page(None, true, None, 10, None).expect("page");
+    let after = list(&service, true).expect("page");
     assert_eq!(after.total, 0);
 }
 
@@ -319,4 +327,158 @@ fn capability_gaps_are_reported_for_every_adapter() {
     let failures = registry.capability_failures(SessionCapabilities::full());
     assert_eq!(failures.len(), 2);
     assert!(failures.iter().all(|failure| failure.runtime_id == "pi"));
+}
+
+/// A service on a real file, so the test can close it and open it again the way
+/// a restarted application does.
+fn service_on(path: &std::path::Path, adapters: Vec<Arc<dyn SessionAdapter>>) -> SessionService {
+    let mut registry = Registry::new();
+    for adapter in adapters {
+        registry.register(adapter).expect("register adapter");
+    }
+    SessionService::new(
+        Store::open(path).expect("open ledger"),
+        registry,
+        SessionContext {
+            state_dir: path.with_file_name("state"),
+            run_timeout: Duration::from_secs(2),
+        },
+    )
+}
+
+/// Scratch database under the workspace `.tmp`, not under the crate.
+///
+/// A relative path would land in `crates/anvil-session/` because a test binary
+/// runs with the crate root as its working directory, and leave an untracked
+/// directory behind every run.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(".tmp")
+        .join("test")
+        .join("session-contract")
+        .join(name)
+        .join("sessions.sqlite");
+    let _ = std::fs::remove_dir_all(dir.parent().expect("parent"));
+    dir
+}
+
+#[test]
+fn history_survives_a_restart_and_keeps_projects_apart() {
+    let path = scratch("restart");
+    let (adapter, _) = Scripted::new("pi", Behaviour::Echo);
+
+    let project_a = {
+        let mut service = service_on(&path, vec![adapter.clone()]);
+        let mut in_a = spec("pi");
+        in_a.cwd = "D://work//alpha".into();
+        let first = service.open(&in_a).expect("open a");
+        service.send(&first.id, "alpha needle").expect("send a");
+        let mut in_b = spec("pi");
+        in_b.cwd = "D://work//beta".into();
+        let second = service.open(&in_b).expect("open b");
+        service.send(&second.id, "beta body").expect("send b");
+        service.rename(&second.id, "Beta session").expect("rename");
+        service.set_pinned(&second.id, true).expect("pin");
+        // Simulate a process that died mid-run: the row says running, no run
+        // will ever finish.
+        service
+            .store_mut()
+            .set_status(&first.id, SessionStatus::Running, "2026-11-13T00:00:00Z")
+            .expect("mark running");
+        (first.id, second.id)
+    };
+
+    // Close, reopen: the same file, a new process.
+    let mut service = service_on(&path, vec![adapter]);
+    assert_eq!(
+        service.recover().expect("recover"),
+        0,
+        "no run row was left running"
+    );
+
+    let all = list(&service, true).expect("page");
+    assert_eq!(all.total, 2);
+    assert_eq!(all.sessions[0].id, project_a.1, "pinned row comes first");
+    assert_eq!(all.sessions[0].title, "Beta session");
+
+    let alpha = service
+        .page(&SessionQuery {
+            project_path: Some("D://work//alpha".into()),
+            ..SessionQuery::default()
+        })
+        .expect("filter");
+    assert_eq!(alpha.sessions.len(), 1);
+    assert_eq!(alpha.sessions[0].id, project_a.0);
+
+    let found = service
+        .page(&SessionQuery {
+            search: Some("beta body".into()),
+            ..SessionQuery::default()
+        })
+        .expect("search");
+    assert_eq!(found.sessions.len(), 1);
+
+    // A session that says "running" but has no run behind it would block its
+    // next send forever; the reopen repaired it.
+    service
+        .send(&project_a.0, "after restart")
+        .expect("send after restart");
+    let detail = service.detail(&project_a.0).expect("detail");
+    assert_eq!(detail.messages.len(), 4);
+
+    let projects = service.projects().expect("projects");
+    assert_eq!(projects.len(), 2, "one entry per directory, no duplicates");
+    assert_eq!(
+        projects
+            .iter()
+            .map(|project| project.name.clone())
+            .collect::<Vec<_>>(),
+        vec!["alpha".to_string(), "beta".to_string()]
+    );
+}
+
+#[test]
+fn paging_walks_every_session_exactly_once_across_a_restart() {
+    let path = scratch("paging");
+    let (adapter, _) = Scripted::new("pi", Behaviour::Echo);
+    let mut expected = Vec::new();
+    {
+        let mut service = service_on(&path, vec![adapter.clone()]);
+        for index in 0..7 {
+            let mut each = spec("pi");
+            each.cwd = "D://work//paging".into();
+            let session = service.open(&each).expect("open");
+            service
+                .send(&session.id, &format!("turn {index}"))
+                .expect("send");
+            expected.push(session.id);
+        }
+        // Renaming rewrites `updated_at` with the same clock as the last send,
+        // so the ordering key stays total only because `id` breaks the tie.
+        service.rename(&expected[2], "third").expect("rename");
+    }
+
+    let service = service_on(&path, vec![adapter]);
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let page = service
+            .page(&SessionQuery {
+                limit: Some(3),
+                cursor: cursor.clone(),
+                ..SessionQuery::default()
+            })
+            .expect("page");
+        assert!(page.sessions.len() <= 3);
+        seen.extend(page.sessions.iter().map(|session| session.id.clone()));
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    seen.sort();
+    let mut wanted = expected.clone();
+    wanted.sort();
+    assert_eq!(seen, wanted, "every session appears exactly once");
 }

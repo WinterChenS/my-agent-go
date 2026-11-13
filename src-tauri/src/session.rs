@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use anvil_session::{
-    Cancels, Message, RunEvent, SessionContext, SessionDetail, SessionPage, SessionService,
-    SessionSpec, SessionSummary, Store,
+    Cancels, CompactReport, Message, ProjectSummary, RunEvent, SessionContext, SessionDetail,
+    SessionPage, SessionQuery, SessionService, SessionSpec, SessionSummary, Store,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -187,25 +187,30 @@ pub struct SendReport {
 }
 
 /// One page of the session list (pinned first, then most recently updated).
+///
+/// The filters travel as one object: the UI sends the same shape it stores, and
+/// a caller cannot swap two optional strings by accident.
 #[tauri::command]
 pub async fn session_list(
     state: State<'_, SessionState>,
-    runtime_id: Option<String>,
-    include_archived: Option<bool>,
-    search: Option<String>,
-    limit: Option<u32>,
-    cursor: Option<String>,
+    query: Option<SessionQuery>,
 ) -> Result<SessionPage, String> {
-    let search = search.filter(|value| !value.trim().is_empty());
+    let query = query.unwrap_or_default();
     state.with_reader(|store| {
         store
-            .sessions(
-                runtime_id.as_deref(),
-                include_archived.unwrap_or(false),
-                search.as_deref(),
-                limit.unwrap_or(50) as usize,
-                cursor.as_deref(),
-            )
+            .sessions(&query)
+            .map_err(|error| error.to_wire().to_string())
+    })
+}
+
+/// Projects the history panel groups sessions by.
+#[tauri::command]
+pub async fn session_projects(
+    state: State<'_, SessionState>,
+) -> Result<Vec<ProjectSummary>, String> {
+    state.with_reader(|store| {
+        store
+            .projects()
             .map_err(|error| error.to_wire().to_string())
     })
 }
@@ -357,6 +362,35 @@ pub async fn session_delete(
     })
 }
 
+/// Branch a session at one message. The branch is a new session on the same
+/// runtime, carrying the transcript up to `upto_seq` (default: the last one).
+#[tauri::command]
+pub async fn session_fork(
+    state: State<'_, SessionState>,
+    session_id: String,
+    upto_seq: Option<i64>,
+) -> Result<SessionSummary, String> {
+    state.with_writer(|service| {
+        service
+            .fork(&session_id, upto_seq)
+            .map_err(|error| error.to_wire().to_string())
+    })
+}
+
+/// Fold all but the last `keep_last` messages into one summary row.
+#[tauri::command]
+pub async fn session_compact(
+    state: State<'_, SessionState>,
+    session_id: String,
+    keep_last: u32,
+) -> Result<CompactReport, String> {
+    state.with_writer(|service| {
+        service
+            .compact(&session_id, keep_last as usize)
+            .map_err(|error| error.to_wire().to_string())
+    })
+}
+
 /// Directory a session runs in when the caller names none.
 fn default_cwd() -> String {
     std::env::current_dir()
@@ -386,12 +420,20 @@ mod tests {
         let page = state
             .with_reader(|store| {
                 store
-                    .sessions(None, false, None, 10, None)
+                    .sessions(&SessionQuery::default())
                     .map_err(|error| error.to_wire().to_string())
             })
             .expect("list");
         assert_eq!(page.total, 0);
         assert!(page.sessions.is_empty());
+        let projects = state
+            .with_reader(|store| {
+                store
+                    .projects()
+                    .map_err(|error| error.to_wire().to_string())
+            })
+            .expect("projects");
+        assert!(projects.is_empty());
     }
 
     #[test]

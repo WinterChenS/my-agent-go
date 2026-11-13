@@ -8,15 +8,25 @@
 //!     --expect action:status=completed --expect text-contains=ok
 //! ```
 //!
+//! `--action history` runs the project/history semantics against the built-in
+//! `echo` adapter (`--with-echo`), so paging, search, pin, rename, archive,
+//! delete, branch, compaction and the project index are proven without spending
+//! a single runtime token. `--action resume` re-opens the session a previous
+//! process left behind and sends into it, which is the restart case.
+//!
 //! Exit codes follow the acceptance contract: 0 pass, 1 an expectation failed
 //! (the report is still printed), 2 the input or the environment is incomplete.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use anvil_session::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter};
 use anvil_session::{
-    EventKind, Registry, SessionContext, SessionService, SessionSpec, Store, default_registry,
+    EventKind, OpenedSession, Registry, Result as SessionResult, Run, RunStatus,
+    SessionCapabilities, SessionContext, SessionQuery, SessionService, SessionSpec, SessionStatus,
+    Store, default_registry,
 };
 
 struct Options {
@@ -29,6 +39,9 @@ struct Options {
     timeout: u64,
     turns: u32,
     abort_after_ms: u64,
+    keep_last: usize,
+    with_echo: bool,
+    session_file: Option<PathBuf>,
     expect: Vec<String>,
     list_runtime: Option<String>,
 }
@@ -82,7 +95,11 @@ fn run() -> Result<ExitCode, String> {
         "abort" => abort(&mut service, &options)?,
         "list" => {
             let page = service
-                .page(None, true, None, 50, None)
+                .page(&SessionQuery {
+                    include_archived: true,
+                    limit: Some(50),
+                    ..SessionQuery::default()
+                })
                 .map_err(|error| error.to_string())?;
             serde_json::json!({
                 "ok": true,
@@ -92,6 +109,20 @@ fn run() -> Result<ExitCode, String> {
                     "status": session.status.as_str(),
                     "messages": session.message_count,
                     "nativeId": session.native_id,
+                })).collect::<Vec<_>>(),
+            })
+        }
+        "history" => history(&options)?,
+        "resume" => resume(&mut service, &options)?,
+        "projects" => {
+            let projects = service.projects().map_err(|error| error.to_string())?;
+            serde_json::json!({
+                "ok": true,
+                "count": projects.len(),
+                "projects": projects.iter().map(|project| serde_json::json!({
+                    "path": project.path,
+                    "name": project.name,
+                    "sessions": project.session_count,
                 })).collect::<Vec<_>>(),
             })
         }
@@ -167,6 +198,9 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
         lines.push('\n');
     }
     let _ = std::fs::write(&stream_path, lines);
+    // The next process needs to know which session to resume; this file is the
+    // hand-off between the two runs of the restart case.
+    let _ = std::fs::write(session_file(options), &session.id);
 
     let usage = events
         .iter()
@@ -244,14 +278,429 @@ fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::
     }))
 }
 
+/// An adapter that answers locally, used by the history case.
+///
+/// The history semantics — projects, paging, search, branch, compaction — are
+/// about the ledger, not about a model. Proving them against a fake adapter
+/// keeps the case deterministic and free; the live cases prove the runtimes.
+struct EchoAdapter {
+    opens: AtomicUsize,
+}
+
+impl EchoAdapter {
+    fn new() -> Self {
+        Self {
+            opens: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl SessionAdapter for EchoAdapter {
+    fn id(&self) -> &str {
+        "echo"
+    }
+
+    fn capabilities(&self) -> SessionCapabilities {
+        SessionCapabilities::full()
+    }
+
+    fn open(&self, _context: &SessionContext, spec: &SessionSpec) -> SessionResult<OpenedSession> {
+        let index = self.opens.fetch_add(1, Ordering::SeqCst);
+        Ok(OpenedSession {
+            runtime_id: "echo".into(),
+            // Every open is a distinct native conversation, so a branch can be
+            // told apart from the session it came from.
+            native_id: format!("echo-native-{index}"),
+            model: spec.model.clone(),
+        })
+    }
+
+    fn send(
+        &self,
+        _context: &SessionContext,
+        opened: &OpenedSession,
+        prompt: &str,
+        _cancel: &Cancel,
+        sink: &mut dyn FnMut(AdapterEvent),
+    ) -> SessionResult<RunOutcome> {
+        sink(AdapterEvent::text_delta("echo:"));
+        let text = format!("echo:{prompt}");
+        Ok(RunOutcome::completed(
+            &text,
+            Some(serde_json::json!({ "totalTokens": text.len() })),
+        )
+        .with_native_id(&opened.native_id))
+    }
+}
+
+fn session_file(options: &Options) -> PathBuf {
+    options
+        .session_file
+        .clone()
+        .unwrap_or_else(|| options.data_dir.join("last-session.txt"))
+}
+
+fn build_service(options: &Options) -> Result<SessionService, String> {
+    let database = options.data_dir.join("sessions.sqlite");
+    let store = Store::open(&database).map_err(|error| error.to_string())?;
+    Ok(SessionService::new(
+        store,
+        registry_for(options)?,
+        SessionContext {
+            state_dir: options.state_dir.clone(),
+            run_timeout: Duration::from_secs(options.timeout),
+        },
+    ))
+}
+
+/// Project and history semantics on one real ledger, across a restart.
+///
+/// The service is dropped and rebuilt in the middle on purpose: that is what the
+/// next process sees, and it is the only way to catch an index that lives in
+/// memory instead of in SQLite.
+fn history(options: &Options) -> Result<serde_json::Value, String> {
+    if !options.with_echo {
+        return Err("--action history needs --with-echo (the echo adapter)".into());
+    }
+    let alpha = "D:\\work\\alpha";
+    let beta = "D:\\work\\beta";
+    let spec = |cwd: &str| SessionSpec {
+        runtime_id: "echo".into(),
+        model: "echo-1".into(),
+        cwd: cwd.to_string(),
+        title: None,
+        native_id: None,
+        allow_tools: false,
+    };
+
+    let mut expected_alpha = Vec::new();
+    let mut expected_beta = Vec::new();
+    let (pinned, renamed, archived, survived) = {
+        let mut service = build_service(options)?;
+        for index in 0..3 {
+            let session = service
+                .open(&spec(alpha))
+                .map_err(|error| error.to_string())?;
+            service
+                .send(&session.id, &format!("alpha turn {index}"))
+                .map_err(|error| error.to_string())?;
+            expected_alpha.push(session.id);
+        }
+        for index in 0..2 {
+            let session = service
+                .open(&spec(beta))
+                .map_err(|error| error.to_string())?;
+            service
+                .send(&session.id, &format!("beta turn {index}"))
+                .map_err(|error| error.to_string())?;
+            expected_beta.push(session.id);
+        }
+        service
+            .set_pinned(&expected_alpha[0], true)
+            .map_err(|error| error.to_string())?;
+        service
+            .rename(&expected_alpha[1], "Renamed alpha")
+            .map_err(|error| error.to_string())?;
+        service
+            .set_archived(&expected_alpha[2], true)
+            .map_err(|error| error.to_string())?;
+
+        // A process that dies mid-run leaves a run and a session marked
+        // running. Reopening must repair both, or the session can never send
+        // again.
+        let stuck = Run {
+            id: format!("{}:stuck", expected_beta[1]),
+            session_id: expected_beta[1].clone(),
+            status: RunStatus::Running,
+            started_at: anvil_session::clock::now_rfc3339(),
+            ended_at: None,
+            error: None,
+            prompt: "never answered".into(),
+        };
+        let store = service.store_mut();
+        store.start_run(&stuck).map_err(|error| error.to_string())?;
+        store
+            .set_status(&expected_beta[1], SessionStatus::Running, &stuck.started_at)
+            .map_err(|error| error.to_string())?;
+        (
+            expected_alpha[0].clone(),
+            expected_alpha[1].clone(),
+            expected_alpha[2].clone(),
+            expected_beta[1].clone(),
+        )
+    };
+
+    // ---- a new process opens the same file ------------------------------
+    let mut service = build_service(options)?;
+    let recovered = service.recover().map_err(|error| error.to_string())?;
+
+    // Paging: walk the whole list two rows at a time and check that the union is
+    // exactly the live set, with no row visited twice.
+    let live_before: Vec<String> = expected_alpha[..2]
+        .iter()
+        .chain(expected_beta.iter())
+        .cloned()
+        .collect();
+    let mut walked: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut pages = 0;
+    loop {
+        let page = service
+            .page(&SessionQuery {
+                limit: Some(2),
+                cursor: cursor.clone(),
+                ..SessionQuery::default()
+            })
+            .map_err(|error| error.to_string())?;
+        pages += 1;
+        walked.extend(page.sessions.iter().map(|session| session.id.clone()));
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    let duplicates = walked.len()
+        - walked
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+    let missing = live_before.iter().filter(|id| !walked.contains(id)).count();
+    let unexpected = walked.iter().filter(|id| !live_before.contains(id)).count();
+
+    let projects = service.projects().map_err(|error| error.to_string())?;
+    let alpha_project = projects.iter().find(|project| project.path == alpha);
+    let beta_project = projects.iter().find(|project| project.path == beta);
+
+    let search_hits = service
+        .page(&SessionQuery {
+            search: Some("alpha turn 1".into()),
+            ..SessionQuery::default()
+        })
+        .map_err(|error| error.to_string())?
+        .total;
+    let first_page = service
+        .page(&SessionQuery {
+            limit: Some(2),
+            ..SessionQuery::default()
+        })
+        .map_err(|error| error.to_string())?;
+    let pin_first = first_page
+        .sessions
+        .first()
+        .map(|session| session.id.clone());
+    let rename_visible = service
+        .page(&SessionQuery {
+            search: Some("Renamed alpha".into()),
+            ..SessionQuery::default()
+        })
+        .map_err(|error| error.to_string())?
+        .sessions
+        .iter()
+        .any(|session| session.id == renamed);
+    let archive_hidden = service
+        .page(&SessionQuery::default())
+        .map_err(|error| error.to_string())?
+        .sessions
+        .iter()
+        .all(|session| session.id != archived);
+    let archive_visible = service
+        .page(&SessionQuery {
+            include_archived: true,
+            ..SessionQuery::default()
+        })
+        .map_err(|error| error.to_string())?
+        .sessions
+        .iter()
+        .any(|session| session.id == archived);
+
+    // The session left "running" by the previous process accepts a turn again.
+    let recovered_send = service
+        .send(&survived, "are you back?")
+        .map_err(|error| error.to_string())?;
+    let resumed_after_recovery = recovered_send.run.status == RunStatus::Completed;
+
+    // Delete removes the row and its messages, and the project goes with its
+    // last session.
+    let total_before_delete = service
+        .page(&SessionQuery::default())
+        .map_err(|error| error.to_string())?
+        .total;
+    service
+        .delete(&expected_beta[1])
+        .map_err(|error| error.to_string())?;
+    let total_after_delete = service
+        .page(&SessionQuery::default())
+        .map_err(|error| error.to_string())?
+        .total;
+    let deleted_gone = service.detail(&expected_beta[1]).is_err();
+
+    // ---- branch ---------------------------------------------------------
+    // The parent already ran a turn, so the seed is not empty: the branch's
+    // reply proves the transcript travelled with it.
+    let branch = service
+        .fork(&pinned, None)
+        .map_err(|error| error.to_string())?;
+    let branch_reply = service
+        .send(&branch.id, "what did I say first?")
+        .map_err(|error| error.to_string())?;
+    let branch_carried = branch_reply
+        .message
+        .as_ref()
+        .map(|message| message.text.contains("alpha turn 0"))
+        .unwrap_or(false);
+    let branch_seeded_event = service
+        .events(&branch.id)
+        .map_err(|error| error.to_string())?
+        .iter()
+        .any(|event| {
+            event.kind == EventKind::TurnStarted
+                && event.payload["seeded"] == serde_json::Value::Bool(true)
+        });
+
+    // ---- compaction -----------------------------------------------------
+    service
+        .send(&renamed, "third alpha turn")
+        .map_err(|error| error.to_string())?;
+    let before_compact = service
+        .detail(&renamed)
+        .map_err(|error| error.to_string())?
+        .messages
+        .len();
+    let report = service
+        .compact(&renamed, options.keep_last)
+        .map_err(|error| error.to_string())?;
+    let compacted = service
+        .detail(&renamed)
+        .map_err(|error| error.to_string())?;
+    let compact_event = service
+        .events(&renamed)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|event| event.kind == EventKind::Compacted);
+    let native_untouched = compact_event
+        .as_ref()
+        .map(|event| event.payload["nativeContext"] == "untouched")
+        .unwrap_or(false);
+
+    // ---- project isolation after all of the above ------------------------
+    let alpha_page = service
+        .page(&SessionQuery {
+            project_path: Some(alpha.into()),
+            ..SessionQuery::default()
+        })
+        .map_err(|error| error.to_string())?;
+    let cross_project = alpha_page
+        .sessions
+        .iter()
+        .filter(|session| session.project_path != alpha)
+        .count();
+
+    let facts = serde_json::json!({
+        "ok": duplicates == 0
+            && missing == 0
+            && unexpected == 0
+            && cross_project == 0
+            && pin_first.as_deref() == Some(pinned.as_str())
+            && rename_visible
+            && archive_hidden
+            && archive_visible
+            && resumed_after_recovery
+            && deleted_gone
+            && total_after_delete + 1 == total_before_delete
+            && branch_carried
+            && branch_seeded_event
+            && native_untouched
+            && compacted.messages.first().map(|message| message.role) == Some(anvil_session::Role::System),
+        "recoveredRuns": recovered,
+        "resumedAfterRecovery": resumed_after_recovery,
+        "pages": pages,
+        "walked": walked.len(),
+        "duplicates": duplicates,
+        "missing": missing,
+        "unexpected": unexpected,
+        "totalAfterRestart": live_before.len(),
+        "projects": projects.iter().map(|project| serde_json::json!({
+            "path": project.path,
+            "name": project.name,
+            "sessions": project.session_count,
+        })).collect::<Vec<_>>(),
+        "projectCount": projects.len(),
+        "alphaSessions": alpha_project.map(|project| project.session_count),
+        "betaSessions": beta_project.map(|project| project.session_count),
+        "searchHits": search_hits,
+        "pinFirst": pin_first.as_deref() == Some(pinned.as_str()),
+        "renameVisible": rename_visible,
+        "archiveHidden": archive_hidden,
+        "archiveVisible": archive_visible,
+        "totalBeforeDelete": total_before_delete,
+        "totalAfterDelete": total_after_delete,
+        "deletedGone": deleted_gone,
+        "crossProject": cross_project,
+        "branch": {
+            "id": branch.id,
+            "parentId": branch.parent_id,
+            "branchAt": branch.branch_at,
+            "messages": branch.message_count,
+            "carriedParentText": branch_carried,
+            "seededEvent": branch_seeded_event,
+            "nativeId": branch.native_id,
+        },
+        "compact": {
+            "before": before_compact,
+            "collapsed": report.collapsed,
+            "kept": report.kept,
+            "after": compacted.messages.len(),
+            "firstRole": compacted.messages.first().map(|message| message.role.as_str()),
+            "nativeUntouched": native_untouched,
+        },
+    });
+    Ok(facts)
+}
+
+/// Send one more turn into the session a previous process created.
+fn resume(service: &mut SessionService, options: &Options) -> Result<serde_json::Value, String> {
+    let file = session_file(options);
+    let id = std::fs::read_to_string(&file)
+        .map_err(|error| format!("read {}: {error}", file.display()))?
+        .trim()
+        .to_string();
+    if id.is_empty() {
+        return Err(format!("{} is empty", file.display()));
+    }
+    let before = service.detail(&id).map_err(|error| error.to_string())?;
+    let native_before = before.session.native_id.clone();
+    let outcome = service
+        .send(&id, &options.prompt)
+        .map_err(|error| error.to_string())?;
+    let after = service.detail(&id).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "ok": outcome.run.status == anvil_session::RunStatus::Completed,
+        "status": outcome.run.status.as_str(),
+        "sessionId": id,
+        "nativeId": after.session.native_id,
+        "nativeIdSame": after.session.native_id == native_before,
+        "nativeIdPresent": !after.session.native_id.trim().is_empty(),
+        "messagesBefore": before.messages.len(),
+        "messages": after.messages.len(),
+        "runId": outcome.run.id,
+        "error": outcome.run.error,
+        "text": outcome.message.as_ref().map(|message| message.text.clone()).unwrap_or_default(),
+    }))
+}
+
 fn registry_for(options: &Options) -> Result<Registry, String> {
     // `--list-runtime` narrows the registry to one adapter, so a case can prove
     // failure handling for a runtime that is absent on this machine.
-    match options.list_runtime.as_deref() {
-        None => Ok(default_registry()),
-        Some("none") => Ok(Registry::new()),
-        Some(_) => Ok(default_registry()),
+    let mut registry = match options.list_runtime.as_deref() {
+        Some("none") => Registry::new(),
+        _ => default_registry(),
+    };
+    if options.with_echo {
+        registry
+            .register(std::sync::Arc::new(EchoAdapter::new()))
+            .map_err(|error| error.to_string())?;
     }
+    Ok(registry)
 }
 
 fn check(
@@ -440,6 +889,9 @@ fn parse() -> Result<Options, String> {
         timeout: 120,
         turns: 1,
         abort_after_ms: 300,
+        keep_last: 2,
+        with_echo: false,
+        session_file: None,
         expect: Vec::new(),
         list_runtime: None,
     };
@@ -470,6 +922,13 @@ fn parse() -> Result<Options, String> {
                     .parse()
                     .map_err(|_| "--abort-after-ms needs milliseconds".to_string())?
             }
+            "--keep-last" => {
+                options.keep_last = value()?
+                    .parse()
+                    .map_err(|_| "--keep-last needs a message count".to_string())?
+            }
+            "--with-echo" => options.with_echo = true,
+            "--session-file" => options.session_file = Some(PathBuf::from(value()?)),
             "--expect" => options.expect.push(value()?),
             "--list-runtime" => options.list_runtime = Some(value()?),
             other => return Err(format!("unknown argument {other:?}")),

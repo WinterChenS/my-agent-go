@@ -22,6 +22,7 @@ export type SessionEventKind =
   | 'error'
   | 'turn_completed'
   | 'aborted'
+  | 'compacted'
   | 'unknown'
 
 export interface SessionSummary {
@@ -32,12 +33,31 @@ export interface SessionSummary {
   nativeId: string
   model: string
   projectPath: string
+  /** Session this one was branched from; empty for a session started anew. */
+  parentId: string
+  /** Message `seq` in the parent the branch was taken at; `0` without one. */
+  branchAt: number
   pinned: boolean
   archived: boolean
   messageCount: number
   createdAt: string
   updatedAt: string
   preview: string
+}
+
+/** One directory the history panel groups sessions by. */
+export interface ProjectSummary {
+  path: string
+  name: string
+  sessionCount: number
+  lastUpdated: string
+}
+
+/** What one compaction did. */
+export interface CompactReport {
+  collapsed: number
+  kept: number
+  summarySeq: number
 }
 
 export interface SessionMessage {
@@ -126,18 +146,30 @@ function hostCall<T>(command: string, args?: Record<string, unknown>): Promise<T
 
 export function listSessions(input?: {
   runtimeId?: string
+  projectPath?: string
   includeArchived?: boolean
   search?: string
   limit?: number
   cursor?: string
 }): Promise<SessionPage> {
-  return hostCall<SessionPage>('session_list', {
-    runtimeId: input?.runtimeId,
-    includeArchived: input?.includeArchived,
-    search: input?.search,
-    limit: input?.limit,
-    cursor: input?.cursor,
-  })
+  // One `query` argument, mirroring the host's `SessionQuery`: the same filters
+  // travel together, and an absent field means "no filter" on both sides.
+  return hostCall<SessionPage>('session_list', { query: input ?? {} })
+}
+
+/** The directories the history panel groups sessions by. */
+export function listProjects(): Promise<ProjectSummary[]> {
+  return hostCall<ProjectSummary[]>('session_projects')
+}
+
+/** Branch a session at one message; the branch is a new session. */
+export function forkSession(sessionId: string, uptoSeq?: number): Promise<SessionSummary> {
+  return hostCall<SessionSummary>('session_fork', { sessionId, uptoSeq })
+}
+
+/** Fold all but the last `keepLast` messages into one summary row. */
+export function compactSession(sessionId: string, keepLast: number): Promise<CompactReport> {
+  return hostCall<CompactReport>('session_compact', { sessionId, keepLast })
 }
 
 export function loadSession(sessionId: string): Promise<SessionDetail> {

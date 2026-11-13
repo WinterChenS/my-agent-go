@@ -60,4 +60,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_pin",
     "session_archive",
     "session_delete",
+    "session_projects",
+    "session_fork",
+    "session_compact",
 ];

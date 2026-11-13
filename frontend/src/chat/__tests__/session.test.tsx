@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -58,6 +58,8 @@ function summary(): SessionSummary {
     pinned: false,
     archived: false,
     messageCount: 2,
+    parentId: '',
+    branchAt: 0,
     createdAt: '2026-11-13T00:00:00Z',
     updatedAt: '2026-11-13T00:00:00Z',
     preview: 'ok',
@@ -103,6 +105,8 @@ function detail(text: string): SessionDetail {
 interface Host {
   calls: string[]
   aborted: () => boolean
+  /** Arguments the host received for a command, when the test cares. */
+  args: (command: string) => unknown
 }
 
 function catalogSnapshot(withExtra: boolean) {
@@ -174,11 +178,13 @@ function catalogSnapshot(withExtra: boolean) {
 
 function installHost(): Host {
   const calls: string[] = []
+  const lastArgs = new Map<string, unknown>()
   let abortCalled = false
   let rescanned = false
   const internals = {
-    invoke: async (command: string) => {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
       calls.push(command)
+      if (args) lastArgs.set(command, args)
       if (command === 'catalog_refresh') {
         // A model that only exists after the manual sync: the picker must be
         // rebuilt from the rescan, not from the startup snapshot.
@@ -186,7 +192,27 @@ function installHost(): Host {
         return catalogSnapshot(rescanned)
       }
       if (command === 'catalog_snapshot') return catalogSnapshot(rescanned)
-      if (command === 'session_list') return { sessions: [], total: 0 }
+      if (command === 'session_list') {
+        // Two sessions in two directories: the history panel must group them by
+        // the project index rather than list them flat.
+        return {
+          sessions: [
+            { ...summary(), id: 'pi-a', title: 'Alpha chat', projectPath: 'D:////work////alpha' },
+            { ...summary(), id: 'pi-b', title: 'Beta chat', projectPath: 'D:////work////beta' },
+          ],
+          total: 2,
+        }
+      }
+      if (command === 'session_projects') {
+        return [
+          { path: 'D:////work////alpha', name: 'alpha', sessionCount: 1, lastUpdated: '2026-11-13T00:00:00Z' },
+          { path: 'D:////work////beta', name: 'beta', sessionCount: 1, lastUpdated: '2026-11-13T00:00:00Z' },
+        ]
+      }
+      if (command === 'session_fork') {
+        return { ...summary(), id: 'pi-a-branch', title: 'Alpha chat · branch', parentId: 'pi-a', branchAt: 2 }
+      }
+      if (command === 'session_compact') return { collapsed: 4, kept: 6, summarySeq: 1 }
       if (command === 'session_open') return { ...summary(), messageCount: 0 }
       if (command === 'session_events') {
         return [
@@ -211,7 +237,7 @@ function installHost(): Host {
   }
   ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
     internals as unknown as TauriInternals
-  return { calls, aborted: () => abortCalled }
+  return { calls, aborted: () => abortCalled, args: (command) => lastArgs.get(command) }
 }
 
 function clearHost() {
@@ -278,5 +304,54 @@ describe('chat live session', () => {
     // The composer is usable again once the turn closed.
     await waitFor(() => expect(screen.getByTestId('chat-send')).toBeDisabled())
     expect(host.aborted()).toBe(false)
+  })
+})
+
+describe('chat history grouping', () => {
+  async function openHistory() {
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await userEvent.click(screen.getByRole('button', { name: '历史会话' }))
+    // The drawer is the panel under test: the page also carries a static
+    // history column, and two identical panels would make every query ambiguous.
+    return within(screen.getByRole('dialog', { name: '历史会话' })).getByTestId('chat-history')
+  }
+
+  it('groups the live rows by the project index instead of listing them flat', async () => {
+    installHost()
+    const panel = await openHistory()
+
+    await waitFor(() => expect(panel).toHaveTextContent('Alpha chat'))
+    const labels = within(panel).getAllByTestId('chat-history-live-project')
+    expect(labels).toHaveLength(2)
+    expect(labels[0]).toHaveTextContent('alpha')
+    expect(labels[0]).toHaveTextContent('1 个会话')
+    expect(labels[1]).toHaveTextContent('beta')
+  })
+
+  it('branches and compacts a session from its row menu', async () => {
+    const host = installHost()
+    const panel = await openHistory()
+    await waitFor(() => expect(panel).toHaveTextContent('Alpha chat'))
+
+    const row = within(panel)
+      .getByText('Alpha chat')
+      .closest('.chat-history-row')
+    expect(row).not.toBeNull()
+    await userEvent.click(within(row as HTMLElement).getByLabelText('会话操作'))
+    await userEvent.click(within(row as HTMLElement).getByText('分支会话'))
+    await waitFor(() => expect(host.calls).toContain('session_fork'))
+    expect(host.args('session_fork')).toMatchObject({ sessionId: 'pi-a' })
+
+    // The branch is selected by the host's reply, and the panel stays usable.
+    await waitFor(() => expect(host.calls).toContain('session_detail'))
+    await userEvent.click(within(row as HTMLElement).getByLabelText('会话操作'))
+    await userEvent.click(within(row as HTMLElement).getByText('压缩上下文'))
+    await waitFor(() => expect(host.calls).toContain('session_compact'))
+    expect(host.args('session_compact')).toMatchObject({ sessionId: 'pi-a', keepLast: 6 })
   })
 })

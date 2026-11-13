@@ -1,7 +1,8 @@
 //! SQLite ledger.
 //!
-//! Four tables, append-only for events and messages:
+//! Five tables, append-only for events and messages:
 //! * `sessions` — the index the history panel reads;
+//! * `projects` — the directory index those sessions group by;
 //! * `messages` — what the UI renders;
 //! * `runs` — one row per turn, with its terminal state;
 //! * `events` — every adapter event, in `seq` order, kept for evidence.
@@ -15,8 +16,24 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{Error, Result};
 use crate::model::{
-    EventKind, Message, Role, Run, RunEvent, RunStatus, SessionPage, SessionStatus, SessionSummary,
+    EventKind, Message, ProjectSummary, Role, Run, RunEvent, RunStatus, SessionPage, SessionQuery,
+    SessionStatus, SessionSummary,
 };
+
+/// One row to insert into `sessions`.
+#[derive(Debug, Clone)]
+pub struct NewSession<'a> {
+    pub id: &'a str,
+    pub runtime_id: &'a str,
+    pub title: &'a str,
+    pub model: &'a str,
+    pub project_path: &'a str,
+    /// Parent session when this one is a branch; empty otherwise.
+    pub parent_id: &'a str,
+    /// `seq` in the parent the branch was taken at; `0` without a parent.
+    pub branch_at: i64,
+    pub at: &'a str,
+}
 
 /// Open ledger handle. One connection, used behind the host's mutex.
 pub struct Store {
@@ -48,6 +65,8 @@ impl Store {
                 native_id TEXT NOT NULL DEFAULT '',
                 model TEXT NOT NULL DEFAULT '',
                 project_path TEXT NOT NULL DEFAULT '',
+                parent_id TEXT NOT NULL DEFAULT '',
+                branch_at INTEGER NOT NULL DEFAULT 0,
                 pinned INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -87,28 +106,71 @@ impl Store {
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS sessions_order ON sessions (pinned DESC, updated_at DESC, id DESC);
-            CREATE INDEX IF NOT EXISTS messages_order ON messages (session_id, seq);",
+            CREATE INDEX IF NOT EXISTS messages_order ON messages (session_id, seq);
+            CREATE TABLE IF NOT EXISTS projects (
+                path TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL
+            );",
+        )?;
+        // Databases written before the branch columns existed are still valid
+        // history; add the columns instead of refusing to open them.
+        ensure_column(
+            &connection,
+            "sessions",
+            "parent_id",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &connection,
+            "sessions",
+            "branch_at",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        connection.execute_batch(
+            "CREATE INDEX IF NOT EXISTS sessions_project ON sessions (project_path, updated_at DESC);",
         )?;
         Ok(Self { connection })
     }
 
     // ---- sessions -------------------------------------------------------
 
-    pub fn create_session(
-        &mut self,
-        id: &str,
-        runtime_id: &str,
-        title: &str,
-        model: &str,
-        project_path: &str,
-        at: &str,
-    ) -> Result<()> {
-        self.connection.execute(
+    pub fn create_session(&mut self, new: &NewSession<'_>) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
             "INSERT INTO sessions (id, runtime_id, title, status, native_id, model, project_path,
-                                   pinned, archived, created_at, updated_at, preview)
-             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, 0, 0, ?6, ?6, '')",
-            params![id, runtime_id, title, model, project_path, at],
+                                   parent_id, branch_at, pinned, archived, created_at, updated_at,
+                                   preview)
+             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, ?6, ?7, 0, 0, ?8, ?8, '')",
+            params![
+                new.id,
+                new.runtime_id,
+                new.title,
+                new.model,
+                // The directory is the grouping key: store it without stray
+                // whitespace so a query for the same project always matches.
+                new.project_path.trim(),
+                new.parent_id,
+                new.branch_at,
+                new.at
+            ],
         )?;
+        // The project index is written in the same transaction as the session
+        // that justifies it, so a project can never exist without a session and
+        // a session can never be missing from a project.
+        if !new.project_path.trim().is_empty() {
+            transaction.execute(
+                "INSERT INTO projects (path, name, added_at, last_used_at) VALUES (?1, ?2, ?3, ?3)
+                 ON CONFLICT (path) DO UPDATE SET last_used_at = excluded.last_used_at",
+                params![
+                    new.project_path.trim(),
+                    project_name(new.project_path),
+                    new.at
+                ],
+            )?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -158,10 +220,29 @@ impl Store {
     }
 
     pub fn delete_session(&mut self, id: &str) -> Result<()> {
-        let changed = self
-            .connection
-            .execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
-        expect_one(changed, "session", id)
+        let transaction = self.connection.transaction()?;
+        let project_path: Option<String> = transaction
+            .query_row(
+                "SELECT project_path FROM sessions WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let changed = transaction.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        if changed == 0 {
+            return Err(Error::NotFound(format!("session {id:?}")));
+        }
+        // Deleting the last session of a project retires the project row too;
+        // otherwise the history panel would list an empty folder forever.
+        if let Some(path) = project_path.filter(|path| !path.trim().is_empty()) {
+            transaction.execute(
+                "DELETE FROM projects WHERE path = ?1
+                 AND NOT EXISTS (SELECT 1 FROM sessions WHERE project_path = ?1)",
+                params![path],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn session(&self, id: &str) -> Result<SessionSummary> {
@@ -178,48 +259,11 @@ impl Store {
     /// History page. `cursor` is the opaque `updated_at|id` of the last row of
     /// the previous page; ordering is `pinned DESC, updated_at DESC, id DESC`,
     /// which is total, so pages never overlap or skip.
-    pub fn sessions(
-        &self,
-        runtime_id: Option<&str>,
-        include_archived: bool,
-        search: Option<&str>,
-        limit: usize,
-        cursor: Option<&str>,
-    ) -> Result<SessionPage> {
-        let limit = limit.clamp(1, 200);
-        let mut clauses: Vec<String> = Vec::new();
-        let mut args: Vec<rusqlite::types::Value> = Vec::new();
+    pub fn sessions(&self, query: &SessionQuery) -> Result<SessionPage> {
+        let query = query.normalized();
+        let limit = query.page_size();
+        let (where_clause, args) = session_filters(&query);
 
-        if let Some(runtime_id) = runtime_id {
-            clauses.push(format!("s.runtime_id = ?{}", args.len() + 1));
-            args.push(runtime_id.to_string().into());
-        }
-        if !include_archived {
-            clauses.push("s.archived = 0".to_string());
-        }
-        if let Some(search) = search.map(str::trim).filter(|text| !text.is_empty()) {
-            clauses.push(format!(
-                "(s.title LIKE ?{0} OR s.preview LIKE ?{0} OR EXISTS (
-                    SELECT 1 FROM messages m
-                    WHERE m.session_id = s.id AND m.text LIKE ?{0}))",
-                args.len() + 1
-            ));
-            args.push(format!("%{search}%").into());
-        }
-        if let Some(cursor) = cursor.and_then(split_cursor) {
-            let base = args.len();
-            clauses.push(format!(
-                "(s.pinned, s.updated_at, s.id) < (SELECT pinned, updated_at, id FROM sessions WHERE id = ?{})",
-                base + 1
-            ));
-            args.push(cursor.into());
-        }
-
-        let where_clause = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", clauses.join(" AND "))
-        };
         let sql = format!(
             "{SESSION_SELECT}{where_clause} ORDER BY s.pinned DESC, s.updated_at DESC, s.id DESC LIMIT {}",
             limit + 1
@@ -237,7 +281,7 @@ impl Store {
             None
         };
 
-        let total = self.count_sessions(runtime_id, include_archived, search)?;
+        let total = self.count_sessions(&query)?;
         Ok(SessionPage {
             sessions,
             next_cursor,
@@ -245,40 +289,38 @@ impl Store {
         })
     }
 
-    fn count_sessions(
-        &self,
-        runtime_id: Option<&str>,
-        include_archived: bool,
-        search: Option<&str>,
-    ) -> Result<i64> {
-        let mut clauses: Vec<String> = Vec::new();
-        let mut args: Vec<rusqlite::types::Value> = Vec::new();
-        if let Some(runtime_id) = runtime_id {
-            clauses.push(format!("s.runtime_id = ?{}", args.len() + 1));
-            args.push(runtime_id.to_string().into());
-        }
-        if !include_archived {
-            clauses.push("s.archived = 0".to_string());
-        }
-        if let Some(search) = search.map(str::trim).filter(|text| !text.is_empty()) {
-            clauses.push(format!(
-                "(s.title LIKE ?{0} OR s.preview LIKE ?{0} OR EXISTS (
-                    SELECT 1 FROM messages m
-                    WHERE m.session_id = s.id AND m.text LIKE ?{0}))",
-                args.len() + 1
-            ));
-            args.push(format!("%{search}%").into());
-        }
-        let where_clause = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", clauses.join(" AND "))
-        };
+    fn count_sessions(&self, query: &SessionQuery) -> Result<i64> {
+        let (where_clause, args) = session_filters(query);
         let sql = format!("SELECT COUNT(*) FROM sessions s{where_clause}");
         let total: i64 =
             self.connection
                 .query_row(&sql, rusqlite::params_from_iter(args), |row| row.get(0))?;
         Ok(total)
+    }
+
+    /// Projects that still have at least one live session, most recent first.
+    ///
+    /// The count is computed from `sessions`, not stored on the project row: a
+    /// denormalised counter is exactly the thing that drifts after a delete.
+    pub fn projects(&self) -> Result<Vec<ProjectSummary>> {
+        let mut statement = self.connection.prepare(
+            "SELECT p.path, p.name, COUNT(s.id) AS session_count,
+                    COALESCE(MAX(s.updated_at), p.last_used_at) AS last_updated
+             FROM projects p
+             LEFT JOIN sessions s ON s.project_path = p.path AND s.archived = 0
+             GROUP BY p.path
+             HAVING session_count > 0
+             ORDER BY last_updated DESC, p.path",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(ProjectSummary {
+                path: row.get(0)?,
+                name: row.get(1)?,
+                session_count: row.get(2)?,
+                last_updated: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     // ---- messages -------------------------------------------------------
@@ -433,14 +475,24 @@ impl Store {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
-    /// Mark every run still marked running as failed. Called on start-up: a
-    /// process that died mid-run must not leave a session "running" forever.
+    /// Mark every run still marked running as failed, and reset the sessions
+    /// that were waiting on it. Called on start-up: a process that died mid-run
+    /// must not leave a session "running" forever, or its next send is refused.
     pub fn fail_interrupted_runs(&mut self, at: &str) -> Result<usize> {
-        let changed = self.connection.execute(
+        let transaction = self.connection.transaction()?;
+        let changed = transaction.execute(
             "UPDATE runs SET status = 'failed', ended_at = ?1, error = 'process exited during the run'
              WHERE status = 'running'",
             params![at],
         )?;
+        transaction.execute(
+            "UPDATE sessions SET status = 'idle', updated_at = ?1
+             WHERE status = 'running'
+               AND NOT EXISTS (
+                   SELECT 1 FROM runs r WHERE r.session_id = sessions.id AND r.status = 'running')",
+            params![at],
+        )?;
+        transaction.commit()?;
         Ok(changed)
     }
 
@@ -511,7 +563,8 @@ impl Store {
 }
 
 const SESSION_SELECT: &str = "SELECT s.id, s.runtime_id, s.title, s.status, s.native_id, s.model,
-        s.project_path, s.pinned, s.archived, s.created_at, s.updated_at, s.preview,
+        s.project_path, s.parent_id, s.branch_at, s.pinned, s.archived, s.created_at, s.updated_at,
+        s.preview,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id)
      FROM sessions s";
 
@@ -525,13 +578,91 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
         native_id: row.get(4)?,
         model: row.get(5)?,
         project_path: row.get(6)?,
-        pinned: row.get::<_, i64>(7)? == 1,
-        archived: row.get::<_, i64>(8)? == 1,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        preview: row.get(11)?,
-        message_count: row.get(12)?,
+        parent_id: row.get(7)?,
+        branch_at: row.get(8)?,
+        pinned: row.get::<_, i64>(9)? == 1,
+        archived: row.get::<_, i64>(10)? == 1,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        preview: row.get(13)?,
+        message_count: row.get(14)?,
     })
+}
+
+/// `WHERE` clause and its positional arguments for one query.
+///
+/// The cursor is a row identity, not an offset: paging by offset over a list
+/// that the running turn keeps updating would skip or repeat rows.
+fn session_filters(query: &SessionQuery) -> (String, Vec<rusqlite::types::Value>) {
+    let mut clauses: Vec<String> = Vec::new();
+    let mut args: Vec<rusqlite::types::Value> = Vec::new();
+
+    if let Some(runtime_id) = query.runtime_id.as_deref() {
+        clauses.push(format!("s.runtime_id = ?{}", args.len() + 1));
+        args.push(runtime_id.to_string().into());
+    }
+    if let Some(project_path) = query.project_path.as_deref() {
+        clauses.push(format!("s.project_path = ?{}", args.len() + 1));
+        args.push(project_path.to_string().into());
+    }
+    if !query.include_archived {
+        clauses.push("s.archived = 0".to_string());
+    }
+    if let Some(search) = query.search.as_deref() {
+        clauses.push(format!(
+            "(s.title LIKE ?{0} OR s.preview LIKE ?{0} OR EXISTS (
+                SELECT 1 FROM messages m
+                WHERE m.session_id = s.id AND m.text LIKE ?{0}))",
+            args.len() + 1
+        ));
+        args.push(format!("%{search}%").into());
+    }
+    if let Some(cursor) = query.cursor.as_deref().and_then(split_cursor) {
+        let position = args.len() + 1;
+        clauses.push(format!(
+            "(s.pinned, s.updated_at, s.id) <
+             (SELECT pinned, updated_at, id FROM sessions WHERE id = ?{position})"
+        ));
+        args.push(cursor.into());
+    }
+
+    let where_clause = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+    (where_clause, args)
+}
+
+/// Display name for a project directory: its last segment.
+fn project_name(path: &str) -> String {
+    let trimmed = path.trim().trim_end_matches(['\\', '/']);
+    trimmed
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+/// Add a column to an existing table when it is missing.
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    declaration: &str,
+) -> Result<()> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let existing = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if existing.iter().any(|name| name == column) {
+        return Ok(());
+    }
+    connection.execute_batch(&format!(
+        "ALTER TABLE {table} ADD COLUMN {column} {declaration}"
+    ))?;
+    Ok(())
 }
 
 fn split_cursor(cursor: &str) -> Option<String> {

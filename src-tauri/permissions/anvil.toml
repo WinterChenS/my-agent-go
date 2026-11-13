@@ -104,6 +104,21 @@ identifier = "allow-session-delete"
 description = "Allows deleting a session and everything derived from it."
 commands.allow = ["session_delete"]
 
+[[permission]]
+identifier = "allow-session-projects"
+description = "Allows listing the projects that group sessions in the history panel."
+commands.allow = ["session_projects"]
+
+[[permission]]
+identifier = "allow-session-fork"
+description = "Allows branching a session into a new session that carries the transcript up to a point."
+commands.allow = ["session_fork"]
+
+[[permission]]
+identifier = "allow-session-compact"
+description = "Allows folding the older part of a session's transcript into one summary row."
+commands.allow = ["session_compact"]
+
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact"]

@@ -331,6 +331,18 @@ fn session_contract_suite() -> Vec<StepSpec> {
     ]
 }
 
+/// Contract tests for project/history semantics: the crate, its contract
+/// suite and the chat page's own tests (grouping, branch, compaction).
+fn history_contract_suite() -> Vec<StepSpec> {
+    let mut steps = session_contract_suite();
+    steps.push(
+        StepSpec::new("npm-test-chat", "npm", &["test", "--", "run", "src/chat"])
+            .dir("frontend")
+            .timeout(900),
+    );
+    steps
+}
+
 /// Contract tests for the catalog (unit + injected-adapter suite).
 fn catalog_contract_suite() -> Vec<StepSpec> {
     vec![
@@ -912,6 +924,160 @@ pub fn case_plans() -> Vec<CasePlan> {
                     "action:stopped=true",
                 ],
             )],
+        ),
+        CasePlan::automation("R2-02-history-contract", history_contract_suite()),
+        // The ledger semantics, on a real file, across a restart of the
+        // service. `echo` answers locally, so this case never spends a token
+        // and still exercises every row the UI renders.
+        CasePlan::automation(
+            "R2-02-history-local",
+            vec![session_step_fresh(
+                "history-local",
+                "history-local",
+                &[
+                    "--action",
+                    "history",
+                    "--with-echo",
+                    "--expect",
+                    "action:ok=true",
+                    "--expect",
+                    "action:duplicates=0",
+                    "--expect",
+                    "action:missing=0",
+                    "--expect",
+                    "action:unexpected=0",
+                    "--expect",
+                    "action:crossProject=0",
+                    "--expect",
+                    "action:projectCount=2",
+                    "--expect",
+                    "action:alphaSessions=2",
+                    "--expect",
+                    "action:betaSessions=2",
+                    "--expect",
+                    "action:pinFirst=true",
+                    "--expect",
+                    "action:renameVisible=true",
+                    "--expect",
+                    "action:archiveHidden=true",
+                    "--expect",
+                    "action:archiveVisible=true",
+                    "--expect",
+                    "action:searchHits=1",
+                    "--expect",
+                    "action:recoveredRuns=1",
+                    "--expect",
+                    "action:resumedAfterRecovery=true",
+                    "--expect",
+                    "action:deletedGone=true",
+                    "--expect",
+                    "action:branch.branchAt=2",
+                    "--expect",
+                    "action:branch.carriedParentText=true",
+                    "--expect",
+                    "action:compact.nativeUntouched=true",
+                    "--expect",
+                    "action:compact.firstRole=system",
+                ],
+            )],
+        ),
+        // The same session, resumed by a *second process*: the identifier the
+        // runtime minted in the first run is what the second one reopens.
+        CasePlan::automation(
+            "R2-02-pi-resume-live",
+            vec![
+                session_step_fresh(
+                    "pi-resume-first",
+                    "pi-resume",
+                    &[
+                        "--action",
+                        "live",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "auto/gpt-5.6-sol",
+                        "--prompt",
+                        "Reply with exactly: ok",
+                        "--turns",
+                        "2",
+                        "--timeout",
+                        "180",
+                        "--expect",
+                        "action:status=completed",
+                        "--expect",
+                        "messages-min=4",
+                    ],
+                ),
+                session_step(
+                    "pi-resume-second",
+                    "pi-resume",
+                    &[
+                        "--action",
+                        "resume",
+                        "--prompt",
+                        "Reply with exactly: resumed",
+                        "--timeout",
+                        "180",
+                        "--expect",
+                        "action:status=completed",
+                        "--expect",
+                        "action:nativeIdSame=true",
+                        "--expect",
+                        "action:nativeIdPresent=true",
+                        "--expect",
+                        "messages-min=6",
+                        "--expect",
+                        "text-contains=resumed",
+                    ],
+                ),
+            ],
+        ),
+        CasePlan::automation(
+            "R2-02-codex-resume-live",
+            vec![
+                session_step_fresh(
+                    "codex-resume-first",
+                    "codex-resume",
+                    &[
+                        "--action",
+                        "live",
+                        "--runtime",
+                        "codex",
+                        "--model",
+                        "gpt-5.6-sol",
+                        "--prompt",
+                        "Reply with exactly: ok",
+                        "--turns",
+                        "2",
+                        "--timeout",
+                        "180",
+                        "--expect",
+                        "action:status=completed",
+                        "--expect",
+                        "messages-min=4",
+                    ],
+                ),
+                session_step(
+                    "codex-resume-second",
+                    "codex-resume",
+                    &[
+                        "--action",
+                        "resume",
+                        "--prompt",
+                        "Reply with exactly: resumed",
+                        "--timeout",
+                        "180",
+                        "--expect",
+                        "action:status=completed",
+                        "--expect",
+                        "action:nativeIdSame=true",
+                        "--expect",
+                        "messages-min=6",
+                        "--expect",
+                        "text-contains=resumed",
+                    ],
+                ),
+            ],
         ),
     ]
 }

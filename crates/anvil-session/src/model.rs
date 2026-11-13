@@ -181,6 +181,9 @@ pub enum EventKind {
     Error,
     TurnCompleted,
     Aborted,
+    /// The session's transcript was compacted. The runtime's own context is
+    /// untouched: the payload says what this build did and what it did not.
+    Compacted,
     /// A runtime event this build does not model yet; kept, never dropped.
     Unknown,
 }
@@ -201,6 +204,7 @@ impl EventKind {
             Self::Error => "error",
             Self::TurnCompleted => "turn_completed",
             Self::Aborted => "aborted",
+            Self::Compacted => "compacted",
             Self::Unknown => "unknown",
         }
     }
@@ -220,6 +224,7 @@ impl EventKind {
             "error" => Some(Self::Error),
             "turn_completed" => Some(Self::TurnCompleted),
             "aborted" => Some(Self::Aborted),
+            "compacted" => Some(Self::Compacted),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }
@@ -303,6 +308,12 @@ pub struct SessionSummary {
     pub native_id: String,
     pub model: String,
     pub project_path: String,
+    /// Session this one was branched from; empty for a session started from
+    /// scratch.
+    pub parent_id: String,
+    /// Message `seq` in the parent the branch was taken at; `0` without a
+    /// parent.
+    pub branch_at: i64,
     pub pinned: bool,
     pub archived: bool,
     pub message_count: i64,
@@ -329,6 +340,78 @@ pub struct SessionPage {
     /// Cursor for the next page; `None` when the list is exhausted.
     pub next_cursor: Option<String>,
     pub total: i64,
+}
+
+/// What the history panel asks the ledger for.
+///
+/// A struct rather than six positionals: `runtime_id`, `project_path` and
+/// `search` are all optional strings, and a positional call that swaps two of
+/// them would filter by the wrong thing while still compiling.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionQuery {
+    pub runtime_id: Option<String>,
+    /// Only sessions that ran in this directory.
+    pub project_path: Option<String>,
+    pub include_archived: bool,
+    /// Matches the title, the preview or any message text.
+    pub search: Option<String>,
+    pub limit: Option<usize>,
+    pub cursor: Option<String>,
+}
+
+impl SessionQuery {
+    /// Page size with the ledger's own bounds applied.
+    #[must_use]
+    pub fn page_size(&self) -> usize {
+        self.limit.unwrap_or(50).clamp(1, 200)
+    }
+
+    /// Trim and drop empty filters, so `"  "` does not become a clause.
+    #[must_use]
+    pub fn normalized(&self) -> Self {
+        let clean = |value: &Option<String>| {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        };
+        Self {
+            runtime_id: clean(&self.runtime_id),
+            project_path: clean(&self.project_path),
+            include_archived: self.include_archived,
+            search: clean(&self.search),
+            limit: self.limit,
+            cursor: self.cursor.clone(),
+        }
+    }
+}
+
+/// One project as the history panel groups sessions by.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummary {
+    /// Absolute directory the sessions ran in; the grouping key.
+    pub path: String,
+    /// Last path segment, for display; falls back to the full path.
+    pub name: String,
+    /// Sessions in this project that are not archived.
+    pub session_count: i64,
+    /// Most recent `updated_at` among those sessions.
+    pub last_updated: String,
+}
+
+/// What one compaction did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactReport {
+    /// Messages folded into the summary.
+    pub collapsed: usize,
+    /// Messages kept verbatim after the summary.
+    pub kept: usize,
+    /// `seq` of the summary message, so the UI can scroll to it.
+    pub summary_seq: i64,
 }
 
 /// What the caller asks the adapter to open.
@@ -430,6 +513,7 @@ mod tests {
             EventKind::Error,
             EventKind::TurnCompleted,
             EventKind::Aborted,
+            EventKind::Compacted,
             EventKind::Unknown,
         ] {
             assert_eq!(EventKind::from_label(kind.as_str()), Some(kind));
@@ -446,6 +530,8 @@ mod tests {
             native_id: "n1".into(),
             model: "m".into(),
             project_path: "D:\\p".into(),
+            parent_id: String::new(),
+            branch_at: 0,
             pinned: false,
             archived: false,
             message_count: 2,
@@ -457,7 +543,39 @@ mod tests {
         assert_eq!(json["runtimeId"], "pi");
         assert_eq!(json["nativeId"], "n1");
         assert_eq!(json["messageCount"], 2);
+        assert_eq!(json["projectPath"], "D:\\p");
+        assert_eq!(json["parentId"], "");
         assert_eq!(json["status"], "idle");
+    }
+
+    #[test]
+    fn an_empty_query_falls_back_to_the_default_page_size() {
+        let query = SessionQuery::default();
+        assert_eq!(query.page_size(), 50);
+        assert_eq!(
+            SessionQuery {
+                limit: Some(0),
+                ..SessionQuery::default()
+            }
+            .page_size(),
+            1
+        );
+        assert_eq!(
+            SessionQuery {
+                limit: Some(9_999),
+                ..SessionQuery::default()
+            }
+            .page_size(),
+            200
+        );
+        let normalized = SessionQuery {
+            runtime_id: Some("  pi ".into()),
+            search: Some("   ".into()),
+            ..SessionQuery::default()
+        }
+        .normalized();
+        assert_eq!(normalized.runtime_id.as_deref(), Some("pi"));
+        assert!(normalized.search.is_none());
     }
 
     #[test]

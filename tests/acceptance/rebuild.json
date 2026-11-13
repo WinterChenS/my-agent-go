@@ -315,6 +315,30 @@
           "task": "R2-01",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R2-02-history-contract",
+          "task": "R2-02",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-02-history-local",
+          "task": "R2-02",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-02-pi-resume-live",
+          "task": "R2-02",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-02-codex-resume-live",
+          "task": "R2-02",
+          "evidenceKind": "automation",
+          "required": true
         }
       ]
     }
