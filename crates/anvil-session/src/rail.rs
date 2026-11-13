@@ -338,7 +338,7 @@ fn walk_events(
 
 /// The text the reader sees for one call: the command line, the path, or the
 /// first scalar argument.
-fn label_for(tool: &str, args: &serde_json::Value) -> String {
+pub(crate) fn label_for(tool: &str, args: &serde_json::Value) -> String {
     let mut text = match args {
         serde_json::Value::String(raw) => raw.clone(),
         serde_json::Value::Object(map) => {

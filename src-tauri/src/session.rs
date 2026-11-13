@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
 use anvil_session::rail::RailView;
 use anvil_session::{
     ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, Message,
@@ -62,6 +63,15 @@ impl SessionState {
     /// Path of the ledger (for the startup log line).
     pub fn database(&self) -> &Path {
         &self.database
+    }
+
+    /// Where exports land: beside the ledger, so both live on the data drive
+    /// and both are covered by the same backup.
+    fn export_dir(&self) -> PathBuf {
+        self.database
+            .parent()
+            .map(|dir| dir.join("exports"))
+            .unwrap_or_else(|| PathBuf::from("exports"))
     }
 
     fn fail(&self, message: String) -> String {
@@ -403,6 +413,33 @@ pub async fn session_rail(
             &runs,
             &events,
         ))
+    })
+}
+
+/// Write the conversation to disk, under the application's own export folder.
+///
+/// The UI never sends a path: it picks a format, and the host decides where the
+/// bytes go. That is what keeps an export from becoming an arbitrary write.
+#[tauri::command]
+pub async fn session_export(
+    state: State<'_, SessionState>,
+    session_id: String,
+    format: String,
+    include_tools: Option<bool>,
+    overwrite: Option<bool>,
+) -> Result<ExportReport, String> {
+    let format = ExportFormat::from_label(&format)
+        .ok_or_else(|| format!("export: unknown format {format:?}"))?;
+    let options = ExportOptions {
+        format,
+        include_tools: include_tools.unwrap_or(false),
+        overwrite: overwrite.unwrap_or(false),
+    };
+    let root = state.export_dir();
+    state.with_writer(|service| {
+        service
+            .export(&session_id, &root, &options)
+            .map_err(|error| error.to_wire().to_string())
     })
 }
 

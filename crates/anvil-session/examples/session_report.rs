@@ -120,6 +120,7 @@ fn run() -> Result<ExitCode, String> {
         "history" => history(&options)?,
         "context" => context_action(&mut service, &options)?,
         "rail" => rail_action(&mut service, &options)?,
+        "export" => export_action(&mut service, &options)?,
         "resume" => resume(&mut service, &options)?,
         "projects" => {
             let projects = service.projects().map_err(|error| error.to_string())?;
@@ -292,6 +293,206 @@ fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::
 /// The history semantics — projects, paging, search, branch, compaction — are
 /// about the ledger, not about a model. Proving them against a fake adapter
 /// keeps the case deterministic and free; the live cases prove the runtimes.
+/// Export one session in all three formats and check what the files contain.
+///
+/// The interesting assertions are the ones a happy path would skip: an existing
+/// file is refused until the caller confirms, a failed write leaves no `.part`
+/// behind, and tool arguments (which hold tokens and file bodies) stay out
+/// unless they were explicitly asked for.
+fn export_action(
+    service: &mut SessionService,
+    options: &Options,
+) -> Result<serde_json::Value, String> {
+    use anvil_session::export::{ExportFormat, ExportOptions};
+
+    let project = options.data_dir.join("project");
+    std::fs::create_dir_all(&project).map_err(|error| format!("project dir: {error}"))?;
+    let spec = SessionSpec {
+        runtime_id: "export".into(),
+        model: options.model.clone(),
+        cwd: project.display().to_string(),
+        title: Some("Weekly <script>alert(1)</script> report".into()),
+        native_id: None,
+        allow_tools: true,
+        tools: vec!["write".into()],
+    };
+    let session = service.open(&spec).map_err(|error| error.to_string())?;
+    service
+        .send(&session.id, "export the weekly report")
+        .map_err(|error| error.to_string())?;
+
+    let root = options.data_dir.join("exports");
+    let quiet = |format: ExportFormat| ExportOptions {
+        format,
+        include_tools: false,
+        overwrite: false,
+    };
+
+    let mut written = Vec::new();
+    for format in [
+        ExportFormat::Html,
+        ExportFormat::Markdown,
+        ExportFormat::Json,
+    ] {
+        let report = service
+            .export(&session.id, &root, &quiet(format))
+            .map_err(|error| format!("export {}: {error}", format.as_str()))?;
+        let body = std::fs::read_to_string(&report.path)
+            .map_err(|error| format!("read {}: {error}", report.path))?;
+        written.push((report, body));
+    }
+
+    let needle = "ZEBRA-EXPORT";
+    let same_text = written.iter().all(|(_, body)| body.contains(needle));
+    let html = &written[0].1;
+    let escaped = html.contains("&lt;script&gt;") && !html.contains("<script>");
+    let hash_len = written[0].0.sha256.len();
+    let canonical_root = std::fs::canonicalize(&root).unwrap_or(root.clone());
+    let path_inside = written
+        .iter()
+        .all(|(report, _)| PathBuf::from(&report.path).starts_with(&canonical_root));
+    let secret_absent = written
+        .iter()
+        .all(|(_, body)| !body.contains("sk-export-SECRET"));
+
+    // Same content, same hash: an export is reproducible, which is what makes
+    // the recorded digest useful to an auditor.
+    let first = &written[0].0;
+    let again = service
+        .export(
+            &session.id,
+            &root,
+            &ExportOptions {
+                format: ExportFormat::Html,
+                include_tools: false,
+                overwrite: true,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    let hash_stable = again.sha256 == first.sha256;
+
+    // Without the confirm, an existing file is refused and left untouched.
+    let overwrite_refused = matches!(
+        service.export(&session.id, &root, &quiet(ExportFormat::Html)),
+        Err(error) if error.code() == "rejected"
+    );
+
+    // A target occupied by a directory cannot be replaced; the attempt must not
+    // leave a `.part` file that looks like a finished export.
+    let blocked_name = again.file_name.clone();
+    std::fs::remove_file(root.join(&blocked_name)).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(root.join(&blocked_name)).map_err(|error| error.to_string())?;
+    let failed = service.export(
+        &session.id,
+        &root,
+        &ExportOptions {
+            format: ExportFormat::Html,
+            include_tools: false,
+            overwrite: true,
+        },
+    );
+    let failure_no_partial =
+        failed.is_err() && !root.join(format!(".{blocked_name}.part")).exists();
+
+    // The opt-in changes what is written, and still not the private argument.
+    let with_tools = service
+        .export(
+            &session.id,
+            &root,
+            &ExportOptions {
+                format: ExportFormat::Json,
+                include_tools: true,
+                overwrite: true,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    let shown_body =
+        std::fs::read_to_string(&with_tools.path).map_err(|error| error.to_string())?;
+
+    let formats: Vec<&str> = written
+        .iter()
+        .map(|(report, _)| report.format.as_str())
+        .collect();
+    Ok(serde_json::json!({
+        "ok": same_text
+            && escaped
+            && path_inside
+            && hash_len == 64
+            && hash_stable
+            && overwrite_refused
+            && failure_no_partial
+            && secret_absent
+            && shown_body.contains("out/export.md"),
+        "formats": formats,
+        "sameText": same_text,
+        "escaped": escaped,
+        "hashLen": hash_len,
+        "hashStable": hash_stable,
+        "pathInside": path_inside,
+        "overwriteRefused": overwrite_refused,
+        "failureNoPartial": failure_no_partial,
+        "secretAbsent": secret_absent,
+        "toolRowsHidden": written[0].0.tool_rows,
+        "toolRowsShown": with_tools.tool_rows,
+        "toolsIncluded": with_tools.tools_included,
+        "root": root.display().to_string(),
+        "fileNames": written.iter().map(|(report, _)| report.file_name.clone()).collect::<Vec<_>>(),
+        // Recorded, not faked: external sharing needs a service this build has
+        // none of, so the capability is absent rather than "passing".
+        "share": "unavailable: no external sharing service is configured",
+    }))
+}
+
+/// A runtime whose turn cites text with HTML in it and calls one writing tool,
+/// so the export has something worth escaping and something worth withholding.
+struct ExportAdapter;
+
+impl SessionAdapter for ExportAdapter {
+    fn id(&self) -> &str {
+        "export"
+    }
+
+    fn capabilities(&self) -> SessionCapabilities {
+        SessionCapabilities::full()
+    }
+
+    fn open(&self, _context: &SessionContext, spec: &SessionSpec) -> SessionResult<OpenedSession> {
+        Ok(OpenedSession {
+            runtime_id: "export".into(),
+            native_id: "export-native".into(),
+            model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
+        })
+    }
+
+    fn send(
+        &self,
+        _context: &SessionContext,
+        _opened: &OpenedSession,
+        _prompt: &str,
+        _cancel: &Cancel,
+        sink: &mut dyn FnMut(AdapterEvent),
+    ) -> SessionResult<RunOutcome> {
+        sink(AdapterEvent::new(
+            EventKind::ToolCall,
+            serde_json::json!({
+                "tool": "write",
+                "args": { "path": "out/export.md", "secret": "sk-export-SECRET" }
+            }),
+        ));
+        sink(AdapterEvent::new(
+            EventKind::ToolResult,
+            serde_json::json!({ "tool": "write", "ok": true }),
+        ));
+        Ok(RunOutcome::completed(
+            "export needle ZEBRA-EXPORT and a hostile <script>alert(1)</script> tag",
+            None,
+        ))
+    }
+}
+
 /// Aggregate the right rail from a two-turn session and check the facts the
 /// panes claim.
 ///
@@ -1118,6 +1319,13 @@ fn resume(service: &mut SessionService, options: &Options) -> Result<serde_json:
 }
 
 fn registry_for(options: &Options) -> Result<Registry, String> {
+    if options.action == "export" {
+        let mut registry = Registry::new();
+        registry
+            .register(std::sync::Arc::new(ExportAdapter))
+            .map_err(|error| error.to_string())?;
+        return Ok(registry);
+    }
     if options.action == "rail" {
         // The rail is a read of the ledger; the runtime only has to produce a
         // believable ledger, so a local double keeps the case token-free while

@@ -22,6 +22,7 @@ import {
   compactSession,
   deleteSession,
   describeSessionError,
+  exportConversation,
   forkSession,
   latestSeq,
   listContext,
@@ -40,6 +41,7 @@ import {
   type ApprovalRequest,
   type ContextEntry,
   type ContextRef,
+  type ExportReport,
   type ProjectSummary,
   type RailView,
   type SessionDetail,
@@ -101,6 +103,12 @@ export interface ChatSessionView {
   approve: (decision: ApprovalDecision) => Promise<boolean>
   /** Files and directories the composer may reference in this project. */
   mention: (query: string) => Promise<ContextEntry[]>
+  /** Write the conversation out; `overwrite` is the caller's explicit yes. */
+  exportSession: (
+    format: 'html' | 'markdown' | 'json',
+    includeTools: boolean,
+    overwrite?: boolean,
+  ) => Promise<ExportReport>
   abort: () => Promise<boolean>
   refresh: () => Promise<void>
   rename: (sessionId: string, title: string) => Promise<void>
@@ -196,6 +204,11 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
+/// How long the page waits for the first catalog scan before letting the user
+/// drive (90 seconds in total: a cold scan probes every installed runtime).
+const MODEL_WAIT_ATTEMPTS = 60
+const MODEL_WAIT_INTERVAL_MS = 1500
+
 export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): ChatSessionView {
   const available = enabled && isTauriHost()
   const [status, setStatus] = useState<ChatStatus>(() => (available ? 'loading' : 'unavailable'))
@@ -245,6 +258,21 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     }
   }, [current, reloadSessions])
 
+  /** Read the catalog once and adopt its models; `true` when there is one. */
+  const readModels = useCallback(async (): Promise<boolean> => {
+    // The catalog says which runtimes exist and which models they can use; a
+    // chat cannot offer a model the machine does not have.
+    const catalog = await loadCatalog()
+    const usable = catalog.runtimes
+      .filter((runtime) => runtime.status === 'available')
+      .map((runtime) => runtime.runtimeId)
+    const choices = toChoices(catalog.models, usable)
+    if (!mounted.current) return choices.length > 0
+    setModels(choices)
+    setModel((existing) => existing ?? pickModel(choices))
+    return choices.length > 0
+  }, [])
+
   const boot = useCallback(async () => {
     // Sample mode never touches the host, so the prototype page keeps working
     // without a ledger and the acceptance run does not pay for an extra scan.
@@ -278,16 +306,17 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     })()
 
     try {
-      // The catalog says which runtimes exist and which models they can use; a
-      // chat cannot offer a model the machine does not have.
-      const catalog = await loadCatalog()
-      const usable = catalog.runtimes
-        .filter((runtime) => runtime.status === 'available')
-        .map((runtime) => runtime.runtimeId)
-      const choices = toChoices(catalog.models, usable)
-      if (!mounted.current) return
-      setModels(choices)
-      setModel((existing) => existing ?? pickModel(choices))
+      if (await readModels()) return
+      // A cold data directory has an empty catalog until the first scan (which
+      // probes every installed runtime) finishes. Reading once and giving up
+      // left the composer disabled forever, with the page saying "connecting"
+      // and no retry: the user's only way out was to press sync. Wait for the
+      // scan instead, with a bounded budget so a broken machine still settles.
+      for (let attempt = 0; attempt < MODEL_WAIT_ATTEMPTS; attempt += 1) {
+        await sleep(MODEL_WAIT_INTERVAL_MS)
+        if (!mounted.current) return
+        if (await readModels()) return
+      }
     } catch (cause) {
       if (!mounted.current) return
       if (cause instanceof CatalogUnavailable || cause instanceof SessionUnavailable) return
@@ -469,6 +498,19 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     [current, model, reloadSessions, refreshRail],
   )
 
+  const exportSession = useCallback(
+    async (
+      format: 'html' | 'markdown' | 'json',
+      includeTools: boolean,
+      overwrite = false,
+    ): Promise<ExportReport> => {
+      const sessionId = current?.session.id
+      if (!sessionId) throw new Error('there is no conversation to export yet')
+      return exportConversation(sessionId, format, { includeTools, overwrite })
+    },
+    [current],
+  )
+
   const approve = useCallback(
     async (decision: ApprovalDecision) => {
       const sessionId = current?.session.id
@@ -599,6 +641,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     send,
     approve,
     mention,
+    exportSession,
     abort,
     refresh,
     rename,

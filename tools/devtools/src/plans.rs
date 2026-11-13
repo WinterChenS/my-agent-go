@@ -929,6 +929,44 @@ pub fn case_plans() -> Vec<CasePlan> {
         ),
         CasePlan::automation("R2-03-context-contract", history_contract_suite()),
         CasePlan::automation("R2-04-rail-contract", history_contract_suite()),
+        // Export: three formats, one confined directory, an explicit overwrite,
+        // no half-written file when a write fails, and tool arguments that stay
+        // out unless they were asked for.
+        CasePlan::automation(
+            "R2-05-export-live",
+            vec![session_step_fresh(
+                "export-live",
+                "export",
+                &[
+                    "--action",
+                    "export",
+                    "--model",
+                    "export-acceptance",
+                    "--expect",
+                    "action:ok=true",
+                    "--expect",
+                    "action:sameText=true",
+                    "--expect",
+                    "action:escaped=true",
+                    "--expect",
+                    "action:hashLen=64",
+                    "--expect",
+                    "action:hashStable=true",
+                    "--expect",
+                    "action:pathInside=true",
+                    "--expect",
+                    "action:overwriteRefused=true",
+                    "--expect",
+                    "action:failureNoPartial=true",
+                    "--expect",
+                    "action:secretAbsent=true",
+                    "--expect",
+                    "action:toolRowsHidden=0",
+                    "--expect",
+                    "action:toolRowsShown=1",
+                ],
+            )],
+        ),
         // The four panes over one real ledger: the runtime is a local double so
         // the case costs no tokens, but the files, the events, the turn ids and
         // the citations are all real, and an outside path is really excluded.

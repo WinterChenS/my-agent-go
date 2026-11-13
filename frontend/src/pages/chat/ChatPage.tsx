@@ -7,8 +7,8 @@ import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
-import ChatDialogs, { type ChatDialogKind } from './ChatDialogs'
-import type { ContextEntry, ContextRef } from '../../chat/client'
+import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDialogs'
+import { describeSessionError, type ContextEntry, type ContextRef } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
@@ -140,6 +140,29 @@ export default function ChatPage() {
   const showSource = () => {
     setRailOpen(true)
     setRailTab('sources')
+  }
+
+  // One export, with the overwrite confirm the store requires: the host refuses
+  // to replace a file until the person says so, and the dialog stays open with
+  // the reason when it fails.
+  const runExport = async ({ format, includeTools }: ExportRequest) => {
+    const done = (path: string) => ({ ok: true, message: t('chat.export.saved', { path }) })
+    try {
+      const report = await live.exportSession(format, includeTools)
+      return done(report.path)
+    } catch (cause) {
+      const message = describeSessionError(cause)
+      if (!message.includes('already exists')) return { ok: false, message }
+      const confirmed =
+        typeof window.confirm === 'function' ? window.confirm(t('chat.export.overwrite')) : false
+      if (!confirmed) return { ok: false, message: t('chat.export.cancelled') }
+      try {
+        const report = await live.exportSession(format, includeTools, true)
+        return done(report.path)
+      } catch (retry) {
+        return { ok: false, message: describeSessionError(retry) }
+      }
+    }
   }
 
   // Live mode is the real desktop path: the ledger holds the conversation.
@@ -288,12 +311,14 @@ export default function ChatPage() {
             </>
           ) : null}
           <LanguageQuickSwitch />
+          {/* Exporting needs a real conversation: the prototype still opens the
+              dialog, and the live page writes the file through the host. */}
           <button
             type="button"
             className="chat-iconbtn chat-export"
             aria-label={t('chat.export')}
-            title={sample ? t('chat.export') : t('chat.action.unavailable')}
-            disabled={!sample}
+            title={sample || liveSession ? t('chat.export') : t('chat.action.unavailable')}
+            disabled={!sample && !liveSession}
             onClick={(event) => openDialog('export', event.currentTarget)}
           >
             <Icon name="download" size={15} />
@@ -552,7 +577,12 @@ export default function ChatPage() {
         </div>
       ) : null}
 
-      <ChatDialogs kind={dialog} onClose={closeDialog} onNotice={showNotice} />
+      <ChatDialogs
+        kind={dialog}
+        onClose={closeDialog}
+        onNotice={showNotice}
+        onExport={liveSession ? runExport : undefined}
+      />
     </section>
   )
 }

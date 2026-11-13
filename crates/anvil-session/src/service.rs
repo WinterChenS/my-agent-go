@@ -743,6 +743,38 @@ impl SessionService {
         ))
     }
 
+    /// Write one conversation to `root` in the requested format.
+    ///
+    /// The root is chosen by the caller (the host), never by the transcript, and
+    /// the file name is derived here: an export cannot be talked into writing
+    /// somewhere else by a session whose title looks like a path.
+    pub fn export(
+        &self,
+        session_id: &str,
+        root: &std::path::Path,
+        options: &crate::export::ExportOptions,
+    ) -> Result<crate::export::ExportReport> {
+        let session = self.store.session(session_id)?;
+        let messages = self.store.messages(session_id)?;
+        let runs = self.store.runs(session_id)?;
+        let events = self.store.events(session_id)?;
+        let (file_name, content, stats) =
+            crate::export::render(&session, &messages, &runs, &events, options);
+        let path = crate::export::write(root, &file_name, &content, options.overwrite)?;
+        Ok(crate::export::ExportReport {
+            path: path.display().to_string(),
+            root: root.display().to_string(),
+            file_name,
+            bytes: content.len() as u64,
+            sha256: crate::export::digest(&content),
+            format: options.format.as_str().to_string(),
+            messages: stats.messages,
+            runs: stats.runs,
+            tool_rows: stats.tool_rows,
+            tools_included: options.include_tools,
+        })
+    }
+
     /// Entries for the composer's `@` list, confined to the session's project.
     pub fn context_entries(
         &self,

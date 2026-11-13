@@ -4,6 +4,7 @@
 //! * `store` — SQLite index (sessions, messages, runs, events);
 //! * `context` — `@` references: confinement, budgets and prompt folding;
 //! * `rail` — the right rail: execution, artifacts, citations, local preview;
+//! * `export` — HTML/Markdown/JSON transcripts, confined and atomic;
 //! * `adapter` — the `SessionAdapter` contract and its registry;
 //! * `adapters` — the two shipped adapters (Pi, Codex);
 //! * `service` — open/send/abort/resume orchestration on top of the registry.
@@ -17,6 +18,7 @@ pub mod adapters;
 pub mod clock;
 pub mod context;
 pub mod error;
+pub mod export;
 pub mod model;
 pub mod rail;
 pub mod service;

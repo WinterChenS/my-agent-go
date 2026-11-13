@@ -369,6 +369,12 @@
           "task": "R2-04",
           "evidenceKind": "native-desktop",
           "required": true
+        },
+        {
+          "id": "R2-05-export-live",
+          "task": "R2-05",
+          "evidenceKind": "automation",
+          "required": true
         }
       ]
     }

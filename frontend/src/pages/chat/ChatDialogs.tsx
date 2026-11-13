@@ -5,14 +5,20 @@ import { sampleChat } from './sampleData'
 
 export type ChatDialogKind = 'project' | 'export' | 'thread' | 'thil' | null
 
+/** What the export dialog asks the page to do. */
+export type ExportRequest = { format: 'html' | 'markdown' | 'json'; includeTools: boolean }
+
 export default function ChatDialogs({
   kind,
   onClose,
   onNotice,
+  onExport,
 }: {
   kind: ChatDialogKind
   onClose: () => void
   onNotice: (message: string) => void
+  /** Absent in sample mode: the prototype has nothing to export. */
+  onExport?: (request: ExportRequest) => Promise<{ ok: boolean; message: string }>
 }) {
   const { t } = useI18n()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -229,7 +235,21 @@ export default function ChatDialogs({
               <button
                 type="button"
                 className="chat-btn chat-btn-primary"
-                onClick={() => onNotice(t('chat.export.notice'))}
+                onClick={() => {
+                  if (!onExport) {
+                    onNotice(t('chat.export.notice'))
+                    return
+                  }
+                  void onExport({
+                    format: format as 'html' | 'markdown' | 'json',
+                    includeTools,
+                  }).then((result) => {
+                    // A failed export keeps the dialog open with the reason in
+                    // the notice; a successful one closes and reports the path.
+                    onNotice(result.message)
+                    if (result.ok) onClose()
+                  })
+                }}
               >
                 <Icon name="download" size={12} />
                 {t('chat.export.local')}

@@ -174,6 +174,20 @@ export interface RailView {
   empty: boolean
 }
 
+/** One written export. */
+export interface ExportReport {
+  path: string
+  root: string
+  fileName: string
+  bytes: number
+  sha256: string
+  format: string
+  messages: number
+  runs: number
+  toolRows: number
+  toolsIncluded: boolean
+}
+
 /** What one compaction did. */
 export interface CompactReport {
   collapsed: number
@@ -331,6 +345,20 @@ export function approveRequest(
   decision: ApprovalDecision,
 ): Promise<void> {
   return hostCall<void>('session_approve', { sessionId, approvalId, decision })
+}
+
+/** Write one conversation to the application's export folder. */
+export function exportConversation(
+  sessionId: string,
+  format: 'html' | 'markdown' | 'json',
+  options: { includeTools?: boolean; overwrite?: boolean } = {},
+): Promise<ExportReport> {
+  return hostCall<ExportReport>('session_export', {
+    sessionId,
+    format,
+    includeTools: options.includeTools ?? false,
+    overwrite: options.overwrite ?? false,
+  })
 }
 
 /** The right rail's four panes, derived from the session's own ledger. */

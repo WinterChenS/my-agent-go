@@ -817,7 +817,8 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-session-compact",
             "allow-session-approve",
             "allow-session-context-list",
-            "allow-session-rail"
+            "allow-session-rail",
+            "allow-session-export"
         ]
     );
     for permission in &permissions {

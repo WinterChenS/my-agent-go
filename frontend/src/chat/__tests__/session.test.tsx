@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from '../../App'
 import type { TauriInternals } from '../../host/tauri'
 import {
@@ -687,5 +687,132 @@ describe('chat rail', () => {
     expect(screen.getByTestId('chat-rail-browser-unavailable')).toHaveTextContent(
       '没有可在本机预览的页面',
     )
+  })
+})
+
+describe('chat export', () => {
+  /** A host that answers `session_export`, and remembers what it was asked. */
+  function installExportHost(existing = false) {
+    const calls: string[] = []
+    const seen: Record<string, unknown>[] = []
+    const internals = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push(command)
+        if (command === 'catalog_snapshot' || command === 'catalog_refresh') {
+          return catalogSnapshot(false)
+        }
+        if (command === 'session_list') return { sessions: [], total: 0 }
+        if (command === 'session_projects') return []
+        if (command === 'session_open') return summary()
+        if (command === 'session_events') return []
+        if (command === 'session_send') return { runId: 'pi-1:r1', status: 'completed', eventCount: 0 }
+        if (command === 'session_detail') return detail('ok')
+        if (command === 'session_rail') {
+          return {
+            turns: [],
+            exec: [],
+            artifacts: [],
+            sources: [],
+            browser: { state: 'unavailable', reason: '' },
+            outsidePaths: 0,
+            empty: true,
+          }
+        }
+        if (command === 'session_export') {
+          if (args) seen.push(args)
+          const overwrite = args?.overwrite === true
+          if (existing && !overwrite) {
+            // The store's refusal, in the shape the host reports it.
+            throw '{"code":"rejected","message":"weekly.md already exists; confirm the overwrite"}'
+          }
+          return {
+            path: `D:/data/exports/weekly.${String(args?.format === 'markdown' ? 'md' : args?.format ?? 'html')}`,
+            root: 'D:/data/exports',
+            fileName: 'weekly.md',
+            bytes: 128,
+            sha256: 'a'.repeat(64),
+            format: String(args?.format ?? 'html'),
+            messages: 2,
+            runs: 1,
+            toolRows: 0,
+            toolsIncluded: false,
+          }
+        }
+        return null
+      },
+    }
+    ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+      internals as unknown as TauriInternals
+    return { calls, seen }
+  }
+
+  async function openExportDialog() {
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'weekly report')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toBeInTheDocument())
+    const trigger = screen.getByRole('button', { name: '导出' })
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+    return screen.getByRole('dialog', { name: '导出会话' })
+  }
+
+  it('writes the chosen format and reports where the file went', async () => {
+    const host = installExportHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const dialog = await openExportDialog()
+    await userEvent.selectOptions(within(dialog).getByLabelText('导出格式'), 'markdown')
+    await userEvent.click(within(dialog).getByRole('button', { name: '导出到本机' }))
+
+    await waitFor(() => expect(host.calls).toContain('session_export'))
+    expect(host.seen[0]).toMatchObject({
+      sessionId: 'pi-1',
+      format: 'markdown',
+      includeTools: false,
+      overwrite: false,
+    })
+    // The path is what the user needs; the dialog closes on success.
+    await waitFor(() => expect(screen.getByTestId('chat-notice')).toHaveTextContent('D:/data/exports/weekly.md'))
+    expect(screen.queryByRole('dialog', { name: '导出会话' })).toBeNull()
+  })
+
+  it('asks before replacing a file and sends the confirm only after a yes', async () => {
+    const host = installExportHost(true)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const dialog = await openExportDialog()
+    await userEvent.click(within(dialog).getByRole('button', { name: '导出到本机' }))
+
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    await waitFor(() => expect(host.seen).toHaveLength(2))
+    expect(host.seen[0]).toMatchObject({ overwrite: false })
+    expect(host.seen[1]).toMatchObject({ overwrite: true })
+    confirm.mockRestore()
+  })
+
+  it('writes nothing when the overwrite is declined', async () => {
+    const host = installExportHost(true)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const dialog = await openExportDialog()
+    await userEvent.click(within(dialog).getByRole('button', { name: '导出到本机' }))
+
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(host.seen).toHaveLength(1)
+    expect(screen.getByTestId('chat-notice')).toHaveTextContent('已取消')
+    confirm.mockRestore()
   })
 })
