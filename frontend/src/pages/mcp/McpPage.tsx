@@ -14,6 +14,8 @@ import {
   type McpTransport,
 } from './sampleData'
 import './mcp.css'
+import { useCatalog } from '../../catalog/useCatalog'
+import { CatalogMcpPanel, CatalogSummary } from '../../catalog/CatalogPanels'
 
 const STATUS_KEYS: Record<McpStatus, MessageKey> = {
   connected: 'mcp.status.connected',
@@ -41,6 +43,7 @@ const STAT_LABEL_KEYS: Record<(typeof sampleStats)[number]['key'], MessageKey> =
 export default function McpPage() {
   const { t } = useI18n()
   const sample = useMcpSample()
+  const catalog = useCatalog(!sample)
   const [search, setSearch] = useState('')
   const [transport, setTransport] = useState<'all' | McpTransport>('all')
   const [status, setStatus] = useState<'all' | McpStatus>('all')
@@ -92,6 +95,13 @@ export default function McpPage() {
         <div className="mcp-sample-banner" data-testid="sample-banner" role="status"><Icon name="sparkle" size={12} />{t('mcp.sampleBanner')}</div>
       ) : null}
       {notice ? <div className="mcp-notice-bar" data-testid="mcp-notice" role="status">{notice}</div> : null}
+
+      {!sample && (catalog.status === 'ready' || catalog.status === 'loading' || catalog.status === 'error') && (
+        <div className="mcp-catalog" data-testid="mcp-catalog">
+          <CatalogSummary view={catalog} />
+          <CatalogMcpPanel view={catalog} />
+        </div>
+      )}
 
       <section className="mcp-stats" data-testid="mcp-stats" aria-label={t('mcp.title')}>
         {sampleStats.map((stat) => (

@@ -67,6 +67,7 @@ describe('design tokens', () => {
     const connectorsDir = join(srcRoot, 'pages', 'connectors')
     const schedulesDir = join(srcRoot, 'pages', 'schedules')
     const settingsDir = join(srcRoot, 'pages', 'settings')
+    const catalogDir = join(srcRoot, 'catalog')
     const files = [
       ...filesUnder(shellDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(preferencesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
@@ -79,6 +80,7 @@ describe('design tokens', () => {
       ...filesUnder(connectorsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(schedulesDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       ...filesUnder(settingsDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
+      ...filesUnder(catalogDir).filter((path) => !/\.test\.(ts|tsx)$/.test(path)),
       join(srcRoot, 'styles.css'),
     ]
     const rawColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\(/

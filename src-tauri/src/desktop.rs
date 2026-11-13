@@ -8,6 +8,7 @@
 use tauri::Manager;
 
 use crate::assets::DiskAssets;
+use crate::catalog::CatalogState;
 use crate::host::HostConfig;
 use crate::inject::InitialState;
 use crate::state::{HostState, create_main_window, start_system_theme_poller};
@@ -28,14 +29,29 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // `assets = ...` keeps `frontend/dist` out of the compile-time dependency
     // set (see build.rs): the bundle is served from disk like the Go host.
     let context = tauri::generate_context!("tauri.conf.json", assets = assets);
+    let catalog = CatalogState::new(
+        config.data_dir.join("catalog.sqlite"),
+        anvil_catalog::runtime::adapters::common::home(),
+    );
+    config
+        .log
+        .info(&format!("catalog: database {}", catalog.database().display()));
     let state = HostState::new(config, system_dark, injection);
 
     tauri::Builder::default()
         .manage(state)
+        .manage(catalog)
         .invoke_handler(tauri::generate_handler![
             crate::commands::get_preferences,
             crate::commands::set_preferences,
-            crate::commands::log_event
+            crate::commands::log_event,
+            crate::catalog::catalog_snapshot,
+            crate::catalog::catalog_refresh,
+            crate::catalog::catalog_sync,
+            crate::catalog::catalog_add_model,
+            crate::catalog::catalog_verify_model,
+            crate::catalog::catalog_set_default_model,
+            crate::catalog::catalog_probe_mcp
         ])
         .setup(|app| {
             create_main_window(app)?;

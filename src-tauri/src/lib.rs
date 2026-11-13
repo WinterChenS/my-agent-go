@@ -12,12 +12,15 @@
 //!   `<html lang>`, `dataset.theme`, `colorScheme`).
 //! * `assets` — runtime asset provider for `frontend/dist` (disk, not embedded).
 //! * `state`/`commands` — window creation after preflight, typed preferences and
-//!   log commands, and the system-theme event push.
+//!   log commands, and the system-theme event push;
+//! * `catalog` — runtime discovery, resource sync and the phase-1 actions
+//!   (custom model, verification, default model, MCP probe).
 //!
 //! The crate is Windows-first like the rest of this migration phase, but all
 //! modules here are platform-neutral except `system_theme` (registry read).
 
 pub mod assets;
+pub mod catalog;
 pub mod commands;
 pub mod desktop;
 pub mod host;
@@ -33,4 +36,15 @@ pub mod system_theme;
 /// `permissions/anvil.toml` generates one `allow-<slug>` permission per entry and
 /// `capabilities/main.json` grants them to the trusted `main` window only.
 /// `tests/host_contract.rs` asserts the three lists stay in sync.
-pub const APP_COMMANDS: &[&str] = &["get_preferences", "set_preferences", "log_event"];
+pub const APP_COMMANDS: &[&str] = &[
+    "get_preferences",
+    "set_preferences",
+    "log_event",
+    "catalog_snapshot",
+    "catalog_refresh",
+    "catalog_sync",
+    "catalog_add_model",
+    "catalog_verify_model",
+    "catalog_set_default_model",
+    "catalog_probe_mcp",
+];

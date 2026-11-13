@@ -794,7 +794,14 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "core:event:default",
             "allow-get-preferences",
             "allow-set-preferences",
-            "allow-log-event"
+            "allow-log-event",
+            "allow-catalog-snapshot",
+            "allow-catalog-refresh",
+            "allow-catalog-sync",
+            "allow-catalog-add-model",
+            "allow-catalog-verify-model",
+            "allow-catalog-set-default-model",
+            "allow-catalog-probe-mcp"
         ]
     );
     for permission in &permissions {
@@ -819,7 +826,7 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
         );
     }
     assert!(
-        permissions_file.contains("permissions = [\"allow-get-preferences\", \"allow-set-preferences\", \"allow-log-event\"]"),
+        permissions_file.contains("\"allow-catalog-snapshot\"") && permissions_file.contains("\"allow-catalog-probe-mcp\""),
         "default permission set must list every host command"
     );
 }

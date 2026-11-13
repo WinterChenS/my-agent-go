@@ -16,6 +16,8 @@ import {
   type AgentTool,
 } from './sampleData'
 import './agents.css'
+import { useCatalog } from '../../catalog/useCatalog'
+import { CatalogRuntimeTable, CatalogSummary } from '../../catalog/CatalogPanels'
 
 type AgentTab = 'basic' | 'prompt' | 'sub' | 'perm' | 'runs'
 
@@ -115,6 +117,7 @@ function AgentSwitch({
 export default function AgentsPage() {
   const { t } = useI18n()
   const sample = useAgentsSample()
+  const catalog = useCatalog(!sample)
   const narrow = useNarrow()
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(sample ? sampleAgents[0].id : null)
@@ -252,6 +255,13 @@ export default function AgentsPage() {
           {notice}
         </div>
       ) : null}
+
+      {!sample && (catalog.status === 'ready' || catalog.status === 'loading' || catalog.status === 'error') && (
+        <div className="agents-catalog" data-testid="agents-catalog">
+          <CatalogSummary view={catalog} />
+          <CatalogRuntimeTable view={catalog} />
+        </div>
+      )}
 
       <div
         className="agents-layout"

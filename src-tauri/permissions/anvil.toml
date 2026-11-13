@@ -18,6 +18,42 @@ identifier = "allow-log-event"
 description = "Allows writing one diagnostic line to the host log (theme/i18n/layout probes)."
 commands.allow = ["log_event"]
 
+
+[[permission]]
+identifier = "allow-catalog-snapshot"
+description = "Allows reading the runtime registry, models, skills and MCP snapshot (runs the startup scan once)."
+commands.allow = ["catalog_snapshot"]
+
+[[permission]]
+identifier = "allow-catalog-refresh"
+description = "Allows re-scanning every adapter and re-syncing its resources."
+commands.allow = ["catalog_refresh"]
+
+[[permission]]
+identifier = "allow-catalog-sync"
+description = "Allows syncing one runtime's resources."
+commands.allow = ["catalog_sync"]
+
+[[permission]]
+identifier = "allow-catalog-add-model"
+description = "Allows adding a custom model; the credential is encrypted with DPAPI before storage."
+commands.allow = ["catalog_add_model"]
+
+[[permission]]
+identifier = "allow-catalog-verify-model"
+description = "Allows verifying one model with a real request through its runtime."
+commands.allow = ["catalog_verify_model"]
+
+[[permission]]
+identifier = "allow-catalog-set-default-model"
+description = "Allows promoting a verified model to the default."
+commands.allow = ["catalog_set_default_model"]
+
+[[permission]]
+identifier = "allow-catalog-probe-mcp"
+description = "Allows connecting to one declared MCP server and enumerating its tools."
+commands.allow = ["catalog_probe_mcp"]
+
 [default]
-description = "Default Anvil host command set: read/write preferences and write one log line."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event"]
+description = "Default Anvil host command set: preferences, the diagnostic log line and the phase-1 catalog."
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp"]

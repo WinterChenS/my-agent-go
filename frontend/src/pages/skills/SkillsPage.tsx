@@ -13,6 +13,8 @@ import {
   type SkillTab,
 } from './sampleData'
 import './skills.css'
+import { useCatalog } from '../../catalog/useCatalog'
+import { CatalogSkillsPanel, CatalogSummary } from '../../catalog/CatalogPanels'
 
 const SOURCE_KEYS: Record<SkillSource, MessageKey> = {
   builtin: 'skills.source.builtin',
@@ -25,6 +27,7 @@ const SOURCE_KEYS: Record<SkillSource, MessageKey> = {
 export default function SkillsPage() {
   const { t } = useI18n()
   const sample = useSkillsSample()
+  const catalog = useCatalog(!sample)
   const [tab, setTab] = useState<SkillTab>('installed')
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
@@ -95,6 +98,13 @@ export default function SkillsPage() {
         </div>
       ) : null}
       {notice ? <div className="skills-notice-bar" data-testid="skill-notice" role="status">{notice}</div> : null}
+
+      {!sample && (catalog.status === 'ready' || catalog.status === 'loading' || catalog.status === 'error') && (
+        <div className="skills-catalog" data-testid="skills-catalog">
+          <CatalogSummary view={catalog} />
+          <CatalogSkillsPanel view={catalog} />
+        </div>
+      )}
 
       <div className="skills-tabs" role="tablist" aria-label={t('skills.title')} onKeyDown={onTabKeyDown}>
         {tabs.map((entry) => (

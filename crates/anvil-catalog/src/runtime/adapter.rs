@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::Result;
 use crate::model::{
     Capabilities, InventoryKind, McpRecord, ModelRecord, RuntimeCandidate, RuntimeRegistration,
@@ -69,7 +71,8 @@ impl Inventory {
 }
 
 /// Result of a real model verification request.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelVerification {
     pub ok: bool,
     /// Short diagnostic; never contains the credential.
@@ -77,7 +80,8 @@ pub struct ModelVerification {
 }
 
 /// Result of an explicit MCP connection attempt.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpProbe {
     pub ok: bool,
     pub tools: Vec<String>,

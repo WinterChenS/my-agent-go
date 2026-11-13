@@ -23,6 +23,12 @@ import {
   useSettingsSample,
 } from './settingsData'
 import './settings.css'
+import { useCatalog } from '../../catalog/useCatalog'
+import {
+  CatalogModelsPanel,
+  CatalogRuntimeTable,
+  CatalogSummary,
+} from '../../catalog/CatalogPanels'
 
 type SectionId = 'general' | 'models' | 'runtime' | 'observability' | 'security'
 type ObsTab = 'usage' | 'traces' | 'executions'
@@ -244,6 +250,7 @@ function NotificationsCard({ sample, onNotice }: { sample: boolean; onNotice: (m
 
 function ModelsPanel({ sample, onNotice }: { sample: boolean; onNotice: (message: string) => void }) {
   const { t } = useI18n()
+  const catalog = useCatalog(!sample)
   const [query, setQuery] = useState('')
   const providers = sample
     ? sampleProviders.filter((provider) => {
@@ -325,8 +332,20 @@ function ModelsPanel({ sample, onNotice }: { sample: boolean; onNotice: (message
           ) : (
             <Empty text={t('settings.models.noMatch')} />
           )
+        ) : catalog.status === 'ready' ? (
+          <div className="st-catalog" data-testid="settings-models-catalog">
+            <CatalogSummary view={catalog} />
+            <CatalogModelsPanel view={catalog} />
+          </div>
         ) : (
-          <Empty text={t('settings.models.empty')} testId="settings-models-empty" />
+          <Empty
+            text={
+              catalog.status === 'loading' ? t('catalog.loading')
+                : catalog.status === 'error' ? t('catalog.error', { message: catalog.error ?? '' })
+                  : t('settings.models.empty')
+            }
+            testId="settings-models-empty"
+          />
         )}
       </Card>
 
@@ -353,6 +372,7 @@ function ModelsPanel({ sample, onNotice }: { sample: boolean; onNotice: (message
 
 function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (message: string) => void }) {
   const { t } = useI18n()
+  const catalog = useCatalog(!sample)
   const [permission, setPermission] = useState('balanced')
   const current = samplePermissions.find((entry) => entry.id === permission) ?? samplePermissions[1]
 
@@ -395,8 +415,16 @@ function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (messag
               </article>
             ))}
           </div>
+        ) : catalog.status === 'ready' ? (
+          <div className="st-catalog" data-testid="settings-runtime-catalog">
+            <CatalogSummary view={catalog} />
+            <CatalogRuntimeTable view={catalog} />
+          </div>
         ) : (
-          <Empty text={t('settings.runtime.empty')} testId="settings-runtime-empty" />
+          <Empty
+            text={catalog.status === 'loading' ? t('catalog.loading') : t('settings.runtime.empty')}
+            testId="settings-runtime-empty"
+          />
         )}
       </Card>
 

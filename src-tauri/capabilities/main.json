@@ -1,11 +1,20 @@
 {
   "identifier": "main-window",
-  "description": "The only capability granted in R0-RS02. It is limited to the trusted Anvil main window and to the host commands that window actually uses (preferences read/write and the diagnostic log line). Event listen/unlisten is needed for the system-theme push.",
-  "windows": ["main"],
+  "description": "The only capability granted to the app. It is limited to the trusted Anvil main window and to the host commands that window actually uses: preferences, the diagnostic log line and the phase-1 catalog (discovery, sync, custom model, verification, MCP probe). Event listen/unlisten is needed for the system-theme push.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:event:default",
     "allow-get-preferences",
     "allow-set-preferences",
-    "allow-log-event"
+    "allow-log-event",
+    "allow-catalog-snapshot",
+    "allow-catalog-refresh",
+    "allow-catalog-sync",
+    "allow-catalog-add-model",
+    "allow-catalog-verify-model",
+    "allow-catalog-set-default-model",
+    "allow-catalog-probe-mcp"
   ]
 }
