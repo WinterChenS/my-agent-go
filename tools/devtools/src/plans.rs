@@ -36,6 +36,11 @@ pub struct StepSpec {
     /// refuses bulk deletions from a child process. Pruning from Rust first
     /// keeps the install deterministic.
     pub remove: Vec<String>,
+    /// Extra environment variables for this step only.
+    ///
+    /// Used to hand the catalog example a credential without putting it on the
+    /// command line, where it would land in the evidence log.
+    pub env: Vec<(String, String)>,
 }
 
 impl StepSpec {
@@ -50,6 +55,7 @@ impl StepSpec {
             expect_output_contains: None,
             mkdir: Vec::new(),
             remove: Vec::new(),
+            env: Vec::new(),
         }
     }
 
@@ -90,6 +96,12 @@ impl StepSpec {
         self.remove.push(path.to_string());
         self
     }
+
+    /// Set one environment variable for this step.
+    pub(crate) fn env(mut self, key: &str, value: &str) -> Self {
+        self.env.push((key.to_string(), value.to_string()));
+        self
+    }
 }
 
 /// How a native case drives the real client. Recorded now, executed in phase 2.
@@ -108,6 +120,7 @@ pub enum NativeKind {
     Schedules,
     Library,
     Settings,
+    Catalog,
 }
 
 /// The executable form of a registered case.
@@ -211,6 +224,64 @@ fn with_prototype_capture(mut steps: Vec<StepSpec>) -> Vec<StepSpec> {
 
 /// Every registered plan, in matrix order.
 #[must_use]
+/// One `catalog_report` run with a fresh database.
+///
+/// `case` keeps the databases of different R1 cases apart; the directory is
+/// removed before the step so every run starts from an empty catalog.
+fn catalog_step(name: &str, case: &str, args: &[&str]) -> StepSpec {
+    let data_dir = format!(".tmp/test/r1/{case}");
+    let mut all: Vec<String> = vec![
+        "run".into(),
+        "--locked".into(),
+        "-q".into(),
+        "-p".into(),
+        "anvil-catalog".into(),
+        "--example".into(),
+        "catalog_report".into(),
+        "--".into(),
+        "--data-dir".into(),
+        data_dir.clone(),
+    ];
+    all.extend(args.iter().map(|arg| (*arg).to_string()));
+    StepSpec::owned(name, "cargo", all)
+        .timeout(600)
+        .remove(&data_dir)
+}
+
+/// Contract tests for the catalog (unit + injected-adapter suite).
+fn catalog_contract_suite() -> Vec<StepSpec> {
+    vec![
+        StepSpec::new("cargo-fmt", "cargo", &["fmt", "--all", "--", "--check"]),
+        StepSpec::new(
+            "cargo-clippy-catalog",
+            "cargo",
+            &[
+                "clippy",
+                "-p",
+                "anvil-catalog",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        .timeout(600),
+        StepSpec::new(
+            "catalog-tests",
+            "cargo",
+            &["test", "-p", "anvil-catalog", "--locked"],
+        )
+        .timeout(900),
+        StepSpec::new(
+            "search-text-contract",
+            "cargo",
+            &["test", "-p", "anvil-catalog", "--test", "catalog_contract"],
+        )
+        .timeout(600),
+    ]
+}
+
 pub fn case_plans() -> Vec<CasePlan> {
     vec![
         CasePlan::automation("R0-00-build-gate", build_suite()),
@@ -354,6 +425,275 @@ pub fn case_plans() -> Vec<CasePlan> {
         CasePlan::automation("R0-12-settings", with_prototype_capture(build_suite()))
             .collects(&["prototype/*.png"]),
         CasePlan::native("R0-12-native-settings", NativeKind::Settings),
+        CasePlan::automation("R1-01-catalog-contract", catalog_contract_suite()),
+        CasePlan::automation(
+            "R1-01-scan-live",
+            vec![
+                catalog_step(
+                    "scan-once",
+                    "scan",
+                    &[
+                        "--action",
+                        "scan",
+                        "--expect",
+                        "runtime-count=4",
+                        "--expect",
+                        "runtime:pi:rows=1",
+                        "--expect",
+                        "runtime:codex:rows=1",
+                        "--expect",
+                        "runtime:claude:rows=1",
+                        "--expect",
+                        "runtime:opencode:rows=1",
+                        "--expect",
+                        "runtime:pi:status=available",
+                        "--expect",
+                        "runtime:codex:status=available",
+                        "--expect",
+                        "runtime:opencode:status=available",
+                    ],
+                ),
+                catalog_step(
+                    "scan-again",
+                    "scan",
+                    &[
+                        "--action",
+                        "scan",
+                        "--expect",
+                        "runtime-count=4",
+                        "--expect",
+                        "runtime:pi:rows=1",
+                    ],
+                ),
+            ],
+        ),
+        CasePlan::automation(
+            "R1-02-pi-live",
+            vec![catalog_step(
+                "pi-scan",
+                "pi",
+                &[
+                    "--action",
+                    "scan",
+                    "--expect",
+                    "runtime:pi:status=available",
+                    "--expect",
+                    "runtime:pi:version=1.5.0",
+                    "--expect",
+                    "runtime:pi:capability:models=supported",
+                    "--expect",
+                    "runtime:pi:capability:skills=supported",
+                    "--expect",
+                    "runtime:pi:capability:mcp=supported",
+                    "--expect",
+                    "runtime:pi:models-total=11",
+                    "--expect",
+                    "runtime:pi:skills-total=11",
+                    "--expect",
+                    "runtime:pi:mcp-total=1",
+                ],
+            )],
+        ),
+        CasePlan::automation(
+            "R1-03-codex-live",
+            vec![
+                catalog_step(
+                    "codex-scan",
+                    "codex",
+                    &[
+                        "--action",
+                        "scan",
+                        "--expect",
+                        "runtime:codex:status=available",
+                        "--expect",
+                        "runtime:codex:version=0.153.0",
+                        "--expect",
+                        "runtime:codex:capability:sessions=supported",
+                        "--expect",
+                        "runtime:codex:models-total=10",
+                        "--expect",
+                        "runtime:codex:skills-total=16",
+                        "--expect",
+                        "runtime:codex:mcp-total=2",
+                    ],
+                ),
+                // The app-server handshake is part of the probe detail.
+                StepSpec::new(
+                    "handshake-detail",
+                    "cargo",
+                    &[
+                        "run",
+                        "--locked",
+                        "-q",
+                        "-p",
+                        "anvil-catalog",
+                        "--example",
+                        "catalog_report",
+                        "--",
+                        "--data-dir",
+                        ".tmp/test/r1/codex",
+                        "--action",
+                        "scan",
+                    ],
+                )
+                .timeout(300)
+                .expect_contains("app-server: anvil/"),
+            ],
+        ),
+        CasePlan::automation(
+            "R1-04-claude-opencode-live",
+            vec![catalog_step(
+                "others-scan",
+                "others",
+                &[
+                    "--action",
+                    "scan",
+                    "--expect",
+                    "runtime:claude:status=not_installed",
+                    "--expect",
+                    "runtime:claude:capability:skills=supported",
+                    "--expect",
+                    "runtime:claude:capability:models=unsupported",
+                    "--expect",
+                    "runtime:opencode:status=available",
+                    "--expect",
+                    "runtime:opencode:version=1.18.23",
+                    "--expect",
+                    "runtime:opencode:skills-total=36",
+                    "--expect",
+                    "runtime:opencode:mcp-total=3",
+                ],
+            )],
+        ),
+        CasePlan::automation(
+            "R1-05-models-live",
+            vec![
+                catalog_step(
+                    "add-gateway-model",
+                    "models",
+                    &[
+                        "--action",
+                        "add-model",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "auto/gpt-5.6-sol",
+                        "--display",
+                        "Gateway Sol",
+                        "--protocol",
+                        "openai",
+                        "--endpoint",
+                        "http://127.0.0.1:3425/v1",
+                        "--credential-env",
+                        "ANVIL_ACCEPTANCE_CREDENTIAL",
+                        "--expect",
+                        "runtime:pi:status=available",
+                    ],
+                )
+                .env("ANVIL_ACCEPTANCE_CREDENTIAL", "magpie"),
+                catalog_step(
+                    "verify-model",
+                    "models",
+                    &[
+                        "--action",
+                        "verify",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "auto/gpt-5.6-sol",
+                        "--expect",
+                        "action:ok=true",
+                        "--expect",
+                        "action:detail-contains=HTTP 200",
+                    ],
+                ),
+                catalog_step(
+                    "set-default",
+                    "models",
+                    &[
+                        "--action",
+                        "set-default",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "auto/gpt-5.6-sol",
+                        "--expect",
+                        "runtime:pi:status=available",
+                    ],
+                ),
+                // A restart (new process, same database) must still hold the
+                // encrypted credential and the verified model.
+                catalog_step(
+                    "verify-after-restart",
+                    "models",
+                    &[
+                        "--action",
+                        "verify",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "auto/gpt-5.6-sol",
+                        "--expect",
+                        "action:ok=true",
+                    ],
+                ),
+            ],
+        ),
+        CasePlan::automation(
+            "R1-06-skills-live",
+            vec![catalog_step(
+                "skills-scan",
+                "skills",
+                &[
+                    "--action",
+                    "scan",
+                    "--expect",
+                    "skills-valid-min=40",
+                    "--expect",
+                    "runtime:pi:skills-total=11",
+                    "--expect",
+                    "runtime:claude:skills-total=36",
+                    "--expect",
+                    "runtime:opencode:skills-total=36",
+                ],
+            )],
+        ),
+        CasePlan::automation(
+            "R1-07-mcp-live",
+            vec![
+                catalog_step(
+                    "mcp-scan",
+                    "mcp",
+                    &[
+                        "--action",
+                        "scan",
+                        "--expect",
+                        "mcp-count=6",
+                        "--expect",
+                        "runtime:codex:mcp-total=2",
+                        "--expect",
+                        "runtime:opencode:mcp-total=3",
+                        "--expect",
+                        "runtime:pi:mcp-total=1",
+                    ],
+                ),
+                catalog_step(
+                    "mcp-probe",
+                    "mcp",
+                    &[
+                        "--action",
+                        "probe-mcp",
+                        "--runtime",
+                        "opencode",
+                        "--name",
+                        "codegraph",
+                        "--expect",
+                        "action:ok=true",
+                    ],
+                ),
+            ],
+        ),
+        CasePlan::native("R1-08-native-catalog", NativeKind::Catalog),
     ]
 }
 

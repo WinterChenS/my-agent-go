@@ -33,9 +33,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.data_dir.join("catalog.sqlite"),
         anvil_catalog::runtime::adapters::common::home(),
     );
-    config
-        .log
-        .info(&format!("catalog: database {}", catalog.database().display()));
+    config.log.info(&format!(
+        "catalog: database {}",
+        catalog.database().display()
+    ));
     let state = HostState::new(config, system_dark, injection);
 
     tauri::Builder::default()

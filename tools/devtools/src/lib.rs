@@ -34,6 +34,7 @@ const USAGE: &str = "usage:
   anvil-devtools verify --case=<id> --target=<target> [--evidence=<abs path>] [--matrix=<path>] [--sha=<sha>]
   anvil-devtools gate --id=<gate> --target=<target> --evidence=<abs path> [--matrix=<path>] [--sha=<sha>]
   anvil-devtools preflight --path=<path> [--create]
+  anvil-devtools exists --path=<file>
   anvil-devtools registry --get | --set=<0|1>
   anvil-devtools key --title=<window title> --combo=alt+left
 ";
@@ -49,6 +50,7 @@ pub fn run(args: &[String]) -> i32 {
         "gate" => run_gate(&args[1..]),
         "verify" => run_verify(&args[1..]),
         "preflight" => run_preflight(&args[1..]),
+        "exists" => run_exists(&args[1..]),
         "registry" => run_registry(&args[1..]),
         "key" => run_key(&args[1..]),
         "version" => {
@@ -214,6 +216,35 @@ fn run_verify(args: &[String]) -> i32 {
         );
     }
     outcome.code
+}
+
+/// `exists --path=<file>`: assert a file the case produced is really there.
+///
+/// Used by the native cases to prove where persisted state landed instead of
+/// trusting the UI alone.
+fn run_exists(args: &[String]) -> i32 {
+    let parsed = match Parsed::parse(args, &["path"]) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("exists: {err}");
+            return gate::EXIT_INCOMPLETE;
+        }
+    };
+    let Some(path) = parsed.value("path") else {
+        eprintln!("exists: --path is required");
+        return gate::EXIT_INCOMPLETE;
+    };
+    let path = PathBuf::from(path);
+    if path.is_file() {
+        println!("exists: {}", path.display());
+        gate::EXIT_PASS
+    } else if path.is_dir() {
+        eprintln!("exists: {} is a directory, not a file", path.display());
+        gate::EXIT_ASSERTION
+    } else {
+        eprintln!("exists: {} is missing", path.display());
+        gate::EXIT_ASSERTION
+    }
 }
 
 fn run_key(args: &[String]) -> i32 {

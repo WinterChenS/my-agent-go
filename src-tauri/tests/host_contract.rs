@@ -826,7 +826,8 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
         );
     }
     assert!(
-        permissions_file.contains("\"allow-catalog-snapshot\"") && permissions_file.contains("\"allow-catalog-probe-mcp\""),
+        permissions_file.contains("\"allow-catalog-snapshot\"")
+            && permissions_file.contains("\"allow-catalog-probe-mcp\""),
         "default permission set must list every host command"
     );
 }

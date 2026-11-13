@@ -406,6 +406,7 @@ impl AutomationRunner {
             .args(&resolved.1)
             .current_dir(&work_dir)
             .envs(self.env.iter().map(|(key, value)| (key, value)))
+            .envs(step.env.iter().map(|(key, value)| (key, value)))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(stderr_file))

@@ -211,7 +211,62 @@
         "R1-07",
         "R1-08"
       ],
-      "cases": []
+      "cases": [
+        {
+          "id": "R1-01-catalog-contract",
+          "task": "R1-01",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-01-scan-live",
+          "task": "R1-01",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-02-pi-live",
+          "task": "R1-02",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-03-codex-live",
+          "task": "R1-03",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-04-claude-opencode-live",
+          "task": "R1-04",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-05-models-live",
+          "task": "R1-05",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-06-skills-live",
+          "task": "R1-06",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-07-mcp-live",
+          "task": "R1-07",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R1-08-native-catalog",
+          "task": "R1-08",
+          "evidenceKind": "native-desktop",
+          "required": true
+        }
+      ]
     },
     {
       "id": "G2",

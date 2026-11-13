@@ -3,6 +3,7 @@ import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/catalogue'
 import {
   addCustomModel,
+  loadCatalog,
   probeCatalogMcp,
   setDefaultCatalogModel,
   verifyCatalogModel,
@@ -383,14 +384,12 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
   )
 }
 
-async function probeRefresh(view: CatalogView) {
+async function probeRefresh(_view: CatalogView) {
   // Verification flips a column the snapshot carries, so re-read it instead of
   // patching the client copy.
   try {
-    const { loadCatalog } = await import('./client')
     return await loadCatalog()
   } catch {
-    void view
     return null
   }
 }

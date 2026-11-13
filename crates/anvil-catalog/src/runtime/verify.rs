@@ -42,6 +42,17 @@ pub fn openai_chat(
         ));
     }
     config.push_str(&format!("data = \"{}\"\n", escape_config(&body)));
+    // A loopback endpoint must not go through an HTTP proxy: the host export in
+    // some environments points at a proxy that cannot reach 127.0.0.1.
+    if is_loopback(&url) {
+        config.push_str("noproxy = \"localhost,127.0.0.1,::1\"\n");
+    }
+    // The body is not needed; only the status code, which curl appends to the
+    // output stream.
+    config.push_str(&format!(
+        "output = \"{}\"\n",
+        if cfg!(windows) { "NUL" } else { "/dev/null" }
+    ));
     config.push_str("silent\n");
     config.push_str("show-error\n");
     config.push_str("write-out = \"%{http_code}\"\n");
@@ -66,14 +77,18 @@ pub fn openai_chat(
         .wait_with_output()
         .map_err(|error| Error::Io(format!("wait curl: {error}")))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let status: u16 = stdout
-        .trim()
-        .rsplit('\n')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .parse()
-        .unwrap_or(0);
+    // `write-out` appends the code directly after any remaining output, so the
+    // status is the trailing run of digits.
+    let trimmed = stdout.trim();
+    let digits: String = trimmed
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let status: u16 = digits.parse().unwrap_or(0);
 
     Ok(match status {
         200..=299 => ModelVerification {
@@ -107,6 +122,21 @@ fn curl_program() -> String {
     }
 }
 
+/// Whether the request targets the local machine.
+fn is_loopback(url: &str) -> bool {
+    let rest = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    let host = rest
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .rsplit_once(':')
+        .map(|(host, _port)| host)
+        .unwrap_or(rest.split('/').next().unwrap_or(""));
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+}
+
 /// curl config values are quoted; only quotes and backslashes need escaping.
 fn escape_config(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
@@ -136,6 +166,14 @@ mod tests {
             Ok(verification) => assert!(!verification.ok),
             Err(error) => assert!(matches!(error, Error::Io(_))),
         }
+    }
+
+    #[test]
+    fn detects_loopback_endpoints() {
+        assert!(is_loopback("http://127.0.0.1:3425/v1"));
+        assert!(is_loopback("http://localhost:8080/v1"));
+        assert!(is_loopback("https://[::1]/v1"));
+        assert!(!is_loopback("https://api.example.com/v1"));
     }
 
     #[test]

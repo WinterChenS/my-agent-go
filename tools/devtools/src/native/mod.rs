@@ -11,6 +11,7 @@
 //! screenshot that is too small is a product failure (FAIL, exit 1).
 
 mod case_agents;
+mod case_catalog;
 mod case_chat;
 mod case_connectors;
 mod case_i18n;
@@ -69,6 +70,7 @@ pub(crate) fn run(
         NativeKind::Schedules => case_schedules::run(runner, sha, target),
         NativeKind::Library => case_library::run(runner, sha, target),
         NativeKind::Settings => case_settings::run(runner, sha, target),
+        NativeKind::Catalog => case_catalog::run(runner, sha, target),
     }
 }
 

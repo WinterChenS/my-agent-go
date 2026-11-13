@@ -98,9 +98,8 @@ pub async fn catalog_snapshot(state: State<'_, CatalogState>) -> Result<CatalogS
 /// Re-scan and re-sync everything.
 #[tauri::command]
 pub async fn catalog_refresh(state: State<'_, CatalogState>) -> Result<CatalogSnapshot, String> {
-    let snapshot = state.with_service(|service| {
-        service.refresh().map_err(|error| error.to_wire())
-    })?;
+    let snapshot =
+        state.with_service(|service| service.refresh().map_err(|error| error.to_wire()))?;
     state.scanned.store(true, Ordering::SeqCst);
     Ok(snapshot)
 }
