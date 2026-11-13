@@ -498,9 +498,15 @@ mod tests {
             path: "README.md".into(),
             label: Some("demo".into()),
         };
-        let error = plan(&root.to_string_lossy(), &[], std::slice::from_ref(&skill)).expect_err("no roots");
+        let error =
+            plan(&root.to_string_lossy(), &[], std::slice::from_ref(&skill)).expect_err("no roots");
         assert_eq!(error.code(), "rejected");
-        let steps = plan(&root.to_string_lossy(), std::slice::from_ref(&root), &[skill]).expect("with a root");
+        let steps = plan(
+            &root.to_string_lossy(),
+            std::slice::from_ref(&root),
+            &[skill],
+        )
+        .expect("with a root");
         match &steps[0] {
             Step::Ready(prepared) => {
                 assert_eq!(prepared.resolved.kind, ContextKind::Skill);

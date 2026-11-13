@@ -768,7 +768,12 @@ fn context_action(
         .iter()
         .rev()
         .find(|event| event.kind == EventKind::ApprovalResolved)
-        .and_then(|event| event.payload.get("decision").and_then(serde_json::Value::as_str))
+        .and_then(|event| {
+            event
+                .payload
+                .get("decision")
+                .and_then(serde_json::Value::as_str)
+        })
         .map(str::to_string);
 
     let (ok, status, text, error, code, run_id) = match &outcome {
