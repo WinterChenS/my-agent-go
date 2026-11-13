@@ -63,4 +63,6 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_projects",
     "session_fork",
     "session_compact",
+    "session_approve",
+    "session_context_list",
 ];

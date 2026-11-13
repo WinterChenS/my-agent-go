@@ -28,6 +28,8 @@
     "allow-session-delete",
     "allow-session-projects",
     "allow-session-fork",
-    "allow-session-compact"
+    "allow-session-compact",
+    "allow-session-approve",
+    "allow-session-context-list"
   ]
 }

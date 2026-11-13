@@ -339,6 +339,18 @@
           "task": "R2-02",
           "evidenceKind": "automation",
           "required": true
+        },
+        {
+          "id": "R2-03-context-contract",
+          "task": "R2-03",
+          "evidenceKind": "automation",
+          "required": true
+        },
+        {
+          "id": "R2-03-pi-context-live",
+          "task": "R2-03",
+          "evidenceKind": "automation",
+          "required": true
         }
       ]
     }

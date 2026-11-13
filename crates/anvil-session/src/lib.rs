@@ -2,6 +2,7 @@
 //!
 //! * `model` — the wire types shared with the host and the UI;
 //! * `store` — SQLite index (sessions, messages, runs, events);
+//! * `context` — `@` references: confinement, budgets and prompt folding;
 //! * `adapter` — the `SessionAdapter` contract and its registry;
 //! * `adapters` — the two shipped adapters (Pi, Codex);
 //! * `service` — open/send/abort/resume orchestration on top of the registry.
@@ -13,6 +14,7 @@
 pub mod adapter;
 pub mod adapters;
 pub mod clock;
+pub mod context;
 pub mod error;
 pub mod model;
 pub mod service;
@@ -22,5 +24,5 @@ pub use adapter::{Registry, SessionAdapter};
 pub use adapters::default_registry;
 pub use error::{Error, Result};
 pub use model::*;
-pub use service::{Cancels, SendOutcome, SessionService};
+pub use service::{Approvals, Cancels, SendOutcome, SessionService};
 pub use store::Store;

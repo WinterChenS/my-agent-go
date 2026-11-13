@@ -184,6 +184,8 @@ pub enum EventKind {
     /// The session's transcript was compacted. The runtime's own context is
     /// untouched: the payload says what this build did and what it did not.
     Compacted,
+    /// Context references were resolved and folded into the turn's prompt.
+    ContextAttached,
     /// A runtime event this build does not model yet; kept, never dropped.
     Unknown,
 }
@@ -205,6 +207,7 @@ impl EventKind {
             Self::TurnCompleted => "turn_completed",
             Self::Aborted => "aborted",
             Self::Compacted => "compacted",
+            Self::ContextAttached => "context_attached",
             Self::Unknown => "unknown",
         }
     }
@@ -225,6 +228,7 @@ impl EventKind {
             "turn_completed" => Some(Self::TurnCompleted),
             "aborted" => Some(Self::Aborted),
             "compacted" => Some(Self::Compacted),
+            "context_attached" => Some(Self::ContextAttached),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }
@@ -314,6 +318,9 @@ pub struct SessionSummary {
     /// Message `seq` in the parent the branch was taken at; `0` without a
     /// parent.
     pub branch_at: i64,
+    /// Tool policy this session was opened with.
+    pub allow_tools: bool,
+    pub tools: Vec<String>,
     pub pinned: bool,
     pub archived: bool,
     pub message_count: i64,
@@ -414,6 +421,136 @@ pub struct CompactReport {
     pub summary_seq: i64,
 }
 
+/// What one turn consists of: the user's words plus the context they pointed at.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionInput {
+    pub prompt: String,
+    /// Files, directories and skills the user attached with `@`.
+    pub context: Vec<ContextRef>,
+}
+
+/// One `@` reference, as the composer sends it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRef {
+    pub kind: ContextKind,
+    /// Project-relative or absolute. Resolved and confined by the service.
+    pub path: String,
+    /// Display label (a skill's name, usually). Never used for resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// What kind of context a reference points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextKind {
+    File,
+    Dir,
+    Skill,
+}
+
+impl ContextKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Dir => "dir",
+            Self::Skill => "skill",
+        }
+    }
+
+    #[must_use]
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "file" => Some(Self::File),
+            "dir" => Some(Self::Dir),
+            "skill" => Some(Self::Skill),
+            _ => None,
+        }
+    }
+}
+
+/// A reference after resolution: the absolute path plus what was actually inlined.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedRef {
+    pub kind: ContextKind,
+    /// Absolute, symlink-resolved path.
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Bytes of the source file, before any truncation.
+    pub bytes: u64,
+    /// Characters inlined into the prompt; `0` when the reference only produced
+    /// a listing or an omission note.
+    pub chars: usize,
+    /// The reference was larger than the budget and was cut.
+    pub truncated: bool,
+    /// The reference came from outside the session's project and was allowed by
+    /// an explicit approval.
+    pub outside_root: bool,
+}
+
+/// One decision the user can make about an approval request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Allow,
+    Deny,
+    /// The user closed the card without deciding; the run is stopped, not failed.
+    Cancel,
+}
+
+impl ApprovalDecision {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+            Self::Cancel => "cancel",
+        }
+    }
+
+    #[must_use]
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "allow" => Some(Self::Allow),
+            "deny" => Some(Self::Deny),
+            "cancel" => Some(Self::Cancel),
+            _ => None,
+        }
+    }
+}
+
+/// What the user is being asked to approve.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRequest {
+    pub id: String,
+    pub session_id: String,
+    /// Empty when the request was raised before a run row existed.
+    pub run_id: String,
+    /// `read_outside_project`, `command` or `tool`.
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    pub created_at: String,
+}
+
+/// One entry in the composer's `@` list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextEntry {
+    /// Absolute path.
+    pub path: String,
+    /// Project-relative path, which is what the user sees.
+    pub relative: String,
+    pub kind: ContextKind,
+    pub bytes: u64,
+}
+
 /// What the caller asks the adapter to open.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -432,6 +569,11 @@ pub struct SessionSpec {
     /// stops to ask for approval would hang, so a case opts in explicitly.
     #[serde(default)]
     pub allow_tools: bool,
+    /// Tools the runtime is allowed to use when `allow_tools` is on. Empty means
+    /// "the runtime's own default set"; a named list is a real restriction, not
+    /// a hint.
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 /// What the adapter returns once the runtime confirmed a session.
@@ -441,6 +583,16 @@ pub struct OpenedSession {
     pub runtime_id: String,
     pub native_id: String,
     pub model: String,
+    /// Directory the runtime must run in. A tool that resolves a relative path
+    /// must resolve it against the project the user chose, not against whatever
+    /// directory the host happened to start in.
+    #[serde(default)]
+    pub cwd: String,
+    /// Carried from the session row, because `send` receives no `SessionSpec`.
+    #[serde(default)]
+    pub allow_tools: bool,
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 /// Where an adapter may write and how long it may take.
@@ -514,6 +666,7 @@ mod tests {
             EventKind::TurnCompleted,
             EventKind::Aborted,
             EventKind::Compacted,
+            EventKind::ContextAttached,
             EventKind::Unknown,
         ] {
             assert_eq!(EventKind::from_label(kind.as_str()), Some(kind));
@@ -532,6 +685,8 @@ mod tests {
             project_path: "D:\\p".into(),
             parent_id: String::new(),
             branch_at: 0,
+            allow_tools: false,
+            tools: Vec::new(),
             pinned: false,
             archived: false,
             message_count: 2,

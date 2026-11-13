@@ -32,6 +32,8 @@ pub struct NewSession<'a> {
     pub parent_id: &'a str,
     /// `seq` in the parent the branch was taken at; `0` without a parent.
     pub branch_at: i64,
+    pub allow_tools: bool,
+    pub tools: &'a [String],
     pub at: &'a str,
 }
 
@@ -67,6 +69,8 @@ impl Store {
                 project_path TEXT NOT NULL DEFAULT '',
                 parent_id TEXT NOT NULL DEFAULT '',
                 branch_at INTEGER NOT NULL DEFAULT 0,
+                allow_tools INTEGER NOT NULL DEFAULT 0,
+                tools TEXT NOT NULL DEFAULT '',
                 pinned INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -140,9 +144,9 @@ impl Store {
         let transaction = self.connection.transaction()?;
         transaction.execute(
             "INSERT INTO sessions (id, runtime_id, title, status, native_id, model, project_path,
-                                   parent_id, branch_at, pinned, archived, created_at, updated_at,
-                                   preview)
-             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, ?6, ?7, 0, 0, ?8, ?8, '')",
+                                   parent_id, branch_at, allow_tools, tools, pinned, archived,
+                                   created_at, updated_at, preview)
+             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, ?6, ?7, ?8, ?9, 0, 0, ?10, ?10, '')",
             params![
                 new.id,
                 new.runtime_id,
@@ -153,6 +157,8 @@ impl Store {
                 new.project_path.trim(),
                 new.parent_id,
                 new.branch_at,
+                i64::from(new.allow_tools),
+                new.tools.join(","),
                 new.at
             ],
         )?;
@@ -563,8 +569,8 @@ impl Store {
 }
 
 const SESSION_SELECT: &str = "SELECT s.id, s.runtime_id, s.title, s.status, s.native_id, s.model,
-        s.project_path, s.parent_id, s.branch_at, s.pinned, s.archived, s.created_at, s.updated_at,
-        s.preview,
+        s.project_path, s.parent_id, s.branch_at, s.allow_tools, s.tools, s.pinned, s.archived,
+        s.created_at, s.updated_at, s.preview,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id)
      FROM sessions s";
 
@@ -580,12 +586,19 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
         project_path: row.get(6)?,
         parent_id: row.get(7)?,
         branch_at: row.get(8)?,
-        pinned: row.get::<_, i64>(9)? == 1,
-        archived: row.get::<_, i64>(10)? == 1,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-        preview: row.get(13)?,
-        message_count: row.get(14)?,
+        allow_tools: row.get::<_, i64>(9)? == 1,
+        tools: row
+            .get::<_, String>(10)?
+            .split(',')
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
+        pinned: row.get::<_, i64>(11)? == 1,
+        archived: row.get::<_, i64>(12)? == 1,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        preview: row.get(15)?,
+        message_count: row.get(16)?,
     })
 }
 

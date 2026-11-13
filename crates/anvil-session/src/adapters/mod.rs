@@ -86,17 +86,68 @@ pub fn is_script(path: &Path) -> bool {
 
 /// Build a `Command` that can actually start `executable`.
 ///
-/// A `.cmd`/`.bat` cannot be started directly, so it is wrapped in the system
-/// command interpreter. Callers get one extra process layer, which is why
-/// killing a run must terminate the tree (see [`kill_tree`]).
+/// Three cases, in order:
+///
+/// 1. an npm-style `.cmd` shim is rewritten into `node <cli.js>`, so the
+///    arguments reach the runtime untouched — the interpreter splits an argument
+///    on newlines, which silently turned a multi-line prompt into a handful of
+///    stray arguments and a run that produced nothing;
+/// 2. any other `.cmd`/`.bat` is wrapped in the interpreter, because it cannot
+///    be started directly;
+/// 3. everything else is started as-is.
 #[must_use]
 pub fn command_for(executable: &Path) -> Command {
     if cfg!(windows) && is_script(executable) {
+        if let Some((node, script)) = node_shim_target(executable) {
+            let mut command = Command::new(node);
+            command.arg(script);
+            return command;
+        }
         let mut command = Command::new("cmd");
         command.arg("/c").arg(executable);
         return command;
     }
     Command::new(executable)
+}
+
+/// Resolve an npm-style shim to the Node script it launches.
+///
+/// The shim is text; the interesting line looks like
+/// `"%_prog%"  "%dp0%\node_modules\<pkg>\dist\bundle\cli.js" %*`. Only that shape
+/// is accepted: a batch file that happens to mention a `.js` path but does more
+/// than launch it must keep going through the interpreter.
+fn node_shim_target(script: &Path) -> Option<(PathBuf, PathBuf)> {
+    let text = std::fs::read_to_string(script).ok()?;
+    let line = text
+        .lines()
+        .find(|line| line.contains("node_modules") && line.contains(".js"))?;
+    let raw = line
+        .split('"')
+        .find(|part| part.to_ascii_lowercase().contains("node_modules") && part.ends_with(".js"))?;
+    let directory = script.parent()?;
+    // `%dp0%` is the shim's own directory; the trailing separator is kept by the
+    // shim, so strip it together with the variable.
+    let relative = raw
+        .replace("%dp0%\\", "")
+        .replace("%dp0%/", "")
+        .replace("%dp0%", "");
+    let target = if Path::new(&relative).is_absolute() {
+        PathBuf::from(relative)
+    } else {
+        directory.join(relative)
+    };
+    if !target.is_file() {
+        return None;
+    }
+    let node = {
+        let sibling = directory.join("node.exe");
+        if sibling.is_file() {
+            sibling
+        } else {
+            PathBuf::from("node")
+        }
+    };
+    Some((node, target))
 }
 
 /// Terminate a child **and its descendants**.
@@ -140,12 +191,48 @@ mod tests {
     }
 
     #[test]
-    fn batch_wrappers_go_through_the_command_interpreter() {
+    fn a_batch_file_that_is_not_a_node_shim_goes_through_the_interpreter() {
         let program = command_for(Path::new("C:/tools/pi.cmd"))
             .get_program()
             .to_owned();
         if cfg!(windows) {
             assert_eq!(program.to_string_lossy().to_ascii_lowercase(), "cmd");
         }
+    }
+
+    #[test]
+    fn an_npm_shim_is_rewritten_to_launch_node_directly() {
+        if !cfg!(windows) {
+            return;
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".tmp")
+            .join("test")
+            .join("shim");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("node_modules/pkg/dist")).expect("create");
+        std::fs::write(root.join("node_modules/pkg/dist/cli.js"), "process.exit(0)")
+            .expect("write");
+        std::fs::write(root.join("node.exe"), "").expect("write node");
+        let shim = root.join("pkg.cmd");
+        std::fs::write(
+            &shim,
+            "@ECHO off\r\n\"%_prog%\"  \"%dp0%\\node_modules\\pkg\\dist\\cli.js\" %*\r\n",
+        )
+        .expect("write shim");
+
+        let command = command_for(&shim);
+        assert_eq!(
+            command.get_program().to_string_lossy().to_ascii_lowercase(),
+            root.join("node.exe").to_string_lossy().to_ascii_lowercase()
+        );
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args.len(), 1);
+        assert!(args[0].ends_with("cli.js"), "{args:?}");
     }
 }

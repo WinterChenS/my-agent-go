@@ -213,6 +213,13 @@ function installHost(): Host {
         return { ...summary(), id: 'pi-a-branch', title: 'Alpha chat · branch', parentId: 'pi-a', branchAt: 2 }
       }
       if (command === 'session_compact') return { collapsed: 4, kept: 6, summarySeq: 1 }
+      if (command === 'session_context_list') {
+        return [
+          { path: 'D:/work/alpha/src/main.rs', relative: 'src/main.rs', kind: 'file', bytes: 120 },
+          { path: 'D:/work/alpha/src', relative: 'src/', kind: 'dir', bytes: 0 },
+        ]
+      }
+      if (command === 'session_approve') return null
       if (command === 'session_open') return { ...summary(), messageCount: 0 }
       if (command === 'session_events') {
         return [
@@ -353,5 +360,122 @@ describe('chat history grouping', () => {
     await userEvent.click(within(row as HTMLElement).getByText('压缩上下文'))
     await waitFor(() => expect(host.calls).toContain('session_compact'))
     expect(host.args('session_compact')).toMatchObject({ sessionId: 'pi-a', keepLast: 6 })
+  })
+})
+
+function installToolHost(): Host {
+  const calls: string[] = []
+  const lastArgs = new Map<string, unknown>()
+  let polls = 0
+  const internals = {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
+      calls.push(command)
+      if (args) lastArgs.set(command, args)
+      if (command === 'catalog_snapshot' || command === 'catalog_refresh') return catalogSnapshot(false)
+      if (command === 'session_list') return { sessions: [], total: 0 }
+      if (command === 'session_open') return { ...summary(), messageCount: 0 }
+      if (command === 'session_events') {
+        polls += 1
+        if (polls > 1) return []
+        return [
+          event(1, 'turn_started', { prompt: 'run it' }),
+          event(2, 'tool_call', { tool: 'command', args: 'echo anvil' }),
+          event(3, 'tool_result', { tool: 'command', ok: true, output: 'anvil' }),
+          {
+            sessionId: 'pi-1',
+            runId: 'pi-1:r1',
+            seq: 4,
+            kind: 'approval_request' as const,
+            at: '2026-11-13T00:00:00Z',
+            payload: {
+              id: 'pi-1:a1-0',
+              sessionId: 'pi-1',
+              runId: 'pi-1:r1',
+              kind: 'read_outside_project',
+              title: '读取项目之外的路径',
+              detail: 'D:/outside/notes.txt',
+              createdAt: '2026-11-13T00:00:00Z',
+            },
+          },
+        ]
+      }
+      if (command === 'session_send') {
+        await new Promise((resolve) => setTimeout(resolve, 600))
+        return { runId: 'pi-1:r1', status: 'completed', eventCount: 4 }
+      }
+      if (command === 'session_detail') return detail('done')
+      if (command === 'session_approve') return null
+      return null
+    },
+  }
+  ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+    internals as unknown as TauriInternals
+  return { calls, aborted: () => false, args: (command) => lastArgs.get(command) }
+}
+
+describe('chat context and approvals', () => {
+  async function sendOnce(text: string) {
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, text)
+    await userEvent.click(screen.getByTestId('chat-send'))
+  }
+
+  it('offers project files for @ and sends the chosen ones as context', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    // A session has to exist before the host knows which project to list.
+    await sendOnce('first turn')
+    await waitFor(() => expect(host.calls).toContain('session_detail'))
+
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, 'look at @')
+    await waitFor(() => expect(host.calls).toContain('session_context_list'))
+    const entries = await screen.findAllByTestId('chat-mention-entry')
+    expect(entries).toHaveLength(2)
+    await userEvent.click(entries[0])
+
+    // The chip carries the absolute path; the draft loses the `@query`.
+    await waitFor(() => expect(screen.getByTestId('chat-attachments')).toHaveTextContent('src/main.rs'))
+    // The `@query` token is gone; the reference now lives in the chip.
+    expect(composer).toHaveValue('look at ')
+
+    await userEvent.type(composer, 'this file')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(host.args('session_send')).toMatchObject({
+      text: 'look at this file',
+      context: [{ kind: 'file', path: 'D:/work/alpha/src/main.rs' }],
+    }))
+  })
+
+  it('renders a tool card and answers the approval card from the live stream', async () => {
+    const host = installToolHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+
+    const tool = await screen.findByTestId('chat-live-tool')
+    expect(tool).toHaveAttribute('data-status', 'ok')
+    expect(tool).toHaveTextContent('echo anvil')
+
+    const card = await screen.findByTestId('chat-approval')
+    expect(card).toHaveTextContent('读取项目之外的路径')
+    expect(card).toHaveTextContent('D:/outside/notes.txt')
+
+    await userEvent.click(within(card).getByText('允许本次'))
+    await waitFor(() => expect(host.calls).toContain('session_approve'))
+    expect(host.args('session_approve')).toMatchObject({
+      sessionId: 'pi-1',
+      approvalId: 'pi-1:a1-0',
+      decision: 'allow',
+    })
   })
 })

@@ -1128,6 +1128,66 @@ button.chat-badge:hover {
   color: var(--fg);
 }
 
+/* A `@` picker row pairs the relative path with what kind of thing it is. */
+.chat-mention-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.chat-mention-list button small {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-mention-empty {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+/* Context chips carried by one user turn. */
+.chat-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.chat-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+}
+
+.chat-context-chip.is-outside {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.chat-context-chip small {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+/* Tool calls of the live turn sit between the reply and the composer. */
+.chat-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+
 .chat-attachment-drawer {
   position: absolute;
   z-index: 40;

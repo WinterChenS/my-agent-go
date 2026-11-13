@@ -24,9 +24,9 @@ use std::time::Duration;
 
 use anvil_session::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter};
 use anvil_session::{
-    EventKind, OpenedSession, Registry, Result as SessionResult, Run, RunStatus,
-    SessionCapabilities, SessionContext, SessionQuery, SessionService, SessionSpec, SessionStatus,
-    Store, default_registry,
+    ApprovalDecision, ContextKind, ContextRef, EventKind, OpenedSession, Registry,
+    Result as SessionResult, Run, RunStatus, SessionCapabilities, SessionContext, SessionInput,
+    SessionQuery, SessionService, SessionSpec, SessionStatus, Store, default_registry,
 };
 
 struct Options {
@@ -40,6 +40,11 @@ struct Options {
     turns: u32,
     abort_after_ms: u64,
     keep_last: usize,
+    cwd: Option<String>,
+    attach: Vec<(String, String)>,
+    approve: Option<String>,
+    allow_tools: bool,
+    tools: Vec<String>,
     with_echo: bool,
     session_file: Option<PathBuf>,
     expect: Vec<String>,
@@ -113,6 +118,7 @@ fn run() -> Result<ExitCode, String> {
             })
         }
         "history" => history(&options)?,
+        "context" => context_action(&mut service, &options)?,
         "resume" => resume(&mut service, &options)?,
         "projects" => {
             let projects = service.projects().map_err(|error| error.to_string())?;
@@ -159,7 +165,8 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
             .to_string(),
         title: Some("acceptance".into()),
         native_id: None,
-        allow_tools: false,
+        allow_tools: options.allow_tools,
+        tools: options.tools.clone(),
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
     let mut outcome = service
@@ -239,7 +246,8 @@ fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::
             .to_string(),
         title: Some("abort".into()),
         native_id: None,
-        allow_tools: false,
+        allow_tools: options.allow_tools,
+        tools: options.tools.clone(),
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
     let cancels = service.cancels();
@@ -312,6 +320,9 @@ impl SessionAdapter for EchoAdapter {
             // told apart from the session it came from.
             native_id: format!("echo-native-{index}"),
             model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
         })
     }
 
@@ -371,6 +382,7 @@ fn history(options: &Options) -> Result<serde_json::Value, String> {
         title: None,
         native_id: None,
         allow_tools: false,
+        tools: Vec::new(),
     };
 
     let mut expected_alpha = Vec::new();
@@ -657,6 +669,152 @@ fn history(options: &Options) -> Result<serde_json::Value, String> {
     Ok(facts)
 }
 
+/// One turn with attached context, optionally answering the approval it raises.
+///
+/// This is the only live path that proves two things at once: the reference
+/// content actually reached the runtime (the answer quotes it), and a restricted
+/// tool really ran (the ledger has `tool_call`/`tool_result` rows).
+fn context_action(
+    service: &mut SessionService,
+    options: &Options,
+) -> Result<serde_json::Value, String> {
+    let cwd = options.cwd.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+    });
+    let spec = SessionSpec {
+        runtime_id: options.runtime.clone(),
+        model: options.model.clone(),
+        cwd,
+        title: Some("context".into()),
+        native_id: None,
+        allow_tools: options.allow_tools,
+        tools: options.tools.clone(),
+    };
+    let session = service.open(&spec).map_err(|error| error.to_string())?;
+
+    // A headless run cannot wait for a person, so the case names the answer up
+    // front. The request itself is still real: it goes through the same registry
+    // the UI uses, and the decision is recorded in the ledger.
+    if let Some(mode) = options.approve.clone() {
+        let approvals = service.approvals();
+        let owner = session.id.clone();
+        std::thread::spawn(move || {
+            let decision = match mode.as_str() {
+                "allow" => ApprovalDecision::Allow,
+                "cancel" => ApprovalDecision::Cancel,
+                _ => ApprovalDecision::Deny,
+            };
+            for _ in 0..600 {
+                if let Some(id) = approvals.pending().into_iter().next() {
+                    let _ = approvals.resolve(&owner, &id, decision);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
+    }
+
+    let context: Vec<ContextRef> = options
+        .attach
+        .iter()
+        .map(|(kind, path)| ContextRef {
+            kind: ContextKind::from_label(kind).unwrap_or(ContextKind::File),
+            path: path.clone(),
+            label: None,
+        })
+        .collect();
+
+    let outcome = service.send_with(
+        &session.id,
+        &SessionInput {
+            prompt: options.prompt.clone(),
+            context,
+        },
+    );
+
+    let detail = service
+        .detail(&session.id)
+        .map_err(|error| error.to_string())?;
+    let events = service
+        .events(&session.id)
+        .map_err(|error| error.to_string())?;
+    let count = |kind: EventKind| events.iter().filter(|event| event.kind == kind).count();
+    let attached_chars: usize = events
+        .iter()
+        .filter(|event| event.kind == EventKind::ContextAttached)
+        .filter_map(|event| {
+            event
+                .payload
+                .get("totalChars")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .map(|value| value as usize)
+        .sum();
+    let refs: Vec<serde_json::Value> = events
+        .iter()
+        .filter(|event| event.kind == EventKind::ContextAttached)
+        .filter_map(|event| {
+            event
+                .payload
+                .get("refs")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .flatten()
+        .collect();
+    let last_decision = events
+        .iter()
+        .rev()
+        .find(|event| event.kind == EventKind::ApprovalResolved)
+        .and_then(|event| event.payload.get("decision").and_then(serde_json::Value::as_str))
+        .map(str::to_string);
+
+    let (ok, status, text, error, code, run_id) = match &outcome {
+        Ok(report) => (
+            report.run.status == RunStatus::Completed,
+            report.run.status.as_str().to_string(),
+            report
+                .message
+                .as_ref()
+                .map(|message| message.text.clone())
+                .unwrap_or_default(),
+            report.run.error.clone(),
+            String::new(),
+            report.run.id.clone(),
+        ),
+        Err(failure) => (
+            false,
+            "rejected".to_string(),
+            String::new(),
+            Some(failure.to_string()),
+            failure.code().to_string(),
+            String::new(),
+        ),
+    };
+
+    Ok(serde_json::json!({
+        "ok": ok,
+        "status": status,
+        "code": code,
+        "text": text,
+        "error": error,
+        "runId": run_id,
+        "sessionId": session.id,
+        "nativeId": detail.session.native_id,
+        "runs": detail.runs.len(),
+        "messages": detail.messages.len(),
+        "toolCalls": count(EventKind::ToolCall),
+        "toolResults": count(EventKind::ToolResult),
+        "contextRefs": refs.len(),
+        "contextChars": attached_chars,
+        "context": refs,
+        "approvals": count(EventKind::ApprovalRequest),
+        "lastApprovalDecision": last_decision,
+    }))
+}
+
 /// Send one more turn into the session a previous process created.
 fn resume(service: &mut SessionService, options: &Options) -> Result<serde_json::Value, String> {
     let file = session_file(options);
@@ -750,10 +908,12 @@ fn check(
                     failures.push(format!("text = {text:?}, want it to contain {want:?}"));
                 }
             }
-            "deltas-min" | "events-min" | "messages-min" => {
+            "deltas-min" | "events-min" | "messages-min" | "tools-min" | "context-min" => {
                 let field = match selector {
                     "deltas-min" => "/action/deltas",
                     "events-min" => "/action/eventCount",
+                    "tools-min" => "/action/toolCalls",
+                    "context-min" => "/action/contextRefs",
                     _ => "/action/messages",
                 };
                 let actual = report.pointer(field).and_then(serde_json::Value::as_i64);
@@ -893,6 +1053,11 @@ fn parse() -> Result<Options, String> {
         turns: 1,
         abort_after_ms: 300,
         keep_last: 2,
+        cwd: None,
+        attach: Vec::new(),
+        approve: None,
+        allow_tools: false,
+        tools: Vec::new(),
         with_echo: false,
         session_file: None,
         expect: Vec::new(),
@@ -929,6 +1094,25 @@ fn parse() -> Result<Options, String> {
                 options.keep_last = value()?
                     .parse()
                     .map_err(|_| "--keep-last needs a message count".to_string())?
+            }
+            "--cwd" => options.cwd = Some(value()?),
+            "--attach" => {
+                // `kind:path`, e.g. `file:docs/notes.md` or `dir:src`.
+                let raw = value()?;
+                let (kind, path) = raw
+                    .split_once(':')
+                    .ok_or_else(|| format!("--attach needs <kind>:<path>, got {raw:?}"))?;
+                options.attach.push((kind.to_string(), path.to_string()));
+            }
+            "--approve" => options.approve = Some(value()?),
+            "--allow-tools" => options.allow_tools = true,
+            "--tools" => {
+                options.tools = value()?
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .collect();
             }
             "--with-echo" => options.with_echo = true,
             "--session-file" => options.session_file = Some(PathBuf::from(value()?)),

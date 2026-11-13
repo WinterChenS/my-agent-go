@@ -8,19 +8,27 @@ import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
 import ChatDialogs, { type ChatDialogKind } from './ChatDialogs'
+import type { ContextEntry, ContextRef } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
 import './chat.css'
 
-type Attachment = { id: string; name: string; kind: 'file' | 'skill'; size?: string }
+type Attachment = {
+  id: string
+  name: string
+  kind: 'file' | 'dir' | 'skill'
+  /** Absolute path the host resolves; absent for sample rows. */
+  path?: string
+  size?: string
+}
 
 /** What the composer may do when a runtime is actually connected. */
 interface LiveComposer {
   models: ModelChoice[]
   model: ModelChoice | null
   onModel: (choice: ModelChoice) => void
-  onSend: (text: string) => void
+  onSend: (text: string, context: ContextRef[]) => void
   onStop: () => void
   /** Re-scan the machine for models. */
   onSync: () => void
@@ -111,10 +119,10 @@ export default function ChatPage() {
   const liveSession = live.current?.session ?? null
   const liveMessages = live.current?.messages ?? []
 
-  const sendLive = (text: string) => {
+  const sendLive = (text: string, context: ContextRef[]) => {
     // `send` resolves with the failure message (when there is one) instead of
     // rejecting, so a failed turn never becomes an unhandled rejection.
-    void live.send(text).then((failure) => {
+    void live.send(text, context).then((failure) => {
       if (failure) setNotice(t('chat.live.failed', { message: failure }))
     })
   }
@@ -349,6 +357,7 @@ export default function ChatPage() {
                 {liveMessages.map((message) =>
                   message.role === 'user' ? (
                     <article className="chat-msg chat-msg-user" data-testid="chat-message-user" key={message.id}>
+                      <ContextChips meta={message.meta} />
                       <div className="chat-bubble">{message.text}</div>
                     </article>
                   ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (
@@ -378,6 +387,19 @@ export default function ChatPage() {
                     </article>
                   ),
                 )}
+                {live.tools.length > 0 ? (
+                  <div className="chat-tools" data-testid="chat-live-tools">
+                    {live.tools.map((tool) => (
+                      <LiveToolCard key={tool.id} tool={tool} />
+                    ))}
+                  </div>
+                ) : null}
+                {live.pending ? (
+                  <ApprovalCard
+                    request={live.pending}
+                    onDecision={(decision) => void live.approve(decision)}
+                  />
+                ) : null}
                 {live.running ? (
                   <article className="chat-msg" data-testid="chat-message-streaming">
                     <div className="chat-agent-head">
@@ -428,6 +450,7 @@ export default function ChatPage() {
             setAttachmentOpen={setAttachmentOpen}
             onNotice={showNotice}
             onProject={(trigger) => openDialog('project', trigger)}
+            onMention={liveReady ? live.mention : undefined}
           />
         </div>
 
@@ -764,6 +787,7 @@ function Composer({
   setAttachmentOpen,
   onNotice,
   onProject,
+  onMention,
 }: {
   sample: boolean
   live: LiveComposer | null
@@ -776,10 +800,24 @@ function Composer({
   setAttachmentOpen: (open: boolean) => void
   onNotice: (message: string) => void
   onProject: (trigger: HTMLElement) => void
+  /** Ask the host which files this project offers for `@`. */
+  onMention?: (query: string) => Promise<ContextEntry[]>
 }) {
   const { t } = useI18n()
   const enabled = sample || live !== null
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
+  const [mentionHits, setMentionHits] = useState<ContextEntry[]>([])
+
+  // The references the user actually attached become the turn's context. Sample
+  // rows have no path, so they never reach the host.
+  const refs = (): ContextRef[] =>
+    attachments
+      .filter((attachment) => Boolean(attachment.path))
+      .map((attachment) => ({
+        kind: attachment.kind,
+        path: attachment.path as string,
+        label: attachment.kind === 'skill' ? attachment.name : undefined,
+      }))
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
@@ -788,9 +826,29 @@ function Composer({
       return
     }
     if (!live || live.running || !text.trim()) return
-    live.onSend(text)
+    live.onSend(text, refs())
     setText('')
     setMentionOpen(false)
+    setMentionHits([])
+  }
+
+  // `@` at the end of the draft opens the picker; everything after it is the
+  // query, so typing `@src/ma` narrows the list without leaving the field.
+  const mentionQuery = (value: string): string | null => {
+    const match = /(?:^|\s)@([^\s]*)$/.exec(value)
+    return match ? match[1] : null
+  }
+
+  const refreshMentions = (value: string) => {
+    const query = mentionQuery(value)
+    if (!query && !value.endsWith('@')) {
+      setMentionOpen(false)
+      setMentionHits([])
+      return
+    }
+    setMentionOpen(true)
+    if (!onMention) return
+    void onMention(query ?? '').then((hits) => setMentionHits(hits))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -835,7 +893,11 @@ function Composer({
           onChange={(event) => {
             if (!enabled) return
             setText(event.target.value)
-            setMentionOpen(sample && event.target.value.endsWith('@'))
+            if (sample) {
+              setMentionOpen(event.target.value.endsWith('@'))
+              return
+            }
+            refreshMentions(event.target.value)
           }}
           onKeyDown={onKeyDown}
         />
@@ -843,7 +905,10 @@ function Composer({
           <div className="chat-composer-attachments" data-testid="chat-attachments" aria-live="polite">
             {attachments.map((attachment) => (
               <span key={attachment.id} className={`chat-attachment${attachment.kind === 'skill' ? ' is-skill' : ''}`}>
-                <Icon name={attachment.kind === 'skill' ? 'puzzle' : 'file'} size={12} />
+                <Icon
+                  name={attachment.kind === 'skill' ? 'puzzle' : attachment.kind === 'dir' ? 'folder' : 'file'}
+                  size={12}
+                />
                 <b>{attachment.name}</b>
                 <small>{attachment.kind === 'skill' ? 'Skill' : attachment.size}</small>
                 <button
@@ -858,6 +923,43 @@ function Composer({
                 </button>
               </span>
             ))}
+          </div>
+        ) : null}
+        {mentionOpen && !sample ? (
+          <div className="chat-mention-list" role="listbox" aria-label={t('chat.composer.mention')}>
+            {mentionHits.length === 0 ? (
+              <span className="chat-mention-empty" data-testid="chat-mention-empty">
+                {t('chat.composer.mentionEmpty')}
+              </span>
+            ) : (
+              mentionHits.map((hit) => (
+                <button
+                  key={hit.path}
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  data-testid="chat-mention-entry"
+                  onClick={() => {
+                    setAttachments([
+                      ...attachments.filter((item) => item.path !== hit.path),
+                      {
+                        id: hit.path,
+                        name: hit.relative,
+                        kind: hit.kind,
+                        path: hit.path,
+                        size: hit.bytes ? `${Math.max(1, Math.round(hit.bytes / 1024))} KB` : undefined,
+                      },
+                    ])
+                    setText((current) => current.replace(/@[^\s]*$/, ''))
+                    setMentionOpen(false)
+                    setMentionHits([])
+                  }}
+                >
+                  <span className="chat-mention-name">{hit.relative}</span>
+                  <small>{hit.kind}</small>
+                </button>
+              ))
+            )}
           </div>
         ) : null}
         {mentionOpen && sample ? (
@@ -1024,5 +1126,100 @@ function Composer({
       </div>
       <span className="sr-only">{language}</span>
     </div>
+  )
+}
+
+/** The context chips a user turn carried, straight from the message meta. */
+function ContextChips({ meta }: { meta?: Record<string, unknown> }) {
+  const { t } = useI18n()
+  const refs = Array.isArray(meta?.context)
+    ? (meta?.context as { kind: string; path?: string; label?: string; truncated?: boolean; outsideRoot?: boolean }[])
+    : []
+  if (refs.length === 0) return null
+  return (
+    <div className="chat-context-chips" data-testid="chat-context-chips">
+      {refs.map((ref, index) => (
+        <span
+          key={`${ref.path ?? index}`}
+          className={`chat-context-chip${ref.outsideRoot ? ' is-outside' : ''}`}
+          title={ref.path ?? ''}
+        >
+          <Icon name={ref.kind === 'skill' ? 'puzzle' : ref.kind === 'dir' ? 'folder' : 'file'} size={11} />
+          <b>{ref.label ?? ref.path?.split(/[\\/]/).pop() ?? ref.kind}</b>
+          {ref.truncated ? <small>{t('chat.context.truncated')}</small> : null}
+          {ref.outsideRoot ? <small>{t('chat.context.outside')}</small> : null}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** One tool call of the live turn, collapsed until the user opens it. */
+function LiveToolCard({ tool }: { tool: { name: string; args: string; ok: boolean | null; output: string } }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const status = tool.ok === null ? 'pending' : tool.ok ? 'ok' : 'failed'
+  return (
+    <section
+      className={`chat-tool${open ? ' is-open' : ''}`}
+      data-testid="chat-live-tool"
+      data-status={status}
+      aria-expanded={open}
+    >
+      <button type="button" className="chat-tool-row" aria-label={t('chat.tool.toggle')} onClick={() => setOpen(!open)}>
+        <span className="chat-tool-icon">
+          <Icon name={tool.name === 'command' ? 'terminal' : 'file'} size={12} />
+        </span>
+        <span className="chat-tool-name">{tool.name}</span>
+        <span className="chat-tool-arg">{tool.args}</span>
+        {status === 'pending' ? <span className="chat-badge chat-tone-warn">{t('chat.tool.pending')}</span> : null}
+        {status === 'failed' ? <span className="chat-badge chat-tone-danger">{t('chat.tool.failed')}</span> : null}
+        <span className="chat-tool-caret" aria-hidden="true">
+          <Icon name="chevDown" size={10} />
+        </span>
+      </button>
+      {open ? <pre className="chat-tool-body">{tool.output || tool.args}</pre> : null}
+    </section>
+  )
+}
+
+/**
+ * The card a blocked run is waiting on.
+ *
+ * Closing it is a real answer (`cancel`): leaving a question answerable after
+ * the user walked away would let a later click approve a path they never saw.
+ */
+function ApprovalCard({
+  request,
+  onDecision,
+}: {
+  request: { id: string; title: string; detail: string; kind: string }
+  onDecision: (decision: 'allow' | 'deny' | 'cancel') => void
+}) {
+  const { t } = useI18n()
+  return (
+    <section className="chat-confirm" data-testid="chat-approval" role="alert" aria-label={request.title}>
+      <div className="chat-confirm-head">
+        <Icon name="shield" size={14} />
+        <span>{request.title}</span>
+        <span className="chat-badge chat-tone-warn">{request.kind}</span>
+      </div>
+      <div className="chat-confirm-body">
+        <p>{t('chat.confirm.desc')}</p>
+        <pre className="chat-confirm-code">{request.detail}</pre>
+      </div>
+      <div className="chat-confirm-foot">
+        <span>{t('chat.confirm.hint')}</span>
+        <button type="button" className="chat-btn chat-btn-sm" onClick={() => onDecision('deny')}>
+          {t('chat.confirm.deny')}
+        </button>
+        <button type="button" className="chat-btn chat-btn-sm" onClick={() => onDecision('cancel')}>
+          {t('chat.confirm.cancel')}
+        </button>
+        <button type="button" className="chat-btn chat-btn-sm chat-btn-primary" onClick={() => onDecision('allow')}>
+          {t('chat.confirm.once')}
+        </button>
+      </div>
+    </section>
   )
 }

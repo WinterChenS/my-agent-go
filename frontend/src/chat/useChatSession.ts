@@ -17,12 +17,14 @@ import {
 import { isTauriHost } from '../host/tauri'
 import {
   abortTurn,
+  approveRequest,
   archiveSession,
   compactSession,
   deleteSession,
   describeSessionError,
   forkSession,
   latestSeq,
+  listContext,
   listProjects,
   listSessions,
   loadSession,
@@ -33,8 +35,13 @@ import {
   renameSession,
   sendTurn,
   SessionUnavailable,
+  type ApprovalDecision,
+  type ApprovalRequest,
+  type ContextEntry,
+  type ContextRef,
   type ProjectSummary,
   type SessionDetail,
+  type SessionEvent,
   type SessionSummary,
 } from './client'
 
@@ -49,6 +56,15 @@ export interface ModelChoice {
   displayName: string
   verified: boolean
   isDefault: boolean
+}
+
+/** One tool call and, when it finished, its result. */
+export interface LiveTool {
+  id: string
+  name: string
+  args: string
+  ok: boolean | null
+  output: string
 }
 
 export interface ChatSessionView {
@@ -67,10 +83,20 @@ export interface ChatSessionView {
   current: SessionDetail | null
   /** Text of the turn in flight, merged from text deltas. */
   streamText: string
+  /** Every event of the turn in flight, in ledger order. */
+  turnEvents: SessionEvent[]
+  /** The approval card waiting for an answer, if any. */
+  pending: ApprovalRequest | null
+  /** Tool calls of the turn in flight, paired with their results. */
+  tools: LiveTool[]
   running: boolean
   select: (sessionId: string) => Promise<void>
   startNew: () => void
-  send: (text: string) => Promise<string | null>
+  send: (text: string, context?: ContextRef[]) => Promise<string | null>
+  /** Answer the pending approval card. */
+  approve: (decision: ApprovalDecision) => Promise<boolean>
+  /** Files and directories the composer may reference in this project. */
+  mention: (query: string) => Promise<ContextEntry[]>
   abort: () => Promise<boolean>
   refresh: () => Promise<void>
   rename: (sessionId: string, title: string) => Promise<void>
@@ -112,6 +138,54 @@ function pickModel(choices: ModelChoice[]): ModelChoice | null {
   )
 }
 
+/** The last approval request that has not been answered yet. */
+function lastPendingApproval(events: SessionEvent[]): ApprovalRequest | null {
+  const answered = new Set(
+    events
+      .filter((event) => event.kind === 'approval_resolved')
+      .map((event) => String(event.payload.id ?? '')),
+  )
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event.kind !== 'approval_request') continue
+    const payload = event.payload as unknown as ApprovalRequest
+    if (!payload || answered.has(payload.id)) return null
+    return payload
+  }
+  return null
+}
+
+/**
+ * Pair `tool_call` with the `tool_result` that follows it.
+ *
+ * Adapters emit them in order and without a shared key, so the pairing is
+ * positional: the Nth result belongs to the Nth call that has no result yet.
+ */
+function pairTools(events: SessionEvent[]): LiveTool[] {
+  const tools: LiveTool[] = []
+  for (const event of events) {
+    if (event.kind === 'tool_call') {
+      const args = event.payload.args ?? event.payload.command ?? ''
+      tools.push({
+        id: `${event.runId}:${event.seq}`,
+        name: String(event.payload.tool ?? 'tool'),
+        args: typeof args === 'string' ? args : JSON.stringify(args),
+        ok: null,
+        output: '',
+      })
+      continue
+    }
+    if (event.kind === 'tool_result') {
+      const tool = [...tools].reverse().find((entry) => entry.ok === null)
+      if (!tool) continue
+      tool.ok = event.payload.ok === true
+      const output = event.payload.output ?? event.payload.text ?? ''
+      tool.output = typeof output === 'string' ? output : JSON.stringify(output)
+    }
+  }
+  return tools
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
@@ -129,6 +203,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [streamText, setStreamText] = useState('')
+  const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
   const [running, setRunning] = useState(false)
   const pollStop = useRef(false)
   const mounted = useRef(true)
@@ -271,7 +346,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   }, [])
 
   const send = useCallback(
-    async (text: string): Promise<string | null> => {
+    async (text: string, context: ContextRef[] = []): Promise<string | null> => {
       const prompt = text.trim()
       if (!prompt) return null
       if (!isTauriHost()) return describeSessionError(new SessionUnavailable())
@@ -310,6 +385,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       )
       setRunning(true)
       setStreamText('')
+      setTurnEvents([])
       setError(null)
       pollStop.current = false
 
@@ -322,6 +398,10 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
               since = latestSeq(events, since)
               if (mounted.current) {
                 setStreamText((previous) => mergeDeltaText(events, previous))
+                // The turn's tool cards and approval cards come from the same
+                // stream; keeping the batch lets the page render them without a
+                // second read and without re-deriving text.
+                setTurnEvents((previous) => [...previous, ...events])
               }
             }
           } catch {
@@ -335,7 +415,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
 
       let failure: string | null = null
       try {
-        const report = await sendTurn(sessionId, prompt)
+        const report = await sendTurn(sessionId, prompt, context)
         if (report.status === 'failed') failure = report.error ?? 'the turn failed'
       } catch (cause) {
         failure = describeSessionError(cause)
@@ -359,6 +439,35 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       return failure
     },
     [current, model, reloadSessions],
+  )
+
+  const approve = useCallback(
+    async (decision: ApprovalDecision) => {
+      const sessionId = current?.session.id
+      const pending = lastPendingApproval(turnEvents)
+      if (!sessionId || !pending) return false
+      try {
+        await approveRequest(sessionId, pending.id, decision)
+        return true
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+        return false
+      }
+    },
+    [current, turnEvents],
+  )
+
+  const mention = useCallback(
+    async (query: string): Promise<ContextEntry[]> => {
+      const sessionId = current?.session.id
+      if (!sessionId) return []
+      try {
+        return await listContext(sessionId, query)
+      } catch {
+        return []
+      }
+    },
+    [current],
   )
 
   const abort = useCallback(async () => {
@@ -435,6 +544,9 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     [reloadSessions],
   )
 
+  const pending = lastPendingApproval(turnEvents)
+  const tools = pairTools(turnEvents)
+
   return {
     status,
     error,
@@ -447,10 +559,15 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     projects,
     current,
     streamText,
+    turnEvents,
+    pending,
+    tools,
     running,
     select,
     startNew,
     send,
+    approve,
+    mention,
     abort,
     refresh,
     rename,

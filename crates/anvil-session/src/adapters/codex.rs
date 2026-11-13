@@ -50,10 +50,14 @@ impl CodexAdapter {
         })
     }
 
-    fn spawn(&self) -> Result<Client> {
+    fn spawn(&self, cwd: &str) -> Result<Client> {
         let executable = self.executable()?;
-        let child = super::command_for(executable)
-            .arg("app-server")
+        let mut command = super::command_for(executable);
+        command.arg("app-server");
+        if !cwd.trim().is_empty() {
+            command.current_dir(cwd);
+        }
+        let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -93,6 +97,9 @@ impl SessionAdapter for CodexAdapter {
             runtime_id: ID.to_string(),
             native_id: spec.native_id.clone().unwrap_or_default(),
             model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
         })
     }
 
@@ -104,7 +111,7 @@ impl SessionAdapter for CodexAdapter {
         cancel: &Cancel,
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
-        let mut client = self.spawn()?;
+        let mut client = self.spawn(&opened.cwd)?;
         client.handshake(context.run_timeout)?;
 
         // First turn creates the thread; later turns must resume it. A resume

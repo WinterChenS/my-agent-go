@@ -51,12 +51,16 @@ impl PiAdapter {
         &self,
         context: &SessionContext,
         opened: &OpenedSession,
-        spec_tools: bool,
+        allow_tools: bool,
+        tools: &[String],
         prompt: &str,
     ) -> Result<Command> {
         let executable = self.executable()?;
         let session_dir = context.state_dir.join(ID);
         std::fs::create_dir_all(&session_dir)?;
+        // The child runs inside the project directory now, so a relative
+        // `--session-dir` would land inside the user's project. Resolve it once.
+        let session_dir = std::fs::canonicalize(&session_dir).unwrap_or(session_dir);
 
         let mut command = super::command_for(executable);
         command
@@ -71,11 +75,16 @@ impl PiAdapter {
             .arg("--model")
             .arg(&opened.model)
             // See the module docs: a live stdin makes pi wait forever.
+            .current_dir(&opened.cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if !spec_tools {
+        if !allow_tools {
             command.arg("--no-tools");
+        } else if !tools.is_empty() {
+            // Pi's own allowlist: the run cannot use a tool that is not named,
+            // so a case can prove "read only" rather than trusting the prompt.
+            command.arg("--tools").arg(tools.join(","));
         }
         Ok(command)
     }
@@ -115,6 +124,9 @@ impl SessionAdapter for PiAdapter {
             runtime_id: ID.to_string(),
             native_id,
             model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
         })
     }
 
@@ -127,7 +139,7 @@ impl SessionAdapter for PiAdapter {
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
         let mut child = self
-            .command(context, opened, false, prompt)?
+            .command(context, opened, opened.allow_tools, &opened.tools, prompt)?
             .spawn()
             .map_err(|error| Error::Failed(format!("spawn pi: {error}")))?;
 

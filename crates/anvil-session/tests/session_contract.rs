@@ -61,6 +61,9 @@ impl SessionAdapter for Scripted {
             runtime_id: spec.runtime_id.clone(),
             native_id: format!("{}-native", self.id),
             model: spec.model.clone(),
+            cwd: spec.cwd.clone(),
+            allow_tools: spec.allow_tools,
+            tools: spec.tools.clone(),
         })
     }
 
@@ -123,6 +126,7 @@ fn spec(runtime_id: &str) -> SessionSpec {
         title: None,
         native_id: None,
         allow_tools: false,
+        tools: Vec::new(),
     }
 }
 

@@ -23,6 +23,7 @@ export type SessionEventKind =
   | 'turn_completed'
   | 'aborted'
   | 'compacted'
+  | 'context_attached'
   | 'unknown'
 
 export interface SessionSummary {
@@ -52,6 +53,47 @@ export interface ProjectSummary {
   sessionCount: number
   lastUpdated: string
 }
+
+/** What kind of context an `@` reference points at. */
+export type ContextKind = 'file' | 'dir' | 'skill'
+
+export interface ContextRef {
+  kind: ContextKind
+  path: string
+  label?: string
+}
+
+/** One entry in the composer's `@` list. */
+export interface ContextEntry {
+  path: string
+  relative: string
+  kind: ContextKind
+  bytes: number
+}
+
+/** A reference after the host resolved it. */
+export interface ResolvedRef {
+  kind: ContextKind
+  path: string
+  label?: string
+  bytes: number
+  chars: number
+  truncated: boolean
+  outsideRoot: boolean
+}
+
+/** One approval question raised by a blocked run. */
+export interface ApprovalRequest {
+  id: string
+  sessionId: string
+  runId: string
+  kind: string
+  title: string
+  detail: string
+  createdAt: string
+}
+
+export type ApprovalDecision = 'allow' | 'deny' | 'cancel'
 
 /** What one compaction did. */
 export interface CompactReport {
@@ -195,8 +237,30 @@ export function openSession(input: {
   })
 }
 
-export function sendTurn(sessionId: string, text: string): Promise<SendReport> {
-  return hostCall<SendReport>('session_send', { sessionId, text })
+export function sendTurn(
+  sessionId: string,
+  text: string,
+  context: ContextRef[] = [],
+): Promise<SendReport> {
+  return hostCall<SendReport>('session_send', { sessionId, text, context })
+}
+
+/** Answer one approval card; the waiting run continues or gives up. */
+export function approveRequest(
+  sessionId: string,
+  approvalId: string,
+  decision: ApprovalDecision,
+): Promise<void> {
+  return hostCall<void>('session_approve', { sessionId, approvalId, decision })
+}
+
+/** Files and directories the composer may offer, confined to the project. */
+export function listContext(
+  sessionId: string,
+  query = '',
+  limit = 30,
+): Promise<ContextEntry[]> {
+  return hostCall<ContextEntry[]>('session_context_list', { sessionId, query, limit })
 }
 
 export function abortTurn(sessionId: string): Promise<boolean> {

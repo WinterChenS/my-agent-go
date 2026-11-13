@@ -273,6 +273,9 @@ mod tests {
                 runtime_id: spec.runtime_id.clone(),
                 native_id: "native-1".into(),
                 model: spec.model.clone(),
+                cwd: spec.cwd.clone(),
+                allow_tools: spec.allow_tools,
+                tools: spec.tools.clone(),
             })
         }
 

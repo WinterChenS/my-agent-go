@@ -19,8 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use anvil_session::{
-    Cancels, CompactReport, Message, ProjectSummary, RunEvent, SessionContext, SessionDetail,
-    SessionPage, SessionQuery, SessionService, SessionSpec, SessionSummary, Store,
+    ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, Message,
+    ProjectSummary, RunEvent, SessionContext, SessionDetail, SessionInput, SessionPage,
+    SessionQuery, SessionService, SessionSpec, SessionSummary, Store,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -38,6 +39,7 @@ pub struct SessionState {
     writer: Mutex<Option<SessionService>>,
     reader: Mutex<Option<Store>>,
     cancels: Mutex<Option<Cancels>>,
+    approvals: Mutex<Option<Approvals>>,
     init_error: Mutex<Option<String>>,
 }
 
@@ -51,6 +53,7 @@ impl SessionState {
             writer: Mutex::new(None),
             reader: Mutex::new(None),
             cancels: Mutex::new(None),
+            approvals: Mutex::new(None),
             init_error: Mutex::new(None),
         }
     }
@@ -104,11 +107,15 @@ impl SessionState {
             eprintln!("anvil: session: {recovered} interrupted run(s) marked failed");
         }
         let cancels = service.cancels();
+        let approvals = service.approvals();
         if let Ok(mut slot) = self.reader.lock() {
             *slot = Some(reader);
         }
         if let Ok(mut slot) = self.cancels.lock() {
             *slot = Some(cancels);
+        }
+        if let Ok(mut slot) = self.approvals.lock() {
+            *slot = Some(approvals);
         }
         *writer = Some(service);
         Ok(())
@@ -144,6 +151,25 @@ impl SessionState {
         action(store)
     }
 
+    /// Answer a pending approval without touching the writer lock.
+    fn resolve_approval(
+        &self,
+        session_id: &str,
+        approval_id: &str,
+        decision: ApprovalDecision,
+    ) -> Result<(), String> {
+        self.ensure()?;
+        let guard = self
+            .approvals
+            .lock()
+            .map_err(|_| "session: approval lock poisoned".to_string())?;
+        guard
+            .as_ref()
+            .ok_or_else(|| "session: approvals are not initialised".to_string())?
+            .resolve(session_id, approval_id, decision)
+            .map_err(|error| error.to_wire().to_string())
+    }
+
     /// Flip the cancel flag for one session without touching the writer lock.
     fn abort(&self, session_id: &str) -> Result<bool, String> {
         self.ensure()?;
@@ -157,10 +183,21 @@ impl SessionState {
             .unwrap_or(false))
     }
 
-    fn send(&self, session_id: &str, text: &str) -> Result<SendReport, String> {
+    fn send(
+        &self,
+        session_id: &str,
+        text: &str,
+        context: Vec<ContextRef>,
+    ) -> Result<SendReport, String> {
         self.with_writer(|service| {
             let outcome = service
-                .send(session_id, text)
+                .send_with(
+                    session_id,
+                    &SessionInput {
+                        prompt: text.to_string(),
+                        context,
+                    },
+                )
                 .map_err(|error| error.to_wire().to_string())?;
             Ok(SendReport {
                 run_id: outcome.run.id,
@@ -275,6 +312,7 @@ pub async fn session_open(
             // Tools stay off: a headless run that stops to ask for approval
             // would sit there until the timeout.
             allow_tools: false,
+            tools: Vec::new(),
         };
         service
             .open(&spec)
@@ -289,13 +327,50 @@ pub async fn session_send(
     app: AppHandle,
     session_id: String,
     text: String,
+    context: Option<Vec<ContextRef>>,
 ) -> Result<SendReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<SessionState>();
-        state.send(&session_id, &text)
+        state.send(&session_id, &text, context.unwrap_or_default())
     })
     .await
     .map_err(|error| format!("io: the run task ended unexpectedly: {error}"))?
+}
+
+/// Answer one approval card.
+///
+/// This deliberately does not take the writer lock: the run that is waiting for
+/// the answer holds it for the whole turn, and a stop/approve path that queued
+/// behind it could never arrive.
+#[tauri::command]
+pub async fn session_approve(
+    state: State<'_, SessionState>,
+    session_id: String,
+    approval_id: String,
+    decision: ApprovalDecision,
+) -> Result<(), String> {
+    state.resolve_approval(&session_id, &approval_id, decision)
+}
+
+/// Entries for the composer's `@` list, confined to the session's project.
+#[tauri::command]
+pub async fn session_context_list(
+    state: State<'_, SessionState>,
+    session_id: String,
+    query: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ContextEntry>, String> {
+    state.with_reader(|store| {
+        let session = store
+            .session(&session_id)
+            .map_err(|error| error.to_wire().to_string())?;
+        anvil_session::context::entries(
+            &session.project_path,
+            query.as_deref().unwrap_or(""),
+            limit.unwrap_or(30) as usize,
+        )
+        .map_err(|error| error.to_wire().to_string())
+    })
 }
 
 /// Ask the in-flight run to stop. `false` means nothing was running.

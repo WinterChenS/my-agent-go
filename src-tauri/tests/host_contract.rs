@@ -814,7 +814,9 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-session-delete",
             "allow-session-projects",
             "allow-session-fork",
-            "allow-session-compact"
+            "allow-session-compact",
+            "allow-session-approve",
+            "allow-session-context-list"
         ]
     );
     for permission in &permissions {
