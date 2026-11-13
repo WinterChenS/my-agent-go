@@ -1,0 +1,759 @@
+//! Contract tests for the runtime extension path (G1).
+//!
+//! These tests use an injected adapter instead of a real CLI, which is exactly
+//! what the extension contract asks for: an unknown runtime id must travel the
+//! same discover → register → sync → snapshot path as the shipped adapters.
+//!
+//! Real-binary evidence is produced separately by the R1-0x acceptance cases.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anvil_catalog::error::{Error, Result};
+use anvil_catalog::model::{
+    Capabilities, CapabilityState, InventoryKind, McpRecord, ModelRecord, RuntimeCandidate,
+    RuntimeHealth, RuntimeRegistration, RuntimeStatus, SkillRecord,
+};
+use anvil_catalog::runtime::adapter::{
+    DiscoveryContext, Inventory, ModelVerification, ProbeContext, ProbeReport, RuntimeAdapter,
+};
+use anvil_catalog::runtime::registry::Registry;
+use anvil_catalog::runtime::service::{CatalogService, Timeouts};
+use anvil_catalog::store::Store;
+use anvil_catalog::{clock, secrets};
+
+/// What a scripted adapter should answer for one sync kind.
+#[derive(Clone)]
+enum SyncAnswer {
+    Items(Vec<String>),
+    Fail(String),
+}
+
+/// A fully scripted adapter.
+struct ScriptedAdapter {
+    id: String,
+    display: String,
+    capabilities: Capabilities,
+    discovery_paths: Mutex<Vec<PathBuf>>,
+    discover_error: Option<String>,
+    probe_status: RuntimeStatus,
+    probe_error: Option<String>,
+    sync_answers: Mutex<BTreeMap<String, SyncAnswer>>,
+    verify: Option<ModelVerification>,
+    sync_calls: Arc<AtomicUsize>,
+}
+
+impl ScriptedAdapter {
+    fn new(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            display: format!("{id} runtime"),
+            capabilities: Capabilities {
+                models: CapabilityState::Supported,
+                custom_models: CapabilityState::Supported,
+                skills: CapabilityState::Supported,
+                tools: CapabilityState::Unverified,
+                mcp: CapabilityState::Supported,
+                sessions: CapabilityState::Supported,
+            },
+            discovery_paths: Mutex::new(Vec::new()),
+            discover_error: None,
+            probe_status: RuntimeStatus::Available,
+            probe_error: None,
+            sync_answers: Mutex::new(BTreeMap::new()),
+            verify: Some(ModelVerification {
+                ok: true,
+                detail: Some("HTTP 200".into()),
+            }),
+            sync_calls: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn discover_at(self, paths: Vec<PathBuf>) -> Self {
+        *self.discovery_paths.lock().expect("paths") = paths;
+        self
+    }
+
+    fn with_sync(self, kind: InventoryKind, answer: SyncAnswer) -> Self {
+        self.set_answer(kind, answer);
+        self
+    }
+
+    fn set_answer(&self, kind: InventoryKind, answer: SyncAnswer) {
+        self.sync_answers
+            .lock()
+            .expect("answers")
+            .insert(kind.as_str().to_string(), answer);
+    }
+}
+
+impl RuntimeAdapter for ScriptedAdapter {
+    fn id(&self) -> &'static str {
+        // The registry keeps its own copy; this is only for display parity.
+        Box::leak(self.id.clone().into_boxed_str())
+    }
+
+    fn display_name(&self) -> &'static str {
+        Box::leak(self.display.clone().into_boxed_str())
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.capabilities.clone()
+    }
+
+    fn discover(&self, _context: &DiscoveryContext) -> Result<Vec<RuntimeCandidate>> {
+        if let Some(error) = &self.discover_error {
+            return Err(Error::Io(error.clone()));
+        }
+        Ok(self
+            .discovery_paths
+            .lock()
+            .expect("paths")
+            .iter()
+            .map(|path| RuntimeCandidate {
+                runtime_id: self.id.clone(),
+                executable: path.clone(),
+                source: anvil_catalog::model::InstallSource::Injected,
+                instance: None,
+            })
+            .collect())
+    }
+
+    fn probe(&self, _context: &ProbeContext, _candidate: &RuntimeCandidate) -> Result<ProbeReport> {
+        if let Some(error) = &self.probe_error {
+            return Err(Error::Io(error.clone()));
+        }
+        Ok(ProbeReport {
+            version: Some("9.9.9".into()),
+            status: self.probe_status,
+            config_path: None,
+            detail: None,
+            latency_ms: 3,
+        })
+    }
+
+    fn sync(
+        &self,
+        _context: &ProbeContext,
+        _registration: &RuntimeRegistration,
+        kind: InventoryKind,
+    ) -> Option<Result<Inventory>> {
+        self.sync_calls.fetch_add(1, Ordering::SeqCst);
+        let answer = self
+            .sync_answers
+            .lock()
+            .expect("answers")
+            .get(kind.as_str())?
+            .clone();
+        Some(match answer {
+            SyncAnswer::Items(names) => Ok(match kind {
+                InventoryKind::Models => Inventory::Models(
+                    names
+                        .into_iter()
+                        .map(|name| model(&self.id, &name))
+                        .collect(),
+                ),
+                InventoryKind::Skills => Inventory::Skills(
+                    names
+                        .into_iter()
+                        .map(|name| skill(&self.id, &name, "valid"))
+                        .collect(),
+                ),
+                InventoryKind::Mcp => Inventory::Mcp(
+                    names
+                        .into_iter()
+                        .map(|name| mcp(&self.id, &name, "stdio", Some(r"C:\Tools\demo.exe")))
+                        .collect(),
+                ),
+                InventoryKind::Tools => Inventory::Tools(Vec::new()),
+            }),
+            SyncAnswer::Fail(reason) => Err(Error::Io(reason)),
+        })
+    }
+
+    fn verify_model(
+        &self,
+        _context: &ProbeContext,
+        _registration: &RuntimeRegistration,
+        _model: &ModelRecord,
+        _credential: Option<&str>,
+    ) -> Option<Result<ModelVerification>> {
+        self.verify.clone().map(Ok)
+    }
+}
+
+fn model(runtime_id: &str, id: &str) -> ModelRecord {
+    ModelRecord {
+        runtime_id: runtime_id.to_string(),
+        model_id: id.to_string(),
+        display_name: id.to_string(),
+        origin: "discovered".into(),
+        protocol: Some("openai".into()),
+        endpoint: None,
+        verified: false,
+        verified_at: None,
+        is_default: false,
+        updated_at: clock::now_rfc3339(),
+        has_credential: false,
+    }
+}
+
+fn skill(runtime_id: &str, name: &str, state: &str) -> SkillRecord {
+    SkillRecord {
+        runtime_id: runtime_id.to_string(),
+        name: name.to_string(),
+        description: "scripted".into(),
+        root: r"C:\Skills".into(),
+        path: format!(r"C:\Skills\{name}"),
+        state: state.to_string(),
+        reason: None,
+        updated_at: clock::now_rfc3339(),
+    }
+}
+
+fn mcp(runtime_id: &str, name: &str, transport: &str, command: Option<&str>) -> McpRecord {
+    McpRecord {
+        runtime_id: runtime_id.to_string(),
+        name: name.to_string(),
+        transport: transport.to_string(),
+        command: command.map(str::to_string),
+        args: vec!["--serve".into()],
+        url: None,
+        env_keys: vec!["DEMO_TOKEN".into()],
+        header_keys: Vec::new(),
+        source: "scripted".into(),
+        state: "declared".into(),
+        probed_at: None,
+    }
+}
+
+/// Temp home with unique directory and cleanup.
+struct TempHome {
+    path: PathBuf,
+}
+
+impl TempHome {
+    fn new(label: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "anvil-catalog-{label}-{}-{}",
+            std::process::id(),
+            clock::unix_now()
+        ));
+        std::fs::create_dir_all(&path).expect("temp home");
+        Self { path }
+    }
+
+    fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    /// Create a file (used to give the fake adapter a real executable path).
+    fn touch(&self, relative: &str) -> PathBuf {
+        let path = self.path.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("parent");
+        }
+        std::fs::write(&path, b"fake").expect("touch");
+        path
+    }
+}
+
+impl Drop for TempHome {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+fn service(home: &TempHome, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> CatalogService {
+    let mut registry = Registry::new();
+    for adapter in adapters {
+        registry.register(adapter).expect("register");
+    }
+    let store = Store::open_in_memory().expect("store");
+    CatalogService::with_registry(
+        store,
+        home.path(),
+        registry,
+        Timeouts {
+            discovery: Duration::from_secs(2),
+            probe: Duration::from_secs(2),
+            sync: Duration::from_secs(2),
+        },
+    )
+    .expect("service")
+}
+
+#[test]
+fn scan_registers_once_per_normalised_path() {
+    let home = TempHome::new("dedupe");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter =
+        ScriptedAdapter::new("demo").discover_at(vec![executable.clone(), executable.clone()]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    let summary = service.scan().expect("scan");
+    assert_eq!(summary.registrations, 1);
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(snapshot.runtimes.len(), 1);
+    let runtime = &snapshot.runtimes[0];
+    assert_eq!(runtime.runtime_id, "demo");
+    assert_eq!(runtime.status, "available");
+    assert_eq!(runtime.version.as_deref(), Some("9.9.9"));
+    assert_eq!(runtime.snapshot_state, "never");
+}
+
+#[test]
+fn rescan_is_idempotent_and_keeps_first_seen() {
+    let home = TempHome::new("rescan");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    service.scan().expect("first");
+    let first = service.snapshot().expect("snapshot");
+    service.scan().expect("second");
+    let second = service.snapshot().expect("snapshot");
+
+    assert_eq!(first.runtimes.len(), second.runtimes.len());
+    assert_eq!(first.runtimes[0].id, second.runtimes[0].id);
+    assert_eq!(first.runtimes[0].first_seen, second.runtimes[0].first_seen);
+}
+
+#[test]
+fn removed_binary_is_marked_not_installed() {
+    let home = TempHome::new("removed");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = Arc::new(ScriptedAdapter::new("demo").discover_at(vec![executable]));
+    let mut service = service(&home, vec![adapter.clone()]);
+
+    service.scan().expect("first");
+    assert_eq!(
+        service.snapshot().expect("snapshot").runtimes[0].status,
+        "available"
+    );
+
+    // The same adapter now finds nothing: the previous row must flip instead of
+    // being silently deleted.
+    *adapter.discovery_paths.lock().expect("paths") = Vec::new();
+    service.scan().expect("second");
+    let snapshot = service.snapshot().expect("snapshot");
+    let statuses: Vec<&str> = snapshot
+        .runtimes
+        .iter()
+        .map(|runtime| runtime.status.as_str())
+        .collect();
+    assert!(statuses.contains(&"not_installed"), "{statuses:?}");
+}
+
+#[test]
+fn failing_adapter_does_not_hide_the_healthy_one() {
+    let home = TempHome::new("isolation");
+    let executable = home.touch("bin/good.cmd");
+    let mut broken = ScriptedAdapter::new("broken");
+    broken.discover_error = Some("simulated discovery failure".into());
+    let healthy = ScriptedAdapter::new("healthy").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(broken), Arc::new(healthy)]);
+
+    let summary = service.scan().expect("scan");
+    assert_eq!(summary.failures.len(), 1);
+    assert_eq!(summary.failures[0].runtime_id, "broken");
+    let snapshot = service.snapshot().expect("snapshot");
+    assert!(
+        snapshot
+            .runtimes
+            .iter()
+            .any(|runtime| runtime.runtime_id == "healthy")
+    );
+    assert!(
+        !snapshot
+            .runtimes
+            .iter()
+            .any(|runtime| runtime.runtime_id == "broken")
+    );
+    assert_eq!(snapshot.adapter_failures.len(), 1);
+}
+
+#[test]
+fn unknown_adapter_travels_the_whole_pipeline() {
+    let home = TempHome::new("unknown");
+    let executable = home.touch("bin/acme.cmd");
+    let adapter = ScriptedAdapter::new("acme-cli")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Skills,
+            SyncAnswer::Items(vec!["acme-skill".into()]),
+        )
+        .with_sync(
+            InventoryKind::Mcp,
+            SyncAnswer::Items(vec!["acme-mcp".into()]),
+        );
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    service.scan().expect("scan");
+    service.sync_runtime("acme-cli").expect("sync");
+    let snapshot = service.snapshot().expect("snapshot");
+
+    let runtime = snapshot
+        .runtimes
+        .iter()
+        .find(|runtime| runtime.runtime_id == "acme-cli")
+        .expect("runtime row");
+    assert!(runtime.adapter_registered);
+    assert_eq!(snapshot.skills.len(), 1);
+    assert_eq!(snapshot.skills[0].runtime_id, "acme-cli");
+    assert_eq!(snapshot.mcp.len(), 1);
+    // Capabilities are declared by the adapter, not hardcoded by runtime name.
+    assert_eq!(
+        runtime.capabilities.custom_models,
+        CapabilityState::Supported
+    );
+}
+
+#[test]
+fn duplicate_registration_is_rejected() {
+    let home = TempHome::new("duplicate");
+    let mut registry = Registry::new();
+    registry
+        .register(Arc::new(ScriptedAdapter::new("same")))
+        .expect("first");
+    let error = registry
+        .register(Arc::new(ScriptedAdapter::new("same")))
+        .expect_err("second");
+    assert_eq!(error.code(), "rejected");
+    let _ = home;
+}
+
+#[test]
+fn capability_without_sync_is_not_reported_as_an_empty_result() {
+    let home = TempHome::new("capability");
+    let executable = home.touch("bin/limited.cmd");
+    let adapter = ScriptedAdapter::new("limited").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    service.scan().expect("scan");
+    let outcomes = service.sync_runtime("limited").expect("sync");
+    assert!(
+        outcomes.is_empty(),
+        "unsupported families must not be synced"
+    );
+
+    let snapshot = service.snapshot().expect("snapshot");
+    assert!(snapshot.syncs.is_empty(), "no sync row may pretend success");
+    let runtime = &snapshot.runtimes[0];
+    assert_eq!(runtime.capabilities.tools, CapabilityState::Unverified);
+}
+
+#[test]
+fn custom_model_cannot_be_duplicated_or_defaulted_before_verification() {
+    let home = TempHome::new("models");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Models,
+            SyncAnswer::Items(vec!["builtin-1".into()]),
+        );
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    service.sync_runtime("demo").expect("sync");
+
+    service
+        .add_custom_model(
+            "demo",
+            "custom-1",
+            "Custom One",
+            Some("openai"),
+            Some("http://127.0.0.1:9/v1"),
+            Some("sk-test-secret"),
+        )
+        .expect("add");
+
+    let duplicate = service
+        .add_custom_model(
+            "demo",
+            "custom-1",
+            "Custom One",
+            Some("openai"),
+            Some("http://127.0.0.1:9/v1"),
+            None,
+        )
+        .expect_err("duplicate");
+    assert_eq!(duplicate.code(), "rejected");
+
+    let default = service
+        .set_default_model("demo", "custom-1")
+        .expect_err("unverified");
+    assert_eq!(default.code(), "rejected");
+
+    // A model the adapter declares unsupported is refused outright.
+    let unsupported = service
+        .add_custom_model("missing-runtime", "x", "X", None, None, None)
+        .expect_err("unknown adapter");
+    assert_eq!(unsupported.code(), "not_found");
+
+    let snapshot = service.snapshot().expect("snapshot");
+    let custom = snapshot
+        .models
+        .iter()
+        .find(|model| model.model_id == "custom-1")
+        .expect("custom row");
+    assert_eq!(custom.origin, "custom");
+    assert!(custom.has_credential);
+    let json = serde_json::to_string(&snapshot).expect("json");
+    assert!(
+        !json.contains("sk-test-secret"),
+        "credential leaked into the snapshot"
+    );
+}
+
+#[test]
+fn verified_model_can_become_the_default_and_failure_clears_it() {
+    let home = TempHome::new("verify");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+
+    service
+        .add_custom_model(
+            "demo",
+            "custom-2",
+            "Custom Two",
+            Some("openai"),
+            Some("http://127.0.0.1:9/v1"),
+            None,
+        )
+        .expect("add");
+    let verification = service.verify_model("demo", "custom-2").expect("verify");
+    assert!(verification.ok);
+    service
+        .set_default_model("demo", "custom-2")
+        .expect("default");
+
+    let snapshot = service.snapshot().expect("snapshot");
+    let row = snapshot
+        .models
+        .iter()
+        .find(|model| model.model_id == "custom-2")
+        .expect("row");
+    assert!(row.is_default);
+    assert!(row.verified);
+}
+
+#[test]
+fn failed_sync_keeps_the_previous_snapshot_and_marks_it_stale() {
+    let mut store = Store::open_in_memory().expect("store");
+    store
+        .replace_mcp(
+            "demo",
+            &[mcp(
+                "demo",
+                "good-mcp",
+                "stdio",
+                Some(r"C://Tools//demo.exe"),
+            )],
+            "2026-01-01T00:00:00Z",
+        )
+        .expect("seed");
+    store
+        .mark_sync_failed(
+            "demo",
+            InventoryKind::Mcp,
+            "config unreadable",
+            "2026-01-01T00:01:00Z",
+        )
+        .expect("fail");
+
+    let snapshot = store.snapshot(Vec::new(), None).expect("snapshot");
+    assert_eq!(snapshot.mcp.len(), 1, "previous snapshot must survive");
+    assert_eq!(snapshot.mcp[0].name, "good-mcp");
+    let sync = snapshot
+        .syncs
+        .iter()
+        .find(|sync| sync.kind == "mcp")
+        .expect("sync row");
+    assert!(!sync.ok);
+    assert!(sync.stale);
+    assert_eq!(sync.error.as_deref(), Some("config unreadable"));
+}
+
+#[test]
+fn service_marks_a_failed_resync_stale_and_keeps_the_rows() {
+    let home = TempHome::new("resync");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = Arc::new(
+        ScriptedAdapter::new("demo")
+            .discover_at(vec![executable])
+            .with_sync(
+                InventoryKind::Mcp,
+                SyncAnswer::Items(vec!["kept-mcp".into()]),
+            ),
+    );
+    let mut service = service(&home, vec![adapter.clone()]);
+    service.scan().expect("scan");
+    service.sync_runtime("demo").expect("first sync");
+    assert_eq!(service.snapshot().expect("snapshot").mcp.len(), 1);
+
+    adapter.set_answer(
+        InventoryKind::Mcp,
+        SyncAnswer::Fail("config unreadable".into()),
+    );
+    let outcomes = service.sync_runtime("demo").expect("second sync");
+    let outcome = outcomes
+        .iter()
+        .find(|outcome| outcome.kind == "mcp")
+        .expect("mcp outcome");
+    assert!(!outcome.ok);
+    assert!(outcome.stale);
+
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(
+        snapshot.mcp.len(),
+        1,
+        "the previous row must survive a failure"
+    );
+    assert_eq!(snapshot.mcp[0].name, "kept-mcp");
+    assert_eq!(snapshot.runtimes[0].snapshot_state, "stale");
+}
+
+#[test]
+fn credential_is_encrypted_at_rest() {
+    let ciphertext = secrets::protect("sk-live-abcdef").expect("protect");
+    let as_text = String::from_utf8_lossy(&ciphertext);
+    assert!(!as_text.contains("sk-live"));
+    assert_eq!(
+        secrets::unprotect(&ciphertext).expect("unprotect"),
+        "sk-live-abcdef"
+    );
+}
+
+#[test]
+fn snapshot_serialises_without_secret_material() {
+    let home = TempHome::new("serialise");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Mcp,
+            SyncAnswer::Items(vec!["demo-mcp".into()]),
+        );
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    service.sync_runtime("demo").expect("sync");
+    let snapshot = service.snapshot().expect("snapshot");
+    let json = serde_json::to_string(&snapshot).expect("json");
+    assert!(json.contains("demo-mcp"));
+    assert!(json.contains("DEMO_TOKEN"), "env names are kept");
+    assert!(!json.to_lowercase().contains("password"));
+}
+
+#[test]
+fn untrusted_mcp_command_is_refused_without_spawning() {
+    let home = TempHome::new("mcp-trust");
+    let executable = home.touch("bin/demo.cmd");
+    let shared = Arc::new(Mutex::new(Vec::<McpRecord>::new()));
+    *shared.lock().expect("shared") = vec![mcp(
+        "demo",
+        "evil",
+        "stdio",
+        Some(r"\\server\share\evil.exe"),
+    )];
+
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    service
+        .store_mut()
+        .replace_mcp("demo", &shared.lock().expect("shared").clone(), "t0")
+        .expect("seed");
+
+    let probe = service
+        .probe_mcp("demo", "evil")
+        .expect("probe returns a result");
+    assert!(!probe.ok);
+    let detail = probe.detail.unwrap_or_default();
+    assert!(detail.contains("not trusted"), "{detail}");
+}
+
+#[test]
+fn probe_mcp_reports_a_missing_server() {
+    let home = TempHome::new("mcp-missing");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    let error = service.probe_mcp("demo", "nope").expect_err("missing");
+    assert_eq!(error.code(), "not_found");
+}
+
+#[test]
+fn registration_row_carries_health_and_capabilities() {
+    let home = TempHome::new("row");
+    let executable = home.touch("bin/demo.cmd");
+    let mut adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    adapter.probe_status = RuntimeStatus::Unauthenticated;
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    let snapshot = service.snapshot().expect("snapshot");
+    let runtime = &snapshot.runtimes[0];
+    assert_eq!(runtime.status, "unauthenticated");
+    assert_eq!(runtime.install_source, "injected");
+    let health: RuntimeHealth = runtime.health.clone();
+    assert!(!health.checked_at.is_empty());
+    assert!(runtime.capabilities.models == CapabilityState::Supported);
+}
+
+#[test]
+fn probe_failure_is_recorded_not_thrown() {
+    let home = TempHome::new("probe-fail");
+    let executable = home.touch("bin/demo.cmd");
+    let mut adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    adapter.probe_error = Some("handshake timed out".into());
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(snapshot.runtimes[0].status, "probe_failed");
+    assert!(
+        snapshot.runtimes[0]
+            .health
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("handshake timed out")
+    );
+}
+
+#[test]
+fn skill_records_preserve_source_root_for_duplicates() {
+    let home = TempHome::new("skill-dup");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Skills,
+            SyncAnswer::Items(vec!["shared".into()]),
+        );
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    service.sync_runtime("demo").expect("sync");
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(snapshot.skills.len(), 1);
+    assert_eq!(snapshot.skills[0].root, r"C:\Skills");
+    let path = Path::new(&snapshot.skills[0].path);
+    assert!(path.is_absolute());
+}
+
+#[test]
+fn snapshot_lists_every_declared_runtime_even_when_nothing_is_installed() {
+    let home = TempHome::new("nothing");
+    let adapter = ScriptedAdapter::new("demo");
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(snapshot.runtimes.len(), 1);
+    assert_eq!(snapshot.runtimes[0].status, "not_installed");
+    assert!(snapshot.runtimes[0].install_path.is_empty());
+}

@@ -7,7 +7,7 @@
 # (`.cargo/config.toml`, overridable through `CARGO_TARGET_DIR`).
 [workspace]
 resolver = "3"
-members = ["crates/anvil-paths", "src-tauri", "tools/devtools"]
+members = ["crates/anvil-paths", "crates/anvil-catalog", "src-tauri", "tools/devtools"]
 
 [workspace.package]
 version = "0.1.0"
