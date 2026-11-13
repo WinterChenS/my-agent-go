@@ -105,62 +105,87 @@ interface Host {
   aborted: () => boolean
 }
 
+function catalogSnapshot(withExtra: boolean) {
+  const models = [
+    {
+      runtimeId: 'pi',
+      modelId: 'auto/gpt-5.6-sol',
+      displayName: 'Gateway Sol',
+      origin: 'custom',
+      protocol: 'openai',
+      endpoint: 'http://127.0.0.1:3425/v1',
+      verified: true,
+      verifiedAt: '2026-11-13T00:00:00Z',
+      isDefault: true,
+      updatedAt: '2026-11-13T00:00:00Z',
+      hasCredential: true,
+    },
+  ]
+  if (withExtra) {
+    models.push({
+      runtimeId: 'pi',
+      modelId: 'auto/glm-5.3-flash',
+      displayName: 'Gateway GLM',
+      origin: 'runtime',
+      protocol: 'openai',
+      endpoint: null as unknown as string,
+      verified: false,
+      verifiedAt: null as unknown as string,
+      isDefault: false,
+      updatedAt: '2026-11-13T00:00:00Z',
+      hasCredential: false,
+    })
+  }
+  return {
+    runtimes: [
+      {
+        id: 'pi:1',
+        runtimeId: 'pi',
+        displayName: 'Pi Agent',
+        version: '1.5.0',
+        installPath: 'C:////pi.CMD',
+        installSource: 'path',
+        configPath: null,
+        status: 'available',
+        capabilities: {
+          models: 'supported',
+          customModels: 'supported',
+          skills: 'supported',
+          tools: 'supported',
+          mcp: 'supported',
+          sessions: 'supported',
+        },
+        health: { checkedAt: '2026-11-13T00:00:00Z', latencyMs: 5, detail: null },
+        lastSeen: '2026-11-13T00:00:00Z',
+        firstSeen: '2026-11-13T00:00:00Z',
+        snapshotState: 'fresh',
+        adapterRegistered: true,
+      },
+    ],
+    models,
+    skills: [],
+    tools: [],
+    mcp: [],
+    syncs: [],
+    adapterFailures: [],
+    scannedAt: '2026-11-13T00:00:00Z',
+  }
+}
+
 function installHost(): Host {
   const calls: string[] = []
   let abortCalled = false
+  let rescanned = false
   const internals = {
     invoke: async (command: string) => {
       calls.push(command)
-      if (command === 'catalog_snapshot') {
-        return {
-          runtimes: [
-            {
-              id: 'pi:1',
-              runtimeId: 'pi',
-              displayName: 'Pi Agent',
-              version: '1.5.0',
-              installPath: 'C:\\pi.CMD',
-              installSource: 'path',
-              configPath: null,
-              status: 'available',
-              capabilities: {
-                models: 'supported',
-                customModels: 'supported',
-                skills: 'supported',
-                tools: 'supported',
-                mcp: 'supported',
-                sessions: 'supported',
-              },
-              health: { checkedAt: '2026-11-13T00:00:00Z', latencyMs: 5, detail: null },
-              lastSeen: '2026-11-13T00:00:00Z',
-              firstSeen: '2026-11-13T00:00:00Z',
-              snapshotState: 'fresh',
-              adapterRegistered: true,
-            },
-          ],
-          models: [
-            {
-              runtimeId: 'pi',
-              modelId: 'auto/gpt-5.6-sol',
-              displayName: 'Gateway Sol',
-              origin: 'custom',
-              protocol: 'openai',
-              endpoint: 'http://127.0.0.1:3425/v1',
-              verified: true,
-              verifiedAt: '2026-11-13T00:00:00Z',
-              isDefault: true,
-              updatedAt: '2026-11-13T00:00:00Z',
-              hasCredential: true,
-            },
-          ],
-          skills: [],
-          tools: [],
-          mcp: [],
-          syncs: [],
-          adapterFailures: [],
-          scannedAt: '2026-11-13T00:00:00Z',
-        }
+      if (command === 'catalog_refresh') {
+        // A model that only exists after the manual sync: the picker must be
+        // rebuilt from the rescan, not from the startup snapshot.
+        rescanned = true
+        return catalogSnapshot(rescanned)
       }
+      if (command === 'catalog_snapshot') return catalogSnapshot(rescanned)
       if (command === 'session_list') return { sessions: [], total: 0 }
       if (command === 'session_open') return { ...summary(), messageCount: 0 }
       if (command === 'session_events') {
@@ -204,6 +229,27 @@ afterEach(() => {
 })
 
 describe('chat live session', () => {
+  it('syncs the model list from the composer and shows what the rescan found', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const picker = () => screen.getByTestId('chat-model-select')
+    await waitFor(() => expect(picker()).not.toBeDisabled())
+    expect(picker()).not.toHaveTextContent('auto/glm-5.3-flash')
+
+    const sync = screen.getByTestId('chat-models-sync')
+    expect(sync).toHaveAccessibleName('同步模型列表')
+    await userEvent.click(sync)
+
+    await waitFor(() => expect(host.calls).toContain('catalog_refresh'))
+    // The picker is rebuilt from the rescan, not from the startup snapshot.
+    await waitFor(() => expect(picker()).toHaveTextContent('auto/glm-5.3-flash'))
+  })
+
   it('sends a real turn through the host and renders the stored reply', async () => {
     const host = installHost()
     render(

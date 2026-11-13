@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useI18n } from '../i18n/LanguageProvider'
+import SyncButton from '../shell/SyncButton'
 import type { MessageKey } from '../i18n/catalogue'
 import {
   addCustomModel,
@@ -69,14 +70,14 @@ export function CatalogSummary({ view }: { view: CatalogView }) {
           {t('catalog.problems', { count: problems.length })}
         </span>
       )}
-      <button
-        type="button"
-        className="cat-btn"
-        disabled={view.status === 'loading' || view.status === 'unavailable'}
+      <SyncButton
+        label={t('catalog.refresh')}
+        text={t('catalog.refresh')}
+        busy={view.refreshing}
+        disabled={view.status === 'unavailable'}
         onClick={() => void view.refresh()}
-      >
-        {t('catalog.refresh')}
-      </button>
+        testId="catalog-sync"
+      />
     </div>
   )
 }
@@ -226,6 +227,12 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
           <h3>{t('catalog.models.title')}</h3>
           <p className="cat-sub">{t('catalog.models.sub', { count: models.length })}</p>
         </div>
+        <SyncButton
+          label={t('catalog.models.sync')}
+          busy={view.refreshing}
+          onClick={() => void view.refresh()}
+          testId="catalog-models-sync"
+        />
         <button
           type="button"
           className="cat-btn cat-btn-primary"

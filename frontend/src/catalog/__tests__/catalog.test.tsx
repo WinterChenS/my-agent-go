@@ -253,6 +253,39 @@ describe('catalog panels', () => {
     expect(promote).toBeDisabled()
   })
 
+  it('syncs models on demand and keeps the rows on screen while it runs', async () => {
+    // A holder object, not a `let`: the compiler cannot see that the executor
+    // runs, so it would narrow a `let` to `never` at the call site.
+    const gate: { release?: () => void } = {}
+    const calls = installHost({
+      catalog_refresh: () =>
+        new Promise((resolve) => {
+          gate.release = () => resolve(snapshotFixture())
+        }),
+    })
+    const user = userEvent.setup()
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogModelsPanel view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('catalog-models')).toBeInTheDocument())
+    const sync = screen.getByTestId('catalog-models-sync')
+    expect(sync).toHaveAccessibleName('同步模型')
+
+    await user.click(sync)
+    await waitFor(() => expect(calls.some((call) => call.command === 'catalog_refresh')).toBe(true))
+    // The table is still there and the control reports work in progress: a
+    // rescan must not blank the page it is refreshing.
+    expect(screen.getByTestId('catalog-models')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('catalog-models-sync')).toHaveAttribute('aria-busy', 'true'))
+
+    gate.release?.()
+    await waitFor(() =>
+      expect(screen.getByTestId('catalog-models-sync')).toHaveAttribute('aria-busy', 'false'),
+    )
+  })
+
   it('adds a custom model with the credential and re-reads the snapshot', async () => {
     const calls = installHost()
     const user = userEvent.setup()

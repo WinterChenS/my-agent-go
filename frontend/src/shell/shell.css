@@ -874,3 +874,47 @@
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
 }
+
+/* ---------------------------------------------------------------------------
+   Manual sync control (model lists)
+   Reads as a plain icon button at rest; the icon is the only thing that moves,
+   and it keeps moving only while a scan is actually in flight.
+   --------------------------------------------------------------------------- */
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.sync-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.sync-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.sync-btn.is-busy svg {
+  animation: sync-spin 900ms linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-btn.is-busy svg {
+    animation: none;
+  }
+}

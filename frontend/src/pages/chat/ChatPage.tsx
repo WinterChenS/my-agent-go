@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n/LanguageProvider'
 import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
+import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
 import ChatDialogs, { type ChatDialogKind } from './ChatDialogs'
 import ChatHistoryPanel from './ChatHistoryPanel'
@@ -21,6 +22,9 @@ interface LiveComposer {
   onModel: (choice: ModelChoice) => void
   onSend: (text: string) => void
   onStop: () => void
+  /** Re-scan the machine for models. */
+  onSync: () => void
+  syncing: boolean
   running: boolean
 }
 
@@ -161,7 +165,16 @@ export default function ChatPage() {
           <Icon name="arrowLeft" size={16} />
         </Link>
         <div className="chat-head-main">
-          <h1 className="chat-title">{sample ? sampleChat.title : t('chat.normal.title')}</h1>
+          <h1 className="chat-title">
+            {/* A title only claims a conversation when there is one to name. */}
+            {sample
+              ? sampleChat.title
+              : liveSession
+                ? liveSession.title
+                : live.status === 'ready'
+                  ? t('chat.live.title')
+                  : t('chat.normal.title')}
+          </h1>
           <div className="chat-subline">
             {sample ? (
               <>
@@ -371,6 +384,8 @@ export default function ChatPage() {
                     onModel: live.chooseModel,
                     onSend: sendLive,
                     onStop: stopLive,
+                    onSync: () => void live.syncModels(),
+                    syncing: live.syncing,
                     running: live.running,
                   }
                 : null
@@ -899,6 +914,14 @@ function Composer({
               )}
             </select>
           </label>
+          {live ? (
+            <SyncButton
+              label={t('chat.live.syncModels')}
+              busy={live.syncing}
+              onClick={live.onSync}
+              testId="chat-models-sync"
+            />
+          ) : null}
           <label className="chat-ctl" title={t('chat.composer.thinking')}>
             <Icon name="brain" size={13} />
             <select aria-label={t('chat.composer.thinking')} disabled={!sample} defaultValue={sample ? sampleChat.thinkingLevel : undefined}>

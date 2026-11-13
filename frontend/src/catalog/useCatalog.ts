@@ -15,6 +15,8 @@ export interface CatalogView {
   error: string | null
   /** Re-scan and re-sync through the host. */
   refresh: () => Promise<void>
+  /** A manual sync is in flight; the snapshot on screen is still the old one. */
+  refreshing: boolean
   /** Replace the snapshot after an action already returned a fresh one. */
   apply: (snapshot: CatalogSnapshot) => void
   /** Re-run the first load (used by the retry control). */
@@ -30,6 +32,7 @@ export interface CatalogView {
  */
 export function useCatalog(enabled = true): CatalogView {
   const [status, setStatus] = useState<CatalogStatus>('idle')
+  const [refreshing, setRefreshing] = useState(false)
   const [snapshot, setSnapshot] = useState<CatalogSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
@@ -70,8 +73,12 @@ export function useCatalog(enabled = true): CatalogView {
 
   const refresh = useCallback(async () => {
     if (!enabled) return
-    setStatus('loading')
+    setRefreshing(true)
     setError(null)
+    // Keep the current rows on screen while the rescan runs: blanking the model
+    // table for several seconds is worse than showing slightly stale data with
+    // a spinning control on top.
+    setStatus((current) => (current === 'ready' ? 'ready' : 'loading'))
     try {
       const result = await refreshCatalog()
       if (!mounted.current) return
@@ -85,6 +92,8 @@ export function useCatalog(enabled = true): CatalogView {
       }
       setError(cause instanceof Error ? cause.message : String(cause))
       setStatus('error')
+    } finally {
+      if (mounted.current) setRefreshing(false)
     }
   }, [enabled])
 
@@ -93,7 +102,7 @@ export function useCatalog(enabled = true): CatalogView {
     setStatus('ready')
   }, [])
 
-  return { status, snapshot, error, refresh, apply, reload: load }
+  return { status, snapshot, error, refresh, refreshing, apply, reload: load }
 }
 
 /** Models of one runtime, or all of them. */

@@ -8,7 +8,12 @@
 // the stored ones.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { loadCatalog, CatalogUnavailable, type CatalogModel } from '../catalog/client'
+import {
+  CatalogUnavailable,
+  loadCatalog,
+  refreshCatalog,
+  type CatalogModel,
+} from '../catalog/client'
 import { isTauriHost } from '../host/tauri'
 import {
   abortTurn,
@@ -48,6 +53,10 @@ export interface ChatSessionView {
   models: ModelChoice[]
   model: ModelChoice | null
   chooseModel: (choice: ModelChoice) => void
+  /** A manual rescan is in flight (the picker's spinning control). */
+  syncing: boolean
+  /** Re-scan the machine and rebuild the picker from the result. */
+  syncModels: () => Promise<void>
   sessions: SessionSummary[]
   current: SessionDetail | null
   /** Text of the turn in flight, merged from text deltas. */
@@ -105,6 +114,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [error, setError] = useState<string | null>(null)
   const [models, setModels] = useState<ModelChoice[]>([])
   const [model, setModel] = useState<ModelChoice | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [streamText, setStreamText] = useState('')
@@ -192,6 +202,39 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   useEffect(() => {
     void boot()
   }, [boot])
+
+  const syncModels = useCallback(async () => {
+    if (!available) return
+    setSyncing(true)
+    setError(null)
+    try {
+      // A manual sync re-scans: a model installed after the startup scan is
+      // exactly the case this button exists for, and only a rescan finds it.
+      const catalog = await refreshCatalog()
+      const usable = catalog.runtimes
+        .filter((runtime) => runtime.status === 'available')
+        .map((runtime) => runtime.runtimeId)
+      const choices = toChoices(catalog.models, usable)
+      if (!mounted.current) return
+      setModels(choices)
+      // Keep the user's pick when it survived the rescan; otherwise fall back to
+      // the same rule as the first load, so the picker never points at a model
+      // that is gone.
+      setModel((existing) => {
+        const kept = existing
+          ? choices.find(
+              (choice) =>
+                choice.runtimeId === existing.runtimeId && choice.modelId === existing.modelId,
+            )
+          : undefined
+        return kept ?? pickModel(choices)
+      })
+    } catch (cause) {
+      if (mounted.current) setError(describeSessionError(cause))
+    } finally {
+      if (mounted.current) setSyncing(false)
+    }
+  }, [available])
 
   const select = useCallback(async (sessionId: string) => {
     try {
@@ -353,6 +396,8 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     models,
     model,
     chooseModel: setModel,
+    syncing,
+    syncModels,
     sessions,
     current,
     streamText,
