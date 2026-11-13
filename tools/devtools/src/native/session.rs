@@ -1256,6 +1256,44 @@ impl<'a> Session<'a> {
             }
             std::thread::sleep(Duration::from_millis(1000));
         }
+        // A long wait that ends empty should say what the control actually
+        // looked like. Record every node of that role without the text/state
+        // filters, so the evidence distinguishes "never rendered", "still
+        // disabled" and "renamed" instead of collapsing all three into one
+        // uninformative timeout.
+        let diagnostic = format!("find-{log_id}-diagnostic");
+        let probe = StepSpec::owned(
+            &diagnostic,
+            "agent-desktop",
+            vec![
+                "find".to_string(),
+                "--role".to_string(),
+                role.to_string(),
+                "--app".to_string(),
+                "anvil.exe".to_string(),
+                "--timeout-ms".to_string(),
+                "15000".to_string(),
+            ],
+        )
+        .timeout(STEP_TIMEOUT);
+        self.run_raw(&probe);
+        // The page's own status text says why the control stayed disabled
+        // (connecting, host error, no models), which a role-only dump cannot.
+        let text_probe = StepSpec::owned(
+            &format!("find-{log_id}-diagnostic-text"),
+            "agent-desktop",
+            vec![
+                "find".to_string(),
+                "--role".to_string(),
+                "statictext".to_string(),
+                "--app".to_string(),
+                "anvil.exe".to_string(),
+                "--timeout-ms".to_string(),
+                "15000".to_string(),
+            ],
+        )
+        .timeout(STEP_TIMEOUT);
+        self.run_raw(&text_probe);
         self.fail(&format!(
             "no enabled {role} containing {needle:?} appeared after {attempts} attempts"
         ));
