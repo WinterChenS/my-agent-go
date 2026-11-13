@@ -313,7 +313,7 @@
         {
           "id": "R2-01-native-chat",
           "task": "R2-01",
-          "evidenceKind": "native",
+          "evidenceKind": "native-desktop",
           "required": true
         }
       ]
