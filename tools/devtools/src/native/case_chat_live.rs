@@ -15,11 +15,6 @@ use super::session::Session;
 /// The composer's node carries this text in its accessible name.
 const COMPOSER_LABEL: &str = "继续追问";
 
-/// A model id Pi's catalogue publishes on this machine. Its appearance in the
-/// composer's model select is the signal that the startup catalog scan finished
-/// and the composer left its disabled state.
-const MODEL_HINT: &str = "auto/gpt-5.6-sol";
-
 /// Asking for a fixed word makes the assertion unambiguous: the reply either is
 /// `ok` or the case fails.
 const PROMPT: &str = "Reply with exactly: ok";
@@ -54,17 +49,12 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    // The composer is rendered `disabled` until the catalog scan has produced a
-    // model list, and a disabled textarea still exposes its name, so finding it
-    // early and typing would silently do nothing. Wait for a known model id to
-    // appear in the select first.
-    if !session.wait_text("chat-models", MODEL_HINT, false, 120) {
-        return;
-    }
-    // Two text fields exist in the tree (the history search is mounted but
-    // hidden); the composer is the one whose name carries the placeholder.
+    // The composer renders `disabled` until the catalog scan produced a model
+    // list, and a disabled textarea still exposes its accessible name, so
+    // finding it early and typing would silently do nothing. Wait for the
+    // enabled state instead of guessing at the scan's duration.
     let Some(composer) =
-        session.find_ref_contains("chat-composer", "textfield", COMPOSER_LABEL, 30)
+        session.find_ref_enabled("chat-composer", "textfield", COMPOSER_LABEL, 120)
     else {
         return;
     };
@@ -86,7 +76,10 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    let Some(send) = session.find_ref("chat-send", Some("button"), "发送", 15) else {
+    // The button is disabled while the composer is empty, so it is found only
+    // after the typing landed; a missing button therefore also catches "the text
+    // never arrived".
+    let Some(send) = session.find_ref_enabled("chat-send", "button", "发送", 15) else {
         return;
     };
     let click = StepSpec::owned(

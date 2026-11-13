@@ -1211,6 +1211,57 @@ impl<'a> Session<'a> {
         None
     }
 
+    /// The first enabled ref whose role matches and whose subtree contains `needle`.
+    ///
+    /// `find --text` returns disabled nodes too, and a disabled textarea still
+    /// exposes its accessible name; typing into one is silently discarded. The
+    /// state filter makes the wait explicit instead of racing the page.
+    pub(crate) fn find_ref_enabled(
+        &mut self,
+        log_id: &str,
+        role: &str,
+        needle: &str,
+        attempts: u32,
+    ) -> Option<String> {
+        for attempt in 1..=attempts {
+            let step_name = format!("find-{log_id}-{attempt:02}");
+            let step = StepSpec::owned(
+                &step_name,
+                "agent-desktop",
+                vec![
+                    "find".to_string(),
+                    "--text".to_string(),
+                    needle.to_string(),
+                    "--role".to_string(),
+                    role.to_string(),
+                    "--state".to_string(),
+                    "disabled=false".to_string(),
+                    "--app".to_string(),
+                    "anvil.exe".to_string(),
+                    "--timeout-ms".to_string(),
+                    "15000".to_string(),
+                ],
+            )
+            .timeout(STEP_TIMEOUT);
+            if !self.run(&[step]) {
+                return None;
+            }
+            let body = self.read(&step_name);
+            for entry in parse::parse_find_matches(&body) {
+                if entry.role.as_deref() == Some(role)
+                    && let Some(reference) = entry.ref_id
+                {
+                    return Some(reference);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(1000));
+        }
+        self.fail(&format!(
+            "no enabled {role} containing {needle:?} appeared after {attempts} attempts"
+        ));
+        None
+    }
+
     /// The first interactive ref whose role matches and whose subtree contains `needle`.
     ///
     /// `find --name X --exact` cannot target a table row: the row's accessible name
