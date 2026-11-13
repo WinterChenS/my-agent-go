@@ -35,6 +35,7 @@ const USAGE: &str = "usage:
   anvil-devtools gate --id=<gate> --target=<target> --evidence=<abs path> [--matrix=<path>] [--sha=<sha>]
   anvil-devtools preflight --path=<path> [--create]
   anvil-devtools exists --path=<file>
+  anvil-devtools absent --path=<file> --text=<needle>
   anvil-devtools registry --get | --set=<0|1>
   anvil-devtools key --title=<window title> --combo=alt+left
 ";
@@ -51,6 +52,7 @@ pub fn run(args: &[String]) -> i32 {
         "verify" => run_verify(&args[1..]),
         "preflight" => run_preflight(&args[1..]),
         "exists" => run_exists(&args[1..]),
+        "absent" => run_absent(&args[1..]),
         "registry" => run_registry(&args[1..]),
         "key" => run_key(&args[1..]),
         "version" => {
@@ -245,6 +247,50 @@ fn run_exists(args: &[String]) -> i32 {
         eprintln!("exists: {} is missing", path.display());
         gate::EXIT_ASSERTION
     }
+}
+
+/// Assert a byte sequence is absent from a file.
+///
+/// Used to prove that secrets are stored encrypted: the database must hold the
+/// credential row yet not the credential itself. A missing file is incomplete
+/// evidence, not a passing assertion.
+fn run_absent(args: &[String]) -> i32 {
+    let parsed = match Parsed::parse(args, &["path", "text"]) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("absent: {err}");
+            return gate::EXIT_INCOMPLETE;
+        }
+    };
+    let (Some(path), Some(text)) = (parsed.value("path"), parsed.value("text")) else {
+        eprintln!("absent: --path and --text are required");
+        return gate::EXIT_INCOMPLETE;
+    };
+    if text.is_empty() {
+        eprintln!("absent: --text must not be empty");
+        return gate::EXIT_INCOMPLETE;
+    }
+    let path = PathBuf::from(path);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("absent: cannot read {}: {err}", path.display());
+            return gate::EXIT_INCOMPLETE;
+        }
+    };
+    if contains(&bytes, text.as_bytes()) {
+        eprintln!("absent: {} contains {text:?}", path.display());
+        gate::EXIT_ASSERTION
+    } else {
+        println!("absent: {} is free of {text:?}", path.display());
+        gate::EXIT_PASS
+    }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn run_key(args: &[String]) -> i32 {
@@ -485,4 +531,55 @@ fn git_dirty(repo: &Path) -> Result<bool, String> {
         return Err("git status failed".to_string());
     }
     Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str, body: &[u8]) -> PathBuf {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".tmp")
+            .join("test")
+            .join("devtools-absent");
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        let path = dir.join(name);
+        std::fs::write(&path, body).expect("write scratch file");
+        path
+    }
+
+    fn args(path: &Path, text: &str) -> Vec<String> {
+        vec![
+            format!("--path={}", path.display()),
+            format!("--text={text}"),
+        ]
+    }
+
+    #[test]
+    fn absent_fails_when_the_text_is_present() {
+        let path = scratch("present.bin", b"secret-value\0\x01tail");
+        assert_eq!(
+            run_absent(&args(&path, "secret-value")),
+            gate::EXIT_ASSERTION
+        );
+    }
+
+    #[test]
+    fn absent_passes_when_only_the_ciphertext_is_present() {
+        let path = scratch("cipher.bin", b"cGFzc3dvcmQ=\x00\x00");
+        assert_eq!(run_absent(&args(&path, "secret-value")), gate::EXIT_PASS);
+    }
+
+    #[test]
+    fn absent_reports_missing_evidence_as_incomplete() {
+        let path = scratch("gone.bin", b"");
+        std::fs::remove_file(&path).expect("remove scratch file");
+        assert_eq!(
+            run_absent(&args(&path, "secret-value")),
+            gate::EXIT_INCOMPLETE
+        );
+        assert_eq!(run_absent(&[]), gate::EXIT_INCOMPLETE);
+    }
 }

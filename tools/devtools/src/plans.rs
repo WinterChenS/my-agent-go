@@ -13,6 +13,10 @@ use std::time::Duration;
 
 use crate::evidence::{EVIDENCE_AUTOMATION, EVIDENCE_NATIVE_DESKTOP};
 
+/// A credential value that exists only in this case, so finding it inside the
+/// catalog database would prove a plaintext leak rather than a coincidence.
+const CREDENTIAL_SENTINEL: &str = "anvil-acceptance-sentinel-7f3c1a";
+
 /// One command a case executes.
 #[derive(Debug, Clone)]
 pub struct StepSpec {
@@ -648,6 +652,39 @@ pub fn case_plans() -> Vec<CasePlan> {
                         "auto/gpt-5.6-sol",
                         "--expect",
                         "action:ok=true",
+                    ],
+                ),
+                // Credentials are encrypted at rest: a model whose credential is
+                // a unique sentinel is stored, yet the sentinel never reaches
+                // the database file (the row proves the write happened).
+                catalog_step(
+                    "add-sentinel-model",
+                    "models",
+                    &[
+                        "--action",
+                        "add-model",
+                        "--runtime",
+                        "pi",
+                        "--model",
+                        "anvil/credential-sentinel",
+                        "--display",
+                        "Credential Sentinel",
+                        "--endpoint",
+                        "http://127.0.0.1:9/v1",
+                        "--credential-env",
+                        "ANVIL_SENTINEL_CREDENTIAL",
+                        "--expect",
+                        "runtime:pi:models-total=12",
+                    ],
+                )
+                .env("ANVIL_SENTINEL_CREDENTIAL", CREDENTIAL_SENTINEL),
+                StepSpec::new(
+                    "credential-not-plaintext",
+                    "self",
+                    &[
+                        "absent",
+                        "--path=.tmp/test/r1/models/catalog.sqlite",
+                        &format!("--text={CREDENTIAL_SENTINEL}"),
                     ],
                 ),
             ],
