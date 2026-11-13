@@ -71,7 +71,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_rename,
             crate::session::session_pin,
             crate::session::session_archive,
-            crate::session::session_delete
+            crate::session::session_delete,
+            crate::session::session_projects,
+            crate::session::session_fork,
+            crate::session::session_compact,
+            crate::session::session_approve,
+            crate::session::session_context_list,
+            crate::session::session_rail,
+            crate::session::session_export
         ])
         .setup(|app| {
             create_main_window(app)?;

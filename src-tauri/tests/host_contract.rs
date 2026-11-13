@@ -849,6 +849,34 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
     );
 }
 
+/// An ACL entry does not make a command callable: Tauri dispatches only the
+/// commands listed in `generate_handler!`. R2-02 added `session_projects` to
+/// `APP_COMMANDS`, the permissions file and the capability but not to the
+/// handler, so the shipped window answered "Command session_projects not found"
+/// and the chat page stayed in its error state with a disabled composer. Every
+/// one of those checks passed. Compare the macro body against the declared
+/// list so a command can no longer be half-registered.
+#[test]
+fn desktop_registers_every_declared_host_command() {
+    let source =
+        fs::read_to_string(manifest_dir().join("src/desktop.rs")).expect("read desktop.rs");
+    let marker = "generate_handler![";
+    let start = source.find(marker).expect("invoke_handler macro") + marker.len();
+    let rest = &source[start..];
+    let end = rest.find("])").expect("end of invoke_handler macro");
+    let registered: Vec<&str> = rest[..end]
+        .lines()
+        .map(|line| line.trim().trim_end_matches(','))
+        .filter(|line| !line.is_empty() && !line.starts_with("//"))
+        .map(|line| line.rsplit("::").next().expect("qualified command path"))
+        .collect();
+    assert_eq!(
+        registered.as_slice(),
+        anvil::APP_COMMANDS,
+        "generate_handler! must register exactly the commands declared in APP_COMMANDS"
+    );
+}
+
 #[test]
 fn tauri_config_declares_an_empty_window_list_and_the_frontend_dist() {
     let config =
