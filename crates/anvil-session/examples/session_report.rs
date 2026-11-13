@@ -838,11 +838,14 @@ fn check(
                 }
             }
             // `action:<field>=<value>` reads any report field directly, so a
-            // new fact does not need a new selector.
+            // new fact does not need a new selector. Dots address nested
+            // fields (`action:branch.branchAt`), because a flat namespace
+            // would force every report to invent unique top-level names.
             other if other.starts_with("action:") => {
                 let field = &other["action:".len()..];
+                let path = field.replace('.', "/");
                 let actual = report
-                    .pointer(&format!("/action/{field}"))
+                    .pointer(&format!("/action/{path}"))
                     .map(|value| match value {
                         serde_json::Value::String(text) => text.clone(),
                         other => other.to_string(),
