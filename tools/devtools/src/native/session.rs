@@ -1286,6 +1286,8 @@ impl<'a> Session<'a> {
                 "find".to_string(),
                 "--role".to_string(),
                 "statictext".to_string(),
+                "--limit".to_string(),
+                "0".to_string(),
                 "--app".to_string(),
                 "anvil.exe".to_string(),
                 "--timeout-ms".to_string(),
