@@ -1211,47 +1211,6 @@ impl<'a> Session<'a> {
         None
     }
 
-    /// The first ref whose role matches, with no name requirement.
-    ///
-    /// A WebView2 textarea exposes its `aria-label` on an outer group node whose
-    /// `ref_id` is null, so an exact-name lookup finds the wrapper and cannot be
-    /// typed into. The control itself carries the role but no name.
-    pub(crate) fn find_ref_role(
-        &mut self,
-        log_id: &str,
-        role: &str,
-        attempts: u32,
-    ) -> Option<String> {
-        for attempt in 1..=attempts {
-            let step_name = format!("find-{log_id}-{attempt:02}");
-            let step = StepSpec::owned(
-                &step_name,
-                "agent-desktop",
-                vec![
-                    "find".to_string(),
-                    "--role".to_string(),
-                    role.to_string(),
-                    "--app".to_string(),
-                    "anvil.exe".to_string(),
-                    "--timeout-ms".to_string(),
-                    "15000".to_string(),
-                ],
-            )
-            .timeout(STEP_TIMEOUT);
-            if !self.run(&[step]) {
-                return None;
-            }
-            if let Some(reference) = parse::parse_find_ref(&self.read(&step_name)) {
-                return Some(reference);
-            }
-            std::thread::sleep(Duration::from_millis(400));
-        }
-        self.fail(&format!(
-            "could not find a {role} in the accessibility tree after {attempts} attempts"
-        ));
-        None
-    }
-
     /// The first interactive ref whose role matches and whose subtree contains `needle`.
     ///
     /// `find --name X --exact` cannot target a table row: the row's accessible name

@@ -12,11 +12,13 @@ use crate::runner::AutomationRunner;
 use super::NativeOutcome;
 use super::session::Session;
 
-/// WebView2 puts the textarea's `aria-label` on an unnamed wrapper group, so the
-/// control is located by role. The page has exactly one textbox at this point
-/// (the history drawer is closed), and the composer is the only thing that can
-/// accept text here.
-const COMPOSER_ROLE: &str = "textbox";
+/// The composer's node carries this text in its accessible name.
+const COMPOSER_LABEL: &str = "继续追问";
+
+/// A model id Pi's catalogue publishes on this machine. Its appearance in the
+/// composer's model select is the signal that the startup catalog scan finished
+/// and the composer left its disabled state.
+const MODEL_HINT: &str = "auto/gpt-5.6-sol";
 
 /// Asking for a fixed word makes the assertion unambiguous: the reply either is
 /// `ok` or the case fails.
@@ -52,9 +54,18 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    // The composer stays disabled until the catalog scan has produced a model
-    // list, so this lookup doubles as the "the scan finished" wait.
-    let Some(composer) = session.find_ref_role("chat-composer", COMPOSER_ROLE, 60) else {
+    // The composer is rendered `disabled` until the catalog scan has produced a
+    // model list, and a disabled textarea still exposes its name, so finding it
+    // early and typing would silently do nothing. Wait for a known model id to
+    // appear in the select first.
+    if !session.wait_text("chat-models", MODEL_HINT, false, 120) {
+        return;
+    }
+    // Two text fields exist in the tree (the history search is mounted but
+    // hidden); the composer is the one whose name carries the placeholder.
+    let Some(composer) =
+        session.find_ref_contains("chat-composer", "textfield", COMPOSER_LABEL, 30)
+    else {
         return;
     };
     let typed = StepSpec::owned(
