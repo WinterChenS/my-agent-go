@@ -106,7 +106,10 @@ fn run_case(session: &mut Session<'_>) {
         return;
     }
 
-    let Some(artifacts_tab) = session.find_ref("rail-tab-artifacts", Some("tab"), "输出物", 15)
+    // The tab's accessible name carries a live count ("输出物 0"), so an exact
+    // name lookup can never match it. Match the stable part of the label.
+    let Some(artifacts_tab) =
+        session.find_ref_contains("rail-tab-artifacts", "tab", "输出物", 15)
     else {
         return;
     };
