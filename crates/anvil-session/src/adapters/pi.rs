@@ -174,6 +174,24 @@ impl SessionAdapter for PiAdapter {
                     let Some(value) = parse_line(&line) else {
                         continue;
                     };
+                    // Pi echoes the session it opened. If it is not the one we
+                    // asked for, the user's next turn would land somewhere else,
+                    // so this is an error rather than a curiosity.
+                    if value.get("type").and_then(Value::as_str) == Some("session") {
+                        let reported = value.get("id").and_then(Value::as_str).unwrap_or("");
+                        if !reported.is_empty() && reported != opened.native_id {
+                            sink(AdapterEvent::new(
+                                EventKind::Error,
+                                serde_json::json!({
+                                    "message": format!(
+                                        "pi opened session {reported} instead of {}",
+                                        opened.native_id
+                                    )
+                                }),
+                            ));
+                        }
+                        continue;
+                    }
                     for event in translate(&value) {
                         if event.kind == EventKind::TextDelta
                             && let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
@@ -261,13 +279,9 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
                     let delta = inner.get("delta").and_then(Value::as_str).unwrap_or("");
                     events.push(AdapterEvent::text_delta(delta));
                 }
-                "text_end" => {
-                    let text = inner.get("content").and_then(Value::as_str).unwrap_or("");
-                    events.push(AdapterEvent::new(
-                        EventKind::MessageCompleted,
-                        serde_json::json!({ "text": text }),
-                    ));
-                }
+                // `turn_end` carries the final text; emitting it here too would
+                // double every assistant message in the ledger.
+                "text_end" | "text_start" => {}
                 other => events.push(AdapterEvent::new(
                     EventKind::Unknown,
                     serde_json::json!({ "type": other }),
@@ -313,14 +327,6 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
                 "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
             }),
         )),
-        "session" => {
-            // The native id is already assigned by `open`; record what pi says
-            // so a mismatch is visible instead of silently overwritten.
-            events.push(AdapterEvent::new(
-                EventKind::Unknown,
-                serde_json::json!({ "type": "session", "sessionId": value.get("id") }),
-            ));
-        }
         "agent_start" | "turn_start" | "message_start" | "message_end" | "agent_end"
         | "agent_settled" => {}
         "" => {}

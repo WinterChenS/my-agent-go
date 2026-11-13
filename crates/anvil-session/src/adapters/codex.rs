@@ -340,20 +340,21 @@ fn translate(method: &str, params: &Value) -> Vec<AdapterEvent> {
                 .pointer("/turn/status")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
+            // The service writes the terminal `turn_completed` itself; emitting
+            // one here as well put two in the ledger per turn. Only the usage is
+            // carried across.
             let usage = params
                 .pointer("/turn/usage")
                 .cloned()
                 .unwrap_or(Value::Null);
-            let mut events = vec![AdapterEvent::new(
-                EventKind::TurnCompleted,
-                json!({ "status": status, "usage": usage }),
-            )];
+            let mut events = Vec::new();
             if !usage.is_null() {
                 events.push(AdapterEvent::new(
                     EventKind::Usage,
                     json!({ "usage": usage }),
                 ));
             }
+            let _ = status;
             events
         }
         "thread/status/changed" | "mcpServer/startupStatus/updated" | "turn/started" | "" => {
@@ -511,17 +512,20 @@ mod tests {
     }
 
     #[test]
-    fn turn_completed_is_terminal_and_carries_status() {
-        let events = translate(
+    fn turn_completed_only_carries_usage() {
+        // The terminal event is the service's job; a second one here would put
+        // two `turn_completed` rows in the ledger for a single turn.
+        let without_usage = translate(
             "turn/completed",
             &json!({ "turn": { "status": "completed" } }),
         );
-        assert!(
-            events
-                .iter()
-                .any(|event| event.kind == EventKind::TurnCompleted)
+        assert!(without_usage.is_empty());
+        let with_usage = translate(
+            "turn/completed",
+            &json!({ "turn": { "status": "completed", "usage": { "totalTokens": 9 } } }),
         );
-        assert_eq!(events[0].payload["status"], "completed");
+        assert_eq!(with_usage.len(), 1);
+        assert_eq!(with_usage[0].kind, EventKind::Usage);
     }
 
     #[test]
