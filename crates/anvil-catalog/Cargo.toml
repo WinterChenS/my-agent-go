@@ -15,3 +15,9 @@ serde_json = "1"
 sha2 = "0.10"
 toml = "0.9"
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
+# The report doubles as the acceptance oracle, so its selector grammar is
+# covered by unit tests instead of only by a live machine run.
+[[example]]
+name = "catalog_report"
+test = true

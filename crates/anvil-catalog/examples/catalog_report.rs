@@ -234,7 +234,7 @@ fn run(options: &Options) -> Result<(serde_json::Value, Vec<String>), String> {
 /// * `runtime:<id>:status|version|rows`
 /// * `runtime:<id>:capability:<name>`
 /// * `runtime:<id>:models-total|skills-total|mcp-total`
-/// * `action:ok`, `action:tools-count`, `action:detail-contains:<text>`
+/// * `action:ok`, `action:tools-count`, `action:detail-contains=<substring>`
 fn check_expectations(expectations: &[String], report: &serde_json::Value) -> Vec<String> {
     let mut failures = Vec::new();
     for expectation in expectations {
@@ -243,7 +243,15 @@ fn check_expectations(expectations: &[String], report: &serde_json::Value) -> Ve
             continue;
         };
         let actual = resolve(selector, report);
-        // `*-min` selectors mean "at least", everything else is exact.
+        // `*-min` selectors mean "at least", `*-contains` mean "substring".
+        if selector.ends_with("-contains") {
+            match actual {
+                Some(value) if value.contains(want) => {}
+                Some(value) => failures.push(format!("{selector} = {value:?}, want {want:?}")),
+                None => failures.push(format!("{selector} is missing")),
+            }
+            continue;
+        }
         if selector.ends_with("-min") {
             let want_number: u64 = match want.parse() {
                 Ok(number) => number,
@@ -298,9 +306,9 @@ fn resolve(selector: &str, report: &serde_json::Value) -> Option<String> {
         let action = &report["action"];
         return match (parts.get(1).copied(), parts.get(2).copied()) {
             (Some("ok"), _) => action["ok"].as_bool().map(|ok| ok.to_string()),
-            (Some("detail-contains"), Some(needle)) => action["detail"]
+            (Some("detail-contains"), _) => action["detail"]
                 .as_str()
-                .map(|detail| detail.contains(needle).to_string()),
+                .map(std::string::ToString::to_string),
             (Some("tools-count"), _) => action["tools"]
                 .as_array()
                 .map(|tools| tools.len().to_string()),
@@ -349,4 +357,60 @@ fn count_where(items: &[serde_json::Value], field: &str, want: &str) -> usize {
         .iter()
         .filter(|item| item[field].as_str() == Some(want))
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn report() -> serde_json::Value {
+        json!({
+            "action": { "ok": true, "detail": "1 tools", "tools": ["a"] },
+            "snapshot": {
+                "runtimes": [{ "runtimeId": "pi", "status": "available", "version": "1.5.0" }],
+                "models": [{ "runtimeId": "pi", "modelId": "m" }],
+                "skills": [
+                    { "runtimeId": "pi", "state": "valid" },
+                    { "runtimeId": "pi", "state": "broken" }
+                ],
+                "mcp": [{ "runtimeId": "pi", "name": "s" }]
+            }
+        })
+    }
+
+    fn failures(expectations: &[&str]) -> Vec<String> {
+        let owned: Vec<String> = expectations
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect();
+        check_expectations(&owned, &report())
+    }
+
+    #[test]
+    fn action_selectors_read_the_action_block() {
+        assert!(failures(&["action:ok=true"]).is_empty());
+        assert!(failures(&["action:tools-count=1"]).is_empty());
+        assert!(failures(&["action:detail-contains=tools"]).is_empty());
+        assert_eq!(failures(&["action:ok=false"]).len(), 1);
+        assert_eq!(failures(&["action:detail-contains=HTTP 200"]).len(), 1);
+    }
+
+    #[test]
+    fn runtime_selectors_read_the_snapshot() {
+        assert!(failures(&["runtime-count=1"]).is_empty());
+        assert!(failures(&["runtime:pi:status=available"]).is_empty());
+        assert!(failures(&["runtime:pi:version=1.5.0"]).is_empty());
+        assert!(failures(&["runtime:pi:models-total=1"]).is_empty());
+        assert!(failures(&["skills-valid-min=1", "skills-flagged-min=1"]).is_empty());
+        // A runtime the machine does not have still answers with a count.
+        assert!(failures(&["runtime:claude:models-total=0"]).is_empty());
+    }
+
+    #[test]
+    fn malformed_expectations_are_reported_not_ignored() {
+        assert_eq!(failures(&["action:ok"]).len(), 1);
+        assert_eq!(failures(&["skills-valid-min=lots"]).len(), 1);
+        assert_eq!(failures(&["nonsense:selector=1"]).len(), 1);
+    }
 }
