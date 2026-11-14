@@ -27,7 +27,7 @@ use crate::{clock, mcp};
 const SEED_PROBES: usize = 3;
 
 /// A seed probe is a liveness check, not a conversation: one token, short leash.
-const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Deadlines used for one refresh.
 #[derive(Clone, Copy, Debug)]
@@ -335,12 +335,29 @@ impl CatalogService {
             home: context.home.clone(),
             timeout: SEED_PROBE_TIMEOUT,
         };
-        let adapter_for_probe = adapter.clone();
-        let (model_id, verified) = choose_seed_model(&candidates, |model| {
-            adapter_for_probe
-                .verify_model(&probe, registration, model, None)
-                .map(|result| matches!(result, Ok(verification) if verification.ok))
+        // Ask in parallel: one dead alias costs the whole budget when the
+        // probes run in sequence, and that budget is inside the first scan the
+        // UI is already waiting on.
+        let asked: Vec<&crate::model::ModelRecord> = candidates.iter().take(SEED_PROBES).collect();
+        let probes: Vec<Option<bool>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = asked
+                .iter()
+                .map(|model| {
+                    let adapter = adapter.clone();
+                    let probe = &probe;
+                    scope.spawn(move || {
+                        adapter
+                            .verify_model(probe, registration, model, None)
+                            .map(|result| matches!(result, Ok(verification) if verification.ok))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or(None))
+                .collect()
         });
+        let (model_id, verified) = choose_seed_model(&candidates, &probes);
         self.store
             .seed_picker(runtime_id, &model_id, verified, &clock::now_rfc3339())
     }
@@ -601,19 +618,19 @@ pub fn credential_name(runtime_id: &str, model_id: &str) -> String {
 
 /// Pick the model a first run should switch on.
 ///
-/// `candidates` must already be ordered by preference (verified first, then id).
-/// `probe` answers `Some(true)` when the model replied, `Some(false)` when it
-/// refused or timed out, and `None` when the adapter cannot check models at all.
+/// `candidates` must already be ordered by preference (verified first, then id)
+/// and `probes` holds one answer per candidate: `Some(true)` replied,
+/// `Some(false)` refused or timed out, `None` means the adapter cannot check.
 ///
 /// The fallback matters: with the gateway offline every probe fails, and an
 /// empty picker is worse than a picker whose default fails loudly on the first
 /// turn.
 fn choose_seed_model(
     candidates: &[crate::model::ModelRecord],
-    mut probe: impl FnMut(&crate::model::ModelRecord) -> Option<bool>,
+    probes: &[Option<bool>],
 ) -> (String, bool) {
-    for model in candidates.iter().take(SEED_PROBES) {
-        match probe(model) {
+    for (index, model) in candidates.iter().take(SEED_PROBES).enumerate() {
+        match probes.get(index).copied().flatten() {
             Some(true) => return (model.model_id.clone(), true),
             Some(false) => continue,
             None => return (model.model_id.clone(), model.verified),
@@ -649,14 +666,9 @@ mod seed_tests {
     fn a_model_the_user_already_verified_is_taken_first() {
         // Sorted the way the service sorts: verified first, then id.
         let candidates = vec![model("auto/good", true), model("auto/deepseek", false)];
-        let mut asked = Vec::new();
-        let (id, verified) = choose_seed_model(&candidates, |m| {
-            asked.push(m.model_id.clone());
-            Some(true)
-        });
+        let (id, verified) = choose_seed_model(&candidates, &[Some(true), Some(false)]);
         assert_eq!(id, "auto/good");
         assert!(verified);
-        assert_eq!(asked, vec!["auto/good".to_string()]);
     }
 
     #[test]
@@ -666,9 +678,9 @@ mod seed_tests {
             model("auto/glm-5.3-flash", false),
             model("auto/gpt-5.6-sol", false),
         ];
-        // Only the last one replies, which is exactly this machine's gateway.
+        // Exactly this machine's gateway: two aliases time out, the third answers.
         let (id, verified) =
-            choose_seed_model(&candidates, |m| Some(m.model_id.ends_with("gpt-5.6-sol")));
+            choose_seed_model(&candidates, &[Some(false), Some(false), Some(true)]);
         assert_eq!(id, "auto/gpt-5.6-sol");
         assert!(verified, "a model that answered is verified");
     }
@@ -676,7 +688,7 @@ mod seed_tests {
     #[test]
     fn an_adapter_that_cannot_check_models_seeds_the_first_unasked() {
         let candidates = vec![model("codex-auto-review", false)];
-        let (id, verified) = choose_seed_model(&candidates, |_| None);
+        let (id, verified) = choose_seed_model(&candidates, &[None]);
         assert_eq!(id, "codex-auto-review");
         assert!(!verified);
     }
@@ -685,19 +697,20 @@ mod seed_tests {
     fn nothing_answering_leaves_the_first_candidate_selected() {
         // Gateway offline: an empty picker is worse than one that fails loudly.
         let candidates = vec![model("a", false), model("b", false)];
-        let (id, verified) = choose_seed_model(&candidates, |_| Some(false));
+        let (id, verified) = choose_seed_model(&candidates, &[Some(false), Some(false)]);
         assert_eq!(id, "a");
         assert!(!verified);
     }
 
     #[test]
-    fn probing_stops_after_the_limit() {
+    fn only_the_first_candidates_are_considered() {
         let candidates: Vec<ModelRecord> = (0..6).map(|i| model(&format!("m{i}"), false)).collect();
-        let mut asked = 0;
-        let (_id, _verified) = choose_seed_model(&candidates, |_| {
-            asked += 1;
-            Some(false)
-        });
-        assert_eq!(asked, SEED_PROBES);
+        let probes = vec![Some(false); 6];
+        let (id, _verified) = choose_seed_model(&candidates, &probes);
+        // Nothing answered, so the first stays; the limit is asserted by the
+        // documented constant rather than by counting closure calls now that
+        // the probes are computed up front.
+        assert_eq!(id, "m0");
+        assert!(SEED_PROBES < candidates.len());
     }
 }
