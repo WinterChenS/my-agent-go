@@ -16,6 +16,7 @@
 //! token, whereas a dropped event would silently lose text.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
@@ -43,6 +44,11 @@ pub struct SessionState {
     cancels: Mutex<Option<Cancels>>,
     approvals: Mutex<Option<Approvals>>,
     init_error: Mutex<Option<String>>,
+    /// Set once the connections exist. Reads and the cancel flag check this
+    /// instead of the writer lock, which a running turn holds end to end.
+    ready: AtomicBool,
+    /// Serialises the one-time initialisation without touching the writer lock.
+    init: Mutex<()>,
 }
 
 impl SessionState {
@@ -57,6 +63,8 @@ impl SessionState {
             cancels: Mutex::new(None),
             approvals: Mutex::new(None),
             init_error: Mutex::new(None),
+            ready: AtomicBool::new(false),
+            init: Mutex::new(()),
         }
     }
 
@@ -85,11 +93,26 @@ impl SessionState {
         if let Some(error) = self.init_error.lock().ok().and_then(|slot| slot.clone()) {
             return Err(error);
         }
+        if self.ready.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // Initialisation needs the writer, but only until the service exists.
+        // Taking the writer lock on *every* call made a running turn block the
+        // history list, the session detail read and the stop button: `send`
+        // holds that lock for the whole turn, which is minutes.
+        let _guard = self
+            .init
+            .lock()
+            .map_err(|_| "session: init lock poisoned".to_string())?;
+        if self.ready.load(Ordering::Acquire) {
+            return Ok(());
+        }
         let mut writer = self
             .writer
             .lock()
             .map_err(|_| "session: state lock poisoned".to_string())?;
         if writer.is_some() {
+            self.ready.store(true, Ordering::Release);
             return Ok(());
         }
 
@@ -129,6 +152,7 @@ impl SessionState {
             *slot = Some(approvals);
         }
         *writer = Some(service);
+        self.ready.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -586,6 +610,49 @@ mod tests {
         let state = state("abort");
         state.ensure().expect("init");
         assert!(!state.abort("nope").expect("abort"));
+    }
+
+    #[test]
+    fn a_running_turn_does_not_block_reads_or_the_stop_button() {
+        let state = state("while-running");
+        state.ensure().expect("init");
+        // `send` keeps the writer guard for the whole turn. The page still has to
+        // list sessions, read a detail and press stop during those minutes, so
+        // neither may go through that guard.
+        let writer = state
+            .writer
+            .lock()
+            .expect("hold the writer like a run does");
+        let (listed, list_rx) = std::sync::mpsc::channel();
+        let (stopped, stop_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let outcome = state
+                    .with_reader(|store| {
+                        store
+                            .sessions(&SessionQuery::default())
+                            .map_err(|error| error.to_wire().to_string())
+                    })
+                    .map(|page| page.total);
+                let _ = listed.send(outcome);
+            });
+            scope.spawn(|| {
+                let _ = stopped.send(state.abort("any-session"));
+            });
+            let list = list_rx.recv_timeout(std::time::Duration::from_secs(2));
+            let stop = stop_rx.recv_timeout(std::time::Duration::from_secs(2));
+            // Release before asserting: a regression would otherwise leave the
+            // helper threads waiting for a guard this thread still owns.
+            drop(writer);
+            assert!(
+                matches!(list, Ok(Ok(0))),
+                "listing sessions waited for the running turn: {list:?}"
+            );
+            assert!(
+                matches!(stop, Ok(Ok(false))),
+                "stopping waited for the running turn: {stop:?}"
+            );
+        });
     }
 
     #[test]
