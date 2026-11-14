@@ -1119,12 +1119,17 @@ function Composer({
                 const value = event.target.value
                 if (value.startsWith('agent:')) {
                   const agent = live?.agents.find((item) => item.id === value.slice(6))
-                  if (!agent) return
+                  const choice = agent
+                    ? live?.models.find(
+                        (item) =>
+                          item.runtimeId === agent.runtimeId && item.modelId === agent.modelId,
+                      )
+                    : undefined
+                  // An agent whose model is not enabled cannot be run: leave the
+                  // picker where it was rather than show a pair that would fail.
+                  if (!agent || !choice) return
                   setPickedAgent(agent.id)
-                  const choice = live?.models.find(
-                    (item) => item.runtimeId === agent.runtimeId && item.modelId === agent.modelId,
-                  )
-                  if (choice) live?.onModel(choice)
+                  live?.onModel(choice)
                   return
                 }
                 setPickedAgent('')
@@ -1138,9 +1143,22 @@ function Composer({
                 <>
                   {/* An agent is a saved runtime+model pair; a model is the
                       pair chosen on the spot. Both end in the same place. */}
-                  {live.agents.length > 0 ? (
+                  {live.agents.some((agent) =>
+                    live.models.some(
+                      (choice) =>
+                        choice.runtimeId === agent.runtimeId && choice.modelId === agent.modelId,
+                    ),
+                  ) ? (
                     <optgroup label={t('chat.composer.agents')}>
-                      {live.agents.map((agent) => (
+                      {live.agents
+                        .filter((agent) =>
+                          live.models.some(
+                            (choice) =>
+                              choice.runtimeId === agent.runtimeId &&
+                              choice.modelId === agent.modelId,
+                          ),
+                        )
+                        .map((agent) => (
                         <option
                           key={agent.id}
                           value={`agent:${agent.id}`}
