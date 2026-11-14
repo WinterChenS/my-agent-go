@@ -885,6 +885,37 @@ fn the_default_agent_adopts_the_enabled_model_before_a_default_exists() {
     assert_eq!(agents[0].model_id, "beta");
 }
 
+/// The endpoint is what a model check posts to. It used to be written as NULL
+/// for every discovered row, so "verify" and the first-run seed probe both had
+/// nothing to call and silently gave up.
+#[test]
+fn discovered_models_keep_their_endpoint() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    let mut alpha = model("pi", "alpha");
+    alpha.endpoint = Some("http://127.0.0.1:3425/v1".to_string());
+    store.replace_models("pi", &[alpha], &at).expect("discover");
+
+    let row = store.models().expect("models");
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        row[0].endpoint.as_deref(),
+        Some("http://127.0.0.1:3425/v1"),
+        "a discovered model lost the endpoint the probe needs"
+    );
+
+    // A rescan that reports a new endpoint must update the row in place.
+    let mut moved = model("pi", "alpha");
+    moved.endpoint = Some("http://127.0.0.1:9999/v1".to_string());
+    store
+        .replace_models("pi", &[moved], &at)
+        .expect("rediscover");
+    assert_eq!(
+        store.models().expect("models")[0].endpoint.as_deref(),
+        Some("http://127.0.0.1:9999/v1")
+    );
+}
+
 /// A rescan reports the same models again. It must not take the user's
 /// switches with it, and it must still drop models the runtime stopped
 /// reporting.

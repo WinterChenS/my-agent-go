@@ -310,9 +310,12 @@ impl Store {
                 "INSERT INTO models (
                     runtime_id, model_id, display_name, origin, protocol, endpoint,
                     credential_ref, verified, verified_at, is_default, enabled, updated_at
-                 ) VALUES (?1, ?2, ?3, 'discovered', ?4, NULL, NULL, 0, NULL, 0, 0, ?5)
+                 ) VALUES (?1, ?2, ?3, 'discovered', ?4, ?5, NULL, 0, NULL, 0, 0, ?6)
                  ON CONFLICT(runtime_id, model_id) DO UPDATE SET
                     display_name = excluded.display_name,
+                    -- The endpoint is what a model check posts to; dropping it
+                    -- left every discovered row unverifiable.
+                    endpoint = excluded.endpoint,
                     updated_at = excluded.updated_at",
             )?;
             for model in models {
@@ -321,6 +324,7 @@ impl Store {
                     model.model_id,
                     model.display_name,
                     model.protocol,
+                    model.endpoint,
                     fetched_at
                 ])?;
             }
