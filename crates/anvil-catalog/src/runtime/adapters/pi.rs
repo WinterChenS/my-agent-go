@@ -74,6 +74,13 @@ impl PiAdapter {
         };
         for (provider_name, provider) in providers {
             let provider_api = provider.get("api").and_then(|value| value.as_str());
+            // Without the endpoint nothing can check whether a model answers,
+            // and an unchecked catalog seeds whatever sorts first (`auto/
+            // deepseek-v4.1-flash` here, whose upstream returns 502).
+            let provider_endpoint = provider
+                .get("baseUrl")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
             let Some(items) = provider.get("models").and_then(|value| value.as_array()) else {
                 continue;
             };
@@ -100,7 +107,7 @@ impl PiAdapter {
                     display_name: display_name.to_string(),
                     origin: "discovered".to_string(),
                     protocol,
-                    endpoint: None,
+                    endpoint: provider_endpoint.clone(),
                     verified: false,
                     verified_at: None,
                     is_default: false,
@@ -232,4 +239,59 @@ impl RuntimeAdapter for PiAdapter {
 /// Skills root, exposed for tests.
 pub fn skills_root(home: &Path) -> PathBuf {
     PiAdapter::skills_root(home)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PiAdapter;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anvil-pi-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".pi/agent")).expect("scratch dir");
+        dir
+    }
+
+    /// The endpoint is what lets the catalog ask a model whether it answers.
+    /// Discovered rows used to carry `None`, so the first-run seed could only
+    /// guess by model id and picked the alias whose upstream was down.
+    #[test]
+    fn discovered_models_carry_the_provider_endpoint() {
+        let home = scratch("endpoint");
+        let models = serde_json::json!({
+            "providers": {
+                "magpie": {
+                    "api": "openai-completions",
+                    "baseUrl": "http://127.0.0.1:3425/v1",
+                    "models": [
+                        { "id": "auto/gpt-5.6-sol", "name": "GPT" },
+                        { "id": "auto/deepseek-v4.1-flash", "name": "DeepSeek" }
+                    ]
+                }
+            }
+        });
+        fs::write(
+            home.join(".pi/agent/models.json"),
+            serde_json::to_vec(&models).expect("json"),
+        )
+        .expect("write");
+
+        let rows = PiAdapter::read_models(&home).expect("read models");
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            assert_eq!(
+                row.endpoint.as_deref(),
+                Some("http://127.0.0.1:3425/v1"),
+                "{} lost its endpoint",
+                row.model_id
+            );
+        }
+        let _ = fs::remove_dir_all(&home);
+    }
 }
