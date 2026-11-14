@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useChatSession, type ModelChoice } from '../../chat/useChatSession'
+import { useChatSession, type LiveTool, type ModelChoice, type TurnFailure } from '../../chat/useChatSession'
 import { useI18n } from '../../i18n/LanguageProvider'
 import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
@@ -8,7 +8,14 @@ import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
 import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDialogs'
-import { describeSessionError, type ContextEntry, type ContextRef } from '../../chat/client'
+import {
+  describeSessionError,
+  type ApprovalDecision,
+  type ApprovalRequest,
+  type ContextEntry,
+  type ContextRef,
+  type SessionEvent,
+} from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
@@ -454,32 +461,19 @@ export default function ChatPage() {
                     </article>
                   ),
                 )}
-                {live.tools.length > 0 ? (
-                  <div className="chat-tools" data-testid="chat-live-tools">
-                    {live.tools.map((tool) => (
-                      <LiveToolCard key={tool.id} tool={tool} />
-                    ))}
-                  </div>
-                ) : null}
-                {live.pending ? (
-                  <ApprovalCard
-                    request={live.pending}
-                    onDecision={(decision) => void live.approve(decision)}
-                  />
-                ) : null}
-                {live.running ? (
-                  <article className="chat-msg" data-testid="chat-message-streaming">
-                    <div className="chat-agent-head">
-                      <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
-                      <span className="chat-agent-name">{liveSession.runtimeId}</span>
-                      <span className="chat-badge">
-                        <i className="chat-dot" aria-hidden="true" />
-                        {t('chat.live.generating')}
-                      </span>
-                    </div>
-                    <div className="chat-prose chat-live-text">{live.streamText}</div>
-                  </article>
-                ) : null}
+                <LiveTurnTimeline
+                  events={live.turnEvents}
+                  tools={live.tools}
+                  pending={live.pending}
+                  running={live.running}
+                  streamText={live.streamText}
+                  startedAt={live.turnStartedAt}
+                  failure={live.turnFailure}
+                  runtimeId={liveSession.runtimeId}
+                  model={liveSession.model}
+                  onApprove={(decision) => void live.approve(decision)}
+                  onRetry={() => void live.retry()}
+                />
               </div>
             ) : (
               <div className="chat-empty" data-testid="chat-empty" role="status">
@@ -1223,6 +1217,170 @@ function ContextChips({ meta }: { meta?: Record<string, unknown> }) {
         </span>
       ))}
     </div>
+  )
+}
+
+/**
+ * The live turn's timeline, rendered with the prototype's thinking / tool /
+ * confirmation / state vocabulary. Every stage is derived from an event the
+ * runtime actually wrote to the ledger — no invented reasoning text.
+ */
+function LiveTurnTimeline({
+  events,
+  tools,
+  pending,
+  running,
+  streamText,
+  startedAt,
+  failure,
+  runtimeId,
+  model,
+  onApprove,
+  onRetry,
+}: {
+  events: SessionEvent[]
+  tools: LiveTool[]
+  pending: ApprovalRequest | null
+  running: boolean
+  streamText: string
+  startedAt: number | null
+  failure: TurnFailure | null
+  runtimeId: string
+  model: string
+  onApprove: (decision: ApprovalDecision) => void
+  onRetry: () => void
+}) {
+  const { t } = useI18n()
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    if (!running || !startedAt) {
+      setElapsed(0)
+      return
+    }
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [running, startedAt])
+
+  const stages: string[] = []
+  const seen = new Set<string>()
+  const add = (key: string, label: string) => {
+    if (seen.has(key)) return
+    seen.add(key)
+    stages.push(label)
+  }
+  for (const event of events) {
+    switch (event.kind) {
+      case 'session_started':
+      case 'turn_started':
+        add('start', t('chat.live.stageStart'))
+        break
+      case 'context_attached': {
+        const refs = event.payload.refs
+        add('context', t('chat.live.stageContext', { count: Array.isArray(refs) ? refs.length : 0 }))
+        break
+      }
+      case 'tool_call':
+        add(`tool-${event.seq}`, t('chat.live.stageTool', { name: String(event.payload.tool ?? 'tool') }))
+        break
+      case 'approval_request':
+        add('approval', t('chat.live.stageApproval'))
+        break
+      case 'text_delta':
+        add('stream', t('chat.live.stageStream'))
+        break
+      case 'turn_completed':
+        add('done', t('chat.live.stageDone'))
+        break
+      case 'aborted':
+        add('stopped', t('chat.live.stageStopped'))
+        break
+      case 'error':
+        add('error', t('chat.live.stageError'))
+        break
+      default:
+        break
+    }
+  }
+
+  const usagePayload = [...events].reverse().find((event) => event.kind === 'usage')?.payload.usage
+  const usage =
+    usagePayload && typeof usagePayload === 'object'
+      ? (usagePayload as Record<string, unknown>)
+      : null
+  const inputTokens = Number(
+    usage?.inputTokens ?? usage?.promptTokens ?? usage?.totalTokens ?? 0,
+  )
+  const outputTokens = Number(usage?.outputTokens ?? usage?.completionTokens ?? 0)
+
+  return (
+    <>
+      {stages.length > 0 ? (
+        <ThinkingBlock title={t('chat.live.timeline')} steps={stages} initialOpen={running} />
+      ) : null}
+      {tools.length > 0 ? (
+        <div className="chat-tools" data-testid="chat-live-tools">
+          {tools.map((tool) => (
+            <LiveToolCard key={tool.id} tool={tool} />
+          ))}
+        </div>
+      ) : null}
+      {pending ? <ApprovalCard request={pending} onDecision={onApprove} /> : null}
+      {failure ? (
+        <section
+          className="chat-state-card chat-tone-danger"
+          role="alert"
+          aria-label={t('chat.live.failure')}
+          data-testid="chat-live-failure"
+        >
+          <span className="chat-state-icon">
+            <Icon name="alert" size={14} />
+          </span>
+          <div className="chat-state-copy">
+            <b>
+              {failure.kind === 'timeout'
+                ? t('chat.live.timeout', { seconds: failure.seconds ?? 0 })
+                : t('chat.live.failure')}
+            </b>
+            <span>{failure.message}</span>
+          </div>
+          <button type="button" className="chat-btn chat-btn-sm" onClick={onRetry}>
+            {t('chat.live.retry')}
+          </button>
+        </section>
+      ) : null}
+      {running ? (
+        <article className="chat-msg" data-testid="chat-message-streaming">
+          <div className="chat-agent-head">
+            <span className="chat-agent-badge">{runtimeId.slice(0, 1)}</span>
+            <span className="chat-agent-name">{runtimeId}</span>
+            <span className="chat-agent-model">{model}</span>
+            <span className="chat-badge">
+              <i className="chat-dot" aria-hidden="true" />
+              {t('chat.live.generating')}
+            </span>
+          </div>
+          <div className="chat-prose chat-live-text">
+            {streamText || (
+              <div className="chat-stream-status" role="status">
+                <span className="chat-live-dot" aria-hidden="true" />
+                <span>{t('chat.live.waiting')}</span>
+                <span className="chat-caret" aria-hidden="true" />
+              </div>
+            )}
+            {streamText ? <span className="chat-caret" aria-hidden="true" /> : null}
+          </div>
+          <div className="chat-msg-meta">
+            <span>{t('chat.live.elapsed', { seconds: elapsed })}</span>
+            {usage ? (
+              <span> · {t('chat.live.usage', { input: inputTokens, output: outputTokens })}</span>
+            ) : null}
+          </div>
+        </article>
+      ) : null}
+    </>
   )
 }
 

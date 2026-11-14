@@ -1310,10 +1310,34 @@ button.chat-badge:hover {
   border: 0;
   outline: none;
   background: transparent;
-  color: inherit;
+  color: var(--fg);
   font-size: var(--text-xs-plus);
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+/* WebView2 paints the native dropdown popup with the system palette. Without
+   explicit option colours (and a matching color-scheme) the model picker stays
+   white on white text in dark mode even though the page itself is themed. */
+.chat-ctl select option {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.chat-ctl select option:checked,
+.chat-ctl select option:hover {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+[data-theme='dark'] .chat-ctl select,
+[data-theme='dark'] .chat-ctl select option {
+  color-scheme: dark;
+}
+
+[data-theme='light'] .chat-ctl select,
+[data-theme='light'] .chat-ctl select option {
+  color-scheme: light;
 }
 
 .chat-ctl select:disabled {

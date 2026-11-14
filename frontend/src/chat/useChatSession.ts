@@ -44,6 +44,7 @@ import {
   type ExportReport,
   type ProjectSummary,
   type RailView,
+  type SendReport,
   type SessionDetail,
   type SessionEvent,
   type SessionSummary,
@@ -51,6 +52,48 @@ import {
 
 /** How often the running turn re-reads the ledger. */
 const POLL_INTERVAL_MS = 120
+
+/**
+ * A runtime that never answers must not leave the page saying "generating"
+ * forever. The host allows a turn five minutes; the page stops waiting sooner,
+ * cancels the run through `session_abort`, and shows a retryable state card.
+ */
+const TURN_TIMEOUT_MS = 120_000
+
+/**
+ * Wait for one turn, but never forever. `onTimeout` cancels the host's run so
+ * the five-minute host budget does not keep a dead turn alive. Kept separate
+ * from React so the timeout itself has a direct unit test.
+ */
+export async function raceTurn(
+  run: Promise<SendReport>,
+  timeoutMs: number,
+  onTimeout: () => Promise<void>,
+): Promise<{ report: SendReport | null; timedOut: boolean }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs)
+  })
+  try {
+    const report = await Promise.race([run, timeout])
+    if (report === null) {
+      await onTimeout()
+      return { report: null, timedOut: true }
+    }
+    return { report, timedOut: false }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export type TurnFailureKind = 'failed' | 'timeout' | 'error'
+
+/** Why the last turn ended without a reply, for the page's state card. */
+export interface TurnFailure {
+  kind: TurnFailureKind
+  message: string
+  seconds?: number
+}
 
 export type ChatStatus = 'unavailable' | 'loading' | 'ready' | 'error'
 
@@ -96,6 +139,12 @@ export interface ChatSessionView {
   /** The right rail's four panes, re-read after every turn. */
   rail: RailView | null
   running: boolean
+  /** Why the last turn ended without a reply; null while running or clean. */
+  turnFailure: TurnFailure | null
+  /** When the running turn started, for the visible waiting clock. */
+  turnStartedAt: number | null
+  /** Re-send the last prompt after a failure. */
+  retry: () => Promise<string | null>
   select: (sessionId: string) => Promise<void>
   startNew: () => void
   send: (text: string, context?: ContextRef[]) => Promise<string | null>
@@ -223,8 +272,16 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
   const [rail, setRail] = useState<RailView | null>(null)
   const [running, setRunning] = useState(false)
+  const [turnFailure, setTurnFailure] = useState<TurnFailure | null>(null)
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
   const pollStop = useRef(false)
   const mounted = useRef(true)
+  /** Last ledger seq already rendered; resets when the session changes. */
+  const eventCursor = useRef(0)
+  const lastPrompt = useRef('')
+  const sendRef = useRef<
+    (text: string, context?: ContextRef[]) => Promise<string | null>
+  >(async () => null)
 
   useEffect(() => {
     mounted.current = true
@@ -384,6 +441,10 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
         if (!mounted.current) return
         setCurrent(detail)
         setStreamText('')
+        setTurnEvents([])
+        setTurnFailure(null)
+        setTurnStartedAt(null)
+        eventCursor.current = 0
         setError(null)
       } catch (cause) {
         if (mounted.current) setError(describeSessionError(cause))
@@ -399,6 +460,9 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     setTurnEvents([])
     setRail(null)
     setError(null)
+    setTurnFailure(null)
+    setTurnStartedAt(null)
+    eventCursor.current = 0
   }, [])
 
   const send = useCallback(
@@ -428,6 +492,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       }
 
       const sessionId = active.session.id
+      lastPrompt.current = prompt
       const optimistic = {
         id: `pending-${sessionId}`,
         sessionId,
@@ -443,15 +508,22 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       setStreamText('')
       setTurnEvents([])
       setError(null)
+      setTurnFailure(null)
+      setTurnStartedAt(Date.now())
       pollStop.current = false
 
+      // The ledger keeps every previous turn's events. Starting every turn at
+      // seq 0 replayed the earlier turns into this one's stream, so a second
+      // turn showed the first turn's words again. The cursor survives across
+      // turns of the same session and is reset when the session changes.
       const poll = async () => {
-        let since = 0
+        let since = eventCursor.current
         while (!pollStop.current) {
           try {
             const events = await loadSessionEvents(sessionId, since)
             if (events.length > 0) {
               since = latestSeq(events, since)
+              eventCursor.current = since
               if (mounted.current) {
                 setStreamText((previous) => mergeDeltaText(events, previous))
                 // The turn's tool cards and approval cards come from the same
@@ -469,12 +541,37 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       }
       const polling = poll()
 
+      const sendPromise = sendTurn(sessionId, prompt, context)
       let failure: string | null = null
+      let outcome: TurnFailure | null = null
       try {
-        const report = await sendTurn(sessionId, prompt, context)
-        if (report.status === 'failed') failure = report.error ?? 'the turn failed'
+        const { report, timedOut } = await raceTurn(
+          sendPromise,
+          TURN_TIMEOUT_MS,
+          async () => {
+            // Cancel the host's run and let the still-pending IPC settle in the
+            // background instead of keeping the page hostage to it.
+            await abortTurn(sessionId).catch(() => undefined)
+            void sendPromise.catch(() => undefined)
+          },
+        )
+        if (timedOut) {
+          outcome = {
+            kind: 'timeout',
+            message: 'no reply before the turn timeout',
+            seconds: Math.round(TURN_TIMEOUT_MS / 1000),
+          }
+          // The state card carries the timed-out copy; a second notice with the
+          // raw host message would only duplicate it.
+        } else if (report?.status === 'failed') {
+          failure = report.error ?? 'the turn failed'
+          outcome = { kind: 'failed', message: failure }
+        } else if (report?.status === 'aborted') {
+          outcome = { kind: 'failed', message: 'the turn was stopped' }
+        }
       } catch (cause) {
         failure = describeSessionError(cause)
+        outcome = { kind: 'error', message: failure }
       } finally {
         pollStop.current = true
         await polling
@@ -491,12 +588,19 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       }
       await reloadSessions().catch(() => undefined)
       await refreshRail(sessionId)
-      if (mounted.current) setRunning(false)
+      if (mounted.current) {
+        setRunning(false)
+        setTurnStartedAt(null)
+        setTurnFailure(outcome)
+      }
       if (failure) setError(failure)
       return failure
     },
     [current, model, reloadSessions, refreshRail],
   )
+
+  const retry = useCallback(() => sendRef.current(lastPrompt.current), [])
+  sendRef.current = send
 
   const exportSession = useCallback(
     async (
@@ -636,6 +740,9 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     tools,
     rail,
     running,
+    turnFailure,
+    turnStartedAt,
+    retry,
     select,
     startNew,
     send,

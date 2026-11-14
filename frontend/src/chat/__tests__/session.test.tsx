@@ -10,8 +10,10 @@ import {
   mergeDeltaText,
   type SessionDetail,
   type SessionEvent,
+  type SendReport,
   type SessionSummary,
 } from '../client'
+import { raceTurn } from '../useChatSession'
 
 function event(seq: number, kind: SessionEvent['kind'], payload: Record<string, unknown> = {}): SessionEvent {
   return { sessionId: 'pi-1', runId: 'pi-1:r1', seq, kind, at: '2026-11-13T00:00:00Z', payload }
@@ -43,6 +45,36 @@ describe('session wire helpers', () => {
     expect(describeSessionError('boom')).toBe('boom')
     expect(describeSessionError(new Error('boom'))).toBe('boom')
     expect(describeSessionError(undefined)).toBe('undefined')
+  })
+
+  it('cancels a turn that never answers instead of waiting forever', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancel = vi.fn(async () => undefined)
+      const never = new Promise<SendReport>(() => {})
+      const outcome = raceTurn(never, 120_000, cancel)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(await outcome).toEqual({ report: null, timedOut: true })
+      expect(cancel).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears its timer when the turn finishes before the timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancel = vi.fn(async () => undefined)
+      const report: SendReport = { runId: 'pi-1:r1', status: 'completed', eventCount: 1 }
+      expect(await raceTurn(Promise.resolve(report), 120_000, cancel)).toEqual({
+        report,
+        timedOut: false,
+      })
+      expect(cancel).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -363,7 +395,7 @@ describe('chat history grouping', () => {
   })
 })
 
-function installToolHost(): Host {
+function installToolHost(options: { fail?: boolean } = {}): Host {
   const calls: string[] = []
   const lastArgs = new Map<string, unknown>()
   let polls = 0
@@ -401,8 +433,17 @@ function installToolHost(): Host {
       }
       if (command === 'session_send') {
         await new Promise((resolve) => setTimeout(resolve, 600))
+        if (options.fail) {
+          return {
+            runId: 'pi-1:r1',
+            status: 'failed',
+            error: 'gateway unavailable',
+            eventCount: 4,
+          }
+        }
         return { runId: 'pi-1:r1', status: 'completed', eventCount: 4 }
       }
+      if (command === 'session_abort') return true
       if (command === 'session_detail') return detail('done')
       if (command === 'session_approve') return null
       return null
@@ -462,6 +503,12 @@ describe('chat context and approvals', () => {
     )
     await sendOnce('run it')
 
+    // The live turn now has the prototype's stage list, derived from the same
+    // ledger events rather than from invented reasoning text.
+    const timeline = await screen.findByTestId('chat-thinking')
+    expect(timeline).toHaveTextContent('本轮执行过程')
+    expect(timeline).toHaveTextContent('调用工具 command')
+
     const tool = await screen.findByTestId('chat-live-tool')
     expect(tool).toHaveAttribute('data-status', 'ok')
     expect(tool).toHaveTextContent('echo anvil')
@@ -476,6 +523,25 @@ describe('chat context and approvals', () => {
       sessionId: 'pi-1',
       approvalId: 'pi-1:a1-0',
       decision: 'allow',
+    })
+  })
+
+  it('shows a retryable state card instead of an endless generating bubble', async () => {
+    const host = installToolHost({ fail: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+
+    const card = await screen.findByTestId('chat-live-failure')
+    expect(card).toHaveTextContent('gateway unavailable')
+    expect(screen.queryByTestId('chat-message-streaming')).toBeNull()
+
+    await userEvent.click(within(card).getByText('重试'))
+    await waitFor(() => {
+      expect(host.calls.filter((call) => call === 'session_send')).toHaveLength(2)
     })
   })
 })
