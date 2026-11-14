@@ -26,8 +26,12 @@ use crate::{clock, mcp};
 /// How many models a first run may ask for one token before settling.
 const SEED_PROBES: usize = 3;
 
-/// A seed probe is a liveness check, not a conversation: one token, short leash.
-const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// A seed probe is a liveness check, not a conversation: one token, but the
+/// candidates are asked at the same time. Reasoning models on this gateway need
+/// 4-5 s for that single token, and three concurrent curls slow each other down,
+/// so 5 s marked a live model as dead; 12 s is a real answer and still shorter
+/// than three sequential 8 s timeouts.
+const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Deadlines used for one refresh.
 #[derive(Clone, Copy, Debug)]
