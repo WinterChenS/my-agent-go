@@ -23,6 +23,12 @@ use crate::secrets;
 use crate::store::Store;
 use crate::{clock, mcp};
 
+/// How many models a first run may ask for one token before settling.
+const SEED_PROBES: usize = 3;
+
+/// A seed probe is a liveness check, not a conversation: one token, short leash.
+const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+
 /// Deadlines used for one refresh.
 #[derive(Clone, Copy, Debug)]
 pub struct Timeouts {
@@ -243,7 +249,23 @@ impl CatalogService {
             match result {
                 Ok(inventory) => {
                     let count = inventory.len();
+                    let models = matches!(inventory, Inventory::Models(_));
                     self.persist(runtime_id, inventory)?;
+                    if models {
+                        // Choosing a default is a convenience; a probe that
+                        // misbehaves must never turn a successful sync into a
+                        // failed one.
+                        if let Err(error) =
+                            self.seed_picker(runtime_id, adapter.clone(), &context, &registration)
+                        {
+                            let _ = self.store.mark_sync_failed(
+                                runtime_id,
+                                InventoryKind::Models,
+                                &error.to_wire(),
+                                &fetched_at,
+                            );
+                        }
+                    }
                     outcomes.push(SyncOutcome {
                         runtime_id: runtime_id.to_string(),
                         kind: kind.as_str().to_string(),
@@ -273,14 +295,60 @@ impl CatalogService {
         Ok(outcomes)
     }
 
+    /// Switch on this runtime's first pick, preferring a model that answers.
+    ///
+    /// Picking the alphabetically first model is how a fresh install ended up
+    /// with `auto/deepseek-v4.1-flash` switched on: that alias was alive in the
+    /// gateway's list while its upstream returned 502, so the very first turn
+    /// hung until the adapter's first-token deadline. A model the user already
+    /// verified wins outright; otherwise up to [`SEED_PROBES`] candidates are
+    /// asked for one token, and the first answer becomes the seed. When nothing
+    /// answers (offline, gateway down) the first candidate stays selected, so
+    /// the composer is never left without a model.
+    fn seed_picker(
+        &mut self,
+        runtime_id: &str,
+        adapter: Arc<dyn RuntimeAdapter>,
+        context: &ProbeContext,
+        registration: &RuntimeRegistration,
+    ) -> Result<()> {
+        if self.store.picker_seeded(runtime_id)? {
+            return Ok(());
+        }
+        let mut candidates: Vec<crate::model::ModelRecord> = self
+            .store
+            .models()?
+            .into_iter()
+            .filter(|model| model.runtime_id == runtime_id)
+            .collect();
+        if candidates.is_empty() {
+            self.store.seed_picker_once(runtime_id)?;
+            return Ok(());
+        }
+        candidates.sort_by(|a, b| {
+            b.verified
+                .cmp(&a.verified)
+                .then_with(|| a.model_id.cmp(&b.model_id))
+        });
+
+        let probe = ProbeContext {
+            home: context.home.clone(),
+            timeout: SEED_PROBE_TIMEOUT,
+        };
+        let adapter_for_probe = adapter.clone();
+        let (model_id, verified) = choose_seed_model(&candidates, |model| {
+            adapter_for_probe
+                .verify_model(&probe, registration, model, None)
+                .map(|result| matches!(result, Ok(verification) if verification.ok))
+        });
+        self.store
+            .seed_picker(runtime_id, &model_id, verified, &clock::now_rfc3339())
+    }
+
     fn persist(&mut self, runtime_id: &str, inventory: Inventory) -> Result<()> {
         let now = clock::now_rfc3339();
         match inventory {
-            Inventory::Models(items) => {
-                self.store.replace_models(runtime_id, &items, &now)?;
-                self.store.seed_picker_once(runtime_id)?;
-                Ok(())
-            }
+            Inventory::Models(items) => self.store.replace_models(runtime_id, &items, &now),
             Inventory::Skills(items) => self.store.replace_skills(runtime_id, &items, &now),
             Inventory::Tools(items) => self.store.replace_tools(runtime_id, &items, &now),
             Inventory::Mcp(items) => self.store.replace_mcp(runtime_id, &items, &now),
@@ -529,4 +597,107 @@ fn dedupe(candidates: Vec<RuntimeCandidate>) -> Vec<RuntimeCandidate> {
 /// Credential slot name for one model.
 pub fn credential_name(runtime_id: &str, model_id: &str) -> String {
     format!("model:{runtime_id}:{model_id}")
+}
+
+/// Pick the model a first run should switch on.
+///
+/// `candidates` must already be ordered by preference (verified first, then id).
+/// `probe` answers `Some(true)` when the model replied, `Some(false)` when it
+/// refused or timed out, and `None` when the adapter cannot check models at all.
+///
+/// The fallback matters: with the gateway offline every probe fails, and an
+/// empty picker is worse than a picker whose default fails loudly on the first
+/// turn.
+fn choose_seed_model(
+    candidates: &[crate::model::ModelRecord],
+    mut probe: impl FnMut(&crate::model::ModelRecord) -> Option<bool>,
+) -> (String, bool) {
+    for model in candidates.iter().take(SEED_PROBES) {
+        match probe(model) {
+            Some(true) => return (model.model_id.clone(), true),
+            Some(false) => continue,
+            None => return (model.model_id.clone(), model.verified),
+        }
+    }
+    let first = &candidates[0];
+    (first.model_id.clone(), first.verified)
+}
+
+#[cfg(test)]
+mod seed_tests {
+    use super::{SEED_PROBES, choose_seed_model};
+    use crate::model::ModelRecord;
+
+    fn model(id: &str, verified: bool) -> ModelRecord {
+        ModelRecord {
+            runtime_id: "pi".to_string(),
+            model_id: id.to_string(),
+            display_name: id.to_string(),
+            origin: "discovered".to_string(),
+            protocol: None,
+            endpoint: Some("http://127.0.0.1:3425/v1".to_string()),
+            verified,
+            verified_at: None,
+            is_default: false,
+            enabled: false,
+            updated_at: "2026-11-15T00:00:00Z".to_string(),
+            has_credential: false,
+        }
+    }
+
+    #[test]
+    fn a_model_the_user_already_verified_is_taken_first() {
+        // Sorted the way the service sorts: verified first, then id.
+        let candidates = vec![model("auto/good", true), model("auto/deepseek", false)];
+        let mut asked = Vec::new();
+        let (id, verified) = choose_seed_model(&candidates, |m| {
+            asked.push(m.model_id.clone());
+            Some(true)
+        });
+        assert_eq!(id, "auto/good");
+        assert!(verified);
+        assert_eq!(asked, vec!["auto/good".to_string()]);
+    }
+
+    #[test]
+    fn the_first_model_that_answers_becomes_the_seed() {
+        let candidates = vec![
+            model("auto/deepseek-v4.1-flash", false),
+            model("auto/glm-5.3-flash", false),
+            model("auto/gpt-5.6-sol", false),
+        ];
+        // Only the last one replies, which is exactly this machine's gateway.
+        let (id, verified) =
+            choose_seed_model(&candidates, |m| Some(m.model_id.ends_with("gpt-5.6-sol")));
+        assert_eq!(id, "auto/gpt-5.6-sol");
+        assert!(verified, "a model that answered is verified");
+    }
+
+    #[test]
+    fn an_adapter_that_cannot_check_models_seeds_the_first_unasked() {
+        let candidates = vec![model("codex-auto-review", false)];
+        let (id, verified) = choose_seed_model(&candidates, |_| None);
+        assert_eq!(id, "codex-auto-review");
+        assert!(!verified);
+    }
+
+    #[test]
+    fn nothing_answering_leaves_the_first_candidate_selected() {
+        // Gateway offline: an empty picker is worse than one that fails loudly.
+        let candidates = vec![model("a", false), model("b", false)];
+        let (id, verified) = choose_seed_model(&candidates, |_| Some(false));
+        assert_eq!(id, "a");
+        assert!(!verified);
+    }
+
+    #[test]
+    fn probing_stops_after_the_limit() {
+        let candidates: Vec<ModelRecord> = (0..6).map(|i| model(&format!("m{i}"), false)).collect();
+        let mut asked = 0;
+        let (_id, _verified) = choose_seed_model(&candidates, |_| {
+            asked += 1;
+            Some(false)
+        });
+        assert_eq!(asked, SEED_PROBES);
+    }
 }

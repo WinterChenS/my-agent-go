@@ -559,40 +559,84 @@ impl Store {
     /// list for a picker. It is also wrong to offer nothing: a fresh install
     /// would open chat with a dead composer and no clue. So exactly one model
     /// per runtime is turned on, once; everything else waits for the user.
-    pub fn seed_picker_once(&self, runtime_id: &str) -> Result<bool> {
+    /// Whether this runtime's first-run seeding already happened.
+    pub fn picker_seeded(&self, runtime_id: &str) -> Result<bool> {
         // Per runtime, not once for the whole catalog: a runtime installed
         // later must also arrive with one model switched on, and a catalog
         // whose models were already wiped once would otherwise stay empty.
-        let key = format!("picker_seeded:{runtime_id}");
         let seeded: Option<String> = self
             .connection
             .query_row(
                 "SELECT value FROM meta WHERE key = ?1",
-                params![key],
+                params![format!("picker_seeded:{runtime_id}")],
                 |row| row.get(0),
             )
             .optional()?;
-        if seeded.is_some() {
-            return Ok(false);
-        }
+        Ok(seeded.is_some())
+    }
+
+    /// Switch one model on as this runtime's first pick and note the seeding.
+    ///
+    /// The caller decides *which* model (it may have proven one answers, see
+    /// `Service::seed_picker`); the store only records the decision.
+    pub fn seed_picker(
+        &self,
+        runtime_id: &str,
+        model_id: &str,
+        verified: bool,
+        now: &str,
+    ) -> Result<()> {
         let enabled: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM models WHERE runtime_id = ?1 AND enabled = 1",
             params![runtime_id],
             |row| row.get(0),
         )?;
         if enabled == 0 {
-            self.connection.execute(
-                "UPDATE models SET enabled = 1 WHERE runtime_id = ?1 AND model_id = (
-                    SELECT MIN(model_id) FROM models WHERE runtime_id = ?1
-                 )",
-                params![runtime_id],
+            let changed = self.connection.execute(
+                "UPDATE models SET enabled = 1,
+                    verified = CASE WHEN ?3 THEN 1 ELSE verified END,
+                    verified_at = CASE WHEN ?3 THEN ?4 ELSE verified_at END
+                 WHERE runtime_id = ?1 AND model_id = ?2",
+                params![runtime_id, model_id, i64::from(verified), now],
             )?;
+            if changed == 0 {
+                return Err(crate::error::Error::NotFound(format!(
+                    "model {runtime_id}/{model_id} is not in the catalog"
+                )));
+            }
         }
         self.connection.execute(
             "INSERT INTO meta (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![key, crate::clock::now_rfc3339()],
+            params![format!("picker_seeded:{runtime_id}"), now],
         )?;
+        Ok(())
+    }
+
+    /// Seed the alphabetically first model. Kept for callers and tests that
+    /// have no adapter to prove a model with.
+    pub fn seed_picker_once(&self, runtime_id: &str) -> Result<bool> {
+        if self.picker_seeded(runtime_id)? {
+            return Ok(false);
+        }
+        let first: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT MIN(model_id) FROM models WHERE runtime_id = ?1",
+                params![runtime_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let now = crate::clock::now_rfc3339();
+        if let Some(model_id) = first {
+            self.seed_picker(runtime_id, &model_id, false, &now)?;
+        } else {
+            self.connection.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![format!("picker_seeded:{runtime_id}"), now],
+            )?;
+        }
         Ok(true)
     }
 
