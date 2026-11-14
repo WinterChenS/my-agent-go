@@ -288,10 +288,12 @@ pub struct ToolRecord {
 /// A named binding of one runtime and one model.
 ///
 /// The composer offers agents and models; an agent is just a saved pair, so
-/// picking one is the same code path as picking a model with two decisions
-/// already made. The built-in default agent is not stored: it is derived from
-/// whichever model is the catalog's default, so it can never point at a model
-/// that was removed.
+/// One agent: a name on a runtime+model pair.
+///
+/// Picking one is the same code path as picking a model with two decisions
+/// already made. The built-in `default` agent is a stored row like any other
+/// (it is created on the first snapshot), so the user can bind it to whatever
+/// runtime and model they run; only its removal is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRecord {
@@ -299,7 +301,7 @@ pub struct AgentRecord {
     pub name: String,
     pub runtime_id: String,
     pub model_id: String,
-    /// True for the derived `default` agent, which cannot be edited or removed.
+    /// True for the built-in `default` agent, which cannot be removed.
     pub is_default: bool,
     pub updated_at: String,
 }

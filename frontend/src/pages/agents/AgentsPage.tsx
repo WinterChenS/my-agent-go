@@ -18,6 +18,7 @@ import {
 import './agents.css'
 import { useCatalog } from '../../catalog/useCatalog'
 import { CatalogRuntimeTable, CatalogSummary } from '../../catalog/CatalogPanels'
+import AgentsLive from './AgentsLive'
 
 type AgentTab = 'basic' | 'prompt' | 'sub' | 'perm' | 'runs'
 
@@ -114,7 +115,20 @@ function AgentSwitch({
   )
 }
 
+/**
+ * The route. Two pages share it on purpose:
+ *
+ * * the live page binds a runtime and a model to an agent — the only place the
+ *   binding can be created, so it must be reachable without a `?sample` flag;
+ * * the prototype page keeps the tabs whose backends do not exist yet, and is
+ *   reachable only through the sample routes the parity checks use.
+ */
 export default function AgentsPage() {
+  const sample = useAgentsSample()
+  return sample ? <AgentsPrototype /> : <AgentsLive />
+}
+
+function AgentsPrototype() {
   const { t } = useI18n()
   const sample = useAgentsSample()
   const catalog = useCatalog(!sample)

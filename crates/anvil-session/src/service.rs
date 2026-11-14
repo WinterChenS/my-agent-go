@@ -439,6 +439,14 @@ impl SessionService {
         if prompt.trim().is_empty() {
             return Err(Error::Rejected("an empty prompt cannot be sent".into()));
         }
+        // The first prompt is the session's name. "New chat · model" repeated
+        // down the history list says nothing about what each conversation was,
+        // so the ledger adopts the opening line once, and only while the title
+        // is still the default the host invented.
+        if summary.message_count == 0 && summary.title.trim_start().starts_with("New chat") {
+            self.store
+                .rename_session(session_id, &title_from_prompt(prompt), &now_rfc3339())?;
+        }
 
         let adapter = self.registry.require(&summary.runtime_id)?;
         let cancel = self.cancels.register(session_id);
@@ -1090,6 +1098,20 @@ fn default_title(model: &str) -> String {
     format!("New chat · {trimmed}")
 }
 
+/// A history-sized name taken from the opening prompt.
+///
+/// `clip` counts characters, not bytes, and flattens newlines: a byte slice
+/// would panic in the middle of a CJK prompt, and a name with a line break
+/// breaks the one-line row.
+fn title_from_prompt(prompt: &str) -> String {
+    let title = clip(prompt.trim(), 40);
+    if title.is_empty() {
+        "New chat".to_string()
+    } else {
+        title
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1162,6 +1184,45 @@ mod tests {
             allow_tools: false,
             tools: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_first_prompt_names_the_session() {
+        let mut service = service();
+        let session = service.open(&spec()).expect("open");
+        assert!(session.title.starts_with("New chat"));
+
+        service
+            .send(
+                &session.id,
+                "  迁移评估：v1 → v2 的兼容性\n第二行不要进标题  ",
+            )
+            .expect("send");
+        let renamed = service.store.session(&session.id).expect("session");
+        assert_eq!(renamed.title, "迁移评估：v1 → v2 的兼容性 第二行不要进标题");
+
+        // A later turn must not rename the conversation the reader already
+        // recognises.
+        service.send(&session.id, "继续").expect("send again");
+        assert_eq!(
+            service.store.session(&session.id).expect("session").title,
+            renamed.title
+        );
+    }
+
+    #[test]
+    fn a_custom_title_survives_the_first_prompt() {
+        let mut service = service();
+        let spec = SessionSpec {
+            title: Some("我的会话".to_string()),
+            ..spec()
+        };
+        let session = service.open(&spec).expect("open");
+        service.send(&session.id, "hi").expect("send");
+        assert_eq!(
+            service.store.session(&session.id).expect("session").title,
+            "我的会话"
+        );
     }
 
     #[test]

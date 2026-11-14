@@ -23,33 +23,29 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('agents normal entry', () => {
-  it('renders empty list, empty detail, tabs and disabled actions without fixtures', () => {
+  it('renders the live binding manager and is honest without the desktop host', async () => {
     renderAt('/agents')
-    expect(screen.getByTestId('agents-page')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Agent 管理' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '导入' })).toBeDisabled()
+    const page = screen.getByTestId('agents-page')
+    expect(page).toHaveAttribute('data-mode', 'live')
+    expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+    // No host, no runtimes: the page says so instead of offering a dead form.
+    await waitFor(() => expect(page).toHaveTextContent('当前没有连接桌面宿主'))
     expect(screen.getByRole('button', { name: '新建 Agent' })).toBeDisabled()
-    expect(screen.getByTestId('agent-empty-list')).toHaveTextContent('尚未接入 Agent')
-    expect(screen.getByTestId('agent-empty-detail')).toHaveTextContent('尚未接入 Agent 详情')
-    expect(screen.getAllByRole('tab')).toHaveLength(5)
-    expect(screen.getByTestId('agent-save')).toBeDisabled()
-    expect(screen.getByTestId('agent-start-chat')).toBeDisabled()
-    expect(screen.getByTestId('agent-field-name')).toBeDisabled()
-    expect(screen.getByTestId('agent-field-slug')).toBeDisabled()
     expect(screen.queryByTestId('sample-banner')).toBeNull()
-    for (const fixture of ['迁移工程师', '数据分析师', 'claude-sonnet-4.5', 'gpt-5.1', '4 skills', 'migration-engineer', 'Pi Agent']) {
+    for (const fixture of ['迁移工程师', '数据分析师', 'claude-sonnet-4.5', 'migration-engineer']) {
       expect(screen.queryByText(fixture), `fixture ${fixture}`).toBeNull()
     }
   })
 
-  it('keeps the normal list and form unavailable in English', async () => {
+  it('keeps the live manager honest in English', async () => {
     window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/agents')
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
-    expect(screen.getByRole('heading', { name: 'Agent management' })).toBeInTheDocument()
-    expect(screen.getByTestId('agent-empty-list')).toHaveTextContent('No agents connected yet')
-    expect(screen.getByTestId('agent-field-name')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'New Agent' })).toBeDisabled()
+    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('agents-page')).toHaveTextContent('The desktop host is not connected'),
+    )
+    expect(screen.getByRole('button', { name: 'New agent' })).toBeDisabled()
   })
 })
 

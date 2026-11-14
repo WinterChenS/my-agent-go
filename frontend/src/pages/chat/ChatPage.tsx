@@ -25,6 +25,7 @@ import {
 import ChatHistoryPanel from './ChatHistoryPanel'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
+import { useChatHistory } from '../../chat/ChatHistoryProvider'
 import './chat.css'
 
 type Attachment = {
@@ -86,6 +87,7 @@ export default function ChatPage() {
   const { t, language } = useI18n()
   const sample = useChatSample()
   const live = useChatSession({ enabled: !sample })
+  const history = useChatHistory()
   const narrow = useNarrow()
   const [railOpen, setRailOpen] = useState(!narrow)
   const [railTab, setRailTab] = useState<RailTab>('browser')
@@ -105,6 +107,31 @@ export default function ChatPage() {
   useEffect(() => {
     setRailOpen(!narrow)
   }, [narrow])
+
+  // One value decides which conversation is on screen: the shared history's
+  // `activeId`. The sidebar sets it, the page follows; a turn that creates a
+  // session publishes its id back so the list can highlight it.
+  const currentId = live.current?.session.id ?? null
+  useEffect(() => {
+    if (sample) return
+    if (currentId && currentId !== history.activeId) history.setActive(currentId)
+  }, [sample, currentId, history])
+
+  useEffect(() => {
+    if (sample) return
+    if (!history.activeId || history.activeId === currentId) return
+    void live.select(history.activeId)
+  }, [sample, history.activeId, currentId, live.select])
+
+  // "New conversation" from the sidebar is a counted request, not just a null
+  // id: the id is briefly null while a new session is being created, and that
+  // is not a reason to drop the turn in flight.
+  const seenNew = useRef(history.newSeq)
+  useEffect(() => {
+    if (sample || history.newSeq === seenNew.current) return
+    seenNew.current = history.newSeq
+    live.startNew()
+  }, [sample, history.newSeq, live.startNew])
 
   useEffect(() => {
     if (!narrow || !railOpen) return
@@ -194,6 +221,9 @@ export default function ChatPage() {
     // rejecting, so a failed turn never becomes an unhandled rejection.
     void live.send(text, context).then((failure) => {
       if (failure) setNotice(t('chat.live.failed', { message: failure }))
+      // The ledger gained a session and a turn: the sidebar list is stale until
+      // it re-reads, and a list that lags a send looks like lost history.
+      void history.refresh()
     })
   }
 
@@ -204,31 +234,38 @@ export default function ChatPage() {
   }
 
   const openHistorySession = (id: string) => {
-    void live.select(id)
+    history.open(id)
     setHistoryOpen(false)
   }
 
-  const renameHistorySession = (id: string) => {
-    const session = live.sessions.find((item) => item.id === id)
-    if (!session || typeof window.prompt !== 'function') return
-    const next = window.prompt(t('chat.live.rename'), session.title)
-    if (!next || !next.trim() || next.trim() === session.title) return
-    void live.rename(id, next.trim())
+  // A session is opened on one runtime+model pair; switching the picker cannot
+  // retarget a conversation the runtime already holds. Start a new one, and say
+  // so, instead of letting the next turn silently use the old pair.
+  const chooseModel = (choice: ModelChoice) => {
+    live.chooseModel(choice)
+    if (live.current && !live.running) {
+      live.startNew()
+      history.startNew()
+      setNotice(t('chat.live.modelChanged'))
+    }
+  }
+
+  const renameHistorySession = (id: string, title: string) => {
+    void history.rename(id, title)
   }
 
   const deleteHistorySession = (id: string) => {
-    if (typeof window.confirm === 'function' && !window.confirm(t('chat.live.delete'))) return
-    void live.remove(id)
+    void history.remove(id)
   }
 
   const forkHistorySession = (id: string) => {
-    void live.fork(id).then((branch) => {
+    void history.fork(id).then((branch) => {
       if (branch) setNotice(t('chat.live.forked'))
     })
   }
 
   const compactHistorySession = (id: string) => {
-    void live.compact(id, COMPACT_KEEP_LAST).then(() => setNotice(t('chat.live.compacted')))
+    void history.compact(id, COMPACT_KEEP_LAST).then(() => setNotice(t('chat.live.compacted')))
   }
 
   const openDialog = (kind: ChatDialogKind, trigger: HTMLElement) => {
@@ -509,7 +546,7 @@ export default function ChatPage() {
                     models: live.models,
                     model: live.model,
                     agents: live.agents,
-                    onModel: live.chooseModel,
+                    onModel: chooseModel,
                     onSaveAgent: live.saveAgent,
                     onSend: sendLive,
                     onStop: stopLive,
@@ -559,20 +596,21 @@ export default function ChatPage() {
                 sample
                   ? undefined
                   : {
-                      sessions: live.sessions,
-                      projects: live.projects,
-                      activeId: liveSession?.id ?? null,
+                      sessions: history.sessions,
+                      projects: history.projects,
+                      activeId: history.activeId,
                       onOpen: openHistorySession,
                       onNew: () => {
+                        history.startNew()
                         live.startNew()
                         setHistoryOpen(false)
                       },
                       onRename: renameHistorySession,
                       onPin: (id) => {
-                        const session = live.sessions.find((item) => item.id === id)
-                        void live.setPinned(id, !(session?.pinned ?? false))
+                        const session = history.sessions.find((item) => item.id === id)
+                        void history.setPinned(id, !(session?.pinned ?? false))
                       },
-                      onArchive: (id) => void live.setArchived(id, true),
+                      onArchive: (id) => void history.setArchived(id, true),
                       onDelete: deleteHistorySession,
                       onFork: forkHistorySession,
                       onCompact: compactHistorySession,
@@ -894,6 +932,11 @@ function Composer({
   // value has to be one of its own options, and the two groups overlap in the
   // runtime+model they name.
   const [pickedAgent, setPickedAgent] = useState('')
+  // Naming a binding happens in the composer, so it must not use
+  // `window.prompt`: the desktop webview does not implement it and the click
+  // would do nothing at all.
+  const [namingAgent, setNamingAgent] = useState(false)
+  const [agentName, setAgentName] = useState('')
 
   // The references the user actually attached become the turn's context. Sample
   // rows have no path, so they never reach the host.
@@ -1190,24 +1233,58 @@ function Composer({
             </select>
           </label>
           {live ? (
-            <button
-              type="button"
-              className="chat-ctl chat-ctl-action"
-              data-testid="chat-save-agent"
-              title={t('chat.composer.saveAgent')}
-              disabled={!live.model || live.running}
-              onClick={() => {
-                if (typeof window.prompt !== 'function') return
-                const name = window.prompt(t('chat.composer.saveAgentPrompt'), live.model?.modelId ?? '')
-                if (!name || !name.trim()) return
-                void live.onSaveAgent(name.trim()).then((id) => {
-                  if (id) setPickedAgent(id)
-                })
-              }}
-            >
-              <Icon name="plus" size={12} />
-              <span>{t('chat.composer.saveAgentShort')}</span>
-            </button>
+            namingAgent ? (
+              <form
+                className="chat-agent-name"
+                data-testid="chat-agent-name"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const name = agentName.trim()
+                  if (!name) return
+                  setNamingAgent(false)
+                  void live.onSaveAgent(name).then((id) => {
+                    if (id) setPickedAgent(id)
+                  })
+                }}
+              >
+                <input
+                  autoFocus
+                  type="text"
+                  value={agentName}
+                  aria-label={t('chat.composer.saveAgentPrompt')}
+                  placeholder={t('chat.composer.saveAgentPrompt')}
+                  onChange={(event) => setAgentName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setNamingAgent(false)
+                  }}
+                />
+                <button type="submit" className="chat-ctl chat-ctl-action" disabled={!agentName.trim()}>
+                  {t('chat.composer.saveAgentSave')}
+                </button>
+                <button
+                  type="button"
+                  className="chat-ctl chat-ctl-action"
+                  onClick={() => setNamingAgent(false)}
+                >
+                  {t('chat.composer.saveAgentCancel')}
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                className="chat-ctl chat-ctl-action"
+                data-testid="chat-save-agent"
+                title={t('chat.composer.saveAgent')}
+                disabled={!live.model || live.running}
+                onClick={() => {
+                  setAgentName(live.model?.modelId ?? '')
+                  setNamingAgent(true)
+                }}
+              >
+                <Icon name="plus" size={12} />
+                <span>{t('chat.composer.saveAgentShort')}</span>
+              </button>
+            )
           ) : null}
           {live ? (
             <SyncButton

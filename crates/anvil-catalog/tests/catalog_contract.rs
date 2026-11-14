@@ -799,41 +799,133 @@ fn a_discovered_model_stays_out_of_the_picker_until_it_is_enabled() {
     assert_eq!(unknown.code(), "not_found");
 }
 
-/// An agent is a saved runtime+model pair. The default one is derived from the
-/// default model instead of stored, so it cannot survive the model it names.
+/// An agent is a saved runtime+model pair, and the built-in one is a real row:
+/// the user has to be able to point it at a runtime, which a row derived from
+/// the default model never allowed.
 #[test]
-fn an_agent_is_a_saved_binding_and_the_default_one_cannot_be_edited() {
+fn an_agent_binds_a_runtime_and_a_model_and_the_default_one_is_editable() {
     let mut store = Store::open_in_memory().expect("store");
     let at = clock::now_rfc3339();
     store
-        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .replace_models("pi", &[model("pi", "alpha"), model("pi", "beta")], &at)
         .expect("discover");
+
+    store.ensure_default_agent(&at).expect("default agent");
+    let built_in = store.agents().expect("agents");
+    assert_eq!(built_in.len(), 1);
+    assert_eq!(built_in[0].id, "default");
+    assert!(built_in[0].is_default);
 
     let saved = store
         .save_agent(None, "  代码助手 ", "pi", "alpha", &at)
         .expect("save");
     assert!(saved.id.starts_with("agent-"));
     assert_eq!(saved.name, "代码助手");
+    assert_eq!(saved.runtime_id, "pi");
+    assert_eq!(saved.model_id, "alpha");
     assert!(!saved.is_default);
 
     let listed = store.agents().expect("agents");
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].runtime_id, "pi");
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].id, "default", "the built-in agent leads the list");
+
+    // Binding the built-in agent is a save like any other; it also promotes
+    // that model, because a default the picker hides is one the user cannot
+    // see they have.
+    let bound = store
+        .save_agent(Some("default"), "Default Agent", "pi", "beta", &at)
+        .expect("bind the built-in agent");
+    assert!(bound.is_default);
+    assert_eq!(bound.model_id, "beta");
+    let beta = store
+        .models()
+        .expect("models")
+        .into_iter()
+        .find(|row| row.model_id == "beta")
+        .expect("beta");
+    assert!(beta.is_default, "binding the agent promotes its model");
+    assert!(beta.enabled, "a promoted model must be pickable");
 
     let unnamed = store
         .save_agent(None, "  ", "pi", "alpha", &at)
         .expect_err("no name");
     assert_eq!(unnamed.code(), "rejected");
 
-    let default_is_derived = store
-        .save_agent(Some("default"), "x", "pi", "alpha", &at)
-        .expect_err("derived");
-    assert_eq!(default_is_derived.code(), "rejected");
+    // A binding to something the machine does not have would look saved and
+    // fail at the first turn, so it is refused here.
+    let unknown = store
+        .save_agent(None, "Ghost", "pi", "missing", &at)
+        .expect_err("unknown model");
+    assert_eq!(unknown.code(), "rejected");
 
     store.delete_agent(&saved.id).expect("delete");
-    assert!(store.agents().expect("agents").is_empty());
-    let default_removal = store.delete_agent("default").expect_err("derived");
+    let remaining = store.agents().expect("agents");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, "default");
+    let default_removal = store.delete_agent("default").expect_err("built-in");
     assert_eq!(default_removal.code(), "rejected");
+}
+
+/// A fresh install has no default model yet; the built-in agent still has to
+/// name something the machine can run, or "the system has one agent" would be
+/// an empty row in the picker.
+#[test]
+fn the_default_agent_adopts_the_enabled_model_before_a_default_exists() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha"), model("pi", "beta")], &at)
+        .expect("discover");
+    store.set_model_enabled("pi", "beta", true).expect("enable");
+
+    store.ensure_default_agent(&at).expect("default agent");
+    let agents = store.agents().expect("agents");
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].runtime_id, "pi");
+    assert_eq!(agents[0].model_id, "beta");
+}
+
+/// A rescan reports the same models again. It must not take the user's
+/// switches with it, and it must still drop models the runtime stopped
+/// reporting.
+#[test]
+fn a_rescan_keeps_the_models_the_user_switched_on() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha"), model("pi", "beta")], &at)
+        .expect("discover");
+    store.set_model_enabled("pi", "beta", true).expect("enable");
+
+    store
+        .replace_models(
+            "pi",
+            &[
+                model("pi", "alpha"),
+                model("pi", "beta"),
+                model("pi", "gamma"),
+            ],
+            &at,
+        )
+        .expect("rediscover");
+    let rows = store.models().expect("models");
+    let beta = rows
+        .iter()
+        .find(|row| row.model_id == "beta")
+        .expect("beta");
+    let gamma = rows
+        .iter()
+        .find(|row| row.model_id == "gamma")
+        .expect("gamma");
+    assert!(beta.enabled, "a rescan disabled a model the user turned on");
+    assert!(!gamma.enabled, "a new model must not switch itself on");
+
+    store
+        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .expect("shrink");
+    let kept = store.models().expect("models");
+    assert_eq!(kept.len(), 1, "models the runtime dropped must disappear");
+    assert_eq!(kept[0].model_id, "alpha");
 }
 
 /// A fresh catalog must not open chat with a dead composer, and must not offer
@@ -849,7 +941,8 @@ fn the_picker_is_seeded_with_one_model_per_runtime_exactly_once() {
         .replace_models("codex", &[model("codex", "omega")], &at)
         .expect("discover codex");
 
-    assert!(store.seed_picker_once().expect("seed"));
+    assert!(store.seed_picker_once("pi").expect("seed pi"));
+    assert!(store.seed_picker_once("codex").expect("seed codex"));
     let enabled: Vec<String> = store
         .models()
         .expect("models")
@@ -871,7 +964,7 @@ fn the_picker_is_seeded_with_one_model_per_runtime_exactly_once() {
             &at,
         )
         .expect("rediscover");
-    assert!(!store.seed_picker_once().expect("second seed"));
+    assert!(!store.seed_picker_once("pi").expect("second seed"));
     let still_on: Vec<String> = store
         .models()
         .expect("models")
@@ -880,4 +973,7 @@ fn the_picker_is_seeded_with_one_model_per_runtime_exactly_once() {
         .map(|row| row.model_id)
         .collect();
     assert!(!still_on.contains(&"gamma".to_string()));
+    // The model the user had switched on must survive the rescan; a blanket
+    // delete used to empty the picker on every sync.
+    assert!(still_on.contains(&"alpha".to_string()));
 }

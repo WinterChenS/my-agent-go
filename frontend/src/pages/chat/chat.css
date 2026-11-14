@@ -2955,3 +2955,44 @@ button.chat-badge:hover {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+
+/* Naming a binding in place: the desktop webview has no `prompt()`, so the
+   composer grows a small field instead of asking the OS for one. */
+.chat-agent-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-agent-name input {
+  width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+
+.chat-agent-name input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-history-rename {
+  padding: 4px 8px;
+}
+
+.chat-history-rename input {
+  width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+
+.chat-history-rename input:focus {
+  outline: none;
+}

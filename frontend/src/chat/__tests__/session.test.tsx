@@ -419,6 +419,44 @@ describe('chat history grouping', () => {
     expect(labels[1]).toHaveTextContent('beta')
   })
 
+  it('lists stored sessions in the shell sidebar and opens one from there', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+
+    // The sidebar is the history the user sees without opening a drawer. It
+    // used to be rendered with sample data only, so a real conversation never
+    // showed up there.
+    const panel = screen.getByTestId('chat-history')
+    await waitFor(() => expect(within(panel).getByText('Alpha chat')).toBeInTheDocument())
+    expect(within(panel).getByText('Beta chat')).toBeInTheDocument()
+
+    await userEvent.click(within(panel).getByText('Alpha chat'))
+    await waitFor(() => expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }))
+  })
+
+  it('re-reads the list after a turn so the sidebar gains the new session', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    const before = host.calls.filter((call) => call === 'session_list').length
+
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.type(composer, 'hi')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() =>
+      expect(host.calls.filter((call) => call === 'session_list').length).toBeGreaterThan(before),
+    )
+  })
+
   it('branches and compacts a session from its row menu', async () => {
     const host = installHost()
     const panel = await openHistory()

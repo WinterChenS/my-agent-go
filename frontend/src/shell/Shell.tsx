@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useI18n } from '../i18n/LanguageProvider'
+import { ChatHistoryProvider } from '../chat/ChatHistoryProvider'
 import GlobalSearchDialog from './GlobalSearchDialog'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
@@ -55,19 +56,21 @@ export default function Shell() {
   }, [language, route.titleKey, t])
 
   return (
-    <div className="shell" data-shell>
-      <Sidebar />
-      <div className="main">
-        {route.chrome === 'shell' ? (
-          <Topbar route={route} onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
-        ) : null}
-        <main className={`page${route.chrome === 'chat' ? ' page-chat' : ''}`} tabIndex={0} aria-label={t('main.content')}>
-          <div className="page-inner">
-            <Outlet />
-          </div>
-        </main>
+    <ChatHistoryProvider>
+      <div className="shell" data-shell>
+        <Sidebar />
+        <div className="main">
+          {route.chrome === 'shell' ? (
+            <Topbar route={route} onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
+          ) : null}
+          <main className={`page${route.chrome === 'chat' ? ' page-chat' : ''}`} tabIndex={0} aria-label={t('main.content')}>
+            <div className="page-inner">
+              <Outlet />
+            </div>
+          </main>
+        </div>
+        <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} returnFocus={searchButtonRef} />
       </div>
-      <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} returnFocus={searchButtonRef} />
-    </div>
+    </ChatHistoryProvider>
   )
 }

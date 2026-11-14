@@ -278,7 +278,7 @@ impl CatalogService {
         match inventory {
             Inventory::Models(items) => {
                 self.store.replace_models(runtime_id, &items, &now)?;
-                self.store.seed_picker_once()?;
+                self.store.seed_picker_once(runtime_id)?;
                 Ok(())
             }
             Inventory::Skills(items) => self.store.replace_skills(runtime_id, &items, &now),
@@ -306,21 +306,6 @@ impl CatalogService {
             {
                 runtime.status = RuntimeStatus::Orphaned.as_str().to_string();
             }
-        }
-        // The system always has one agent. It is derived from the default model
-        // rather than stored, so it cannot outlive the model it points at.
-        if let Some(model) = snapshot.models.iter().find(|model| model.is_default) {
-            snapshot.agents.insert(
-                0,
-                AgentRecord {
-                    id: crate::store::DEFAULT_AGENT_ID.to_string(),
-                    name: "Default Agent".to_string(),
-                    runtime_id: model.runtime_id.clone(),
-                    model_id: model.model_id.clone(),
-                    is_default: true,
-                    updated_at: model.updated_at.clone(),
-                },
-            );
         }
         Ok(snapshot)
     }

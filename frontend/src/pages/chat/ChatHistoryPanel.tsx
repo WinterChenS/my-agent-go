@@ -24,7 +24,7 @@ export interface LiveHistory {
   activeId: string | null
   onOpen: (id: string) => void
   onNew: () => void
-  onRename: (id: string) => void
+  onRename: (id: string, title: string) => void
   onPin: (id: string) => void
   onArchive: (id: string) => void
   onDelete: (id: string) => void
@@ -48,6 +48,11 @@ export default function ChatHistoryPanel({
   const [notice, setNotice] = useState('')
   const [visible, setVisible] = useState(4)
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  /** Row being renamed in place. `window.prompt` is not implemented by the
+   * desktop webview, so the name is edited in the row itself. */
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null)
+  /** Row whose delete was armed; a second click confirms. */
+  const [confirming, setConfirming] = useState<string | null>(null)
   const [projects, setProjects] = useState(() =>
     sample ? sampleChat.projects.map((project) => ({ ...project })) : [],
   )
@@ -127,15 +132,31 @@ export default function ChatHistoryPanel({
     setProjects((current) => current.map((project) => (project.id === id ? { ...project, open: !project.open } : project)))
   }
 
-  const runAction = (action: HistoryAction, sessionId: string) => {
+  const runAction = (action: HistoryAction, session: Session) => {
     setMenuFor(null)
+    setConfirming(null)
     if (!live) return
-    if (action === 'pin') live.onPin(sessionId)
-    if (action === 'rename') live.onRename(sessionId)
-    if (action === 'archive') live.onArchive(sessionId)
-    if (action === 'fork') live.onFork(sessionId)
-    if (action === 'compact') live.onCompact(sessionId)
-    if (action === 'delete') live.onDelete(sessionId)
+    if (action === 'rename') {
+      setRenaming({ id: session.id, value: session.title })
+      return
+    }
+    if (action === 'delete') {
+      // Deleting is irreversible here, and the webview's confirm dialog is not
+      // something the page can rely on: arm the row, then require a second
+      // click on the same action.
+      if (confirming !== session.id) {
+        setConfirming(session.id)
+        setMenuFor(session.id)
+        return
+      }
+      setConfirming(null)
+      live.onDelete(session.id)
+      return
+    }
+    if (action === 'pin') live.onPin(session.id)
+    if (action === 'archive') live.onArchive(session.id)
+    if (action === 'fork') live.onFork(session.id)
+    if (action === 'compact') live.onCompact(session.id)
   }
 
   return (
@@ -193,121 +214,146 @@ export default function ChatHistoryPanel({
         </p>
       ) : null}
       <div className="chat-history-scroll">
-        {visibleProjects.length > 0 ? (
-          <div className="chat-history-label">{t('chat.history.projects')}</div>
-        ) : null}
-        {visibleProjects.map((project) => {
-          const open = project.forcedOpen || project.open
-          return (
-            <div key={project.id} className={`chat-history-project${open ? ' is-open' : ''}`}>
-              <button
-                type="button"
-                className="chat-history-project-head"
-                aria-expanded={open}
-                onClick={() => toggleProject(project.id)}
-              >
-                <span className="chat-history-project-icon">
-                  <Icon name="folder" size={12} />
-                </span>
-                <span className="chat-history-project-copy">
-                  <b>{project.name}</b>
-                  <small>
-                    {t('chat.history.sessions', { count: project.sessions.length })} · {project.path}
-                  </small>
-                </span>
-                <span className="chat-history-caret" aria-hidden="true">
-                  <Icon name="chevDown" size={10} />
-                </span>
-              </button>
-              {open ? (
-                <div className="chat-history-project-sessions">
-                  {project.sessions.map((session) => (
-                    <SessionRow
-                      key={session.id}
-                      session={session}
-                      active={session.id === 'session-api-migration'}
-                      menuOpen={menuFor === session.id}
-                      onOpen={() => {
-                        setNotice(t('chat.notice.history'))
-                        onClose?.()
-                      }}
-                      onMenu={() => {
-                        setNotice(t('chat.notice.history'))
-                        setMenuFor((current) => (current === session.id ? null : session.id))
-                      }}
-                      onCloseMenu={() => setMenuFor(null)}
-                    />
-                  ))}
+        {sample ? (
+          <>
+            {visibleProjects.length > 0 ? (
+              <div className="chat-history-label">{t('chat.history.projects')}</div>
+            ) : null}
+            {visibleProjects.map((project) => {
+              const open = project.forcedOpen || project.open
+              return (
+                <div key={project.id} className={`chat-history-project${open ? ' is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="chat-history-project-head"
+                    aria-expanded={open}
+                    onClick={() => toggleProject(project.id)}
+                  >
+                    <span className="chat-history-project-icon">
+                      <Icon name="folder" size={12} />
+                    </span>
+                    <span className="chat-history-project-copy">
+                      <b>{project.name}</b>
+                      <small>
+                        {t('chat.history.sessions', { count: project.sessions.length })} · {project.path}
+                      </small>
+                    </span>
+                    <span className="chat-history-caret" aria-hidden="true">
+                      <Icon name="chevDown" size={10} />
+                    </span>
+                  </button>
+                  {open ? (
+                    <div className="chat-history-project-sessions">
+                      {project.sessions.map((session) => (
+                        <SessionRow
+                          key={session.id}
+                          session={session}
+                          active={session.id === 'session-api-migration'}
+                          menuOpen={menuFor === session.id}
+                          onOpen={() => {
+                            setNotice(t('chat.notice.history'))
+                            onClose?.()
+                          }}
+                          onMenu={() => {
+                            setNotice(t('chat.notice.history'))
+                            setMenuFor((current) => (current === session.id ? null : session.id))
+                          }}
+                          onCloseMenu={() => setMenuFor(null)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          )
-        })}
+              )
+            })}
 
-        <div className="chat-history-label chat-history-personal-label">{t('chat.history.personal')}</div>
-        <div className="chat-history-list" data-testid="chat-history-live-list">
-          {liveGroups.map((group) => (
-            <div key={group.path || 'unassigned'} className="chat-history-live-group">
-              {live?.projects.length ? (
-                <div
-                  className="chat-history-label chat-history-live-project"
-                  data-testid="chat-history-live-project"
-                  data-project-path={group.path}
-                >
-                  <Icon name="folder" size={10} />
-                  <span>{group.name}</span>
-                  <small>{t('chat.history.sessions', { count: group.sessions.length })}</small>
-                </div>
-              ) : null}
-              {group.sessions.map((session) => (
+            <div className="chat-history-label chat-history-personal-label">{t('chat.history.personal')}</div>
+            <div className="chat-history-list" data-testid="chat-history-live-list">
+              {visiblePersonal.map((session) => (
                 <SessionRow
                   key={session.id}
                   session={session}
-                  active={session.id === live?.activeId}
+                  active={false}
                   menuOpen={menuFor === session.id}
-                  onOpen={() => live?.onOpen(session.id)}
-                  onMenu={() => setMenuFor((current) => (current === session.id ? null : session.id))}
+                  onOpen={() => {
+                    setNotice(t('chat.notice.history'))
+                    onClose?.()
+                  }}
+                  onMenu={() => {
+                    setNotice(t('chat.notice.history'))
+                    setMenuFor((current) => (current === session.id ? null : session.id))
+                  }}
                   onCloseMenu={() => setMenuFor(null)}
-                  onAction={actionsEnabled ? (action) => runAction(action, session.id) : undefined}
                 />
               ))}
             </div>
-          ))}
-          {visiblePersonal.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              active={false}
-              menuOpen={menuFor === session.id}
-              onOpen={() => {
-                setNotice(t('chat.notice.history'))
-                onClose?.()
-              }}
-              onMenu={() => {
-                setNotice(t('chat.notice.history'))
-                setMenuFor((current) => (current === session.id ? null : session.id))
-              }}
-              onCloseMenu={() => setMenuFor(null)}
-            />
-          ))}
-        </div>
+
+            {!normalized ? (
+              <button
+                type="button"
+                className={`chat-history-sentinel${allLoaded ? ' is-done' : ''}`}
+                disabled={allLoaded}
+                onClick={() => setVisible((count) => Math.min(count + 3, personal.length))}
+              >
+                <span className="chat-history-sentinel-dot" aria-hidden="true" />
+                <span>{allLoaded ? t('chat.history.loadedAll') : t('chat.history.loadMore')}</span>
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <div className="chat-history-list" data-testid="chat-history-live-list">
+            {liveGroups.map((group) => (
+              <div key={group.path || 'unassigned'} className="chat-history-live-group">
+                {live?.projects.length ? (
+                  <div
+                    className="chat-history-label chat-history-live-project"
+                    data-testid="chat-history-live-project"
+                    data-project-path={group.path}
+                  >
+                    <Icon name="folder" size={10} />
+                    <span>{group.name}</span>
+                    <small>{t('chat.history.sessions', { count: group.sessions.length })}</small>
+                  </div>
+                ) : null}
+                {group.sessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === live?.activeId}
+                    menuOpen={menuFor === session.id}
+                    confirmingDelete={confirming === session.id}
+                    rename={
+                      renaming?.id === session.id
+                        ? {
+                            value: renaming.value,
+                            onChange: (value) => setRenaming({ id: session.id, value }),
+                            commit: () => {
+                              const next = renaming.value.trim()
+                              setRenaming(null)
+                              if (next && next !== session.title) live?.onRename(session.id, next)
+                            },
+                            cancel: () => setRenaming(null),
+                          }
+                        : null
+                    }
+                    onOpen={() => live?.onOpen(session.id)}
+                    onMenu={() => {
+                      setConfirming(null)
+                      setMenuFor((current) => (current === session.id ? null : session.id))
+                    }}
+                    onCloseMenu={() => setMenuFor(null)}
+                    onAction={actionsEnabled ? (action) => runAction(action, session) : undefined}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
 
         {noResults ? (
           <div className="chat-history-empty" data-testid="chat-history-empty">
             {normalized ? t('chat.history.noMatches') : live ? t('chat.live.historyEmpty') : t('chat.history.empty')}
           </div>
-        ) : null}
-
-        {!normalized && sample ? (
-          <button
-            type="button"
-            className={`chat-history-sentinel${allLoaded ? ' is-done' : ''}`}
-            disabled={allLoaded}
-            onClick={() => setVisible((count) => Math.min(count + 3, personal.length))}
-          >
-            <span className="chat-history-sentinel-dot" aria-hidden="true" />
-            <span>{allLoaded ? t('chat.history.loadedAll') : t('chat.history.loadMore')}</span>
-          </button>
         ) : null}
       </div>
     </section>
@@ -318,6 +364,8 @@ function SessionRow({
   session,
   active,
   menuOpen,
+  confirmingDelete,
+  rename,
   onOpen,
   onMenu,
   onCloseMenu,
@@ -326,6 +374,15 @@ function SessionRow({
   session: Session
   active: boolean
   menuOpen: boolean
+  /** The delete action was already clicked once and is waiting for a second. */
+  confirmingDelete?: boolean
+  /** Inline editor; `null` while the row only shows its title. */
+  rename?: {
+    value: string
+    onChange: (value: string) => void
+    commit: () => void
+    cancel: () => void
+  } | null
   onOpen: () => void
   onMenu: () => void
   onCloseMenu: () => void
@@ -335,23 +392,41 @@ function SessionRow({
   const id = `session-${session.id}`
   return (
     <div className={`chat-history-row${session.pinned ? ' is-pinned' : ''}${menuOpen ? ' is-menu-open' : ''}`} id={id}>
-      <button
-        type="button"
-        className={`chat-history-item${active ? ' is-active' : ''}`}
-        onClick={onOpen}
-        title={t('chat.history.open')}
-      >
-        <span className="chat-history-branch" aria-hidden="true">
-          <Icon name="branch" size={10} />
-        </span>
-        <span className="chat-history-copy">
-          <span className="chat-history-title">{session.title}</span>
-          <span className="chat-history-meta">
-            {session.state === 'pending' ? <i aria-hidden="true" /> : null}
-            {session.meta}
+      {rename ? (
+        <div className="chat-history-rename">
+          <input
+            autoFocus
+            type="text"
+            value={rename.value}
+            aria-label={t('chat.history.rename')}
+            data-testid="chat-history-rename-input"
+            onChange={(event) => rename.onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') rename.commit()
+              if (event.key === 'Escape') rename.cancel()
+            }}
+            onBlur={rename.commit}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={`chat-history-item${active ? ' is-active' : ''}`}
+          onClick={onOpen}
+          title={t('chat.history.open')}
+        >
+          <span className="chat-history-branch" aria-hidden="true">
+            <Icon name="branch" size={10} />
           </span>
-        </span>
-      </button>
+          <span className="chat-history-copy">
+            <span className="chat-history-title">{session.title}</span>
+            <span className="chat-history-meta">
+              {session.state === 'pending' ? <i aria-hidden="true" /> : null}
+              {session.meta}
+            </span>
+          </span>
+        </button>
+      )}
       <button
         type="button"
         className="chat-history-actions-trigger"
@@ -398,7 +473,11 @@ function SessionRow({
                 }
                 size={11}
               />
-              <span>{t(`chat.history.${action}` as 'chat.history.pin')}</span>
+              <span>
+                {action === 'delete' && confirmingDelete
+                  ? t('chat.history.deleteConfirm')
+                  : t(`chat.history.${action}` as 'chat.history.pin')}
+              </span>
             </button>
           ))}
         </div>

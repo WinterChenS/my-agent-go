@@ -1,16 +1,23 @@
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import ChatHistoryPanel from '../pages/chat/ChatHistoryPanel'
 import { useChatSample } from '../pages/chat/sampleData'
+import { useChatHistory } from '../chat/ChatHistoryProvider'
+import { isTauriHost } from '../host/tauri'
 import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { PRIMARY_ROUTES } from './routes'
 import ToolsMenu from './ToolsMenu'
 import { SHELL_SAMPLE_FIXTURE, useShellSample } from './sampleNavigation'
 
+/** Messages kept verbatim when a session is compacted from the sidebar. */
+const COMPACT_KEEP_LAST = 4
+
 export default function Sidebar() {
   const { t } = useI18n()
   const location = useLocation()
+  const navigate = useNavigate()
   const chatSample = useChatSample()
+  const history = useChatHistory()
   const shellSample = useShellSample()
   const agentsSample =
     location.pathname === '/__sample/agents' || new URLSearchParams(location.search).get('sample') === 'agents'
@@ -60,7 +67,36 @@ export default function Sidebar() {
 
       <ToolsMenu sample={shellSample} />
 
-      {isChat ? <ChatHistoryPanel sample={chatSample} /> : null}
+      {isChat ? (
+        <ChatHistoryPanel
+          sample={chatSample}
+          live={
+            chatSample || !isTauriHost()
+              ? undefined
+              : {
+                  sessions: history.sessions,
+                  projects: history.projects,
+                  activeId: history.activeId,
+                  onOpen: history.open,
+                  onNew: () => {
+                    // A new conversation is a state of the chat page, so the
+                    // shell asks for it the same way it asks for a session.
+                    history.startNew()
+                    if (location.pathname !== '/chat') navigate('/chat')
+                  },
+                  onRename: (id, title) => void history.rename(id, title),
+                  onPin: (id) => {
+                    const row = history.sessions.find((session) => session.id === id)
+                    void history.setPinned(id, !(row?.pinned ?? false))
+                  },
+                  onArchive: (id) => void history.setArchived(id, true),
+                  onDelete: (id) => void history.remove(id),
+                  onFork: (id) => void history.fork(id),
+                  onCompact: (id) => void history.compact(id, COMPACT_KEEP_LAST),
+                }
+          }
+        />
+      ) : null}
 
       <div className="sidebar-foot">
         <div className="runtime-mini" aria-label={t('runtime.title')}>

@@ -110,6 +110,7 @@ impl Store {
                 name TEXT NOT NULL,
                 runtime_id TEXT NOT NULL,
                 model_id TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS skills (
@@ -156,6 +157,10 @@ impl Store {
         // `CREATE TABLE IF NOT EXISTS` never adds a column to a database that
         // already exists, and the catalog has lived on user machines since G1.
         self.add_column_if_missing("models", "enabled", "INTEGER NOT NULL DEFAULT 0")?;
+        // The default agent used to be derived from the default model and never
+        // stored, which left the user no row to bind a runtime to. It is a real
+        // row now, so an existing catalog needs the column.
+        self.add_column_if_missing("agents", "is_default", "INTEGER NOT NULL DEFAULT 0")?;
         // Upgrading must not leave the chat page with nothing to pick: the model
         // that was already the default stays enabled.
         self.connection.execute(
@@ -275,10 +280,31 @@ impl Store {
         fetched_at: &str,
     ) -> Result<()> {
         let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "DELETE FROM models WHERE runtime_id = ?1 AND origin = 'discovered'",
-            params![runtime_id],
-        )?;
+        // Delete only what discovery no longer reports. A blanket delete also
+        // threw away the user's `enabled` and `verified` flags for every model
+        // that was still there, so each rescan emptied the chat picker.
+        if models.is_empty() {
+            transaction.execute(
+                "DELETE FROM models WHERE runtime_id = ?1 AND origin = 'discovered'",
+                params![runtime_id],
+            )?;
+        } else {
+            let placeholders = (0..models.len())
+                .map(|index| format!("?{}", index + 2))
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut args: Vec<rusqlite::types::Value> = vec![runtime_id.to_string().into()];
+            for model in models {
+                args.push(model.model_id.clone().into());
+            }
+            transaction.execute(
+                &format!(
+                    "DELETE FROM models WHERE runtime_id = ?1 AND origin = 'discovered'
+                     AND model_id NOT IN ({placeholders})"
+                ),
+                rusqlite::params_from_iter(args),
+            )?;
+        }
         {
             let mut insert = transaction.prepare(
                 "INSERT INTO models (
@@ -533,12 +559,16 @@ impl Store {
     /// list for a picker. It is also wrong to offer nothing: a fresh install
     /// would open chat with a dead composer and no clue. So exactly one model
     /// per runtime is turned on, once; everything else waits for the user.
-    pub fn seed_picker_once(&mut self) -> Result<bool> {
+    pub fn seed_picker_once(&self, runtime_id: &str) -> Result<bool> {
+        // Per runtime, not once for the whole catalog: a runtime installed
+        // later must also arrive with one model switched on, and a catalog
+        // whose models were already wiped once would otherwise stay empty.
+        let key = format!("picker_seeded:{runtime_id}");
         let seeded: Option<String> = self
             .connection
             .query_row(
-                "SELECT value FROM meta WHERE key = 'picker_seeded'",
-                [],
+                "SELECT value FROM meta WHERE key = ?1",
+                params![key],
                 |row| row.get(0),
             )
             .optional()?;
@@ -546,22 +576,22 @@ impl Store {
             return Ok(false);
         }
         let enabled: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM models WHERE enabled = 1",
-            [],
+            "SELECT COUNT(*) FROM models WHERE runtime_id = ?1 AND enabled = 1",
+            params![runtime_id],
             |row| row.get(0),
         )?;
         if enabled == 0 {
             self.connection.execute(
-                "UPDATE models SET enabled = 1 WHERE (runtime_id, model_id) IN (
-                    SELECT runtime_id, MIN(model_id) FROM models GROUP BY runtime_id
+                "UPDATE models SET enabled = 1 WHERE runtime_id = ?1 AND model_id = (
+                    SELECT MIN(model_id) FROM models WHERE runtime_id = ?1
                  )",
-                [],
+                params![runtime_id],
             )?;
         }
         self.connection.execute(
-            "INSERT INTO meta (key, value) VALUES ('picker_seeded', ?1)
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![crate::clock::now_rfc3339()],
+            params![key, crate::clock::now_rfc3339()],
         )?;
         Ok(true)
     }
@@ -580,11 +610,15 @@ impl Store {
         Ok(())
     }
 
-    /// Saved runtime+model bindings, newest first.
+    /// Every agent binding, the built-in one first.
+    ///
+    /// The built-in row is stored like any other: "the system has one agent"
+    /// has to be something the user can point at a runtime and a model, and a
+    /// row derived from the default model gave them nothing to edit.
     pub fn agents(&self) -> Result<Vec<AgentRecord>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, runtime_id, model_id, updated_at
-             FROM agents ORDER BY name, id",
+            "SELECT id, name, runtime_id, model_id, is_default, updated_at
+             FROM agents ORDER BY is_default DESC, name, id",
         )?;
         let rows = statement.query_map([], |row| {
             Ok(AgentRecord {
@@ -592,14 +626,67 @@ impl Store {
                 name: row.get(1)?,
                 runtime_id: row.get(2)?,
                 model_id: row.get(3)?,
-                is_default: false,
-                updated_at: row.get(4)?,
+                is_default: row.get::<_, i64>(4)? != 0,
+                updated_at: row.get(5)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
+    /// Create the built-in agent once, bound to whatever model is the default.
+    ///
+    /// Called before every snapshot, so an upgraded catalog gets the row too.
+    /// A catalog with no models yet keeps the agent pointing at empty strings
+    /// until a scan lands; [`Self::repair_default_agent`] adopts the first
+    /// default model after that.
+    pub fn ensure_default_agent(&self, now: &str) -> Result<()> {
+        let binding: Option<(String, String)> = self
+            .connection
+            .query_row(
+                // The default model is the intended binding; before anyone has
+                // promoted one, the model discovery enabled is the closest thing
+                // to "the one I run", and a catalog with only disabled rows
+                // still gets a binding rather than a blank agent.
+                "SELECT runtime_id, model_id FROM models
+                 ORDER BY is_default DESC, enabled DESC, runtime_id, model_id LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let (runtime_id, model_id) = binding.unwrap_or_default();
+        self.connection.execute(
+            "INSERT INTO agents (id, name, runtime_id, model_id, is_default, updated_at)
+             VALUES (?1, 'Default Agent', ?2, ?3, 1, ?4)
+             ON CONFLICT(id) DO NOTHING",
+            params![DEFAULT_AGENT_ID, runtime_id, model_id, now],
+        )?;
+        self.repair_default_agent()
+    }
+
+    /// Point the built-in agent at the default model while it has no binding.
+    ///
+    /// Only fills a blank row: once the user bound the agent themselves,
+    /// changing the default model must not silently move their agent.
+    fn repair_default_agent(&self) -> Result<()> {
+        self.connection.execute(
+            "UPDATE agents SET runtime_id = (
+                SELECT runtime_id FROM models
+                ORDER BY is_default DESC, enabled DESC, runtime_id, model_id LIMIT 1
+             ), model_id = (
+                SELECT model_id FROM models
+                ORDER BY is_default DESC, enabled DESC, runtime_id, model_id LIMIT 1
+             )
+             WHERE id = ?1 AND (TRIM(runtime_id) = '' OR TRIM(model_id) = '')
+               AND EXISTS (SELECT 1 FROM models)",
+            params![DEFAULT_AGENT_ID],
+        )?;
+        Ok(())
+    }
+
     /// Create or rename one agent binding. `id` empty means "new".
+    ///
+    /// The pair has to name a model the catalog knows: a binding to a runtime
+    /// that is not installed would look saved and then fail at the first turn.
     pub fn save_agent(
         &self,
         id: Option<&str>,
@@ -608,41 +695,73 @@ impl Store {
         model_id: &str,
         now: &str,
     ) -> Result<AgentRecord> {
-        if name.trim().is_empty() {
+        let name = name.trim();
+        if name.is_empty() {
             return Err(Error::Rejected("an agent needs a name".to_string()));
         }
+        if runtime_id.trim().is_empty() || model_id.trim().is_empty() {
+            return Err(Error::Rejected(
+                "an agent needs both a runtime and a model".to_string(),
+            ));
+        }
+        let known: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM models WHERE runtime_id = ?1 AND model_id = ?2",
+                params![runtime_id, model_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if known.is_none() {
+            return Err(Error::Rejected(format!(
+                "model {runtime_id}/{model_id} is not in the catalog"
+            )));
+        }
         let id = match id.filter(|value| !value.trim().is_empty()) {
-            Some(value) => {
-                if value == DEFAULT_AGENT_ID {
-                    return Err(Error::Rejected(
-                        "the default agent is derived from the default model".to_string(),
-                    ));
-                }
-                value.to_string()
-            }
+            Some(value) => value.to_string(),
             None => format!("agent-{}", crate::clock::unix_now()),
         };
+        let is_default = id == DEFAULT_AGENT_ID;
         self.connection.execute(
-            "INSERT INTO agents (id, name, runtime_id, model_id, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO agents (id, name, runtime_id, model_id, is_default, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 runtime_id = excluded.runtime_id,
                 model_id = excluded.model_id,
                 updated_at = excluded.updated_at",
-            params![id, name.trim(), runtime_id, model_id, now],
+            params![id, name, runtime_id, model_id, i64::from(is_default), now],
         )?;
+        if is_default {
+            // Binding the built-in agent to a model also makes that model the
+            // default and turns it on: a default the picker hides is a default
+            // the user cannot see they have.
+            self.connection.execute(
+                "UPDATE models SET is_default = CASE
+                    WHEN runtime_id = ?1 AND model_id = ?2 THEN 1 ELSE 0 END,
+                    enabled = CASE WHEN runtime_id = ?1 AND model_id = ?2 THEN 1 ELSE enabled END",
+                params![runtime_id, model_id],
+            )?;
+        } else {
+            // Naming a binding is configuration, so the model it names becomes
+            // selectable: an agent the chat picker filters out is not a binding
+            // the user can use.
+            self.connection.execute(
+                "UPDATE models SET enabled = 1 WHERE runtime_id = ?1 AND model_id = ?2",
+                params![runtime_id, model_id],
+            )?;
+        }
         Ok(AgentRecord {
             id,
-            name: name.trim().to_string(),
+            name: name.to_string(),
             runtime_id: runtime_id.to_string(),
             model_id: model_id.to_string(),
-            is_default: false,
+            is_default,
             updated_at: now.to_string(),
         })
     }
 
-    /// Remove one saved agent. The derived default cannot be removed.
+    /// Remove one saved agent. The built-in one cannot be removed.
     pub fn delete_agent(&self, id: &str) -> Result<()> {
         if id == DEFAULT_AGENT_ID {
             return Err(Error::Rejected(
@@ -945,6 +1064,7 @@ impl Store {
         failures: Vec<AdapterFailure>,
         scanned_at: Option<String>,
     ) -> Result<CatalogSnapshot> {
+        self.ensure_default_agent(&crate::clock::now_rfc3339())?;
         Ok(CatalogSnapshot {
             runtimes: self.runtimes()?,
             models: self.models()?,
