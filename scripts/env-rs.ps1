@@ -72,9 +72,12 @@ if (-not (Test-DriveD $repoRoot)) {
 $defaults = [ordered]@{
     RUSTUP_HOME      = 'D:\Microsoft\tooling\rustup'
     CARGO_HOME       = 'D:\Microsoft\tooling\cargo'
-    TEMP             = (Join-Path $repoRoot '.tmp\tooling\tmp')
-    TMP              = (Join-Path $repoRoot '.tmp\tooling\tmp')
-    CARGO_TARGET_DIR = (Join-Path $repoRoot '.tmp\tooling\cargo-target')
+    TEMP             = 'D:\anvil-temp'
+    TMP              = 'D:\anvil-temp'
+    # Outside the worktree on purpose: the editor snapshots every modified file
+    # into a backup store on C:, so a target dir inside the repo cost ~15 GB of
+    # C: space per release build (see .cargo/config.toml).
+    CARGO_TARGET_DIR = 'D:\anvil-target'
 }
 
 foreach ($name in $defaults.Keys) {

@@ -1,13 +1,17 @@
-# Keep all Cargo build artifacts on the D: volume (defence in depth for the
-# D-drive-only write rule).
+# Keep all Cargo build artifacts on the D: volume, **outside the worktree**.
 #
-# `target-dir` here is resolved relative to the **workspace root**, not to this
-# config file's directory: with the value `.tmp/tooling/cargo-target`, cargo
-# reports and uses
-#   D:\project\anvil-wt\anvil-rebuild\.tmp\tooling\cargo-target
-# both from the repo root and from `crates/anvil-paths` (verified with
-# `cargo metadata --format-version 1 --no-deps`, R0-RS01 F1). A `../` prefix
-# would escape the worktree, so it must not be used.
+# Why outside: this session's editor snapshots every file the tools modify into
+# `%USERPROFILE%\.workbuddy\workspace\sessions\<id>\modify_backup` on C:. When
+# target-dir pointed at `.tmp/tooling/cargo-target` (inside the repo), a single
+# release build copied ~15 GB of `.rlib`/`.pdb`/`.exe` into that backup store
+# and filled C: to zero free bytes, which then corrupted cargo output
+# (`STATUS_ENTRYPOINT_NOT_FOUND`). An absolute path outside the worktree keeps
+# build churn away from both the snapshot hook and the C: volume.
+#
+# The value is absolute on purpose: a relative value resolves against the
+# workspace root, and `../` resolution differs between Cargo versions. With an
+# absolute path `cargo metadata` reports the same directory from the repo root
+# and from `crates/anvil-paths`.
 #
 # An explicit CARGO_TARGET_DIR environment variable still wins, and
 # scripts/env-rs.ps1 sets it to the same path.
@@ -16,5 +20,5 @@
 # Tauri's generated `windows` crate with debuginfo at full parallelism ran the
 # toolchain out of memory (R0-RS02). Two jobs keep the toolchain inside budget.
 [build]
-target-dir = ".tmp/tooling/cargo-target"
+target-dir = "D:/anvil-target"
 jobs = 2
