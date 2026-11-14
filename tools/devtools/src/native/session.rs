@@ -308,13 +308,30 @@ impl<'a> Session<'a> {
     }
 
     /// Path of the client built by `cargo build -p anvil`.
+    /// Where `cargo build -p anvil` put the debug client.
+    ///
+    /// `CARGO_TARGET_DIR` wins because `.cargo/config.toml` keeps the target
+    /// directory outside the worktree (D:/anvil-target): an editor snapshot of
+    /// every build artifact used to fill C: with ~15 GB of backups. The old
+    /// in-tree path stays as a fallback so an older checkout still runs.
     pub(crate) fn client_exe(&self) -> PathBuf {
-        self.repo()
+        if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()) {
+            let candidate = PathBuf::from(dir).join("debug").join("anvil.exe");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        let in_tree = self
+            .repo()
             .join(".tmp")
             .join("tooling")
             .join("cargo-target")
             .join("debug")
-            .join("anvil.exe")
+            .join("anvil.exe");
+        if in_tree.is_file() {
+            return in_tree;
+        }
+        PathBuf::from("D:/anvil-target/debug/anvil.exe")
     }
 
     pub(crate) fn dist_dir(&self) -> PathBuf {
