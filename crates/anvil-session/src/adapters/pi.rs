@@ -30,6 +30,14 @@ use crate::model::{
 /// Adapter id, matching the catalog.
 pub const ID: &str = "pi";
 
+/// How long pi may stay silent before the turn is called dead.
+///
+/// Measured here: with a model whose provider refuses the call, pi opens the
+/// turn, records a pending assistant message and then says nothing at all — no
+/// retry event, no error, no exit — for minutes. A first token normally arrives
+/// in a second or two, so 45 s is generous and still far below the turn budget.
+const FIRST_TOKEN_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// Pi adapter.
 pub struct PiAdapter {
     executable: Option<PathBuf>,
@@ -164,6 +172,14 @@ impl SessionAdapter for PiAdapter {
         let mut final_text: Option<String> = None;
         let mut usage: Option<Value> = None;
         let mut failure: Option<String> = None;
+        // Pi retries a rejected provider call itself and then can sit on a
+        // pending message forever: the child stays alive, no token arrives, and
+        // the only record of the reason is `auto_retry_start`. Keep that message
+        // for the failure, and hold the turn to one silence budget — a retry
+        // must not extend it, or repeated retries postpone the failure forever.
+        let mut retry_error: Option<String> = None;
+        let first_token = Instant::now() + FIRST_TOKEN_TIMEOUT;
+        let mut produced = false;
 
         loop {
             if cancel.is_cancelled() {
@@ -173,6 +189,22 @@ impl SessionAdapter for PiAdapter {
                     serde_json::json!({ "reason": "user" }),
                 ));
                 return Ok(RunOutcome::aborted(&deltas));
+            }
+            if !produced && Instant::now() >= first_token {
+                super::kill_tree(&mut child);
+                return Ok(RunOutcome {
+                    status: RunStatus::Failed,
+                    text: String::new(),
+                    error: Some(retry_error.clone().unwrap_or_else(|| {
+                        format!(
+                            "pi produced no output within {}s; model {:?} may be unavailable or not signed in",
+                            FIRST_TOKEN_TIMEOUT.as_secs(),
+                            opened.model
+                        )
+                    })),
+                    usage: None,
+                    native_id: None,
+                });
             }
             if Instant::now() >= deadline {
                 super::kill_tree(&mut child);
@@ -204,7 +236,22 @@ impl SessionAdapter for PiAdapter {
                         }
                         continue;
                     }
+                    // Recorded for the failure text; it does not move the
+                    // silence deadline.
+                    if value.get("type").and_then(Value::as_str) == Some("auto_retry_start")
+                        && let Some(message) = value.get("errorMessage").and_then(Value::as_str)
+                    {
+                        retry_error = Some(message.to_string());
+                    }
                     for event in translate(&value) {
+                        if matches!(
+                            event.kind,
+                            EventKind::TextDelta
+                                | EventKind::MessageCompleted
+                                | EventKind::ToolCall
+                        ) {
+                            produced = true;
+                        }
                         if event.kind == EventKind::TextDelta
                             && let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
                         {
@@ -253,7 +300,13 @@ impl SessionAdapter for PiAdapter {
             return Ok(RunOutcome {
                 status: RunStatus::Failed,
                 text,
-                error: Some(format!("pi exited with {status}")),
+                // The exit code alone says nothing actionable; the provider's own
+                // message is what the page can show.
+                error: Some(
+                    retry_error
+                        .clone()
+                        .unwrap_or_else(|| format!("pi exited with {status}")),
+                ),
                 usage,
                 native_id: None,
             });
@@ -341,6 +394,18 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
         )),
         "agent_start" | "turn_start" | "message_start" | "message_end" | "agent_end"
         | "agent_settled" => {}
+        // Pi retries a failed provider call on its own. The message is the only
+        // place the upstream reason appears, so it is recorded rather than
+        // collapsed into an opaque `Unknown`.
+        "auto_retry_start" => events.push(AdapterEvent::new(
+            EventKind::Unknown,
+            serde_json::json!({
+                "type": "auto_retry",
+                "attempt": value.get("attempt").cloned().unwrap_or(Value::Null),
+                "maxAttempts": value.get("maxAttempts").cloned().unwrap_or(Value::Null),
+                "message": value.get("errorMessage").cloned().unwrap_or(Value::Null),
+            }),
+        )),
         "" => {}
         other => events.push(AdapterEvent::new(
             EventKind::Unknown,
@@ -364,6 +429,27 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, EventKind::TextDelta);
         assert_eq!(events[0].payload["delta"], "ok");
+    }
+
+    /// A rejected provider call only surfaces through pi's retry event. Dropping
+    /// the message is what made a dead turn look like a slow one.
+    #[test]
+    fn a_provider_retry_keeps_the_reason_it_was_raised_for() {
+        let value = serde_json::json!({
+            "type": "auto_retry_start",
+            "attempt": 3,
+            "maxAttempts": 3,
+            "errorMessage": "502: sign in with a browser instead"
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::Unknown);
+        assert_eq!(events[0].payload["type"], "auto_retry");
+        assert_eq!(
+            events[0].payload["message"],
+            "502: sign in with a browser instead"
+        );
+        assert_eq!(events[0].payload["maxAttempts"], 3);
     }
 
     #[test]
