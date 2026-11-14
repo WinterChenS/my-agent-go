@@ -1841,18 +1841,41 @@ impl<'a> Session<'a> {
     }
 
     /// Focus the window and click at a rectangle centre.
+    /// Activation is not idempotent under load: right after a page change, or
+    /// while the previous case's window is still closing, the window manager can
+    /// refuse `focus-window` even though the handle is valid. A single refusal
+    /// used to fail the whole case, so retry with a freshly resolved handle.
     pub(crate) fn click_at(&mut self, log_id: &str, bounds: ElementBounds) -> bool {
-        let focus = StepSpec::owned(
-            &format!("focus-{log_id}"),
-            "agent-desktop",
-            vec![
-                "focus-window".to_string(),
-                "--window-id".to_string(),
-                self.window_id.clone(),
-            ],
-        )
-        .timeout(STEP_TIMEOUT);
-        if !self.run(&[focus]) {
+        let mut focused = false;
+        for attempt in 1..=3 {
+            let checkpoint = self.checkpoint();
+            let focus = StepSpec::owned(
+                &format!("focus-{log_id}-{attempt:02}"),
+                "agent-desktop",
+                vec![
+                    "focus-window".to_string(),
+                    "--window-id".to_string(),
+                    self.window_id.clone(),
+                ],
+            )
+            .timeout(STEP_TIMEOUT);
+            if self.run(&[focus]) {
+                focused = true;
+                break;
+            }
+            self.restore(&checkpoint);
+            if attempt == 3 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(700));
+            if !self.verify_window_identity(&format!("{log_id}-{attempt:02}")) {
+                return false;
+            }
+        }
+        if !focused {
+            self.fail(&format!(
+                "could not bring the window forward for {log_id} in 3 attempts"
+            ));
             return false;
         }
         let (x, y) = bounds.center();
