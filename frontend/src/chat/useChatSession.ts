@@ -10,8 +10,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CatalogUnavailable,
+  deleteCatalogAgent,
   loadCatalog,
   refreshCatalog,
+  saveCatalogAgent,
+  type CatalogAgent,
   type CatalogModel,
 } from '../catalog/client'
 import { isTauriHost } from '../host/tauri'
@@ -105,6 +108,16 @@ export interface ModelChoice {
   isDefault: boolean
 }
 
+/** A saved runtime+model binding. Picking one is picking a model plus two
+ * decisions already made. */
+export interface AgentChoice {
+  id: string
+  name: string
+  runtimeId: string
+  modelId: string
+  isDefault: boolean
+}
+
 /** One tool call and, when it finished, its result. */
 export interface LiveTool {
   id: string
@@ -120,6 +133,11 @@ export interface ChatSessionView {
   models: ModelChoice[]
   model: ModelChoice | null
   chooseModel: (choice: ModelChoice) => void
+  /** Saved bindings plus the derived default agent. */
+  agents: AgentChoice[]
+  /** Save the current model under a name; resolves to the new agent's id. */
+  saveAgent: (name: string) => Promise<string | null>
+  deleteAgent: (id: string) => Promise<void>
   /** A manual rescan is in flight (the picker's spinning control). */
   syncing: boolean
   /** Re-scan the machine and rebuild the picker from the result. */
@@ -171,10 +189,12 @@ export interface ChatSessionView {
 }
 
 function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
-  // The catalog's row order is whatever the adapters discovered in; sorting
-  // makes the default pick — and the dropdown — the same on every launch.
+  // Two filters, for two different reasons: the runtime has to be installed and
+  // usable, and the user has to have turned the model on. Discovery finds every
+  // model an installed runtime can reach, which is not a list anyone wants in a
+  // chat picker.
   return models
-    .filter((model) => keep.includes(model.runtimeId))
+    .filter((model) => keep.includes(model.runtimeId) && model.enabled)
     .sort((left, right) =>
       left.runtimeId === right.runtimeId
         ? left.modelId.localeCompare(right.modelId)
@@ -187,6 +207,16 @@ function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
       verified: model.verified,
       isDefault: model.isDefault,
     }))
+}
+
+function toAgentChoices(agents: CatalogAgent[] | undefined): AgentChoice[] {
+  return (agents ?? []).map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    runtimeId: agent.runtimeId,
+    modelId: agent.modelId,
+    isDefault: agent.isDefault,
+  }))
 }
 
 /** Prefer an explicit default, then a verified model, then anything. */
@@ -263,6 +293,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [status, setStatus] = useState<ChatStatus>(() => (available ? 'loading' : 'unavailable'))
   const [error, setError] = useState<string | null>(null)
   const [models, setModels] = useState<ModelChoice[]>([])
+  const [agents, setAgents] = useState<AgentChoice[]>([])
   const [model, setModel] = useState<ModelChoice | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -326,6 +357,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     const choices = toChoices(catalog.models, usable)
     if (!mounted.current) return choices.length > 0
     setModels(choices)
+    setAgents(toAgentChoices(catalog.agents))
     setModel((existing) => existing ?? pickModel(choices))
     return choices.length > 0
   }, [])
@@ -399,6 +431,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       const choices = toChoices(catalog.models, usable)
       if (!mounted.current) return
       setModels(choices)
+      setAgents(toAgentChoices(catalog.agents))
       // Keep the user's pick when it survived the rescan; otherwise fall back to
       // the same rule as the first load, so the picker never points at a model
       // that is gone.
@@ -417,6 +450,29 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       if (mounted.current) setSyncing(false)
     }
   }, [available])
+
+  /** Save the model currently in the composer as a named binding. */
+  const saveAgent = useCallback(
+    async (name: string) => {
+      if (!model) return null
+      const snapshot = await saveCatalogAgent({
+        name,
+        runtimeId: model.runtimeId,
+        modelId: model.modelId,
+      })
+      if (!mounted.current) return null
+      const next = toAgentChoices(snapshot.agents)
+      setAgents(next)
+      return next.find((agent) => !agent.isDefault && agent.name === name.trim())?.id ?? null
+    },
+    [model],
+  )
+
+  const deleteAgent = useCallback(async (id: string) => {
+    const snapshot = await deleteCatalogAgent(id)
+    if (!mounted.current) return
+    setAgents(toAgentChoices(snapshot.agents))
+  }, [])
 
   // The rail is a second read of the same ledger. It is loaded after the
   // transcript so the page renders first, and a rail failure never blanks a
@@ -729,6 +785,9 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     models,
     model,
     chooseModel: setModel,
+    agents,
+    saveAgent,
+    deleteAgent,
     syncing,
     syncModels,
     sessions,

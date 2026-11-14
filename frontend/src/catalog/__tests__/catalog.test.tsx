@@ -20,6 +20,16 @@ interface HostCall {
 
 function snapshotFixture(): CatalogSnapshot {
   return {
+    agents: [
+      {
+        id: 'default',
+        name: 'Default Agent',
+        runtimeId: 'pi',
+        modelId: 'custom-1',
+        isDefault: true,
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ],
     runtimes: [
       {
         id: 'pi:abc',
@@ -79,6 +89,7 @@ function snapshotFixture(): CatalogSnapshot {
         verified: false,
         verifiedAt: null,
         isDefault: false,
+        enabled: true,
         updatedAt: '2026-01-01T00:00:00Z',
         hasCredential: false,
       },
@@ -92,6 +103,7 @@ function snapshotFixture(): CatalogSnapshot {
         verified: true,
         verifiedAt: '2026-01-01T00:00:00Z',
         isDefault: true,
+        enabled: true,
         updatedAt: '2026-01-01T00:00:00Z',
         hasCredential: true,
       },

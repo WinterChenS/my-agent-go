@@ -50,6 +50,21 @@ description = "Allows promoting a verified model to the default."
 commands.allow = ["catalog_set_default_model"]
 
 [[permission]]
+identifier = "allow-catalog-set-model-enabled"
+description = "Allows turning one catalog model on or off for the chat picker."
+commands.allow = ["catalog_set_model_enabled"]
+
+[[permission]]
+identifier = "allow-catalog-save-agent"
+description = "Allows saving a runtime+model binding under a name."
+commands.allow = ["catalog_save_agent"]
+
+[[permission]]
+identifier = "allow-catalog-delete-agent"
+description = "Allows removing one saved agent binding."
+commands.allow = ["catalog_delete_agent"]
+
+[[permission]]
 identifier = "allow-catalog-probe-mcp"
 description = "Allows connecting to one declared MCP server and enumerating its tools."
 commands.allow = ["catalog_probe_mcp"]

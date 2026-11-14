@@ -245,6 +245,12 @@ pub struct ModelRecord {
     pub verified: bool,
     pub verified_at: Option<String>,
     pub is_default: bool,
+    /// Whether the model appears in the chat picker.
+    ///
+    /// Discovery finds every model an installed runtime can reach, which on a
+    /// developer machine is dozens. Offering all of them made the picker a dump
+    /// of the machine's config; only models the user turned on are offered.
+    pub enabled: bool,
     pub updated_at: String,
     /// Never the credential itself, only whether one is stored.
     pub has_credential: bool,
@@ -277,6 +283,25 @@ pub struct ToolRecord {
     /// Permission claim from the declaration, not a granted right.
     pub permission: String,
     pub source: String,
+}
+
+/// A named binding of one runtime and one model.
+///
+/// The composer offers agents and models; an agent is just a saved pair, so
+/// picking one is the same code path as picking a model with two decisions
+/// already made. The built-in default agent is not stored: it is derived from
+/// whichever model is the catalog's default, so it can never point at a model
+/// that was removed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRecord {
+    pub id: String,
+    pub name: String,
+    pub runtime_id: String,
+    pub model_id: String,
+    /// True for the derived `default` agent, which cannot be edited or removed.
+    pub is_default: bool,
+    pub updated_at: String,
 }
 
 /// One MCP server declaration, with every secret removed.
@@ -327,6 +352,9 @@ pub struct AdapterFailure {
 pub struct CatalogSnapshot {
     pub runtimes: Vec<RuntimeRecord>,
     pub models: Vec<ModelRecord>,
+    /// Saved runtime+model bindings. The default agent is prepended by the
+    /// service, so the list always has exactly one `default`.
+    pub agents: Vec<AgentRecord>,
     pub skills: Vec<SkillRecord>,
     pub tools: Vec<ToolRecord>,
     pub mcp: Vec<McpRecord>,

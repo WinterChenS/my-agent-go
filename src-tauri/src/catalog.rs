@@ -172,6 +172,54 @@ pub async fn catalog_set_default_model(
     })
 }
 
+/// Turn one model on or off for the chat picker.
+///
+/// Discovery reports every model an installed runtime can reach; the picker
+/// offers only the ones the user turned on here.
+#[tauri::command]
+pub async fn catalog_set_model_enabled(
+    state: State<'_, CatalogState>,
+    runtime_id: String,
+    model_id: String,
+    enabled: bool,
+) -> Result<CatalogSnapshot, String> {
+    state.with_service(|service| {
+        service
+            .set_model_enabled(&runtime_id, &model_id, enabled)
+            .map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
+    })
+}
+
+/// Save a runtime+model binding under a name.
+#[tauri::command]
+pub async fn catalog_save_agent(
+    state: State<'_, CatalogState>,
+    id: Option<String>,
+    name: String,
+    runtime_id: String,
+    model_id: String,
+) -> Result<CatalogSnapshot, String> {
+    state.with_service(|service| {
+        service
+            .save_agent(id.as_deref(), &name, &runtime_id, &model_id)
+            .map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
+    })
+}
+
+/// Remove one saved agent. The derived default agent cannot be removed.
+#[tauri::command]
+pub async fn catalog_delete_agent(
+    state: State<'_, CatalogState>,
+    id: String,
+) -> Result<CatalogSnapshot, String> {
+    state.with_service(|service| {
+        service.delete_agent(&id).map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
+    })
+}
+
 /// Connect to one declared MCP server and enumerate its tools.
 #[tauri::command]
 pub async fn catalog_probe_mcp(

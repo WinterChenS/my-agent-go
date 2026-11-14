@@ -92,6 +92,7 @@ impl CodexAdapter {
                 .and_then(|value| value.as_str())
                 .unwrap_or(slug);
             models.push(ModelRecord {
+                enabled: false,
                 runtime_id: "codex".to_string(),
                 model_id: slug.to_string(),
                 display_name: display_name.to_string(),

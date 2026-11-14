@@ -196,6 +196,7 @@ fn model(runtime_id: &str, id: &str) -> ModelRecord {
         verified: false,
         verified_at: None,
         is_default: false,
+        enabled: false,
         updated_at: clock::now_rfc3339(),
         has_credential: false,
     }
@@ -756,4 +757,127 @@ fn snapshot_lists_every_declared_runtime_even_when_nothing_is_installed() {
     assert_eq!(snapshot.runtimes.len(), 1);
     assert_eq!(snapshot.runtimes[0].status, "not_installed");
     assert!(snapshot.runtimes[0].install_path.is_empty());
+}
+
+/// Discovery reports what the machine has; the picker offers what the user
+/// turned on. Without this the chat composer listed every model of every
+/// installed runtime, which is a dump of the machine's config rather than a
+/// choice.
+#[test]
+fn a_discovered_model_stays_out_of_the_picker_until_it_is_enabled() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha"), model("pi", "beta")], &at)
+        .expect("discover");
+
+    let discovered = store.models().expect("models");
+    assert_eq!(discovered.len(), 2);
+    assert!(
+        discovered.iter().all(|row| !row.enabled),
+        "discovery must not turn a model on"
+    );
+
+    store
+        .set_model_enabled("pi", "alpha", true)
+        .expect("enable");
+    let after = store.models().expect("models");
+    let alpha = after
+        .iter()
+        .find(|row| row.model_id == "alpha")
+        .expect("alpha");
+    let beta = after
+        .iter()
+        .find(|row| row.model_id == "beta")
+        .expect("beta");
+    assert!(alpha.enabled);
+    assert!(!beta.enabled);
+
+    let unknown = store
+        .set_model_enabled("pi", "missing", true)
+        .expect_err("unknown model");
+    assert_eq!(unknown.code(), "not_found");
+}
+
+/// An agent is a saved runtime+model pair. The default one is derived from the
+/// default model instead of stored, so it cannot survive the model it names.
+#[test]
+fn an_agent_is_a_saved_binding_and_the_default_one_cannot_be_edited() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .expect("discover");
+
+    let saved = store
+        .save_agent(None, "  代码助手 ", "pi", "alpha", &at)
+        .expect("save");
+    assert!(saved.id.starts_with("agent-"));
+    assert_eq!(saved.name, "代码助手");
+    assert!(!saved.is_default);
+
+    let listed = store.agents().expect("agents");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].runtime_id, "pi");
+
+    let unnamed = store
+        .save_agent(None, "  ", "pi", "alpha", &at)
+        .expect_err("no name");
+    assert_eq!(unnamed.code(), "rejected");
+
+    let default_is_derived = store
+        .save_agent(Some("default"), "x", "pi", "alpha", &at)
+        .expect_err("derived");
+    assert_eq!(default_is_derived.code(), "rejected");
+
+    store.delete_agent(&saved.id).expect("delete");
+    assert!(store.agents().expect("agents").is_empty());
+    let default_removal = store.delete_agent("default").expect_err("derived");
+    assert_eq!(default_removal.code(), "rejected");
+}
+
+/// A fresh catalog must not open chat with a dead composer, and must not offer
+/// every model the machine happens to have. One per runtime, then stop.
+#[test]
+fn the_picker_is_seeded_with_one_model_per_runtime_exactly_once() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha"), model("pi", "beta")], &at)
+        .expect("discover pi");
+    store
+        .replace_models("codex", &[model("codex", "omega")], &at)
+        .expect("discover codex");
+
+    assert!(store.seed_picker_once().expect("seed"));
+    let enabled: Vec<String> = store
+        .models()
+        .expect("models")
+        .into_iter()
+        .filter(|row| row.enabled)
+        .map(|row| format!("{}/{}", row.runtime_id, row.model_id))
+        .collect();
+    assert_eq!(enabled, vec!["codex/omega", "pi/alpha"]);
+
+    // A later rescan that finds more models must not silently enable them.
+    store
+        .replace_models(
+            "pi",
+            &[
+                model("pi", "alpha"),
+                model("pi", "beta"),
+                model("pi", "gamma"),
+            ],
+            &at,
+        )
+        .expect("rediscover");
+    assert!(!store.seed_picker_once().expect("second seed"));
+    let still_on: Vec<String> = store
+        .models()
+        .expect("models")
+        .into_iter()
+        .filter(|row| row.enabled)
+        .map(|row| row.model_id)
+        .collect();
+    assert!(!still_on.contains(&"gamma".to_string()));
 }

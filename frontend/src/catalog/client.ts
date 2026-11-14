@@ -48,8 +48,20 @@ export interface CatalogModel {
   verified: boolean
   verifiedAt: string | null
   isDefault: boolean
+  /** Offered in the chat picker. Discovery leaves this off on purpose. */
+  enabled: boolean
   updatedAt: string
   hasCredential: boolean
+}
+
+/** A saved runtime+model binding; `default` is derived from the default model. */
+export interface CatalogAgent {
+  id: string
+  name: string
+  runtimeId: string
+  modelId: string
+  isDefault: boolean
+  updatedAt: string
 }
 
 export interface CatalogSkill {
@@ -96,6 +108,7 @@ export interface CatalogFailure {
 export interface CatalogSnapshot {
   runtimes: CatalogRuntime[]
   models: CatalogModel[]
+  agents: CatalogAgent[]
   skills: CatalogSkill[]
   tools: unknown[]
   mcp: CatalogMcp[]
@@ -160,6 +173,32 @@ export function verifyCatalogModel(runtimeId: string, modelId: string): Promise<
 
 export function setDefaultCatalogModel(runtimeId: string, modelId: string): Promise<CatalogSnapshot> {
   return hostCall<CatalogSnapshot>('catalog_set_default_model', { runtimeId, modelId })
+}
+
+export function setCatalogModelEnabled(
+  runtimeId: string,
+  modelId: string,
+  enabled: boolean,
+): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_set_model_enabled', { runtimeId, modelId, enabled })
+}
+
+export function saveCatalogAgent(input: {
+  id?: string
+  name: string
+  runtimeId: string
+  modelId: string
+}): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_save_agent', {
+    id: input.id,
+    name: input.name,
+    runtimeId: input.runtimeId,
+    modelId: input.modelId,
+  })
+}
+
+export function deleteCatalogAgent(id: string): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_delete_agent', { id })
 }
 
 export function probeCatalogMcp(runtimeId: string, name: string): Promise<McpProbeResult> {

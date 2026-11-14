@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useChatSession, type LiveTool, type ModelChoice, type TurnFailure } from '../../chat/useChatSession'
+import {
+  useChatSession,
+  type AgentChoice,
+  type LiveTool,
+  type ModelChoice,
+  type TurnFailure,
+} from '../../chat/useChatSession'
 import { useI18n } from '../../i18n/LanguageProvider'
 import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
@@ -34,7 +40,11 @@ type Attachment = {
 interface LiveComposer {
   models: ModelChoice[]
   model: ModelChoice | null
+  /** Saved runtime+model bindings; the first entry is the derived default. */
+  agents: AgentChoice[]
   onModel: (choice: ModelChoice) => void
+  /** Save the model in the composer under a name; resolves to its id. */
+  onSaveAgent: (name: string) => Promise<string | null>
   onSend: (text: string, context: ContextRef[]) => void
   onStop: () => void
   /** Re-scan the machine for models. */
@@ -399,12 +409,17 @@ export default function ChatPage() {
                 <p>{t('chat.live.error', { message: live.error ?? '' })}</p>
               </div>
             ) : live.status === 'ready' && live.models.length === 0 ? (
+              // A ready page with no model is not "connecting": the scan has
+              // finished and nothing is enabled. Saying otherwise leaves the
+              // reader watching a spinner that will never end.
               <div className="chat-empty" data-testid="chat-connecting" role="status">
                 <span className="chat-empty-icon">
-                  <Icon name="refresh" size={22} />
+                  <Icon name="brain" size={22} />
                 </span>
-                <h2>{t('chat.live.connecting')}</h2>
-                <p>{t('chat.live.loading')}</p>
+                <h2>{t('chat.live.noModel')}</h2>
+                <Link to="/settings" className="chat-btn chat-btn-sm">
+                  {t('chat.live.openSettings')}
+                </Link>
               </div>
             ) : live.status === 'unavailable' ? (
               <div className="chat-empty" data-testid="chat-empty" role="status">
@@ -493,7 +508,9 @@ export default function ChatPage() {
                 ? {
                     models: live.models,
                     model: live.model,
+                    agents: live.agents,
                     onModel: live.chooseModel,
+                    onSaveAgent: live.saveAgent,
                     onSend: sendLive,
                     onStop: stopLive,
                     onSync: () => void live.syncModels(),
@@ -873,6 +890,10 @@ function Composer({
   const enabled = sample || live !== null
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
   const [mentionHits, setMentionHits] = useState<ContextEntry[]>([])
+  // Which agent the picker shows. Choosing a model clears it: the control's
+  // value has to be one of its own options, and the two groups overlap in the
+  // runtime+model they name.
+  const [pickedAgent, setPickedAgent] = useState('')
 
   // The references the user actually attached become the turn's context. Sample
   // rows have no path, so they never reach the host.
@@ -1093,27 +1114,83 @@ function Composer({
               aria-label={t('chat.composer.model')}
               data-testid="chat-model-select"
               disabled={!enabled}
-              value={sample ? undefined : selectedModel}
+              value={sample ? undefined : pickedAgent ? `agent:${pickedAgent}` : selectedModel}
               onChange={(event) => {
-                const choice = live?.models.find((item) => modelKey(item) === event.target.value)
+                const value = event.target.value
+                if (value.startsWith('agent:')) {
+                  const agent = live?.agents.find((item) => item.id === value.slice(6))
+                  if (!agent) return
+                  setPickedAgent(agent.id)
+                  const choice = live?.models.find(
+                    (item) => item.runtimeId === agent.runtimeId && item.modelId === agent.modelId,
+                  )
+                  if (choice) live?.onModel(choice)
+                  return
+                }
+                setPickedAgent('')
+                const choice = live?.models.find((item) => modelKey(item) === value)
                 if (choice) live?.onModel(choice)
               }}
             >
               {sample ? (
                 <option>{sampleChat.model}</option>
               ) : live && live.models.length > 0 ? (
-                live.models.map((choice) => (
-                  // The id is what the runtime is actually asked for, so it is
-                  // what the composer shows; the display name is the tooltip.
-                  <option key={modelKey(choice)} value={modelKey(choice)} title={choice.displayName}>
-                    {choice.runtimeId} · {choice.modelId}
-                  </option>
-                ))
+                <>
+                  {/* An agent is a saved runtime+model pair; a model is the
+                      pair chosen on the spot. Both end in the same place. */}
+                  {live.agents.length > 0 ? (
+                    <optgroup label={t('chat.composer.agents')}>
+                      {live.agents.map((agent) => (
+                        <option
+                          key={agent.id}
+                          value={`agent:${agent.id}`}
+                          title={`${agent.runtimeId} · ${agent.modelId}`}
+                        >
+                          {agent.isDefault ? t('chat.composer.defaultAgent') : agent.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  <optgroup label={t('chat.composer.models')}>
+                    {live.models.map((choice) => (
+                      // The id is what the runtime is actually asked for, so it
+                      // is what the composer shows; the display name is the
+                      // tooltip.
+                      <option
+                        key={modelKey(choice)}
+                        value={modelKey(choice)}
+                        title={choice.displayName}
+                      >
+                        {choice.runtimeId} · {choice.modelId}
+                      </option>
+                    ))}
+                  </optgroup>
+                </>
               ) : (
                 <option>{live ? t('chat.live.noModel') : t('chat.composer.normalPlaceholder')}</option>
               )}
             </select>
           </label>
+          {live ? (
+            <button
+              type="button"
+              className="chat-ctl chat-ctl-action"
+              data-testid="chat-save-agent"
+              title={t('chat.composer.saveAgent')}
+              disabled={!live.model || live.running}
+              onClick={() => {
+                if (typeof window.prompt !== 'function') return
+                const name = window.prompt(t('chat.composer.saveAgentPrompt'), live.model?.modelId ?? '')
+                if (!name || !name.trim()) return
+                void live.onSaveAgent(name.trim()).then((id) => {
+                  if (id) setPickedAgent(id)
+                })
+              }}
+            >
+              <Icon name="plus" size={12} />
+              <span>{t('chat.composer.saveAgentShort')}</span>
+            </button>
+          ) : null}
           {live ? (
             <SyncButton
               label={t('chat.live.syncModels')}
@@ -1273,10 +1350,9 @@ function LiveTurnTimeline({
   }
   for (const event of events) {
     switch (event.kind) {
-      case 'session_started':
-      case 'turn_started':
-        add('start', t('chat.live.stageStart'))
-        break
+      // `session_started` / `turn_started` carry no information the reader does
+      // not already have ("you pressed send"), so the timeline starts at the
+      // first thing that actually happened.
       case 'context_attached': {
         const refs = event.payload.refs
         add('context', t('chat.live.stageContext', { count: Array.isArray(refs) ? refs.length : 0 }))

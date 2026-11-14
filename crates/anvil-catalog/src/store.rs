@@ -18,12 +18,16 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
 use crate::model::{
-    AdapterFailure, Capabilities, CatalogSnapshot, InventoryKind, McpRecord, ModelRecord,
-    RuntimeHealth, RuntimeRecord, RuntimeRegistration, RuntimeStatus, SkillRecord, SyncOutcome,
-    ToolRecord,
+    AdapterFailure, AgentRecord, Capabilities, CatalogSnapshot, InventoryKind, McpRecord,
+    ModelRecord, RuntimeHealth, RuntimeRecord, RuntimeRegistration, RuntimeStatus, SkillRecord,
+    SyncOutcome, ToolRecord,
 };
 
 const SCHEMA_VERSION: i64 = 1;
+
+/// Id of the agent derived from the catalog's default model. It has no row: the
+/// service synthesises it, so it can never point at a model that is gone.
+pub const DEFAULT_AGENT_ID: &str = "default";
 
 /// Handle to `<data dir>/catalog.sqlite`.
 pub struct Store {
@@ -97,8 +101,16 @@ impl Store {
                 verified INTEGER NOT NULL DEFAULT 0,
                 verified_at TEXT,
                 is_default INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (runtime_id, model_id)
+            );
+            CREATE TABLE IF NOT EXISTS agents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                runtime_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS skills (
                 runtime_id TEXT NOT NULL,
@@ -141,11 +153,37 @@ impl Store {
             );
             "#,
         )?;
+        // `CREATE TABLE IF NOT EXISTS` never adds a column to a database that
+        // already exists, and the catalog has lived on user machines since G1.
+        self.add_column_if_missing("models", "enabled", "INTEGER NOT NULL DEFAULT 0")?;
+        // Upgrading must not leave the chat page with nothing to pick: the model
+        // that was already the default stays enabled.
+        self.connection.execute(
+            "UPDATE models SET enabled = 1 WHERE is_default = 1 AND enabled = 0",
+            [],
+        )?;
         self.connection.execute(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![SCHEMA_VERSION.to_string()],
         )?;
+        Ok(())
+    }
+
+    /// Add one column when an older database predates it.
+    fn add_column_if_missing(&self, table: &str, column: &str, ddl: &str) -> Result<()> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("PRAGMA table_info({table})"))?;
+        let present = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == column);
+        if !present {
+            self.connection
+                .execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {ddl}"))?;
+        }
         Ok(())
     }
 
@@ -245,8 +283,8 @@ impl Store {
             let mut insert = transaction.prepare(
                 "INSERT INTO models (
                     runtime_id, model_id, display_name, origin, protocol, endpoint,
-                    credential_ref, verified, verified_at, is_default, updated_at
-                 ) VALUES (?1, ?2, ?3, 'discovered', ?4, NULL, NULL, 0, NULL, 0, ?5)
+                    credential_ref, verified, verified_at, is_default, enabled, updated_at
+                 ) VALUES (?1, ?2, ?3, 'discovered', ?4, NULL, NULL, 0, NULL, 0, 0, ?5)
                  ON CONFLICT(runtime_id, model_id) DO UPDATE SET
                     display_name = excluded.display_name,
                     updated_at = excluded.updated_at",
@@ -466,7 +504,7 @@ impl Store {
     pub fn models(&self) -> Result<Vec<ModelRecord>> {
         let mut statement = self.connection.prepare(
             "SELECT runtime_id, model_id, display_name, origin, protocol, endpoint,
-                    verified, verified_at, is_default, updated_at, credential_ref
+                    verified, verified_at, is_default, updated_at, credential_ref, enabled
              FROM models ORDER BY runtime_id, is_default DESC, model_id",
         )?;
         let rows = statement.query_map([], |row| {
@@ -483,9 +521,143 @@ impl Store {
                 is_default: row.get::<_, i64>(8)? == 1,
                 updated_at: row.get(9)?,
                 has_credential: credential.is_some(),
+                enabled: row.get::<_, i64>(11)? == 1,
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Seed the chat picker on a catalog that has never had one.
+    ///
+    /// Discovery reports every model a runtime can reach, which is the wrong
+    /// list for a picker. It is also wrong to offer nothing: a fresh install
+    /// would open chat with a dead composer and no clue. So exactly one model
+    /// per runtime is turned on, once; everything else waits for the user.
+    pub fn seed_picker_once(&mut self) -> Result<bool> {
+        let seeded: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'picker_seeded'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if seeded.is_some() {
+            return Ok(false);
+        }
+        let enabled: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM models WHERE enabled = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        if enabled == 0 {
+            self.connection.execute(
+                "UPDATE models SET enabled = 1 WHERE (runtime_id, model_id) IN (
+                    SELECT runtime_id, MIN(model_id) FROM models GROUP BY runtime_id
+                 )",
+                [],
+            )?;
+        }
+        self.connection.execute(
+            "INSERT INTO meta (key, value) VALUES ('picker_seeded', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![crate::clock::now_rfc3339()],
+        )?;
+        Ok(true)
+    }
+
+    /// Turn one model on or off for the chat picker.
+    pub fn set_model_enabled(&self, runtime_id: &str, model_id: &str, enabled: bool) -> Result<()> {
+        let changed = self.connection.execute(
+            "UPDATE models SET enabled = ?3 WHERE runtime_id = ?1 AND model_id = ?2",
+            params![runtime_id, model_id, i64::from(enabled)],
+        )?;
+        if changed == 0 {
+            return Err(crate::error::Error::NotFound(format!(
+                "model {runtime_id}/{model_id} is not in the catalog"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Saved runtime+model bindings, newest first.
+    pub fn agents(&self) -> Result<Vec<AgentRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, runtime_id, model_id, updated_at
+             FROM agents ORDER BY name, id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(AgentRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                runtime_id: row.get(2)?,
+                model_id: row.get(3)?,
+                is_default: false,
+                updated_at: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Create or rename one agent binding. `id` empty means "new".
+    pub fn save_agent(
+        &self,
+        id: Option<&str>,
+        name: &str,
+        runtime_id: &str,
+        model_id: &str,
+        now: &str,
+    ) -> Result<AgentRecord> {
+        if name.trim().is_empty() {
+            return Err(Error::Rejected("an agent needs a name".to_string()));
+        }
+        let id = match id.filter(|value| !value.trim().is_empty()) {
+            Some(value) => {
+                if value == DEFAULT_AGENT_ID {
+                    return Err(Error::Rejected(
+                        "the default agent is derived from the default model".to_string(),
+                    ));
+                }
+                value.to_string()
+            }
+            None => format!("agent-{}", crate::clock::unix_now()),
+        };
+        self.connection.execute(
+            "INSERT INTO agents (id, name, runtime_id, model_id, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                runtime_id = excluded.runtime_id,
+                model_id = excluded.model_id,
+                updated_at = excluded.updated_at",
+            params![id, name.trim(), runtime_id, model_id, now],
+        )?;
+        Ok(AgentRecord {
+            id,
+            name: name.trim().to_string(),
+            runtime_id: runtime_id.to_string(),
+            model_id: model_id.to_string(),
+            is_default: false,
+            updated_at: now.to_string(),
+        })
+    }
+
+    /// Remove one saved agent. The derived default cannot be removed.
+    pub fn delete_agent(&self, id: &str) -> Result<()> {
+        if id == DEFAULT_AGENT_ID {
+            return Err(Error::Rejected(
+                "the default agent cannot be removed".to_string(),
+            ));
+        }
+        let changed = self
+            .connection
+            .execute("DELETE FROM agents WHERE id = ?1", params![id])?;
+        if changed == 0 {
+            return Err(crate::error::Error::NotFound(format!(
+                "agent {id} does not exist"
+            )));
+        }
+        Ok(())
     }
 
     pub fn skills(&self) -> Result<Vec<SkillRecord>> {
@@ -609,8 +781,8 @@ impl Store {
         self.connection.execute(
             "INSERT INTO models (
                 runtime_id, model_id, display_name, origin, protocol, endpoint,
-                credential_ref, verified, verified_at, is_default, updated_at
-             ) VALUES (?1, ?2, ?3, 'custom', ?4, ?5, ?6, 0, NULL, 0, ?7)
+                credential_ref, verified, verified_at, is_default, enabled, updated_at
+             ) VALUES (?1, ?2, ?3, 'custom', ?4, ?5, ?6, 0, NULL, 0, 1, ?7)
              ON CONFLICT(runtime_id, model_id) DO UPDATE SET
                 display_name = excluded.display_name,
                 origin = 'custom',
@@ -619,6 +791,7 @@ impl Store {
                 credential_ref = excluded.credential_ref,
                 verified = 0,
                 verified_at = NULL,
+                enabled = 1,
                 updated_at = excluded.updated_at",
             params![
                 model.runtime_id,
@@ -686,7 +859,9 @@ impl Store {
         let transaction = self.connection.transaction()?;
         transaction.execute("UPDATE models SET is_default = 0 WHERE is_default = 1", [])?;
         transaction.execute(
-            "UPDATE models SET is_default = 1 WHERE runtime_id = ?1 AND model_id = ?2",
+            // The default model is the one guaranteed entry in the chat picker,
+            // so promoting it turns it on as well.
+            "UPDATE models SET is_default = 1, enabled = 1 WHERE runtime_id = ?1 AND model_id = ?2",
             params![runtime_id, model_id],
         )?;
         transaction.commit()?;
@@ -773,6 +948,7 @@ impl Store {
         Ok(CatalogSnapshot {
             runtimes: self.runtimes()?,
             models: self.models()?,
+            agents: self.agents()?,
             skills: self.skills()?,
             tools: self.tools()?,
             mcp: self.mcp()?,

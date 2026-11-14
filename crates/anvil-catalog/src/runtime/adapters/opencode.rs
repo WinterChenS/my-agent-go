@@ -99,6 +99,7 @@ impl OpenCodeAdapter {
                     .and_then(|value| value.as_str())
                     .unwrap_or(model_id);
                 models.push(ModelRecord {
+                    enabled: false,
                     runtime_id: "opencode".to_string(),
                     model_id: model_id.clone(),
                     display_name: display_name.to_string(),

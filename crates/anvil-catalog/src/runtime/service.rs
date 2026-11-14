@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::ids;
 use crate::model::{
-    AdapterFailure, Capabilities, CapabilityState, CatalogSnapshot, InventoryKind,
+    AdapterFailure, AgentRecord, Capabilities, CapabilityState, CatalogSnapshot, InventoryKind,
     RuntimeCandidate, RuntimeHealth, RuntimeRegistration, RuntimeStatus, SyncOutcome,
 };
 use crate::runtime::adapter::{
@@ -276,7 +276,11 @@ impl CatalogService {
     fn persist(&mut self, runtime_id: &str, inventory: Inventory) -> Result<()> {
         let now = clock::now_rfc3339();
         match inventory {
-            Inventory::Models(items) => self.store.replace_models(runtime_id, &items, &now),
+            Inventory::Models(items) => {
+                self.store.replace_models(runtime_id, &items, &now)?;
+                self.store.seed_picker_once()?;
+                Ok(())
+            }
             Inventory::Skills(items) => self.store.replace_skills(runtime_id, &items, &now),
             Inventory::Tools(items) => self.store.replace_tools(runtime_id, &items, &now),
             Inventory::Mcp(items) => self.store.replace_mcp(runtime_id, &items, &now),
@@ -303,7 +307,49 @@ impl CatalogService {
                 runtime.status = RuntimeStatus::Orphaned.as_str().to_string();
             }
         }
+        // The system always has one agent. It is derived from the default model
+        // rather than stored, so it cannot outlive the model it points at.
+        if let Some(model) = snapshot.models.iter().find(|model| model.is_default) {
+            snapshot.agents.insert(
+                0,
+                AgentRecord {
+                    id: crate::store::DEFAULT_AGENT_ID.to_string(),
+                    name: "Default Agent".to_string(),
+                    runtime_id: model.runtime_id.clone(),
+                    model_id: model.model_id.clone(),
+                    is_default: true,
+                    updated_at: model.updated_at.clone(),
+                },
+            );
+        }
         Ok(snapshot)
+    }
+
+    /// Turn one model on or off for the chat picker.
+    pub fn set_model_enabled(
+        &mut self,
+        runtime_id: &str,
+        model_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        self.store.set_model_enabled(runtime_id, model_id, enabled)
+    }
+
+    /// Create or rename one agent binding.
+    pub fn save_agent(
+        &mut self,
+        id: Option<&str>,
+        name: &str,
+        runtime_id: &str,
+        model_id: &str,
+    ) -> Result<AgentRecord> {
+        let now = clock::now_rfc3339();
+        self.store.save_agent(id, name, runtime_id, model_id, &now)
+    }
+
+    /// Remove one saved agent binding.
+    pub fn delete_agent(&mut self, id: &str) -> Result<()> {
+        self.store.delete_agent(id)
     }
 
     /// Capability matrix of one runtime, for the UI and for guard checks.

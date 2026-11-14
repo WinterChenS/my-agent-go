@@ -6,6 +6,7 @@ import {
   addCustomModel,
   loadCatalog,
   probeCatalogMcp,
+  setCatalogModelEnabled,
   setDefaultCatalogModel,
   verifyCatalogModel,
   type CatalogModel,
@@ -220,6 +221,28 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
     }
   }
 
+  const toggleEnabled = async (model: CatalogModel) => {
+    setBusy(`enable:${model.runtimeId}:${model.modelId}`)
+    setNotice('')
+    try {
+      const snapshot = await setCatalogModelEnabled(
+        model.runtimeId,
+        model.modelId,
+        !model.enabled,
+      )
+      view.apply(snapshot)
+      setNotice(
+        model.enabled
+          ? t('catalog.models.disabledNotice', { model: model.modelId })
+          : t('catalog.models.enabledNotice', { model: model.modelId }),
+      )
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="cat-panel" data-testid="catalog-models">
       <div className="cat-panel-head">
@@ -360,9 +383,22 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
                       ) : (
                         <span className="cat-badge"><i />{t('catalog.models.unverified')}</span>
                       )}
+                      {model.enabled && (
+                        <span className="cat-badge is-success"><i />{t('catalog.models.inPicker')}</span>
+                      )}
                       {model.hasCredential && <span className="cat-sub">{t('catalog.models.hasCredential')}</span>}
                     </td>
                     <td className="cat-num">
+                      <button
+                        type="button"
+                        className="cat-btn"
+                        data-testid={`catalog-enable-${key}`}
+                        aria-pressed={model.enabled}
+                        disabled={busy.startsWith('enable:')}
+                        onClick={() => void toggleEnabled(model)}
+                      >
+                        {model.enabled ? t('catalog.models.disable') : t('catalog.models.enable')}
+                      </button>
                       <button
                         type="button"
                         className="cat-btn"

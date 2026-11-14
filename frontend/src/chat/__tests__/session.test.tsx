@@ -153,8 +153,23 @@ function catalogSnapshot(withExtra: boolean) {
       verified: true,
       verifiedAt: '2026-11-13T00:00:00Z',
       isDefault: true,
+      enabled: true,
       updatedAt: '2026-11-13T00:00:00Z',
       hasCredential: true,
+    },
+    {
+      runtimeId: 'pi',
+      modelId: 'auto/still-off',
+      displayName: 'Never enabled',
+      origin: 'discovered',
+      protocol: 'openai',
+      endpoint: null as unknown as string,
+      verified: false,
+      verifiedAt: null as unknown as string,
+      isDefault: false,
+      enabled: false,
+      updatedAt: '2026-11-13T00:00:00Z',
+      hasCredential: false,
     },
   ]
   if (withExtra) {
@@ -168,11 +183,22 @@ function catalogSnapshot(withExtra: boolean) {
       verified: false,
       verifiedAt: null as unknown as string,
       isDefault: false,
+      enabled: true,
       updatedAt: '2026-11-13T00:00:00Z',
       hasCredential: false,
     })
   }
   return {
+    agents: [
+      {
+        id: 'default',
+        name: 'Default Agent',
+        runtimeId: 'pi',
+        modelId: 'auto/gpt-5.6-sol',
+        isDefault: true,
+        updatedAt: '2026-11-13T00:00:00Z',
+      },
+    ],
     runtimes: [
       {
         id: 'pi:1',
@@ -313,6 +339,27 @@ describe('chat live session', () => {
     await waitFor(() => expect(host.calls).toContain('catalog_refresh'))
     // The picker is rebuilt from the rescan, not from the startup snapshot.
     await waitFor(() => expect(picker()).toHaveTextContent('auto/glm-5.3-flash'))
+  })
+
+  it('offers only enabled models, grouped with the agents that bind them', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const picker = () => screen.getByTestId('chat-model-select')
+    await waitFor(() => expect(picker()).not.toBeDisabled())
+
+    // The default agent is derived from the default model, so it is always
+    // there and always first.
+    expect(picker()).toHaveTextContent('默认 Agent')
+    expect(picker()).toHaveTextContent('pi · auto/gpt-5.6-sol')
+
+    // A model the user never turned on stays out of the picker: discovery
+    // reports the machine, not the choice.
+    expect(picker()).not.toHaveTextContent('auto/still-off')
   })
 
   it('sends a real turn through the host and renders the stored reply', async () => {

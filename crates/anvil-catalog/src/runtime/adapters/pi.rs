@@ -94,6 +94,7 @@ impl PiAdapter {
                     .or(provider_api)
                     .map(str::to_string);
                 models.push(ModelRecord {
+                    enabled: false,
                     runtime_id: "pi".to_string(),
                     model_id: model_id.to_string(),
                     display_name: display_name.to_string(),
