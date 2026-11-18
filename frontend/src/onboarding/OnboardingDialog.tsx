@@ -53,7 +53,10 @@ import { isTauriHost } from '../host/tauri'
 import './onboarding.css'
 
 /** Runtimes shown first, in this order; anything else is appended. */
-const PREFERRED_ORDER = ['pi', 'codex', 'opencode']
+// Only pi is wired in this build (see anvil-catalog adapters::PARKED), so this
+// is a one-entry list. Keeping the mechanism — instead of hardcoding pi — means
+// switching another adapter back on needs no edit here.
+const PREFERRED_ORDER = ['pi']
 /** The one that is on by default, when it is actually installed. */
 const DEFAULT_RUNTIME = 'pi'
 

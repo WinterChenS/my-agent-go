@@ -271,23 +271,37 @@ impl Drop for TempHome {
     }
 }
 
-fn service(home: &TempHome, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> CatalogService {
+fn registry_of(adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Registry {
     let mut registry = Registry::new();
     for adapter in adapters {
         registry.register(adapter).expect("register");
     }
+    registry
+}
+
+fn short_timeouts() -> Timeouts {
+    Timeouts {
+        discovery: Duration::from_secs(2),
+        probe: Duration::from_secs(2),
+        sync: Duration::from_secs(2),
+    }
+}
+
+fn service(home: &TempHome, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> CatalogService {
     let store = Store::open_in_memory().expect("store");
-    CatalogService::with_registry(
-        store,
-        home.path(),
-        registry,
-        Timeouts {
-            discovery: Duration::from_secs(2),
-            probe: Duration::from_secs(2),
-            sync: Duration::from_secs(2),
-        },
-    )
-    .expect("service")
+    CatalogService::with_registry(store, home.path(), registry_of(adapters), short_timeouts())
+        .expect("service")
+}
+
+/// A service on a database file, so two "builds" can share one catalog.
+fn service_on(
+    database: &Path,
+    home: &TempHome,
+    adapters: Vec<Arc<dyn RuntimeAdapter>>,
+) -> CatalogService {
+    let store = Store::open(database).expect("store");
+    CatalogService::with_registry(store, home.path(), registry_of(adapters), short_timeouts())
+        .expect("service")
 }
 
 #[test]
@@ -515,6 +529,68 @@ fn setup_done_is_remembered_in_the_store() {
         .mark_setup_complete(&clock::now_rfc3339())
         .expect("write");
     assert!(store.setup_complete().expect("read"));
+}
+
+#[test]
+fn a_parked_adapter_disappears_from_the_catalog() {
+    // Two "builds" over one database: the first registers both adapters, the
+    // second only one. The parked runtime's rows must be gone — from the read
+    // path immediately, from the database after a scan — while the wired one
+    // keeps everything.
+    let home = TempHome::new("parked");
+    let database = home.path().join("catalog.sqlite");
+    let executable = home.touch("bin/scripted.exe");
+    let adapter = |id: &str| {
+        Arc::new(
+            ScriptedAdapter::new(id)
+                .discover_at(vec![executable.clone()])
+                .with_sync(
+                    InventoryKind::Models,
+                    SyncAnswer::Items(vec!["m-1".into()]),
+                ),
+        ) as Arc<dyn RuntimeAdapter>
+    };
+
+    {
+        let mut service = service_on(
+            &database,
+            &home,
+            vec![adapter("wired"), adapter("parked")],
+        );
+        service.scan().expect("scan");
+        service.sync_models("wired").expect("wired models");
+        service.sync_models("parked").expect("parked models");
+        let snapshot = service.snapshot().expect("snapshot");
+        assert!(snapshot.models.iter().any(|model| model.runtime_id == "parked"));
+    }
+
+    // Read path: parked rows are filtered out before the first scan has run.
+    let mut service = service_on(&database, &home, vec![adapter("wired")]);
+    let before = service.snapshot().expect("snapshot");
+    assert!(
+        before.runtimes.iter().all(|row| row.runtime_id == "wired"),
+        "a parked runtime must not be listed: {:?}",
+        before.runtimes.iter().map(|row| &row.runtime_id).collect::<Vec<_>>()
+    );
+    assert!(before.models.iter().all(|row| row.runtime_id == "wired"));
+
+    // Data path: the scan removes them, so nothing (agents included) can point
+    // at a runtime this build cannot start.
+    service.scan().expect("scan");
+    let after = service.snapshot().expect("snapshot");
+    assert_eq!(
+        after.runtimes.iter().map(|row| row.runtime_id.as_str()).collect::<Vec<_>>(),
+        vec!["wired"]
+    );
+    assert_eq!(
+        after.models.iter().map(|row| row.model_id.as_str()).collect::<Vec<_>>(),
+        vec!["m-1"]
+    );
+    let agents = &after.agents;
+    assert!(agents.iter().any(|agent| agent.is_default));
+    for agent in agents {
+        assert_ne!(agent.runtime_id, "parked");
+    }
 }
 
 #[test]

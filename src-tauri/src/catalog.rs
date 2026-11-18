@@ -428,6 +428,17 @@ pub async fn runtime_install(
     state: State<'_, CatalogState>,
     runtime_id: String,
 ) -> Result<RuntimeInstallResult, String> {
+    // Only a runtime this build registers is installable from here. A parked
+    // adapter's CLI would download, never appear in the catalog, and turn the
+    // button into a lie.
+    state.with_service(|service| {
+        if service.registry().contains(&runtime_id) {
+            Ok(())
+        } else {
+            Err(format!("{runtime_id} 未接入当前版本（本版本只接入 pi）"))
+        }
+    })?;
+
     let target = runtime_id.clone();
     let report = tauri::async_runtime::spawn_blocking(move || crate::runtimes::install(&target))
         .await

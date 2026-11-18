@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
@@ -326,6 +326,58 @@ impl Store {
         transaction.commit()?;
         let _ = scanned_at;
         Ok(())
+    }
+
+    /// Drop every row belonging to a runtime this build has no adapter for.
+    ///
+    /// A parked adapter (see `adapters::PARKED`) must not leave rows behind.
+    /// They are not harmless: the runtime list would offer a runtime nothing can
+    /// start, `pickModel` could hand the default agent a model that is no longer
+    /// reachable, and the settings page would show a "一键安装" for a runtime this
+    /// build cannot use even after installing it.
+    ///
+    /// Everything removed here is discovery output, and it is rebuilt the next
+    /// time the adapter is registered again. Credentials live in their own table
+    /// and are deliberately left alone.
+    ///
+    /// An empty `keep` is a registry that failed to build, not a statement about
+    /// the build; nothing is touched.
+    pub fn forget_unregistered(&mut self, keep: &[&str]) -> Result<usize> {
+        if keep.is_empty() {
+            return Ok(0);
+        }
+        let names: Vec<rusqlite::types::Value> = keep
+            .iter()
+            .map(|id| rusqlite::types::Value::Text((*id).to_string()))
+            .collect();
+        let placeholders = (0..names.len())
+            .map(|index| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+        let transaction = self.connection.transaction()?;
+        let mut removed = 0;
+        for table in ["syncs", "models", "skills", "tools", "mcp"] {
+            removed += transaction.execute(
+                &format!("DELETE FROM {table} WHERE runtime_id NOT IN ({placeholders})"),
+                params_from_iter(names.clone()),
+            )?;
+        }
+        removed += transaction.execute(
+            &format!("DELETE FROM runtimes WHERE runtime_id NOT IN ({placeholders})"),
+            params_from_iter(names.clone()),
+        )?;
+        // A saved agent bound to a runtime that no longer exists would look
+        // saved and then fail on its first turn. Blank the binding and keep the
+        // persona; the next snapshot repairs the default one from what is left.
+        transaction.execute(
+            &format!(
+                "UPDATE agents SET runtime_id = '', model_id = ''
+                  WHERE runtime_id NOT IN ({placeholders})"
+            ),
+            params_from_iter(names),
+        )?;
+        transaction.commit()?;
+        Ok(removed)
     }
 
     /// Replace one runtime's discovered models. Custom rows are kept.

@@ -38,6 +38,13 @@ pub struct Spec {
     pub binary: &'static str,
 }
 
+/// The npm catalogue, not the list of runtimes this build drives.
+///
+/// Whether an id is *wired* is decided by the catalog's adapter registry
+/// (`anvil_catalog::runtime::adapters::default_registry`), and `runtime_install`
+/// refuses anything that is not registered there. Right now that is pi only, so
+/// the other three entries are here for the day their adapter is switched back
+/// on — the package names and shims stay correct in the meantime.
 pub const SPECS: [Spec; 4] = [
     Spec {
         id: "pi",

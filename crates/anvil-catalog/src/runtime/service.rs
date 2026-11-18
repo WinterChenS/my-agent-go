@@ -204,9 +204,15 @@ impl CatalogService {
             }
         }
 
+        // Rows an older build wrote for a runtime this one does not register are
+        // dropped before the new rows land. The set is the *adapter* set, not the
+        // scan result: an adapter that merely failed to spawn keeps its rows, and
+        // a parked one loses them.
+        let registered = self.registry.ids();
+        let registered_refs: Vec<&str> = registered.iter().map(String::as_str).collect();
+        self.store.forget_unregistered(&registered_refs)?;
         self.store
-            .apply_scan(&registrations, &scanned_ids, &scanned_at)?;
-        self.failures = failures.clone();
+            .apply_scan(&registrations, &scanned_ids, &scanned_at)?;        self.failures = failures.clone();
         self.scanned_at = Some(scanned_at.clone());
         Ok(ScanSummary {
             registrations: registrations.len(),
@@ -500,6 +506,10 @@ impl CatalogService {
             .store
             .snapshot(self.failures.clone(), self.scanned_at.clone())?;
         snapshot.scanning = self.scanning.load(Ordering::SeqCst);
+        // Parked adapters are not part of this build's surface. Their rows leave
+        // the database on the first scan; this also covers the window before it,
+        // when the snapshot is still read from a file an older build wrote.
+        self.retain_registered(&mut snapshot);
         for runtime in &mut snapshot.runtimes {
             runtime.adapter_registered = self.registry.contains(&runtime.runtime_id);
             if !runtime.adapter_registered && runtime.status != RuntimeStatus::NotInstalled.as_str()
@@ -508,6 +518,26 @@ impl CatalogService {
             }
         }
         Ok(snapshot)
+    }
+
+    /// Keep only the rows of runtimes this build registers.
+    ///
+    /// Runtimes are not interchangeable: a parked adapter's models must not be
+    /// offered to the picker, its skills must not be listed, and its sync state
+    /// must not show up as a problem the user can act on.
+    fn retain_registered(&self, snapshot: &mut CatalogSnapshot) {
+        let registered = |runtime_id: &str| self.registry.contains(runtime_id);
+        snapshot.runtimes.retain(|row| registered(&row.runtime_id));
+        snapshot.models.retain(|row| registered(&row.runtime_id));
+        snapshot.skills.retain(|row| registered(&row.runtime_id));
+        snapshot.tools.retain(|row| registered(&row.runtime_id));
+        snapshot.mcp.retain(|row| registered(&row.runtime_id));
+        snapshot.syncs.retain(|row| registered(&row.runtime_id));
+        // Failures about opening the database or parsing a config belong to the
+        // catalog itself, not to a runtime.
+        snapshot
+            .adapter_failures
+            .retain(|row| registered(&row.runtime_id) || row.runtime_id == "catalog");
     }
 
     /// Turn one model on or off for the chat picker.
