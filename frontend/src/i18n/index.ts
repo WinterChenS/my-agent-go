@@ -10,7 +10,6 @@ export {
 } from './catalogue'
 export { LanguageProvider, useI18n, type LanguageNotice } from './LanguageProvider'
 export { default as LanguageSettings } from './LanguageSettings'
-export { default as LanguageQuickSwitch } from './LanguageQuickSwitch'
 export {
   browserLanguageEnvironment,
   hostLanguageEnvironment,

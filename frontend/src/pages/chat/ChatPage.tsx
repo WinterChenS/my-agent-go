@@ -21,7 +21,6 @@ import {
 } from '../../chat/useChatSession'
 import { turnUsage, type TurnUsage } from '../../chat/usage'
 import { useI18n } from '../../i18n/LanguageProvider'
-import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
@@ -757,7 +756,9 @@ export default function ChatPage() {
               </span>
             </>
           ) : null}
-          <LanguageQuickSwitch />
+          {/* No language switch here: the UI follows the system locale and the
+              choice lives in 设置 → 语言. A one-click toggle in the page header
+              was easy to hit by accident and made the header look like a demo. */}
           {/* Exporting needs a real conversation: the prototype still opens the
               dialog, and the live page writes the file through the host. */}
           <button

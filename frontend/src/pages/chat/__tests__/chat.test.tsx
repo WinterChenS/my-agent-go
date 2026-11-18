@@ -321,10 +321,12 @@ describe('chat sample entry', () => {
 })
 
 describe('chat i18n', () => {
-  it('switches the normal entry to English without Chinese UI copy', async () => {
-    const user = userEvent.setup()
+  it('renders the normal entry in English when the machine is English', async () => {
+    // The header no longer carries a language button: the UI follows the system
+    // locale, and a saved choice comes from 设置 → 语言.
+    window.localStorage.setItem('anvil.language.chosen', '1')
+    window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/chat')
-    await user.click(screen.getByRole('button', { name: '语言' }))
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
     expect(screen.getByRole('heading', { name: 'No chat connected' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to dashboard' })).toBeInTheDocument()
@@ -335,9 +337,9 @@ describe('chat i18n', () => {
   })
 
   it('translates sample UI chrome while keeping user content intact', async () => {
-    const user = userEvent.setup()
+    window.localStorage.setItem('anvil.language.chosen', '1')
+    window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/?sample=chat')
-    await user.click(screen.getByRole('button', { name: '语言' }))
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Artifacts 3' })).toBeInTheDocument()

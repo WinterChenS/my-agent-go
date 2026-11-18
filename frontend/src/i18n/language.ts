@@ -10,6 +10,14 @@ export { LANGUAGES, DEFAULT_LANGUAGE }
 export type { Language }
 
 export const LANGUAGE_STORAGE_KEY = 'anvil.language'
+/**
+ * Whether the user ever picked a language by hand.
+ *
+ * The stored value alone cannot answer that: `zh-CN` is also the built-in
+ * default, and the host writes it into preferences.json for a profile that never
+ * chose anything. Until a choice exists the UI follows the operating system.
+ */
+export const LANGUAGE_CHOSEN_KEY = 'anvil.language.chosen'
 
 export interface LanguageStorage {
   load(): Promise<unknown>
@@ -34,14 +42,83 @@ export function normalizeLanguage(value: unknown): Language {
   return DEFAULT_LANGUAGE
 }
 
+/** The UI language the operating system asks for, as far as this build offers it. */
+export function systemLanguage(): Language {
+  const nav = typeof navigator === 'undefined' ? undefined : navigator
+  const tags = [...(nav?.languages ?? []), nav?.language].filter(
+    (tag): tag is string => typeof tag === 'string' && tag.trim() !== '',
+  )
+  for (const tag of tags) {
+    const lower = tag.toLowerCase()
+    if (lower.startsWith('zh')) return 'zh-CN'
+    if (lower.startsWith('en')) return 'en-US'
+  }
+  // Any other locale reads English more often than Chinese; an empty navigator
+  // (very old webview) keeps the build's own default.
+  return tags.length > 0 ? 'en-US' : DEFAULT_LANGUAGE
+}
+
+export function languageWasChosen(): boolean {
+  try {
+    return window.localStorage.getItem(LANGUAGE_CHOSEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markLanguageChosen(): void {
+  try {
+    window.localStorage.setItem(LANGUAGE_CHOSEN_KEY, '1')
+  } catch {
+    // Storage can be unavailable; the host preference still carries the value.
+  }
+}
+
+/**
+ * A stored preference, or `undefined` when the stored value is only the default.
+ *
+ * `undefined` means "nothing was ever chosen" — the caller keeps following the
+ * system instead of pinning the UI to the default.
+ */
+export function resolveStoredLanguage(raw: unknown): Language | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  const normalized = normalizeLanguage(raw)
+  if (normalized !== DEFAULT_LANGUAGE) return normalized
+  return languageWasChosen() ? normalized : undefined
+}
+
+function injectedLanguage(): Language | null {
+  if (typeof window === 'undefined') return null
+  const injected = window.__ANVIL_INITIAL_LANGUAGE__
+  return typeof injected === 'string' ? normalizeLanguage(injected) : null
+}
+
+/**
+ * The language of the first frame, before the preferences file is read.
+ *
+ * Order: a saved choice beats the system; otherwise the system wins, so a
+ * Chinese Windows opens in Chinese and an English one in English without anyone
+ * touching a setting. `document.documentElement.lang` is deliberately not a
+ * signal — index.html ships `zh-CN`, which says nothing about this machine.
+ */
 export function initialLanguageFromWindow(): Language {
-  if (typeof window !== 'undefined' && typeof window.__ANVIL_INITIAL_LANGUAGE__ === 'string') {
-    return normalizeLanguage(window.__ANVIL_INITIAL_LANGUAGE__)
+  const injected = injectedLanguage()
+  if (injected && injected !== DEFAULT_LANGUAGE) return injected
+  if (languageWasChosen()) {
+    const stored = readStoredLanguage()
+    if (stored) return stored
+    if (injected) return injected
   }
-  if (typeof document !== 'undefined') {
-    return normalizeLanguage(document.documentElement.lang)
+  return systemLanguage()
+}
+
+function readStoredLanguage(): Language | null {
+  try {
+    const raw = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    return raw ? normalizeLanguage(raw) : null
+  } catch {
+    return null
   }
-  return DEFAULT_LANGUAGE
 }
 
 async function fetchPreferences(): Promise<Record<string, unknown> | null> {
@@ -68,6 +145,7 @@ export function createBrowserLanguageEnvironment(): LanguageEnvironment {
         }
       },
       async save(language) {
+        markLanguageChosen()
         try {
           window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
         } catch {
@@ -113,6 +191,7 @@ export function createTauriLanguageEnvironment(): LanguageEnvironment {
         }
       },
       async save(language) {
+        markLanguageChosen()
         try {
           await setHostPreferences({ language })
         } catch {

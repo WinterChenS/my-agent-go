@@ -70,7 +70,6 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `settings.language.notice.invalid` | 语言设置无效，已回退到简体中文 | Invalid language setting; reverted to Chinese |
 | `settings.language.notice.readFailed` | 语言设置读取失败，已回退到简体中文 | Could not read the language setting; reverted to Chinese |
 | `settings.language.notice.saveFailed` | 语言设置保存失败，本次选择仍然生效 | Could not save the language setting; this choice is still active |
-| `language.quickSwitch` | 语言 | Language |
 | `workbench.greeting.morning` | 早上好 | Good morning |
 | `workbench.greeting.afternoon` | 下午好 | Good afternoon |
 | `workbench.greeting.evening` | 晚上好 | Good evening |

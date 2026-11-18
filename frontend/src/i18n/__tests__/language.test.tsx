@@ -3,11 +3,24 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../App'
 import { LanguageProvider, useI18n } from '../LanguageProvider'
-import LanguageQuickSwitch from '../LanguageQuickSwitch'
 import LanguageSettings from '../LanguageSettings'
 import PagePlaceholder from '../../shell/PagePlaceholder'
 import { WORKBENCH_ROUTE } from '../../shell/routes'
-import type { Language, LanguageEnvironment } from '../language'
+import {
+  initialLanguageFromWindow,
+  resolveStoredLanguage,
+  systemLanguage,
+  type Language,
+  type LanguageEnvironment,
+} from '../language'
+
+function stubSystemLocale(languages: string[]) {
+  Object.defineProperty(window.navigator, 'languages', { value: languages, configurable: true })
+  Object.defineProperty(window.navigator, 'language', {
+    value: languages[0] ?? '',
+    configurable: true,
+  })
+}
 
 function fakeEnvironment(initial: unknown, start: Language = 'zh-CN') {
   let stored = initial
@@ -59,9 +72,70 @@ beforeEach(() => {
   window.localStorage.clear()
   document.documentElement.lang = 'zh-CN'
   document.title = ''
+  stubSystemLocale(['zh-CN'])
 })
 
 afterEach(cleanup)
+
+describe('system locale', () => {
+  it('reads the supported language out of the OS locale list', () => {
+    stubSystemLocale(['en-GB', 'de-DE'])
+    expect(systemLanguage()).toBe('en-US')
+    stubSystemLocale(['zh-Hant-TW', 'en-US'])
+    expect(systemLanguage()).toBe('zh-CN')
+    // A locale this build does not translate reads English rather than Chinese.
+    stubSystemLocale(['ja-JP'])
+    expect(systemLanguage()).toBe('en-US')
+    stubSystemLocale([])
+    expect(systemLanguage()).toBe('zh-CN')
+  })
+
+  it('opens in English on an English system when nothing was chosen', async () => {
+    stubSystemLocale(['en-US', 'en'])
+    window.history.replaceState(null, '', '/settings')
+    render(<App />)
+    expect(await screen.findByRole('link', { name: 'Dashboard' })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/[一-鿿]/)
+    expect(initialLanguageFromWindow()).toBe('en-US')
+  })
+
+  it('opens in Chinese on a Chinese system', async () => {
+    stubSystemLocale(['zh-CN'])
+    window.history.replaceState(null, '', '/settings')
+    render(<App />)
+    expect(await screen.findByRole('link', { name: '工作台' })).toBeInTheDocument()
+    expect(initialLanguageFromWindow()).toBe('zh-CN')
+  })
+
+  it('treats the default value as "not chosen" and a real pick as a choice', () => {
+    // The host writes zh-CN for a profile that never picked anything, so the
+    // bare default must not pin an English machine to Chinese.
+    expect(resolveStoredLanguage('zh-CN')).toBeUndefined()
+    window.localStorage.setItem('anvil.language.chosen', '1')
+    window.localStorage.setItem('anvil.language', 'zh-CN')
+    expect(resolveStoredLanguage('zh-CN')).toBe('zh-CN')
+    // English never equals the built-in default, so it needs no marker.
+    expect(resolveStoredLanguage('en-US')).toBe('en-US')
+  })
+
+  it('keeps a chosen language even when the system speaks another', () => {
+    stubSystemLocale(['en-US'])
+    window.localStorage.setItem('anvil.language.chosen', '1')
+    window.localStorage.setItem('anvil.language', 'zh-CN')
+    expect(initialLanguageFromWindow()).toBe('zh-CN')
+  })
+
+  it('remembers that a language was picked through the settings page', async () => {
+    const user = userEvent.setup()
+    stubSystemLocale(['en-US'])
+    window.history.replaceState(null, '', '/settings')
+    render(<App />)
+    await user.click(await screen.findByRole('radio', { name: 'Chinese' }))
+    await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'))
+    expect(window.localStorage.getItem('anvil.language')).toBe('zh-CN')
+    expect(window.localStorage.getItem('anvil.language.chosen')).toBe('1')
+  })
+})
 
 describe('language state', () => {
   it('defaults to zh-CN without writing a dirty value', async () => {
@@ -133,20 +207,6 @@ describe('language UI', () => {
     await waitFor(() => expect(screen.getByText('Unknown route /用户/项目')).toBeInTheDocument())
     expect(screen.getByText(/\/用户\/项目/)).toBeInTheDocument()
     expect(screen.getByText(/Route placeholder/)).toBeInTheDocument()
-  })
-
-  it('exposes the reusable quick switch for the chat header', async () => {
-    const user = userEvent.setup()
-    const fake = fakeEnvironment('zh-CN')
-    render(
-      <LanguageProvider environment={fake.environment}>
-        <LanguageQuickSwitch />
-      </LanguageProvider>,
-    )
-    const button = screen.getByRole('button', { name: '语言' })
-    await user.click(button)
-    expect(fake.stored()).toBe('en-US')
-    expect(screen.getByRole('button', { name: 'Language' })).toBeInTheDocument()
   })
 
   it('offers an accessible language control and updates status', async () => {
