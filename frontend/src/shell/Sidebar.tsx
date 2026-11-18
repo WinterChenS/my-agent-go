@@ -26,15 +26,17 @@ export default function Sidebar() {
   const mcpSample =
     location.pathname === '/__sample/mcp' || new URLSearchParams(location.search).get('sample') === 'mcp'
 
-  // Clicking the "对话" nav item should resume the most recent conversation,
-  // not drop the reader into a blank composer. This only fills in when there
-  // is no active session yet; once one is open, the NavLink just navigates to
-  // the same chat route and leaves the current conversation alone.
+  // The "对话" nav entry means "start a conversation", not "go back to the one
+  // I left". Reopening the previous session made a click on a navigation item
+  // feel like it did nothing when that session was already on screen; the
+  // history list right below is where resuming belongs.
+  //
+  // No `navigate` here: the NavLink already pushes `/chat`, and adding a second
+  // push put two entries in the history for one click (browser back then stayed
+  // on the chat route).
   const onPrimaryNav = (routeId: string) => {
     if (routeId !== 'chat' || chatSample || shellSample) return
-    if (!history.activeId && history.sessions.length > 0) {
-      history.open(history.sessions[0].id)
-    }
+    history.startNew()
   }
 
   return (

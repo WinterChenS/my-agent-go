@@ -601,6 +601,29 @@ describe('the shell sidebar', () => {
     expect(within(panel).getByText('Beta chat')).toBeInTheDocument()
   })
 
+  it('starts a new conversation from the 对话 nav entry', async () => {
+    const user = userEvent.setup()
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const panel = await screen.findByTestId('chat-history')
+    await user.click(await within(panel).findByText('Alpha chat'))
+    await waitFor(() =>
+      expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }),
+    )
+    await waitFor(() => expect(screen.queryByTestId('chat-empty')).toBeNull())
+
+    // The nav entry means "start a conversation". Clicking it used to reopen the
+    // last session, which looked like a dead button when that session was
+    // already on screen; resuming belongs to the history list.
+    await user.click(screen.getByRole('link', { name: '对话' }))
+    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument())
+  })
+
   it('opens a conversation from another page', async () => {
     const user = userEvent.setup()
     const host = installHost()

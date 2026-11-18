@@ -182,6 +182,38 @@ describe('chat sample entry', () => {
     expect(screen.queryByTestId('chat-history-action-menu')).toBeNull()
   })
 
+  it('sends with Enter by default, and with Ctrl+Enter once that is chosen', async () => {
+    const user = userEvent.setup()
+    renderAt('/?sample=chat')
+    const composer = screen.getByTestId('chat-composer')
+
+    // Enter sends; a line break needs Shift+Enter. The sample draft is
+    // pre-filled, so the assertions look at what changed, not the whole value.
+    await user.click(composer)
+    const before = (composer as HTMLTextAreaElement).value
+    await user.keyboard('{Shift>}{Enter}{/Shift}')
+    const afterBreak = (composer as HTMLTextAreaElement).value
+    expect(afterBreak).toBe(`${before}\n`)
+    await user.type(composer, '继续')
+    await user.keyboard('{Enter}')
+    expect(screen.getByTestId('chat-notice')).toHaveTextContent('样例模式')
+
+    cleanup()
+    window.localStorage.clear()
+    window.localStorage.setItem('anvil.chat.sendShortcut', 'ctrl-enter')
+    renderAt('/?sample=chat')
+    const composer2 = screen.getByTestId('chat-composer')
+    await user.type(composer2, '继续')
+    // Plain Enter is a newline in this mode...
+    const beforeEnter = (composer2 as HTMLTextAreaElement).value
+    await user.keyboard('{Enter}')
+    expect((composer2 as HTMLTextAreaElement).value).toBe(`${beforeEnter}\n`)
+    expect(screen.queryByTestId('chat-notice')).toBeNull()
+    // ...and Ctrl+Enter is the send key.
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(screen.getByTestId('chat-notice')).toHaveTextContent('样例模式')
+  })
+
   it('toggles thinking and tool cards', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=chat')
@@ -202,7 +234,7 @@ describe('chat sample entry', () => {
     const composer = screen.getByTestId('chat-composer')
     const initialUsers = screen.getAllByTestId('chat-message-user').length
     await user.type(composer, '继续')
-    await user.keyboard('{Control>}{Enter}{/Control}')
+    await user.keyboard('{Enter}')
     expect(screen.getByTestId('chat-notice')).toHaveTextContent('样例模式：消息发送未接入')
     expect(screen.getAllByTestId('chat-message-user')).toHaveLength(initialUsers)
 
@@ -259,9 +291,16 @@ describe('chat sample entry', () => {
   it('switches the four rail tabs and closes the panel with focus return', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=chat')
-    const rail = screen.getByTestId('chat-rail')
     const toggle = screen.getByTestId('chat-rail-toggle')
+    // Closed by default: the panel is reference material, not the conversation.
+    // It stays mounted (the drawer slides), so the open flag is the signal.
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByTestId('chat-rail')).not.toHaveClass('is-open')
+
+    await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const rail = screen.getByTestId('chat-rail')
+    expect(rail).toHaveClass('is-open')
 
     await user.click(screen.getByRole('tab', { name: '输出物 3' }))
     expect(screen.getByText('本次会话产出 · 3')).toBeInTheDocument()

@@ -26,7 +26,7 @@ import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
-import { PREF_SHOW_TIMELINE, useBoolPreference } from '../../preferences/flags'
+import { PREF_SHOW_TIMELINE, useBoolPreference, useSendShortcut } from '../../preferences/flags'
 import { useCatalog } from '../../catalog/useCatalog'
 import {
   installPiSubagent,
@@ -386,7 +386,10 @@ export default function ChatPage() {
   const catalog = useCatalog(!sample)
   const history = useChatHistory()
   const narrow = useNarrow()
-  const [railOpen, setRailOpen] = useState(!narrow)
+  // The rail starts closed on purpose: it is reference material for the turn,
+  // not part of the conversation, and an always-open panel took a third of the
+  // window before the reader asked for it. The header toggle is the only way in.
+  const [railOpen, setRailOpen] = useState(false)
   const [railTab, setRailTab] = useState<RailTab>('browser')
   // The turn the rail sent the reader back to; highlighted briefly so the jump
   // is visible instead of leaving them to guess which bubble moved.
@@ -402,7 +405,9 @@ export default function ChatPage() {
   const historyToggle = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    setRailOpen(!narrow)
+    // Narrowing the window turns the rail into a drawer over the thread, so it
+    // closes; widening never re-opens it — the toggle stays the reader's call.
+    if (narrow) setRailOpen(false)
   }, [narrow])
 
   // One value decides which conversation is on screen: the shared history's
@@ -1401,6 +1406,9 @@ function Composer({
 }) {
   const { t } = useI18n()
   const enabled = sample || live !== null
+  // Enter or Ctrl/Cmd+Enter sends — the reader picks in settings. Read here, in
+  // the composer, so the setting takes effect in an already-open conversation.
+  const [sendShortcut] = useSendShortcut()
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
   const [mentionHits, setMentionHits] = useState<MentionHit[]>([])
   const [mentionMode, setMentionMode] = useState<MentionMode>('all')
@@ -1680,7 +1688,18 @@ function Composer({
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    // IME is sacred: while a candidate window is open, Enter belongs to the
+    // input method, not to us. Chinese/Japanese users would otherwise send a
+    // half-finished word.
+    const composing = event.nativeEvent.isComposing || event.keyCode === 229
+    const modifier = event.metaKey || event.ctrlKey
+    const paletteOpen = mentionOpen && !sample && mentionHits.length > 0
+    const wantsSend =
+      !composing &&
+      !paletteOpen &&
+      event.key === 'Enter' &&
+      (sendShortcut === 'enter' ? !modifier && !event.shiftKey : modifier)
+    if (wantsSend) {
       event.preventDefault()
       submit()
       return

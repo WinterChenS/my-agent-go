@@ -24,7 +24,7 @@ import {
 } from './settingsData'
 import './settings.css'
 import { useCatalog } from '../../catalog/useCatalog'
-import { PREF_AUTO_SYNC, PREF_SHOW_TIMELINE, useBoolPreference } from '../../preferences/flags'
+import { PREF_AUTO_SYNC, PREF_SHOW_TIMELINE, useBoolPreference, useSendShortcut, type SendShortcut } from '../../preferences/flags'
 import {
   CatalogModelsPanel,
   CatalogRuntimeTable,
@@ -160,9 +160,25 @@ function BehaviourCard() {
   const { t } = useI18n()
   const [showTimeline, setShowTimeline] = useBoolPreference(PREF_SHOW_TIMELINE, false)
   const [autoSync, setAutoSync] = useBoolPreference(PREF_AUTO_SYNC, true)
+  const [sendShortcut, setSendShortcut] = useSendShortcut()
   return (
     <Card title={t('settings.behaviour.title')} sub={t('settings.behaviour.sub')} testId="settings-behaviour">
       <div className="st-rows">
+        <SettingRow
+          title={t('settings.behaviour.sendShortcut')}
+          sub={t('settings.behaviour.sendShortcutSub')}
+        >
+          <select
+            className="st-select"
+            aria-label={t('settings.behaviour.sendShortcut')}
+            data-testid="settings-send-shortcut"
+            value={sendShortcut}
+            onChange={(event) => setSendShortcut(event.target.value as SendShortcut)}
+          >
+            <option value="enter">{t('settings.behaviour.sendShortcut.enter')}</option>
+            <option value="ctrl-enter">{t('settings.behaviour.sendShortcut.ctrlEnter')}</option>
+          </select>
+        </SettingRow>
         <SettingRow title={t('settings.behaviour.timeline')} sub={t('settings.behaviour.timelineSub')}>
           <PrefSwitch
             checked={showTimeline}

@@ -175,5 +175,14 @@ describe('synced inventory is visible and syncable', () => {
     expect(window.localStorage.getItem('anvil.catalog.autoSync')).toBe('0')
     expect(screen.getByTestId('settings-show-timeline')).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByTestId('settings-auto-sync')).toHaveAttribute('aria-checked', 'false')
+
+    // The composer's send key is a preference too: Enter by default.
+    const shortcut = screen.getByTestId('settings-send-shortcut') as HTMLSelectElement
+    expect(shortcut.value).toBe('enter')
+    await userEvent.selectOptions(shortcut, 'ctrl-enter')
+    expect(window.localStorage.getItem('anvil.chat.sendShortcut')).toBe('ctrl-enter')
+    expect((screen.getByTestId('settings-send-shortcut') as HTMLSelectElement).value).toBe(
+      'ctrl-enter',
+    )
   })
 })
