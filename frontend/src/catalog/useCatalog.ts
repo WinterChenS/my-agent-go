@@ -12,6 +12,7 @@ import {
 } from './client'
 import { PREF_AUTO_SYNC, useBoolPreference } from '../preferences/flags'
 import { readCachedSnapshot, writeCachedSnapshot } from './cache'
+import { takeCatalogPrefetch } from './prefetch'
 
 /** How often a visible window re-reads local skills/tools/MCP declarations. */
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -96,7 +97,10 @@ export function useCatalog(enabled = true): CatalogView {
     setError(null)
     const mine = ++readSeq.current
     try {
-      const result = await loadCatalog()
+      // The boot-time prefetch (main.tsx) already asked the host, so the first
+      // reader rides along instead of starting a second probe. Later reads —
+      // and a retry after a failure — go to the host directly.
+      const result = await (takeCatalogPrefetch() ?? loadCatalog())
       if (!mounted.current || mine !== readSeq.current) return
       setSnapshot(result)
       setStatus('ready')
