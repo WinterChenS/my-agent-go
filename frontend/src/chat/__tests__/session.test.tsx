@@ -1140,6 +1140,42 @@ describe('chat context and approvals', () => {
     )
   })
 
+  it('sends the chosen thinking level with the turn, labelled as pi labels it', async () => {
+    window.localStorage.removeItem('anvil.chat.thinking')
+    const host = installToolHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const select = screen.getByTestId('chat-thinking-select')
+    await waitFor(() => expect(select).not.toBeDisabled())
+    expect(select).toHaveValue('medium')
+    // The picker shows the runtime's own flag values: a translated label would
+    // hide what `--thinking` was actually told.
+    expect(within(select).getByRole('option', { name: 'Extra high' })).toHaveValue('xhigh')
+    await userEvent.selectOptions(select, 'xhigh')
+    expect(window.localStorage.getItem('anvil.chat.thinking')).toBe('xhigh')
+
+    await sendOnce('run it')
+    await waitFor(() =>
+      expect(host.args('session_send')).toMatchObject({ thinking: 'xhigh' }),
+    )
+  })
+
+  it('no longer offers to save the composer model as an agent', async () => {
+    installToolHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    // The composer is live (its model picker is populated) yet the save-agent
+    // control is gone: a binding is made on the agents page now.
+    await waitFor(() => expect(screen.getByTestId('chat-model-select')).not.toBeDisabled())
+    expect(screen.queryByTestId('chat-save-agent')).toBeNull()
+  })
+
   it('drops the approval card once the turn has already failed', async () => {
     installToolHost({ fail: true })
     render(

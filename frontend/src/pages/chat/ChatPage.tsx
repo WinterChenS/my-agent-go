@@ -37,12 +37,14 @@ import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDial
 import {
   describeSessionError,
   loadSessionEvents,
+  THINKING_LEVELS,
   type ApprovalDecision,
   type ApprovalRequest,
   type ContextEntry,
   type ContextRef,
   type PermissionMode,
   type SessionEvent,
+  type ThinkingLevel,
 } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
@@ -94,8 +96,6 @@ interface LiveComposer {
   /** Saved runtime+model bindings; the first entry is the derived default. */
   agents: AgentChoice[]
   onModel: (choice: ModelChoice) => void
-  /** Save the model in the composer under a name; resolves to its id. */
-  onSaveAgent: (name: string) => Promise<string | null>
   onSend: (text: string, context: ContextRef[]) => void
   onStop: () => void
   /** Re-scan the machine for models. */
@@ -109,6 +109,40 @@ const COMPACT_KEEP_LAST = 6
 
 /** Persisted trust level for the composer's permission picker. */
 const PERMISSION_KEY = 'anvil.chat.permission'
+
+/** Persisted thinking level for the composer's picker. */
+const THINKING_KEY = 'anvil.chat.thinking'
+
+/**
+ * How each level reads in the picker.
+ *
+ * Deliberately not translated: these are pi's own `--thinking` values, and a
+ * picker that says 「思考 · 高」 while the command says `--thinking high` makes
+ * the one thing the control exists for — knowing what the runtime was told —
+ * harder to check.
+ */
+const THINKING_LABELS: Record<ThinkingLevel, string> = {
+  off: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+}
+
+/** The level stored last time, if it is still one pi accepts. */
+function storedThinking(): ThinkingLevel {
+  try {
+    const saved = window.localStorage.getItem(THINKING_KEY)
+    if (saved && (THINKING_LEVELS as readonly string[]).includes(saved)) {
+      return saved as ThinkingLevel
+    }
+  } catch {
+    // A locked-down webview must not break the page over a preference.
+  }
+  return 'medium'
+}
 
 /** `runtime::model` is unique even when two runtimes publish the same id. */
 function modelKey(choice: ModelChoice): string {
@@ -374,11 +408,23 @@ export default function ChatPage() {
       // Same as above: best effort only.
     }
   }, [permission])
+  // How hard the runtime should think. Travels with each turn rather than being
+  // stored on the session: "think harder about this one" is a decision about the
+  // question, and the picker must not need a new conversation to take effect.
+  const [thinking, setThinking] = useState<ThinkingLevel>(storedThinking)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THINKING_KEY, thinking)
+    } catch {
+      // Best effort only, same as the permission picker.
+    }
+  }, [thinking])
   const live = useChatSession({
     enabled: !sample,
     agentId: pickedAgent || undefined,
     cwd: workspace.path ?? '',
     permission,
+    thinking,
   })
   // The catalog is already loaded for the composer's model picker; its skill
   // rows are the same ones the host resolves when a turn is sent.
@@ -707,7 +753,7 @@ export default function ChatPage() {
                 <span className="sep">/</span>
                 <span className="mono">{sampleChat.model}</span>
                 <span className="sep">/</span>
-                <span className="mono">{t(`chat.composer.thinking.${sampleChat.thinkingLevel}` as MessageKey)}</span>
+                <span className="mono">{THINKING_LABELS[sampleChat.thinkingLevel]}</span>
                 <span className="sep">/</span>
                 <span className="mono">{t(`chat.composer.permission.${sampleChat.permission}` as MessageKey)}</span>
               </>
@@ -1001,7 +1047,6 @@ export default function ChatPage() {
                     model: live.model,
                     agents: live.agents,
                     onModel: chooseModel,
-                    onSaveAgent: live.saveAgent,
                     onSend: sendLive,
                     onStop: stopLive,
                     onSync: () => void live.syncModels(),
@@ -1021,6 +1066,8 @@ export default function ChatPage() {
             setAttachmentOpen={setAttachmentOpen}
             permission={permission}
             setPermission={setPermission}
+            thinking={thinking}
+            setThinking={setThinking}
             onNotice={showNotice}
             onProject={(trigger) => openDialog('project', trigger)}
             workspaceLabel={
@@ -1374,6 +1421,8 @@ function Composer({
   setAttachmentOpen,
   permission,
   setPermission,
+  thinking,
+  setThinking,
   onNotice,
   onProject,
   workspaceLabel,
@@ -1395,6 +1444,9 @@ function Composer({
   /** Trust level the next turn runs with; see `PermissionMode`. */
   permission: PermissionMode
   setPermission: (next: PermissionMode) => void
+  /** Thinking level the next turn runs with; see `ThinkingLevel`. */
+  thinking: ThinkingLevel
+  setThinking: (next: ThinkingLevel) => void
   onNotice: (message: string) => void
   onProject: (trigger: HTMLElement) => void
   /** Directory the next conversation runs in, shown on the project chip. */
@@ -1487,11 +1539,6 @@ function Composer({
   // Which agent the picker shows. Choosing a model clears it: the control's
   // value has to be one of its own options, and the two groups overlap in the
   // runtime+model they name.
-  // Naming a binding happens in the composer, so it must not use
-  // `window.prompt`: the desktop webview does not implement it and the click
-  // would do nothing at all.
-  const [namingAgent, setNamingAgent] = useState(false)
-  const [agentName, setAgentName] = useState('')
 
   // The references the user actually attached become the turn's context.
   // Inline skills are parsed out of the draft: the chip is only a decoration
@@ -2067,60 +2114,6 @@ function Composer({
             </select>
           </label>
           {live ? (
-            namingAgent ? (
-              <form
-                className="chat-agent-name"
-                data-testid="chat-agent-name"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const name = agentName.trim()
-                  if (!name) return
-                  setNamingAgent(false)
-                  void live.onSaveAgent(name).then((id) => {
-                    if (id) setPickedAgent(id)
-                  })
-                }}
-              >
-                <input
-                  autoFocus
-                  type="text"
-                  value={agentName}
-                  aria-label={t('chat.composer.saveAgentPrompt')}
-                  placeholder={t('chat.composer.saveAgentPrompt')}
-                  onChange={(event) => setAgentName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') setNamingAgent(false)
-                  }}
-                />
-                <button type="submit" className="chat-ctl chat-ctl-action" disabled={!agentName.trim()}>
-                  {t('chat.composer.saveAgentSave')}
-                </button>
-                <button
-                  type="button"
-                  className="chat-ctl chat-ctl-action"
-                  onClick={() => setNamingAgent(false)}
-                >
-                  {t('chat.composer.saveAgentCancel')}
-                </button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                className="chat-ctl chat-ctl-action"
-                data-testid="chat-save-agent"
-                title={t('chat.composer.saveAgent')}
-                disabled={!live.model || live.running}
-                onClick={() => {
-                  setAgentName(live.model?.modelId ?? '')
-                  setNamingAgent(true)
-                }}
-              >
-                <Icon name="plus" size={12} />
-                <span>{t('chat.composer.saveAgentShort')}</span>
-              </button>
-            )
-          ) : null}
-          {live ? (
             <SyncButton
               label={t('chat.live.syncModels')}
               busy={live.syncing}
@@ -2128,19 +2121,20 @@ function Composer({
               testId="chat-models-sync"
             />
           ) : null}
-          <label className="chat-ctl" title={t('chat.composer.thinking')}>
+          <label className="chat-ctl" title="Thinking">
             <Icon name="brain" size={13} />
-            <select aria-label={t('chat.composer.thinking')} disabled={!sample} defaultValue={sample ? sampleChat.thinkingLevel : undefined}>
-              {sample ? (
-                <>
-                  <option value="off">{t('chat.composer.thinking.off')}</option>
-                  <option value="low">{t('chat.composer.thinking.low')}</option>
-                  <option value="medium">{t('chat.composer.thinking.medium')}</option>
-                  <option value="high">{t('chat.composer.thinking.high')}</option>
-                </>
-              ) : (
-                <option>{t('chat.composer.normalPlaceholder')}</option>
-              )}
+            <select
+              aria-label="Thinking effort"
+              data-testid="chat-thinking-select"
+              disabled={!enabled}
+              value={sample ? sampleChat.thinkingLevel : thinking}
+              onChange={(event) => setThinking(event.target.value as ThinkingLevel)}
+            >
+              {THINKING_LEVELS.map((level) => (
+                <option key={level} value={level}>
+                  {THINKING_LABELS[level]}
+                </option>
+              ))}
             </select>
           </label>
           <label className="chat-ctl" title={t('chat.composer.permission.hint')}>

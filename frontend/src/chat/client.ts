@@ -345,13 +345,33 @@ export function openSession(input: {
  */
 export type PermissionMode = 'readonly' | 'medium' | 'high' | 'full'
 
+/**
+ * How hard the runtime should think on this turn.
+ *
+ * These are pi's own `--thinking` values, in pi's order, and the composer shows
+ * them verbatim: a level is a runtime flag, not product prose, so translating
+ * it would make the picker disagree with the command it produces.
+ */
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+export const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]
+
 export function sendTurn(
   sessionId: string,
   text: string,
   context: ContextRef[] = [],
   permission: PermissionMode = 'medium',
+  thinking: ThinkingLevel | undefined = undefined,
 ): Promise<SendReport> {
-  return hostCall<SendReport>('session_send', { sessionId, text, context, permission })
+  return hostCall<SendReport>('session_send', { sessionId, text, context, permission, thinking })
 }
 
 /** Answer one approval card; the waiting run continues or gives up. */

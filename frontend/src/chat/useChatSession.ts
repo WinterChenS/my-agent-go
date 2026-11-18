@@ -13,8 +13,6 @@ import {
   deleteCatalogAgent,
   loadCatalog,
   refreshCatalog,
-  blankAgentDraft,
-  saveCatalogAgent,
   type CatalogAgent,
   type CatalogModel,
 } from '../catalog/client'
@@ -54,6 +52,7 @@ import {
   type SessionEvent,
   type SessionRun,
   type SessionSummary,
+  type ThinkingLevel,
 } from './client'
 
 /** How often the running turn re-reads the ledger. */
@@ -138,8 +137,6 @@ export interface ChatSessionView {
   chooseModel: (choice: ModelChoice) => void
   /** Saved bindings plus the derived default agent. */
   agents: AgentChoice[]
-  /** Save the current model under a name; resolves to the new agent's id. */
-  saveAgent: (name: string) => Promise<string | null>
   deleteAgent: (id: string) => Promise<void>
   /** A manual rescan is in flight (the picker's spinning control). */
   syncing: boolean
@@ -623,11 +620,13 @@ export function useChatSession({
   agentId = '',
   cwd = '',
   permission = 'medium',
+  thinking = 'medium',
 }: {
   enabled?: boolean
   agentId?: string
   cwd?: string
   permission?: PermissionMode
+  thinking?: ThinkingLevel
 } = {}): ChatSessionView {
   const available = enabled && isTauriHost()
   // A ref rather than a dependency of `send`: the picker can change while a
@@ -636,6 +635,10 @@ export function useChatSession({
   // change, which would restart the memo chain feeding the composer.
   const permissionRef = useRef<PermissionMode>(permission)
   permissionRef.current = permission
+  // Same rule for the thinking level: it travels with the next turn, so it must
+  // not tear down `send` when the picker moves.
+  const thinkingRef = useRef<ThinkingLevel>(thinking)
+  thinkingRef.current = thinking
   // A ref rather than a dependency of `send`: the picker can change while a
   // turn is in flight, and only the *next new session* should adopt that agent.
   const agentIdRef = useRef(agentId)
@@ -851,24 +854,6 @@ export function useChatSession({
       if (mounted.current) setSyncing(false)
     }
   }, [available])
-
-  /** Save the model currently in the composer as a named binding. */
-  const saveAgent = useCallback(
-    async (name: string) => {
-      if (!model) return null
-      const snapshot = await saveCatalogAgent({
-        ...blankAgentDraft(),
-        name,
-        runtimeId: model.runtimeId,
-        modelId: model.modelId,
-      })
-      if (!mounted.current) return null
-      const next = toAgentChoices(snapshot.agents)
-      setAgents(next)
-      return next.find((agent) => !agent.isDefault && agent.name === name.trim())?.id ?? null
-    },
-    [model],
-  )
 
   const deleteAgent = useCallback(async (id: string) => {
     const snapshot = await deleteCatalogAgent(id)
@@ -1141,7 +1126,13 @@ export function useChatSession({
 
       const polling = poll()
 
-      const sendPromise = sendTurn(sessionId, prompt, context, permissionRef.current)
+      const sendPromise = sendTurn(
+        sessionId,
+        prompt,
+        context,
+        permissionRef.current,
+        thinkingRef.current,
+      )
       let failure: string | null = null
       let outcome: TurnFailure | null = null
       try {
@@ -1316,7 +1307,6 @@ export function useChatSession({
     model,
     chooseModel: setModel,
     agents,
-    saveAgent,
     deleteAgent,
     syncing,
     syncModels,

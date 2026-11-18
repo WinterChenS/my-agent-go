@@ -640,8 +640,14 @@ impl SessionService {
 
         // The persona comes from the session row, not from the caller: a turn
         // sent an hour later still runs as the agent it was opened with, even if
-        // the page has since been edited to something else.
+        // the page has since been edited to something else. The one field the
+        // caller may override is the thinking level — the composer sets it per
+        // question, and an unknown value falls back to the persona instead of
+        // failing the turn.
         let persona = self.store.persona(session_id)?;
+        let thinking = crate::model::thinking_level(input.thinking.as_deref())
+            .map(str::to_string)
+            .unwrap_or(persona.thinking);
         let opened = OpenedSession {
             runtime_id: summary.runtime_id.clone(),
             native_id: summary.native_id.clone(),
@@ -650,7 +656,7 @@ impl SessionService {
             allow_tools: summary.allow_tools,
             tools: summary.tools.clone(),
             agent_id: persona.agent_id,
-            thinking: persona.thinking,
+            thinking,
             system_prompt: persona.system_prompt,
             append_system_prompt: persona.append_prompt,
             skills: persona.skills,
@@ -1269,6 +1275,109 @@ mod tests {
         }
     }
 
+    /// Records the thinking level each turn actually ran with.
+    struct ThinkingProbe {
+        seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl SessionAdapter for ThinkingProbe {
+        fn id(&self) -> &str {
+            "pi"
+        }
+
+        fn capabilities(&self) -> SessionCapabilities {
+            SessionCapabilities::full()
+        }
+
+        fn open(&self, _context: &SessionContext, spec: &SessionSpec) -> Result<OpenedSession> {
+            Ok(OpenedSession {
+                runtime_id: spec.runtime_id.clone(),
+                native_id: "native-probe".into(),
+                model: spec.model.clone(),
+                cwd: spec.cwd.clone(),
+                allow_tools: spec.allow_tools,
+                tools: spec.tools.clone(),
+                thinking: spec.thinking.clone(),
+                ..Default::default()
+            })
+        }
+
+        fn send(
+            &self,
+            _context: &SessionContext,
+            opened: &OpenedSession,
+            prompt: &str,
+            _cancel: &Cancel,
+            _sink: &mut dyn FnMut(AdapterEvent),
+        ) -> Result<RunOutcome> {
+            self.seen
+                .lock()
+                .expect("probe")
+                .push(opened.thinking.clone());
+            Ok(RunOutcome::completed(&format!("echo:{prompt}"), None))
+        }
+    }
+
+    #[test]
+    fn the_composer_thinking_level_overrides_the_persona_for_one_turn() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut registry = Registry::new();
+        registry
+            .register(std::sync::Arc::new(ThinkingProbe {
+                seen: std::sync::Arc::clone(&seen),
+            }))
+            .expect("register");
+        let mut service = SessionService::new(
+            Store::open_in_memory().expect("store"),
+            registry,
+            SessionContext {
+                state_dir: std::path::PathBuf::from(".tmp/test/session"),
+                run_timeout: Some(std::time::Duration::from_secs(5)),
+            },
+        );
+        let mut spec = spec();
+        spec.thinking = "low".into();
+        let session = service.open(&spec).expect("open");
+
+        service
+            .send_with(
+                &session.id,
+                &SessionInput {
+                    prompt: "one".into(),
+                    thinking: Some("HIGH".into()),
+                    ..Default::default()
+                },
+            )
+            .expect("send");
+        // A value the picker could not have produced must not take the turn
+        // down: `pi` would exit on a usage error, so it falls back instead.
+        service
+            .send_with(
+                &session.id,
+                &SessionInput {
+                    prompt: "two".into(),
+                    thinking: Some("ultra".into()),
+                    ..Default::default()
+                },
+            )
+            .expect("send");
+        // Nothing picked keeps the session's own level.
+        service
+            .send_with(
+                &session.id,
+                &SessionInput {
+                    prompt: "three".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("send");
+
+        assert_eq!(
+            *seen.lock().expect("probe"),
+            vec!["high".to_string(), "low".into(), "low".into()]
+        );
+    }
+
     #[test]
     fn the_first_prompt_names_the_session() {
         let mut service = service();
@@ -1761,6 +1870,8 @@ mod tests {
                         label: None,
                     }],
                     permission: Some("full".into()),
+
+                    ..Default::default()
                 },
             )
             .expect("send");

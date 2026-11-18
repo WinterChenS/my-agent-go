@@ -306,6 +306,7 @@ impl SessionState {
         text: &str,
         context: Vec<ContextRef>,
         permission: Option<String>,
+        thinking: Option<String>,
     ) -> Result<SendReport, String> {
         let roots = self.skill_roots();
         self.with_writer(|service| {
@@ -319,6 +320,7 @@ impl SessionState {
                         prompt: text.to_string(),
                         context,
                         permission,
+                        thinking,
                     },
                 )
                 .map_err(|error| error.to_wire().to_string())?;
@@ -535,6 +537,9 @@ pub async fn agent_runs(
 
 /// Run one turn. Blocking on purpose: it runs on a blocking thread, and the UI
 /// streams the interim text by polling [`session_events`].
+///
+/// `thinking` is `off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`;
+/// omitting it keeps whatever the session was opened with.
 #[tauri::command]
 pub async fn session_send(
     app: AppHandle,
@@ -542,10 +547,17 @@ pub async fn session_send(
     text: String,
     context: Option<Vec<ContextRef>>,
     permission: Option<String>,
+    thinking: Option<String>,
 ) -> Result<SendReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<SessionState>();
-        state.send(&session_id, &text, context.unwrap_or_default(), permission)
+        state.send(
+            &session_id,
+            &text,
+            context.unwrap_or_default(),
+            permission,
+            thinking,
+        )
     })
     .await
     .map_err(|error| format!("io: the run task ended unexpectedly: {error}"))?

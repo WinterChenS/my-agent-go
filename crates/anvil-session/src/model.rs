@@ -468,12 +468,40 @@ pub struct SessionInput {
     /// project is the one thing that must never be assumed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<String>,
+    /// How hard the runtime should think on this turn.
+    ///
+    /// Travels with the send, like `permission`: the composer's picker is a
+    /// decision about this question, not a permanent property of the
+    /// conversation or of the agent's persona. `None` keeps whatever the
+    /// session was opened with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 /// True when the user picked the "trust this workspace" mode for the turn.
 #[must_use]
 pub fn trusts_workspace(permission: Option<&str>) -> bool {
     matches!(permission, Some(value) if value.eq_ignore_ascii_case("full"))
+}
+
+/// Levels pi accepts for `--thinking`, weakest first.
+///
+/// Kept here rather than in the adapter so the service can reject a value the
+/// UI invented before it reaches a child process; the adapter passes the string
+/// through unchanged.
+pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// The level to run with, or `None` when the value is not a known level.
+///
+/// Unknown values are ignored instead of forwarded: `pi` exits with a usage
+/// error on a typo, and a broken picker must not take a whole turn down.
+#[must_use]
+pub fn thinking_level(value: Option<&str>) -> Option<&'static str> {
+    let wanted = value?.trim();
+    THINKING_LEVELS
+        .iter()
+        .copied()
+        .find(|level| level.eq_ignore_ascii_case(wanted))
 }
 
 /// One `@` reference, as the composer sends it.
