@@ -8,6 +8,12 @@
 //! * **Resolution goes through `canonicalize`.** `..`, junction points and
 //!   symlinks all collapse to one absolute path, so a link that points out of the
 //!   project is caught by the same check as a literal `..\..`.
+//! * **The runtime reads what only it can read.** Text is inlined here; images
+//!   (PNG, JPEG, GIF, WebP, BMP) are handed to the runtime as `@path`
+//!   attachments, because an image becomes an image content block the model can
+//!   actually see. Everything else is handed over as a path and left to the
+//!   agent's own tools: a coding agent opens a PDF or a DOCX with a script,
+//!   which beats any guess this module could make about the bytes.
 //! * **Budgets are visible.** A cut file says it was cut, a directory says how
 //!   many entries were not listed, and the ledger records what was inlined.
 //!   Silently sending half a file would make the model's answer look wrong for
@@ -54,8 +60,26 @@ pub enum Step {
 #[derive(Debug)]
 pub struct Prepared {
     pub resolved: ResolvedRef,
+    /// Prompt text. Empty for an image: the runtime attaches it natively.
     pub block: String,
+    /// Set for images, which the runtime turns into an image content block.
+    pub attachment: Option<PathBuf>,
 }
+
+/// What the bytes of a file are, as far as this build can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Media {
+    /// A bitmap the runtime attaches as an image content block.
+    Image,
+    /// UTF-8 text, inlined into the prompt here.
+    Text,
+    /// Neither: inlining it would be mojibake, so only its path is handed over
+    /// and the agent reads it with its own tools.
+    Binary,
+}
+
+/// Enough bytes to see an image header and a PNG's `acTL` chunk.
+const SNIFF_BYTES: usize = 4100;
 
 /// Resolve every reference, reading the ones that are inside the boundary.
 ///
@@ -96,6 +120,10 @@ pub fn plan(
             steps.push(Step::Ready(Box::new(read(reference, &path, false)?)));
             continue;
         }
+        // No file type is refused here. Text is inlined, images travel as
+        // attachments, and anything else is handed over as a path so the agent
+        // can read it with its own tools — a coding agent writes a script for a
+        // PDF or unzips a DOCX far more capably than a byte sniff can guess.
         if is_within(&root, &path) {
             steps.push(Step::Ready(Box::new(read(reference, &path, false)?)));
         } else {
@@ -117,14 +145,16 @@ pub fn allow(reference: &ContextRef, path: &Path) -> Result<Prepared> {
 /// Fold the prepared references into the prompt the runtime receives.
 ///
 /// The user's words stay last and untouched: every runtime reads the tail of a
-/// prompt more reliably than the middle.
+/// prompt more reliably than the middle. Images contribute no block — the
+/// runtime prepends its own reference for each attachment — so a turn made of
+/// images only leaves the prompt exactly as the user typed it.
 pub fn fold(prompt: &str, prepared: &[Prepared]) -> String {
-    if prepared.is_empty() {
-        return prompt.to_string();
-    }
     let mut budget = MAX_TOTAL_CHARS;
     let mut blocks: Vec<&str> = Vec::new();
     for entry in prepared {
+        if entry.block.trim().is_empty() {
+            continue;
+        }
         if entry.block.chars().count() > budget {
             blocks.push("<context omitted=\"budget exhausted\"/>");
             budget = 0;
@@ -132,6 +162,9 @@ pub fn fold(prompt: &str, prepared: &[Prepared]) -> String {
         }
         budget -= entry.block.chars().count();
         blocks.push(&entry.block);
+    }
+    if blocks.is_empty() {
+        return prompt.to_string();
     }
     format!(
         "The user attached the following context. Use it when answering the last message.\n\n{}\n\n{prompt}",
@@ -215,6 +248,106 @@ fn walk(
     }
 }
 
+/// What the prompt says about a file whose bytes cannot be inlined.
+///
+/// The agent gets the path and is told to read it with its own tools: a PDF, a
+/// DOCX or an archive is exactly the kind of thing a coding agent handles by
+/// writing a short script, and refusing it here would mean the user cannot ask
+/// about a file they clearly attached.
+fn binary_block(source: &Path, bytes: u64) -> String {
+    format!(
+        "--- file {} (binary, {bytes} bytes) ---\n\
+         This file is not plain text and is not one of the image formats the runtime attaches, so its bytes were not inlined. \
+         Read it with your own tools before answering: for example a short script that extracts the text \
+         (a zip archive such as DOCX/XLSX/PPTX opens with python's `zipfile` plus the XML inside; a PDF needs a text extractor such as `pypdf`). \
+         If the file turns out to contain no readable text, say so instead of guessing.\n\
+         --- end ---",
+        source.display()
+    )
+}
+
+/// Classify the head of a file.
+///
+/// The image signatures mirror the runtime's own sniffer: declaring an image
+/// it will not accept would replace a clear refusal with a crashed child.
+fn sniff(head: &[u8]) -> Media {
+    if is_image(head) {
+        return Media::Image;
+    }
+    // NUL bytes never appear in UTF-8 text. A multi-byte character cut off by
+    // the buffer ends with `error_len() == None`, which a text file does too, so
+    // only a malformed *complete* sequence counts as binary.
+    if head.contains(&0)
+        || matches!(std::str::from_utf8(head), Err(error) if error.error_len().is_some())
+    {
+        return Media::Binary;
+    }
+    Media::Text
+}
+
+fn is_image(head: &[u8]) -> bool {
+    // JPEG: SOI plus a marker; 0xF7 is JPEG-LS, which the runtime skips.
+    if head.starts_with(&[0xff, 0xd8, 0xff]) {
+        return head.get(3) != Some(&0xf7);
+    }
+    // PNG: signature, IHDR as the first chunk, and not animated (APNG loses
+    // frames when it is flattened, so the runtime refuses it as well).
+    if head.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        let ihdr = head.len() >= 16 && head[8..12] == [0, 0, 0, 13] && head[12..16] == *b"IHDR";
+        return ihdr && !is_animated_png(head);
+    }
+    // GIF, WebP.
+    if head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a") {
+        return true;
+    }
+    if head.len() >= 12 && head.starts_with(b"RIFF") && head[8..12] == *b"WEBP" {
+        return true;
+    }
+    // BMP: the declared size and pixel offset have to be consistent, otherwise
+    // a text file starting with "BM" would look like a bitmap.
+    if head.len() >= 26 && head.starts_with(b"BM") {
+        let declared = u32::from_le_bytes([head[2], head[3], head[4], head[5]]);
+        let offset = u32::from_le_bytes([head[10], head[11], head[12], head[13]]);
+        let dib = u32::from_le_bytes([head[14], head[15], head[16], head[17]]);
+        return (declared == 0 || declared >= 26) && offset >= 14 + dib;
+    }
+    false
+}
+
+fn is_animated_png(head: &[u8]) -> bool {
+    let mut offset = 8;
+    while offset + 8 <= head.len() {
+        let length = u32::from_be_bytes([
+            head[offset],
+            head[offset + 1],
+            head[offset + 2],
+            head[offset + 3],
+        ]) as usize;
+        let kind = &head[offset + 4..offset + 8];
+        if kind == b"acTL" {
+            return true;
+        }
+        if kind == b"IDAT" {
+            return false;
+        }
+        let next = offset + 8 + length + 4;
+        if next <= offset || next > head.len() {
+            return false;
+        }
+        offset = next;
+    }
+    false
+}
+
+/// The image attachments of a prepared set, in the order the user added them.
+#[must_use]
+pub fn attachments(prepared: &[Prepared]) -> Vec<PathBuf> {
+    prepared
+        .iter()
+        .filter_map(|entry| entry.attachment.clone())
+        .collect()
+}
+
 fn read(reference: &ContextRef, path: &Path, outside_root: bool) -> Result<Prepared> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| Error::NotFound(format!("{}: {error}", path.display())))?;
@@ -243,6 +376,7 @@ fn read(reference: &ContextRef, path: &Path, outside_root: bool) -> Result<Prepa
                     truncated: listing.1,
                     outside_root,
                 },
+                attachment: None,
             })
         }
         ContextKind::File | ContextKind::Skill => {
@@ -257,13 +391,57 @@ fn read(reference: &ContextRef, path: &Path, outside_root: bool) -> Result<Prepa
                     path.display()
                 )));
             }
-            let raw = std::fs::read(&source)
+            // Only the head is read. A 500 MB video attached as context must
+            // not be pulled into memory just to learn that it is not text.
+            let (raw, complete) = read_head(&source, MAX_FILE_BYTES)
                 .map_err(|error| Error::NotFound(format!("{}: {error}", source.display())))?;
             let bytes = metadata.len();
-            let text = String::from_utf8(raw).map_err(|_| {
-                Error::Rejected(format!("{} is not a UTF-8 text file", source.display()))
-            })?;
-            let (body, truncated) = truncate(&text, MAX_FILE_BYTES);
+            let media = sniff(&raw[..raw.len().min(SNIFF_BYTES)]);
+            // An image is not text: inlining its bytes would be mojibake and
+            // the model could not look at the picture. Hand the path to the
+            // runtime, which attaches it as an image content block.
+            if media == Media::Image {
+                return Ok(Prepared {
+                    block: String::new(),
+                    attachment: Some(source.clone()),
+                    resolved: ResolvedRef {
+                        kind: reference.kind,
+                        path: path.to_string_lossy().to_string(),
+                        label,
+                        bytes,
+                        chars: 0,
+                        truncated: false,
+                        outside_root,
+                    },
+                });
+            }
+            // Everything else that is not text is handed over as a path. The
+            // agent opens a PDF, unzips a DOCX or runs `file` far more capably
+            // than a byte sniff can guess, and refusing here would mean the
+            // user cannot ask about a file they clearly attached.
+            let text = match valid_prefix(&raw) {
+                Some(text) if media == Media::Text => text,
+                _ => {
+                    let block = binary_block(&source, bytes);
+                    return Ok(Prepared {
+                        resolved: ResolvedRef {
+                            kind: reference.kind,
+                            path: path.to_string_lossy().to_string(),
+                            label,
+                            bytes,
+                            chars: block.chars().count(),
+                            truncated: false,
+                            outside_root,
+                        },
+                        block,
+                        attachment: None,
+                    });
+                }
+            };
+            let (body, cut_by_budget) = truncate(text, MAX_FILE_BYTES);
+            // A file longer than the head we read is truncated too, even when
+            // what arrived fits the budget.
+            let truncated = cut_by_budget || !complete;
             let label_text = if reference.kind == ContextKind::Skill {
                 let name = label.clone().unwrap_or_else(|| {
                     source
@@ -293,6 +471,7 @@ fn read(reference: &ContextRef, path: &Path, outside_root: bool) -> Result<Prepa
                     truncated,
                     outside_root,
                 },
+                attachment: None,
             })
         }
     }
@@ -319,6 +498,48 @@ fn listing(directory: &Path) -> Result<(String, bool)> {
         ));
     }
     Ok((text, truncated))
+}
+
+/// Read at most `limit` bytes plus room for one cut character.
+///
+/// `false` in the second slot means the file is longer than what came back, so
+/// the caller can mark the block as truncated without ever loading the rest.
+fn read_head(path: &Path, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = vec![0u8; limit + 4];
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match file.read(&mut buffer[filled..])? {
+            0 => break,
+            read => filled += read,
+        }
+    }
+    let complete = if filled < buffer.len() {
+        true
+    } else {
+        let mut probe = [0u8; 1];
+        file.read(&mut probe)? == 0
+    };
+    buffer.truncate(filled);
+    Ok((buffer, complete))
+}
+
+/// The longest prefix of `raw` that is valid UTF-8.
+///
+/// A read that stopped mid-character leaves at most three trailing bytes, which
+/// are dropped. Malformed content anywhere else returns `None`: that is a
+/// binary file, not text that happens to end early.
+fn valid_prefix(raw: &[u8]) -> Option<&str> {
+    if let Ok(text) = std::str::from_utf8(raw) {
+        return Some(text);
+    }
+    for cut in 1..=3.min(raw.len()) {
+        if let Ok(text) = std::str::from_utf8(&raw[..raw.len() - cut]) {
+            return Some(text);
+        }
+    }
+    None
 }
 
 /// Cut on a character boundary; a multi-byte character is never split.
@@ -438,6 +659,144 @@ mod tests {
     }
 
     #[test]
+    fn an_unreadable_binary_is_handed_over_as_a_path_not_refused() {
+        // Its own scratch directory: two cases sharing one would delete each
+        // other's files when cargo runs the module in parallel.
+        let root = scratch("binary-path");
+        let report = root.join("report.pdf");
+        let payload = b"%PDF-1.7\n\x00\x01\x02binary";
+        std::fs::write(&report, payload).expect("write");
+        // The agent opens the file with its own tools; the prompt carries the
+        // path and says why the bytes were not inlined.
+        let steps = plan(&root.to_string_lossy(), &[], &[file("report.pdf")]).expect("plan");
+        match &steps[0] {
+            Step::Ready(prepared) => {
+                assert!(prepared.attachment.is_none(), "a PDF is not an image");
+                assert!(prepared.block.contains("report.pdf"), "{}", prepared.block);
+                assert!(prepared.block.contains("binary"), "{}", prepared.block);
+                assert!(
+                    prepared.block.contains("your own tools"),
+                    "{}",
+                    prepared.block
+                );
+                assert_eq!(prepared.resolved.bytes, payload.len() as u64);
+            }
+            Step::Awaiting { .. } => panic!("inside the project must not ask"),
+        }
+    }
+
+    #[test]
+    fn a_binary_outside_the_project_still_asks_before_it_is_described() {
+        let root = scratch("binary-outside");
+        let outside = root.parent().expect("parent").join("outside.pdf");
+        std::fs::write(&outside, b"%PDF-1.7\n\x00\x01").expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("../outside.pdf")]).expect("plan");
+        assert!(
+            matches!(steps[0], Step::Awaiting { .. }),
+            "a path outside the project needs consent whatever it contains"
+        );
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    /// Only the head is read, so the truncation has to be reported from the
+    /// bytes on disk rather than from what happened to be buffered.
+    #[test]
+    fn a_text_file_longer_than_the_budget_is_marked_truncated() {
+        let root = scratch("long-text");
+        std::fs::write(root.join("big.txt"), "x".repeat(MAX_FILE_BYTES * 2)).expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("big.txt")]).expect("plan");
+        match &steps[0] {
+            Step::Ready(prepared) => {
+                assert!(prepared.resolved.truncated);
+                assert_eq!(prepared.resolved.chars, MAX_FILE_BYTES);
+                assert!(
+                    prepared.block.contains("truncated at"),
+                    "{}",
+                    prepared.block
+                );
+            }
+            Step::Awaiting { .. } => panic!("inside the project"),
+        }
+    }
+
+    /// The head read stops at a byte boundary; a character straddling it must be
+    /// dropped, not decoded into a replacement character.
+    #[test]
+    fn a_character_cut_by_the_head_read_is_dropped_not_mangled() {
+        let root = scratch("cut-char");
+        let mut body = "a".repeat(MAX_FILE_BYTES + 3);
+        body.push('中');
+        std::fs::write(root.join("cut.txt"), &body).expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("cut.txt")]).expect("plan");
+        match &steps[0] {
+            Step::Ready(prepared) => {
+                assert!(!prepared.block.contains('中'), "{}", prepared.block);
+                assert!(!prepared.block.contains('\u{fffd}'), "{}", prepared.block);
+                assert!(prepared.resolved.truncated);
+            }
+            Step::Awaiting { .. } => panic!("inside the project"),
+        }
+    }
+
+    /// A real PNG header. The runtime turns it into an image content block, so
+    /// the reference has to leave here as an attachment instead of being
+    /// appended to the prompt as bytes that are not text.
+    fn png_header() -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        bytes.extend_from_slice(&13u32.to_be_bytes());
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bytes
+    }
+
+    #[test]
+    fn an_image_becomes_an_attachment_instead_of_prompt_text() {
+        let root = scratch("image");
+        std::fs::write(root.join("shot.png"), png_header()).expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("shot.png")]).expect("plan");
+        match &steps[0] {
+            Step::Ready(prepared) => {
+                let expected = std::fs::canonicalize(root.join("shot.png")).expect("canonical");
+                assert_eq!(prepared.attachment.as_deref(), Some(expected.as_path()));
+                assert!(prepared.block.is_empty(), "an image is not inline text");
+                assert_eq!(prepared.resolved.chars, 0);
+            }
+            Step::Awaiting { .. } => panic!("the image is inside the project"),
+        }
+    }
+
+    #[test]
+    fn an_image_outside_the_project_still_asks_before_it_is_attached() {
+        let root = scratch("image-outside");
+        let outside = root.parent().expect("parent").join("outside.png");
+        std::fs::write(&outside, png_header()).expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("../outside.png")]).expect("plan");
+        assert!(
+            matches!(steps[0], Step::Awaiting { .. }),
+            "trust is about the path, not the medium"
+        );
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn folding_an_image_only_turn_leaves_the_prompt_untouched() {
+        let root = scratch("image-fold");
+        std::fs::write(root.join("shot.png"), png_header()).expect("write");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("shot.png")]).expect("plan");
+        let prepared: Vec<Prepared> = steps
+            .into_iter()
+            .filter_map(|step| match step {
+                Step::Ready(prepared) => Some(*prepared),
+                Step::Awaiting { .. } => None,
+            })
+            .collect();
+        assert_eq!(attachments(&prepared).len(), 1);
+        assert_eq!(fold("看看这张图", &prepared), "看看这张图");
+    }
+
+    #[test]
     fn duplicate_references_collapse_to_one_block() {
         let root = scratch("dupe");
         let steps = plan(
@@ -449,13 +808,25 @@ mod tests {
         assert_eq!(steps.len(), 1);
     }
 
+    /// The bytes never reach the prompt, so a .bin cannot turn into mojibake
+    /// text the model would quote back as file content.
     #[test]
-    fn a_binary_file_is_refused_instead_of_mangled() {
+    fn binary_bytes_are_never_inlined_as_mojibake() {
         let root = scratch("binary");
         let mut handle = std::fs::File::create(root.join("blob.bin")).expect("create");
         handle.write_all(&[0xff, 0xfe, 0x00, 0x01]).expect("write");
-        let error = plan(&root.to_string_lossy(), &[], &[file("blob.bin")]).expect_err("binary");
-        assert_eq!(error.code(), "rejected");
+        let steps = plan(&root.to_string_lossy(), &[], &[file("blob.bin")]).expect("plan");
+        match &steps[0] {
+            Step::Ready(prepared) => {
+                assert!(prepared.attachment.is_none());
+                assert!(prepared.block.contains("blob.bin"));
+                assert!(
+                    !prepared.block.contains('\u{fffd}'),
+                    "invalid bytes must not be decoded"
+                );
+            }
+            Step::Awaiting { .. } => panic!("inside the project"),
+        }
     }
 
     #[test]

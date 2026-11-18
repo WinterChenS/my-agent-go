@@ -21,22 +21,84 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter};
+use crate::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter, Turn};
 use crate::error::{Error, Result};
 use crate::model::{
     EventKind, OpenedSession, RunStatus, SessionCapabilities, SessionContext, SessionSpec,
 };
+use crate::subagent::{SubAgentReport, SubAgentStatus};
 
 /// Adapter id, matching the catalog.
 pub const ID: &str = "pi";
 
-/// How long pi may stay silent before the turn is called dead.
+/// Pick the directory that holds this conversation's pi transcript.
 ///
-/// Measured here: with a model whose provider refuses the call, pi opens the
-/// turn, records a pending assistant message and then says nothing at all — no
-/// retry event, no error, no exit — for minutes. A first token normally arrives
-/// in a second or two, so 45 s is generous and still far below the turn budget.
-const FIRST_TOKEN_TIMEOUT: Duration = Duration::from_secs(45);
+/// The default per-conversation directory (`<state_dir>/<session-id>`) is
+/// already inside the workspace, so the transcript belongs right there and the
+/// user sees one folder per conversation. A conversation explicitly bound to
+/// one of the user's own projects must NOT have runtime files dropped into it;
+/// for those we return `None` and the caller uses a dedicated
+/// `<state_dir>/<native-id>` folder instead.
+fn session_dir_for(context: &SessionContext, cwd: &str) -> Option<PathBuf> {
+    if cwd.trim().is_empty() {
+        return None;
+    }
+    let root = context.state_dir.to_string_lossy().to_lowercase();
+    let candidate = cwd.to_lowercase();
+    if candidate.starts_with(&root) {
+        Some(PathBuf::from(cwd))
+    } else {
+        None
+    }
+}
+
+/// pi's built-in tools. Naming all of them means "the defaults", not "narrow".
+const BUILTIN_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+
+/// The tool a headless run must never offer: the model would ask a question and
+/// wait for an answer nothing in this build can give.
+const HEADLESS_EXCLUDE: &str = "ask_question";
+
+/// `--tools` / `--exclude-tools` for one run.
+///
+/// A full allowlist (`--tools read,write,edit,bash,grep,find,ls,subagent`) is the
+/// obvious encoding of "exactly these tools" and it is wrong for a *resumed*
+/// session: measured on pi 1.5.0, resuming a session whose transcript recorded a
+/// loadout without `subagent` restores that old loadout and drops the extension
+/// tool, even though the extension is installed and the name is in the
+/// allowlist. The session then answers "I don't have a subagent tool" and the
+/// model improvises by spawning `pi -p` through bash, which is the loop that
+/// left a turn hanging for eight minutes.
+///
+/// Expressing the same intent as an exclusion list keeps the tool: with no
+/// allowlist, pi activates extension tools that register after the transcript is
+/// restored (`_restoreToolsFromTranscript` → `_buildRuntime`). Measured on the
+/// same resumed session: allowlist → 7 tools, no subagent; exclusion → 9 tools,
+/// including subagent.
+///
+/// A narrowed list (a subset of the built-ins) keeps the allowlist: the point
+/// there is to remove tools, and exclusions cannot express "only read and grep".
+fn tool_flags(tools: &[String]) -> Vec<String> {
+    let extras: Vec<&String> = tools
+        .iter()
+        .filter(|tool| !BUILTIN_TOOLS.contains(&tool.as_str()))
+        .collect();
+    // An explicit `ask_question` is the caller's decision, not silence to
+    // override: only a widened list that does *not* name it becomes exclusions.
+    let widened = !extras.is_empty()
+        && BUILTIN_TOOLS
+            .iter()
+            .all(|builtin| tools.iter().any(|tool| tool == builtin))
+        && !extras.iter().any(|tool| tool.as_str() == HEADLESS_EXCLUDE);
+    if widened {
+        vec![
+            "--exclude-tools".to_string(),
+            HEADLESS_EXCLUDE.to_string(),
+        ]
+    } else {
+        vec!["--tools".to_string(), tools.join(",")]
+    }
+}
 
 /// Pi adapter.
 pub struct PiAdapter {
@@ -62,9 +124,16 @@ impl PiAdapter {
         allow_tools: bool,
         tools: &[String],
         prompt: &str,
+        images: &[PathBuf],
     ) -> Result<Command> {
         let executable = self.executable()?;
-        let session_dir = context.state_dir.join(ID);
+        // One directory per conversation. When the conversation is not bound to
+        // a user project, its cwd already is `<state_dir>/<session-id>`, so the
+        // pi transcript lives right there. A conversation bound to a real
+        // project keeps its transcript under `<state_dir>/<native-id>` instead,
+        // so the user's project tree is never polluted with runtime files.
+        let session_dir = session_dir_for(context, &opened.cwd)
+            .unwrap_or_else(|| context.state_dir.join(&opened.native_id));
         std::fs::create_dir_all(&session_dir)?;
         // The child runs inside the project directory now, so a relative
         // `--session-dir` would land inside the user's project. Resolve it once.
@@ -90,9 +159,48 @@ impl PiAdapter {
         if !allow_tools {
             command.arg("--no-tools");
         } else if !tools.is_empty() {
-            // Pi's own allowlist: the run cannot use a tool that is not named,
-            // so a case can prove "read only" rather than trusting the prompt.
-            command.arg("--tools").arg(tools.join(","));
+            for flag in tool_flags(tools) {
+                command.arg(flag);
+            }
+        }
+        // Persona. `--system-prompt` replaces the coding-assistant prompt, which
+        // is what an agent means: the user wrote who this agent is. Variables are
+        // rendered here because the values are per session, not per save.
+        if !opened.system_prompt.trim().is_empty() {
+            let rendered = crate::persona::render(
+                &opened.system_prompt,
+                &crate::persona::PersonaVars {
+                    repo_path: crate::persona::display_path(&opened.cwd),
+                    model: &opened.model,
+                    agent: &opened.agent_id,
+                    date: &crate::clock::today(),
+                },
+            );
+            command.arg("--system-prompt").arg(rendered);
+        }
+        if !opened.append_system_prompt.trim().is_empty() {
+            command
+                .arg("--append-system-prompt")
+                .arg(&opened.append_system_prompt);
+        }
+        if !opened.thinking.trim().is_empty() {
+            command.arg("--thinking").arg(opened.thinking.trim());
+        }
+        for skill in &opened.skills {
+            if !skill.trim().is_empty() {
+                command.arg("--skill").arg(skill);
+            }
+        }
+        // Attachments. `pi [options] [--] [@files...] [messages...]` turns each
+        // `@path` into prompt content by itself: an image becomes an image
+        // content block the model can look at, a text file is inlined. Reading
+        // everything here and pasting it into the prompt is what made a PNG
+        // unreachable. `--` ends option parsing, so a path is never read as one.
+        if !images.is_empty() {
+            command.arg("--");
+            for image in images {
+                command.arg(format!("@{}", image.display()));
+            }
         }
         Ok(command)
     }
@@ -118,16 +226,44 @@ impl SessionAdapter for PiAdapter {
         }
     }
 
+    /// Pi reads `@path` itself; images become image content blocks.
+    fn supports_images(&self) -> bool {
+        true
+    }
+
     fn open(&self, context: &SessionContext, spec: &SessionSpec) -> Result<OpenedSession> {
         // Resolve the executable now so a misconfigured host fails at open time,
         // not at the first message.
         self.executable()?;
-        std::fs::create_dir_all(context.state_dir.join(ID))?;
         let native_id = spec
             .native_id
             .clone()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| format!("anvil-{}", crate::clock::unix_millis()));
+        // Per-conversation directory (see `session_dir_for` / `command`).
+        let session_dir = session_dir_for(context, &spec.cwd)
+            .unwrap_or_else(|| context.state_dir.join(&native_id));
+        std::fs::create_dir_all(&session_dir)?;
+        // Conversations created before per-session directories kept their
+        // transcript in the shared `<state_dir>/pi/` folder. Copy the matching
+        // file across so resuming an old conversation still finds it. pi names
+        // files `<timestamp>_<native-id>.jsonl`.
+        let legacy_dir = context.state_dir.join(ID);
+        if legacy_dir.is_dir() {
+            let suffix = format!("_{native_id}.jsonl");
+            if let Ok(entries) = std::fs::read_dir(&legacy_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.ends_with(&suffix) {
+                        let target = session_dir.join(name.as_ref());
+                        if !target.exists() {
+                            let _ = std::fs::copy(entry.path(), &target);
+                        }
+                    }
+                }
+            }
+        }
         Ok(OpenedSession {
             runtime_id: ID.to_string(),
             native_id,
@@ -135,6 +271,11 @@ impl SessionAdapter for PiAdapter {
             cwd: spec.cwd.clone(),
             allow_tools: spec.allow_tools,
             tools: spec.tools.clone(),
+            agent_id: spec.agent_id.clone(),
+            thinking: spec.thinking.clone(),
+            system_prompt: spec.system_prompt.clone(),
+            append_system_prompt: spec.append_system_prompt.clone(),
+            skills: spec.skills.clone(),
         })
     }
 
@@ -146,8 +287,26 @@ impl SessionAdapter for PiAdapter {
         cancel: &Cancel,
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
+        self.send_turn(context, opened, &Turn::text(prompt), cancel, sink)
+    }
+
+    fn send_turn(
+        &self,
+        context: &SessionContext,
+        opened: &OpenedSession,
+        turn: &Turn<'_>,
+        cancel: &Cancel,
+        sink: &mut dyn FnMut(AdapterEvent),
+    ) -> Result<RunOutcome> {
         let mut child = self
-            .command(context, opened, opened.allow_tools, &opened.tools, prompt)?
+            .command(
+                context,
+                opened,
+                opened.allow_tools,
+                &opened.tools,
+                turn.prompt,
+                turn.images,
+            )?
             .spawn()
             .map_err(|error| Error::Failed(format!("spawn pi: {error}")))?;
 
@@ -167,19 +326,21 @@ impl SessionAdapter for PiAdapter {
             }
         });
 
-        let deadline = Instant::now() + context.run_timeout;
+        // No deadline by default. A turn ends when pi finishes, fails, or the
+        // user stops it; `run_timeout` is only set by tests and the report
+        // example, which need a broken adapter to fail instead of hang. Cutting
+        // real turns at a round number threw away replies that were still being
+        // written — a run that reads files and reasons between them can take
+        // far longer than any fixed budget, and that is work, not a hang.
+        let deadline = context.run_timeout.map(|budget| Instant::now() + budget);
         let mut deltas = String::new();
         let mut final_text: Option<String> = None;
         let mut usage: Option<Value> = None;
         let mut failure: Option<String> = None;
-        // Pi retries a rejected provider call itself and then can sit on a
-        // pending message forever: the child stays alive, no token arrives, and
-        // the only record of the reason is `auto_retry_start`. Keep that message
-        // for the failure, and hold the turn to one silence budget — a retry
-        // must not extend it, or repeated retries postpone the failure forever.
+        // Pi retries a rejected provider call itself: the child stays alive, no
+        // token arrives, and the only record of the reason is `auto_retry_start`.
+        // Keep that message for the failure text when the run ends.
         let mut retry_error: Option<String> = None;
-        let first_token = Instant::now() + FIRST_TOKEN_TIMEOUT;
-        let mut produced = false;
 
         loop {
             if cancel.is_cancelled() {
@@ -190,27 +351,13 @@ impl SessionAdapter for PiAdapter {
                 ));
                 return Ok(RunOutcome::aborted(&deltas));
             }
-            if !produced && Instant::now() >= first_token {
-                super::kill_tree(&mut child);
-                return Ok(RunOutcome {
-                    status: RunStatus::Failed,
-                    text: String::new(),
-                    error: Some(retry_error.clone().unwrap_or_else(|| {
-                        format!(
-                            "pi produced no output within {}s; model {:?} may be unavailable or not signed in",
-                            FIRST_TOKEN_TIMEOUT.as_secs(),
-                            opened.model
-                        )
-                    })),
-                    usage: None,
-                    native_id: None,
-                });
-            }
-            if Instant::now() >= deadline {
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
                 super::kill_tree(&mut child);
                 return Err(Error::Timeout(format!(
                     "pi did not finish within {:?}",
-                    context.run_timeout
+                    context.run_timeout.unwrap_or_default()
                 )));
             }
             match receiver.recv_timeout(Duration::from_millis(100)) {
@@ -244,14 +391,6 @@ impl SessionAdapter for PiAdapter {
                         retry_error = Some(message.to_string());
                     }
                     for event in translate(&value) {
-                        if matches!(
-                            event.kind,
-                            EventKind::TextDelta
-                                | EventKind::MessageCompleted
-                                | EventKind::ToolCall
-                        ) {
-                            produced = true;
-                        }
                         if event.kind == EventKind::TextDelta
                             && let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
                         {
@@ -346,7 +485,19 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
                 }
                 // `turn_end` carries the final text; emitting it here too would
                 // double every assistant message in the ledger.
-                "text_end" | "text_start" => {}
+                "text_end" | "text_start" | "thinking_start" | "thinking_end" => {}
+                // Pi streams reasoning as `thinking_delta` inside the same
+                // `message_update` wrapper as text. Keep the text: collapsing
+                // it into `Unknown` made every turn look like it never thought.
+                "thinking_delta" => {
+                    let delta = inner.get("delta").and_then(Value::as_str).unwrap_or("");
+                    if !delta.is_empty() {
+                        events.push(AdapterEvent::new(
+                            EventKind::Thinking,
+                            serde_json::json!({ "delta": delta }),
+                        ));
+                    }
+                }
                 other => events.push(AdapterEvent::new(
                     EventKind::Unknown,
                     serde_json::json!({ "type": other }),
@@ -378,20 +529,43 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
                 ));
             }
         }
-        "tool_execution_start" => events.push(AdapterEvent::new(
-            EventKind::ToolCall,
-            serde_json::json!({
-                "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
-                "args": value.get("args").cloned().unwrap_or(Value::Null),
-            }),
-        )),
-        "tool_execution_end" => events.push(AdapterEvent::new(
-            EventKind::ToolResult,
-            serde_json::json!({
-                "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
-                "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
-            }),
-        )),
+        "tool_execution_start" => {
+            let tool = value.get("toolName").and_then(Value::as_str).unwrap_or("");
+            if is_subagent_tool(tool) {
+                events.extend(subagent_started(value));
+            } else {
+                events.push(AdapterEvent::new(
+                    EventKind::ToolCall,
+                    serde_json::json!({
+                        "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
+                        "args": value.get("args").cloned().unwrap_or(Value::Null),
+                    }),
+                ));
+            }
+        }
+        // The `subagent` extension reports progress through the tool's own
+        // update channel: every child's whole transcript, re-sent. Recorded as
+        // a snapshot so the card replaces rather than appends.
+        "tool_execution_update" => {
+            let tool = value.get("toolName").and_then(Value::as_str).unwrap_or("");
+            if is_subagent_tool(tool) {
+                events.extend(subagent_snapshot(value));
+            }
+        }
+        "tool_execution_end" => {
+            let tool = value.get("toolName").and_then(Value::as_str).unwrap_or("");
+            if is_subagent_tool(tool) {
+                events.extend(subagent_finished(value));
+            } else {
+                events.push(AdapterEvent::new(
+                    EventKind::ToolResult,
+                    serde_json::json!({
+                        "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
+                        "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
+                    }),
+                ));
+            }
+        }
         "agent_start" | "turn_start" | "message_start" | "message_end" | "agent_end"
         | "agent_settled" => {}
         // Pi retries a failed provider call on its own. The message is the only
@@ -413,6 +587,284 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
         )),
     }
     events
+}
+
+// ---------------------------------------------------------------------------
+// Delegated agents (`subagent` extension)
+// ---------------------------------------------------------------------------
+
+/// One step's text, and the whole transcript's budget.
+///
+/// A sub-agent can print a whole file. The card is a progress view, not an
+/// archive, so the head is kept and the cut is stated rather than silently
+/// dropping the tail.
+const STEP_TEXT_CHARS: usize = 8_000;
+const STEPS_TOTAL_CHARS: usize = 60_000;
+const MAX_STEPS: usize = 80;
+
+/// pi itself has no sub-agents; its official `subagent` extension registers a
+/// tool that spawns one child process per agent. The tool name is the only
+/// stable thing on the wire, so the match is deliberately narrow: guessing on
+/// names like `agent` would swallow an unrelated tool's output.
+fn is_subagent_tool(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name == "subagent" || name.starts_with("subagent:") || name == "spawn_subagent"
+}
+
+fn tool_call_id(value: &Value) -> String {
+    value
+        .get("toolCallId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| "subagent".to_string())
+}
+
+/// Stable per-child key: one delegation call can spawn several children.
+fn agent_key(call: &str, index: usize) -> String {
+    format!("{call}#{index}")
+}
+
+/// `{index, name, task, step}` for every child a call is about to run.
+///
+/// The extension accepts exactly one of three shapes: `{agent,task}`,
+/// `{tasks:[…]}` (parallel) and `{chain:[…]}` (sequential). Reading the same
+/// shapes here is what lets a parallel delegation show up as N cards instead of
+/// one.
+fn subagent_dispatch(args: &Value) -> Vec<(usize, String, String, Option<i64>)> {
+    let read = |item: &Value, index: usize, step: Option<i64>| {
+        let name = item
+            .get("agent")
+            .and_then(Value::as_str)
+            .unwrap_or("agent")
+            .to_string();
+        let task = item
+            .get("task")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        (index, name, task, step)
+    };
+
+    if let Some(tasks) = args.get("tasks").and_then(Value::as_array) {
+        return tasks
+            .iter()
+            .enumerate()
+            .map(|(index, item)| read(item, index, None))
+            .collect();
+    }
+    if let Some(chain) = args.get("chain").and_then(Value::as_array) {
+        return chain
+            .iter()
+            .enumerate()
+            .map(|(index, item)| read(item, index, Some(index as i64 + 1)))
+            .collect();
+    }
+    if args.get("agent").is_some() || args.get("task").is_some() {
+        return vec![read(args, 0, None)];
+    }
+    Vec::new()
+}
+
+fn subagent_started(value: &Value) -> Vec<AdapterEvent> {
+    let call = tool_call_id(value);
+    let args = value.get("args").cloned().unwrap_or(Value::Null);
+    let model = args.get("model").and_then(Value::as_str).unwrap_or("");
+
+    subagent_dispatch(&args)
+        .into_iter()
+        .map(|(index, name, task, step)| {
+            let mut report = SubAgentReport::started(&agent_key(&call, index), &name)
+                .with_task(&task)
+                .with_model(model);
+            if let Some(step) = step {
+                report = report.with_step(step);
+            }
+            AdapterEvent::new(EventKind::SubAgent, report.to_payload())
+        })
+        .collect()
+}
+
+/// Both update and end carry `details.results`, under different parents.
+fn results_of(value: &Value) -> &[Value] {
+    value
+        .pointer("/partialResult/details/results")
+        .or_else(|| value.pointer("/result/details/results"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+fn subagent_snapshot(value: &Value) -> Vec<AdapterEvent> {
+    let call = tool_call_id(value);
+    let mut events = Vec::new();
+    for (index, result) in results_of(value).iter().enumerate() {
+        let name = result.get("agent").and_then(Value::as_str).unwrap_or("");
+        let steps = messages_to_steps(result.get("messages"));
+        let empty = steps.as_array().is_none_or(Vec::is_empty);
+        let mut report = SubAgentReport::status(&agent_key(&call, index), SubAgentStatus::Running)
+            .with_name(name);
+        if let Some(step) = result.get("step").and_then(Value::as_i64) {
+            report = report.with_step(step);
+        }
+        if !empty {
+            report = report.with_steps(steps);
+        }
+        events.push(AdapterEvent::new(EventKind::SubAgent, report.to_payload()));
+    }
+    events
+}
+
+fn subagent_finished(value: &Value) -> Vec<AdapterEvent> {
+    let call = tool_call_id(value);
+    let mut events = Vec::new();
+    for (index, result) in results_of(value).iter().enumerate() {
+        let name = result.get("agent").and_then(Value::as_str).unwrap_or("");
+        let exit = result.get("exitCode").and_then(Value::as_i64).unwrap_or(1);
+        let message = result
+            .get("errorMessage")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let stderr = result.get("stderr").and_then(Value::as_str).unwrap_or("");
+        let ok = exit == 0 && message.is_empty();
+        let status = if ok {
+            SubAgentStatus::Completed
+        } else {
+            SubAgentStatus::Failed
+        };
+        let mut report = SubAgentReport::status(&agent_key(&call, index), status)
+            .with_name(name)
+            .with_result(&last_assistant_text(result.get("messages")))
+            .with_usage(result.get("usage").cloned().unwrap_or(Value::Null));
+        if let Some(step) = result.get("step").and_then(Value::as_i64) {
+            report = report.with_step(step);
+        }
+        if !ok {
+            report = report.with_error(if message.is_empty() { stderr } else { message });
+        }
+        events.push(AdapterEvent::new(EventKind::SubAgent, report.to_payload()));
+    }
+    events
+}
+
+/// Turn one child's message list into the card's ordered content.
+///
+/// Assistant text is folded between tool calls so a card reads "said this, ran
+/// that, said this" instead of one wall of text with every call at the end.
+fn messages_to_steps(messages: Option<&Value>) -> Value {
+    let mut steps: Vec<Value> = Vec::new();
+    let Some(messages) = messages.and_then(Value::as_array) else {
+        return Value::Array(steps);
+    };
+    let mut budget = STEPS_TOTAL_CHARS;
+
+    for message in messages {
+        if steps.len() >= MAX_STEPS || budget == 0 {
+            steps.push(serde_json::json!({
+                "kind": "text",
+                "text": "(transcript truncated: the agent produced more than this card shows)",
+            }));
+            break;
+        }
+        let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+        if role == "toolResult" || role == "tool" {
+            let name = message
+                .get("toolName")
+                .and_then(Value::as_str)
+                .unwrap_or("tool");
+            let ok = !message
+                .get("isError")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let output = clip(
+                &content_text(message.get("content")),
+                budget.min(STEP_TEXT_CHARS),
+            );
+            budget = budget.saturating_sub(output.chars().count());
+            steps.push(serde_json::json!({
+                "kind": "tool_result",
+                "name": name,
+                "ok": ok,
+                "output": output,
+            }));
+            continue;
+        }
+        if role != "assistant" {
+            continue;
+        }
+        let Some(parts) = message.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+        let mut pending = String::new();
+        for part in parts {
+            match part.get("type").and_then(Value::as_str).unwrap_or("") {
+                "text" => {
+                    if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        pending.push_str(text);
+                    }
+                }
+                "toolCall" => {
+                    if !pending.trim().is_empty() {
+                        let text = clip(&pending, budget.min(STEP_TEXT_CHARS));
+                        budget = budget.saturating_sub(text.chars().count());
+                        steps.push(serde_json::json!({ "kind": "text", "text": text }));
+                        pending.clear();
+                    }
+                    steps.push(serde_json::json!({
+                        "kind": "tool",
+                        "name": part.get("name").cloned().unwrap_or(Value::Null),
+                        "args": part.get("arguments").cloned().unwrap_or(Value::Null),
+                    }));
+                }
+                _ => {}
+            }
+        }
+        if !pending.trim().is_empty() {
+            let text = clip(&pending, budget.min(STEP_TEXT_CHARS));
+            budget = budget.saturating_sub(text.chars().count());
+            steps.push(serde_json::json!({ "kind": "text", "text": text }));
+        }
+    }
+    Value::Array(steps)
+}
+
+fn content_text(content: Option<&Value>) -> String {
+    let Some(parts) = content.and_then(Value::as_array) else {
+        return String::new();
+    };
+    let mut text = String::new();
+    for part in parts {
+        if part.get("type").and_then(Value::as_str) == Some("text")
+            && let Some(found) = part.get("text").and_then(Value::as_str)
+        {
+            text.push_str(found);
+        }
+    }
+    text
+}
+
+fn last_assistant_text(messages: Option<&Value>) -> String {
+    let Some(messages) = messages.and_then(Value::as_array) else {
+        return String::new();
+    };
+    for message in messages.iter().rev() {
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let text = content_text(message.get("content"));
+        if !text.trim().is_empty() {
+            return text;
+        }
+    }
+    String::new()
+}
+
+fn clip(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(limit).collect();
+    out.push_str(" …(truncated)");
+    out
 }
 
 #[cfg(test)]
@@ -479,9 +931,381 @@ mod tests {
         assert_eq!(events[0].payload["type"], "brand_new_event");
     }
 
+    /// A parallel delegation has to become N cards, not one: the extension
+    /// takes `{tasks:[…]}` and runs every entry in its own process.
+    #[test]
+    fn a_parallel_delegation_announces_every_child() {
+        let value = serde_json::json!({
+            "type": "tool_execution_start",
+            "toolCallId": "call_1",
+            "toolName": "subagent",
+            "args": {
+                "tasks": [
+                    { "agent": "scout", "task": "count files" },
+                    { "agent": "reviewer", "task": "read the diff" }
+                ]
+            }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.kind == EventKind::SubAgent));
+        assert_eq!(events[0].payload["agentId"], "call_1#0");
+        assert_eq!(events[0].payload["name"], "scout");
+        assert_eq!(events[0].payload["task"], "count files");
+        assert_eq!(events[0].payload["status"], "running");
+        assert_eq!(events[0].payload["phase"], "started");
+        assert_eq!(events[1].payload["agentId"], "call_1#1");
+        assert_eq!(events[1].payload["name"], "reviewer");
+    }
+
+    /// A chain reports its position, so the card can say "step 2 of 3".
+    #[test]
+    fn a_chain_step_carries_its_position() {
+        let value = serde_json::json!({
+            "type": "tool_execution_start",
+            "toolCallId": "call_2",
+            "toolName": "subagent",
+            "args": { "chain": [
+                { "agent": "scout", "task": "look" },
+                { "agent": "planner", "task": "plan" }
+            ] }
+        });
+        let events = translate(&value);
+        assert_eq!(events[0].payload["step"], 1);
+        assert_eq!(events[1].payload["step"], 2);
+    }
+
+    /// The extension re-sends the whole transcript on every update, so the row
+    /// is a snapshot: the card replaces its content instead of appending and
+    /// every line does not appear three times.
+    #[test]
+    fn progress_arrives_as_one_snapshot_with_text_and_tools_in_order() {
+        let value = serde_json::json!({
+            "type": "tool_execution_update",
+            "toolCallId": "call_1",
+            "toolName": "subagent",
+            "partialResult": {
+                "details": {
+                    "results": [{
+                        "agent": "scout",
+                        "task": "count files",
+                        "exitCode": -1,
+                        "messages": [
+                            { "role": "user", "content": [{ "type": "text", "text": "count files" }] },
+                            { "role": "assistant", "content": [
+                                { "type": "text", "text": "counting" },
+                                { "type": "toolCall", "id": "t1", "name": "bash",
+                                  "arguments": { "command": "ls | wc -l" } }
+                            ] },
+                            { "role": "toolResult", "toolName": "bash", "isError": false,
+                              "content": [{ "type": "text", "text": "42" }] },
+                            { "role": "assistant", "content": [{ "type": "text", "text": "42 files" }] }
+                        ],
+                        "usage": { "turns": 2, "input": 10, "output": 5 }
+                    }]
+                }
+            }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        let payload = &events[0].payload;
+        assert_eq!(payload["phase"], "snapshot");
+        assert_eq!(payload["status"], "running");
+        let steps = payload["steps"].as_array().expect("steps");
+        let kinds: Vec<&str> = steps
+            .iter()
+            .map(|step| step["kind"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(kinds, vec!["text", "tool", "tool_result", "text"]);
+        assert_eq!(steps[0]["text"], "counting");
+        assert_eq!(steps[1]["name"], "bash");
+        assert_eq!(steps[2]["output"], "42");
+        assert_eq!(steps[3]["text"], "42 files");
+        // The parent's own prompt is not the child's work.
+        assert!(steps.iter().all(|step| step["text"] != "count files"));
+    }
+
+    #[test]
+    fn a_finished_child_carries_its_answer_and_usage() {
+        let value = serde_json::json!({
+            "type": "tool_execution_end",
+            "toolCallId": "call_1",
+            "toolName": "subagent",
+            "result": {
+                "content": [{ "type": "text", "text": "done" }],
+                "details": { "results": [{
+                    "agent": "scout",
+                    "task": "count files",
+                    "exitCode": 0,
+                    "messages": [{ "role": "assistant", "content": [
+                        { "type": "text", "text": "42 files under src" }
+                    ] }],
+                    "usage": { "turns": 1, "input": 3, "output": 7 }
+                }] }
+            }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["phase"], "completed");
+        assert_eq!(events[0].payload["status"], "completed");
+        assert_eq!(events[0].payload["result"], "42 files under src");
+        assert_eq!(events[0].payload["usage"]["turns"], 1);
+        assert!(events[0].payload.get("error").is_none());
+    }
+
+    /// A child that dies must not read as finished-with-an-empty-answer.
+    #[test]
+    fn a_child_that_exits_nonzero_reports_the_reason() {
+        let value = serde_json::json!({
+            "type": "tool_execution_end",
+            "toolCallId": "call_1",
+            "toolName": "subagent",
+            "result": { "details": { "results": [{
+                "agent": "worker",
+                "exitCode": 2,
+                "messages": [],
+                "errorMessage": "model quota exhausted"
+            }] } }
+        });
+        let events = translate(&value);
+        assert_eq!(events[0].payload["phase"], "failed");
+        assert_eq!(events[0].payload["status"], "failed");
+        assert_eq!(events[0].payload["error"], "model quota exhausted");
+    }
+
+    /// Other tools keep the plain tool card: only the delegation tool is
+    /// expanded into child agents.
+    #[test]
+    fn a_regular_tool_is_still_one_tool_call() {
+        let value = serde_json::json!({
+            "type": "tool_execution_start",
+            "toolCallId": "call_9",
+            "toolName": "bash",
+            "args": { "command": "ls" }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::ToolCall);
+        assert_eq!(events[0].payload["tool"], "bash");
+    }
+
+    #[test]
+    fn thinking_deltas_keep_their_text() {
+        let value = serde_json::json!({
+            "type": "message_update",
+            "assistantMessageEvent": { "type": "thinking_delta", "delta": "先读文件" }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::Thinking);
+        assert_eq!(events[0].payload["delta"], "先读文件");
+        // Boundaries carry no text and should not become ledger noise.
+        assert!(
+            translate(&serde_json::json!({
+                "type": "message_update",
+                "assistantMessageEvent": { "type": "thinking_end", "content": "done" }
+            }))
+            .is_empty()
+        );
+    }
+
     #[test]
     fn non_json_lines_are_ignored() {
         assert!(parse_line("Starting pi...").is_none());
         assert!(parse_line("{\"type\":\"agent_start\"}").is_some());
+    }
+
+    /// The persona a user saved has to become arguments pi actually reads. A
+    /// unit test over `Command`'s argv is the narrowest proof that it is not
+    /// lost between the catalog and the child process.
+    fn argv(persona: OpenedSession, allow_tools: bool, tools: &[String]) -> Vec<String> {
+        argv_with_images(persona, allow_tools, tools, &[])
+    }
+
+    fn argv_with_images(
+        persona: OpenedSession,
+        allow_tools: bool,
+        tools: &[String],
+        images: &[PathBuf],
+    ) -> Vec<String> {
+        let dir = std::env::temp_dir().join(format!("anvil-pi-argv-{}", std::process::id()));
+        let adapter = PiAdapter::new(Some(PathBuf::from("D:/tools/pi/pi.exe")));
+        let context = SessionContext {
+            state_dir: dir.clone(),
+            run_timeout: Some(Duration::from_secs(60)),
+        };
+        let command = adapter
+            .command(&context, &persona, allow_tools, tools, "hello", images)
+            .expect("build command");
+        let args = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        args
+    }
+
+    #[test]
+    fn persona_flags_reach_the_runtime() {
+        let opened = OpenedSession {
+            runtime_id: ID.to_string(),
+            native_id: "s1".into(),
+            model: "auto/fast".into(),
+            cwd: "D:/work/api".into(),
+            allow_tools: true,
+            tools: vec!["read".into(), "grep".into()],
+            agent_id: "migration-engineer".into(),
+            thinking: "high".into(),
+            system_prompt: "你是 {{agent}}，仓库 {{repo_path}}，模型 {{model}}，{{target_version}}"
+                .into(),
+            append_system_prompt: "历史结论摘要".into(),
+            skills: vec!["D:/skills/review.md".into(), "D:/skills/docs".into()],
+        };
+        let args = argv(opened, true, &["read".into(), "grep".into()]);
+        let flag = |name: &str| -> Option<String> {
+            args.iter()
+                .position(|arg| arg == name)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        assert_eq!(
+            flag("--system-prompt").as_deref(),
+            Some("你是 migration-engineer，仓库 D:/work/api，模型 auto/fast，{{target_version}}"),
+            "known variables render, unknown ones stay verbatim"
+        );
+        assert_eq!(
+            flag("--append-system-prompt").as_deref(),
+            Some("历史结论摘要")
+        );
+        assert_eq!(flag("--thinking").as_deref(), Some("high"));
+        assert_eq!(flag("--tools").as_deref(), Some("read,grep"));
+        let skill_args: Vec<&str> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| arg.as_str() == "--skill")
+            .map(|(index, _)| args[index + 1].as_str())
+            .collect();
+        assert_eq!(skill_args, vec!["D:/skills/review.md", "D:/skills/docs"]);
+    }
+
+    /// Measured on pi 1.5.0: resuming a session whose transcript recorded a
+    /// loadout without `subagent` drops the extension tool when the run is
+    /// started with an allowlist, but keeps it with an exclusion list. That is
+    /// the difference between "the model delegates" and "the model says it has
+    /// no subagent tool and spawns `pi -p` through bash".
+    #[test]
+    fn a_widened_tool_list_becomes_exclusions_so_a_resumed_session_keeps_extensions() {
+        let tools: Vec<String> = [
+            "read", "write", "edit", "bash", "grep", "find", "ls", "subagent",
+        ]
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect();
+        let args = argv(OpenedSession::default(), true, &tools);
+        assert!(
+            args.iter().any(|arg| arg == "--exclude-tools"),
+            "a full default set plus an extension tool is an exclusion, not an allowlist: {args:?}"
+        );
+        assert!(!args.iter().any(|arg| arg == "--tools"), "{args:?}");
+        let excluded = args
+            .iter()
+            .position(|arg| arg == "--exclude-tools")
+            .and_then(|index| args.get(index + 1))
+            .cloned();
+        assert_eq!(excluded.as_deref(), Some("ask_question"));
+    }
+
+    #[test]
+    fn a_narrowed_tool_list_keeps_the_allowlist() {
+        let tools = vec!["read".to_string(), "grep".to_string()];
+        let args = argv(OpenedSession::default(), true, &tools);
+        let allowed = args
+            .iter()
+            .position(|arg| arg == "--tools")
+            .and_then(|index| args.get(index + 1))
+            .cloned();
+        assert_eq!(allowed.as_deref(), Some("read,grep"));
+        assert!(!args.iter().any(|arg| arg == "--exclude-tools"), "{args:?}");
+    }
+
+    #[test]
+    fn exactly_the_builtin_list_stays_an_allowlist() {
+        // An Agent saved before delegation existed must not silently gain the
+        // extension tool: its list names only the built-ins on purpose.
+        let tools: Vec<String> = BUILTIN_TOOLS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        let args = argv(OpenedSession::default(), true, &tools);
+        assert!(args.iter().any(|arg| arg == "--tools"), "{args:?}");
+        assert!(!args.iter().any(|arg| arg == "--exclude-tools"), "{args:?}");
+    }
+
+    #[test]
+    fn an_explicit_ask_question_is_not_silently_excluded() {
+        let tools: Vec<String> = [
+            "read", "write", "edit", "bash", "grep", "find", "ls", "ask_question",
+        ]
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect();
+        let args = argv(OpenedSession::default(), true, &tools);
+        let allowed = args
+            .iter()
+            .position(|arg| arg == "--tools")
+            .and_then(|index| args.get(index + 1))
+            .cloned();
+        assert_eq!(
+            allowed.as_deref(),
+            Some("read,write,edit,bash,grep,find,ls,ask_question"),
+            "an explicit choice is respected rather than overridden by our default"
+        );
+    }
+
+    #[test]
+    fn an_agent_without_persona_does_not_change_the_runtime_defaults() {
+        let args = argv(OpenedSession::default(), false, &[]);
+        for absent in [
+            "--system-prompt",
+            "--append-system-prompt",
+            "--thinking",
+            "--skill",
+            "--tools",
+        ] {
+            assert!(!args.iter().any(|arg| arg == absent), "{absent} leaked in");
+        }
+        assert!(args.iter().any(|arg| arg == "--no-tools"));
+    }
+
+    /// A picture only reaches the model through pi's own `@path` channel: pi
+    /// turns it into an image content block, which pasting UTF-8 text never can.
+    #[test]
+    fn images_travel_as_at_path_arguments_after_the_option_separator() {
+        let images = vec![
+            PathBuf::from(r"D:\Downloads\陈思成.png"),
+            PathBuf::from(r"D:\Downloads\second shot.jpg"),
+        ];
+        let args = argv_with_images(OpenedSession::default(), true, &[], &images);
+        let separator = args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("attachments need `--` so a path is never read as a flag");
+        assert_eq!(
+            args[separator + 1..].to_vec(),
+            vec![
+                r"@D:\Downloads\陈思成.png".to_string(),
+                r"@D:\Downloads\second shot.jpg".to_string(),
+            ],
+            "every image becomes one `@path` positional, in the order it was added"
+        );
+        // `--` must be the last option: only files follow it.
+        assert_eq!(separator, args.len() - 3);
+    }
+
+    #[test]
+    fn a_text_only_turn_gets_no_attachment_arguments() {
+        let args = argv(OpenedSession::default(), true, &[]);
+        assert!(!args.iter().any(|arg| arg == "--"), "{args:?}");
+        assert!(!args.iter().any(|arg| arg.starts_with('@')), "{args:?}");
     }
 }

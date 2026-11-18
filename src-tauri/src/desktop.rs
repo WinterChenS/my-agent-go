@@ -20,6 +20,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = HostConfig::from_env()?;
     let system_dark = system_theme::system_dark();
     config.log_startup(system_dark);
+    // First launch with the per-user data dir: bring the old fixed-location data
+    // across so conversations and model/agent configuration are not lost.
+    //
+    // Only the default per-user directory is an upgrade target. An explicit
+    // ANVIL_DATA_DIR is a deliberate choice (dev run, portable install, test
+    // rig) and must never inherit another install's ledger behind the user's
+    // back — that made a "clean" profile open with someone else's history.
+    if config.data_dir == crate::host::default_data_dir() {
+        crate::host::migrate_legacy_data(&config.data_dir, &config.log);
+    }
 
     let assets = DiskAssets::load(&config.dist_dir)
         .map_err(|error| format!("frontend assets {}: {error}", config.dist_dir.display()))?;
@@ -40,7 +50,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let session = SessionState::new(
         config.data_dir.join("sessions.sqlite"),
-        config.data_dir.join("sessions"),
+        config.data_dir.join("workspace"),
+        config.data_dir.join("catalog.sqlite"),
     );
     config
         .log
@@ -58,6 +69,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_snapshot,
             crate::catalog::catalog_refresh,
             crate::catalog::catalog_sync,
+            crate::catalog::catalog_sync_inventory,
             crate::catalog::catalog_add_model,
             crate::catalog::catalog_verify_model,
             crate::catalog::catalog_set_default_model,
@@ -65,6 +77,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_save_agent,
             crate::catalog::catalog_delete_agent,
             crate::catalog::catalog_probe_mcp,
+            crate::catalog::runtime_install,
             crate::session::session_list,
             crate::session::session_detail,
             crate::session::session_events,
@@ -81,7 +94,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_approve,
             crate::session::session_context_list,
             crate::session::session_rail,
-            crate::session::session_export
+            crate::session::session_export,
+            crate::session::agent_runs,
+            crate::workspace::workspace_defaults,
+            crate::workspace::workspace_ensure,
+            crate::workspace::workspace_create,
+            crate::workspace::workspace_pick,
+            crate::workspace::workspace_pick_file,
+            crate::extensions::pi_subagent_status,
+            crate::extensions::pi_subagent_install
         ])
         .setup(|app| {
             create_main_window(app)?;

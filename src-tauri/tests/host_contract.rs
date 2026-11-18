@@ -514,49 +514,52 @@ fn preflight_rejects_missing_empty_and_relative_data_directory() {
 }
 
 #[test]
-fn preflight_rejects_other_drives_without_creating_anything() {
-    let fixture = EnvFixture::new("preflight-c");
-    let c_target = r"C:\Users\Administrator\AppData\Local\anvil-rs02-must-not-exist";
-    let c_webview = r"C:\Users\Administrator\AppData\Local\anvil-rs02-webview-must-not-exist";
+fn preflight_accepts_a_writable_directory_on_any_volume() {
+    let fixture = EnvFixture::new("preflight-any-volume");
     let dist = fixture.dist().to_string_lossy().into_owned();
-    let env = env_from(&[(DATA_DIR_ENV, c_target), (FRONTEND_DIST_ENV, &dist)]);
-    let error = host_error(HostConfig::prepare(&env));
-    assert!(matches!(error, HostError::DataDirectory(_)), "{error:?}");
-    assert!(
-        error.to_string().contains("resolves to volume C:"),
-        "{error}"
-    );
-    assert!(!Path::new(c_target).exists(), "C: data dir was created");
+    // The per-user data dir (%USERPROFILE%\.anvil) lives on the profile drive,
+    // typically C:. The old D:-only rule rejected it; it must be accepted now.
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
+    let target = std::env::temp_dir().join(format!("anvil-any-volume-{}-{seq}", std::process::id()));
+    let _ = fs::remove_dir_all(&target);
+    let target_text = target.to_string_lossy().into_owned();
 
-    let data = fixture.data().to_string_lossy().into_owned();
-    let env = env_from(&[
-        (DATA_DIR_ENV, &data),
-        (WEBVIEW_DIR_ENV, c_webview),
-        (FRONTEND_DIST_ENV, &dist),
-    ]);
-    let error = host_error(HostConfig::prepare(&env));
-    assert!(matches!(error, HostError::WebviewDirectory(_)), "{error:?}");
-    assert!(!Path::new(c_webview).exists(), "C: webview dir was created");
+    let env = env_from(&[(DATA_DIR_ENV, &target_text), (FRONTEND_DIST_ENV, &dist)]);
+    let config = HostConfig::prepare(&env).expect("a writable non-D: data directory must be accepted");
+    assert!(config.data_dir.is_dir(), "data dir was not created");
+    assert!(config.log.path().is_file(), "log was not created");
+    drop(config);
+    let _ = fs::remove_dir_all(&target);
 }
 
 #[test]
-fn preflight_rejects_a_junction_to_another_volume() {
+fn preflight_resolves_a_junction_to_its_real_target() {
     let mut fixture = EnvFixture::new("preflight-junction");
-    let link = fixture.dir.junction("to-c", Path::new(r"C:\"));
-    let marker = link.join("anvil-rs02-marker");
+    // A junction is a reparse point. The host must resolve it and operate on the
+    // real target rather than the link's own spelling. Cross-volume junctions are
+    // now legal because the data dir may live on any drive.
+    let target = std::env::temp_dir().join(format!("anvil-junction-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&target);
+    fs::create_dir_all(&target).expect("create junction target");
+    let link = fixture.dir.junction("to-target", &target);
+    let nested = link.join("nested");
     let dist = fixture.dist().to_string_lossy().into_owned();
-    let marker_text = marker.to_string_lossy().into_owned();
-    let env = env_from(&[(DATA_DIR_ENV, &marker_text), (FRONTEND_DIST_ENV, &dist)]);
-    let error = host_error(HostConfig::prepare(&env));
-    assert!(matches!(error, HostError::DataDirectory(_)), "{error:?}");
+    let nested_text = nested.to_string_lossy().into_owned();
+
+    let env = env_from(&[(DATA_DIR_ENV, &nested_text), (FRONTEND_DIST_ENV, &dist)]);
+    let config = HostConfig::prepare(&env).expect("a junction to a writable target must resolve");
     assert!(
-        error.to_string().contains("resolves to volume C:"),
-        "{error}"
+        config.data_dir.ends_with("nested"),
+        "data dir was not resolved: {}",
+        config.data_dir.display()
     );
     assert!(
-        !Path::new(r"C:\anvil-rs02-marker").exists(),
-        "wrote through junction"
+        target.join("nested").is_dir(),
+        "the host did not write into the junction target"
     );
+    drop(config);
+    let _ = fs::remove_dir_all(&target);
 }
 
 #[test]
@@ -798,6 +801,7 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-catalog-snapshot",
             "allow-catalog-refresh",
             "allow-catalog-sync",
+            "allow-catalog-sync-inventory",
             "allow-catalog-add-model",
             "allow-catalog-verify-model",
             "allow-catalog-set-default-model",
@@ -821,7 +825,15 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-session-approve",
             "allow-session-context-list",
             "allow-session-rail",
-            "allow-session-export"
+            "allow-session-export",
+            "allow-agent-runs",
+            "allow-workspace-defaults",
+            "allow-workspace-ensure",
+            "allow-workspace-create",
+            "allow-workspace-pick",
+            "allow-workspace-pick-file",
+            "allow-pi-subagent-status",
+            "allow-pi-subagent-install"
         ]
     );
     for permission in &permissions {

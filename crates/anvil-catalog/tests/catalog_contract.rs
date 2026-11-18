@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use anvil_catalog::error::{Error, Result};
 use anvil_catalog::model::{
-    Capabilities, CapabilityState, InventoryKind, McpRecord, ModelRecord, RuntimeCandidate,
-    RuntimeHealth, RuntimeRegistration, RuntimeStatus, SkillRecord,
+    AgentDraft, Capabilities, CapabilityState, InventoryKind, McpRecord, ModelRecord,
+    RuntimeCandidate, RuntimeHealth, RuntimeRegistration, RuntimeStatus, SkillRecord,
 };
 use anvil_catalog::runtime::adapter::{
     DiscoveryContext, Inventory, ModelVerification, ProbeContext, ProbeReport, RuntimeAdapter,
@@ -375,6 +375,31 @@ fn failing_adapter_does_not_hide_the_healthy_one() {
             .any(|runtime| runtime.runtime_id == "broken")
     );
     assert_eq!(snapshot.adapter_failures.len(), 1);
+}
+
+#[test]
+fn a_recorded_startup_failure_keeps_persisted_rows_visible() {
+    // The restart path must answer with what is already on disk even when a
+    // startup scan/sync failed. `record_failure` is how the host attaches that
+    // problem without throwing the whole snapshot away.
+    let home = TempHome::new("startup-resilience");
+    let mut service = service(&home, Vec::new());
+
+    // A first snapshot persists the derived default agent, like a real boot.
+    let before = service.snapshot().expect("first snapshot");
+    assert_eq!(before.agents.len(), 1);
+
+    service.record_failure(anvil_catalog::model::AdapterFailure {
+        runtime_id: "catalog".to_string(),
+        phase: "startup-scan".to_string(),
+        error: "simulated startup failure".to_string(),
+    });
+
+    let after = service.snapshot().expect("snapshot after failure");
+    assert_eq!(after.agents.len(), 1, "persisted agent must stay visible");
+    assert_eq!(after.adapter_failures.len(), 1);
+    assert_eq!(after.adapter_failures[0].phase, "startup-scan");
+    assert_eq!(after.adapter_failures[0].error, "simulated startup failure");
 }
 
 #[test]
@@ -748,6 +773,31 @@ fn skill_records_preserve_source_root_for_duplicates() {
 }
 
 #[test]
+fn a_first_install_retires_the_not_installed_placeholder() {
+    let home = TempHome::new("install-retires-placeholder");
+    let adapter = Arc::new(ScriptedAdapter::new("demo"));
+    let mut service = service(&home, vec![adapter.clone()]);
+    service.scan().expect("scan before install");
+    let before = service.snapshot().expect("snapshot");
+    assert_eq!(before.runtimes.len(), 1);
+    assert_eq!(before.runtimes[0].status, "not_installed");
+
+    // The one-click installer dropped a shim: the next scan finds a real binary.
+    let executable = home.touch("bin/demo.cmd");
+    *adapter.discovery_paths.lock().expect("paths") = vec![executable];
+    service.scan().expect("scan after install");
+
+    let after = service.snapshot().expect("snapshot");
+    assert_eq!(
+        after.runtimes.len(),
+        1,
+        "the not-installed placeholder must be retired, not kept beside the install"
+    );
+    assert_eq!(after.runtimes[0].status, "available");
+    assert!(!after.runtimes[0].install_path.is_empty());
+}
+
+#[test]
 fn snapshot_lists_every_declared_runtime_even_when_nothing_is_installed() {
     let home = TempHome::new("nothing");
     let adapter = ScriptedAdapter::new("demo");
@@ -799,6 +849,27 @@ fn a_discovered_model_stays_out_of_the_picker_until_it_is_enabled() {
     assert_eq!(unknown.code(), "not_found");
 }
 
+fn draft(name: Option<&str>, runtime_id: &str, model_id: &str) -> AgentDraft {
+    AgentDraft {
+        name: name.unwrap_or("").to_string(),
+        // Empty means "use the generated id", so each new agent is unique.
+        slug: String::new(),
+        runtime_id: runtime_id.to_string(),
+        model_id: model_id.to_string(),
+        thinking: "medium".to_string(),
+        context_window: "400K".to_string(),
+        auto_compact: true,
+        network: true,
+        confirm_dangerous: true,
+        group_kind: "main".to_string(),
+        delegation_policy: "auto".to_string(),
+        concurrency: 4,
+        enabled: true,
+        permission: "medium".to_string(),
+        ..Default::default()
+    }
+}
+
 /// An agent is a saved runtime+model pair, and the built-in one is a real row:
 /// the user has to be able to point it at a runtime, which a row derived from
 /// the default model never allowed.
@@ -817,7 +888,7 @@ fn an_agent_binds_a_runtime_and_a_model_and_the_default_one_is_editable() {
     assert!(built_in[0].is_default);
 
     let saved = store
-        .save_agent(None, "  代码助手 ", "pi", "alpha", &at)
+        .save_agent(&draft(Some("  代码助手 "), "pi", "alpha"), &at)
         .expect("save");
     assert!(saved.id.starts_with("agent-"));
     assert_eq!(saved.name, "代码助手");
@@ -833,7 +904,13 @@ fn an_agent_binds_a_runtime_and_a_model_and_the_default_one_is_editable() {
     // that model, because a default the picker hides is one the user cannot
     // see they have.
     let bound = store
-        .save_agent(Some("default"), "Default Agent", "pi", "beta", &at)
+        .save_agent(
+            &AgentDraft {
+                id: Some("default".into()),
+                ..draft(Some("Default Agent"), "pi", "beta")
+            },
+            &at,
+        )
         .expect("bind the built-in agent");
     assert!(bound.is_default);
     assert_eq!(bound.model_id, "beta");
@@ -847,14 +924,14 @@ fn an_agent_binds_a_runtime_and_a_model_and_the_default_one_is_editable() {
     assert!(beta.enabled, "a promoted model must be pickable");
 
     let unnamed = store
-        .save_agent(None, "  ", "pi", "alpha", &at)
+        .save_agent(&draft(Some("  "), "pi", "alpha"), &at)
         .expect_err("no name");
     assert_eq!(unnamed.code(), "rejected");
 
     // A binding to something the machine does not have would look saved and
     // fail at the first turn, so it is refused here.
     let unknown = store
-        .save_agent(None, "Ghost", "pi", "missing", &at)
+        .save_agent(&draft(Some("Ghost"), "pi", "missing"), &at)
         .expect_err("unknown model");
     assert_eq!(unknown.code(), "rejected");
 
@@ -1007,4 +1084,258 @@ fn the_picker_is_seeded_with_one_model_per_runtime_exactly_once() {
     // The model the user had switched on must survive the rescan; a blanket
     // delete used to empty the picker on every sync.
     assert!(still_on.contains(&"alpha".to_string()));
+}
+
+/// Every field the agent page edits survives a save and a re-read. A persona
+/// that silently dropped its prompt would look configured and run as the
+/// runtime's default coding assistant.
+#[test]
+fn an_agent_s_persona_round_trips_through_the_store() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .expect("discover");
+
+    let mut input = draft(Some("迁移工程师"), "pi", "alpha");
+    input.slug = "migration-engineer".into();
+    input.description = "负责代码库迁移与兼容性评估".into();
+    input.thinking = "high".into();
+    input.context_window = "1M".into();
+    input.memory = true;
+    input.auto_compact = false;
+    input.system_prompt = "你是迁移工程师，仓库在 {{repo_path}}".into();
+    input.tools = vec!["read".into(), "grep".into()];
+    input.skills = vec!["openspec-verify-change".into()];
+    input.permission = "high".into();
+    input.writable_dirs = "docs/**".into();
+    input.command_allowlist = "pnpm test".into();
+    input.network = false;
+    input.confirm_dangerous = false;
+    input.group_kind = "sub".into();
+    input.delegated_from = "default".into();
+    input.delegation_policy = "explicit".into();
+    input.concurrency = 8;
+    input.enabled = false;
+
+    let saved = store.save_agent(&input, &at).expect("save");
+    let loaded = store.agent(&saved.id).expect("read").expect("row");
+    assert_eq!(loaded.slug, "migration-engineer");
+    assert_eq!(loaded.description, input.description);
+    assert_eq!(loaded.thinking, "high");
+    assert_eq!(loaded.context_window, "1M");
+    assert!(loaded.memory);
+    assert!(!loaded.auto_compact);
+    assert_eq!(loaded.system_prompt, input.system_prompt);
+    assert_eq!(loaded.tools, input.tools);
+    assert_eq!(loaded.skills, input.skills);
+    assert_eq!(loaded.permission, "high");
+    assert_eq!(loaded.writable_dirs, "docs/**");
+    assert_eq!(loaded.command_allowlist, "pnpm test");
+    assert!(!loaded.network);
+    assert!(!loaded.confirm_dangerous);
+    assert_eq!(loaded.group_kind, "sub");
+    assert_eq!(loaded.delegated_from, "default");
+    assert_eq!(loaded.delegation_policy, "explicit");
+    assert_eq!(loaded.concurrency, 8);
+    assert!(!loaded.enabled);
+
+    // Updating one field must not wipe the others: the page saves the whole
+    // draft, but an older caller (or a future partial patch) must be safe.
+    input.system_prompt = "你是发布检查员".into();
+    input.id = Some(saved.id.clone());
+    let updated = store.save_agent(&input, &at).expect("update");
+    assert_eq!(updated.thinking, "high");
+    assert_eq!(updated.slug, "migration-engineer");
+    assert_eq!(store.agents().expect("agents").len(), 1, "no duplicate row");
+
+    // Turning every tool off is a real state, not "fall back to the defaults".
+    input.tools.clear();
+    let no_tools = store.save_agent(&input, &at).expect("save with no tools");
+    assert!(no_tools.tools.is_empty());
+    assert!(!no_tools.allows_tools());
+    assert_eq!(
+        no_tools.effective_tools(),
+        Vec::<String>::new(),
+        "the runtime must receive --no-tools"
+    );
+
+    let readonly = AgentDraft {
+        permission: "readonly".into(),
+        ..input
+    };
+    let narrowed = store.save_agent(&readonly, &at).expect("readonly");
+    assert_eq!(
+        narrowed.effective_tools(),
+        vec!["read", "grep", "find", "ls"]
+    );
+}
+
+/// An old catalog (agents table without the persona columns) still opens, and
+/// its stored agent gets the safe defaults the page would have shown.
+#[test]
+fn an_existing_agent_keeps_a_usable_persona_after_migration() {
+    let dir = std::env::temp_dir().join(format!(
+        "anvil-agent-migration-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    let path = dir.join("catalog.sqlite");
+    {
+        // Exactly the table shape the pre-persona build wrote.
+        let connection = rusqlite::Connection::open(&path).expect("old database");
+        connection
+            .execute_batch(
+                "CREATE TABLE agents (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, runtime_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL, updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE models (
+                    runtime_id TEXT NOT NULL, model_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL, origin TEXT NOT NULL,
+                    protocol TEXT, endpoint TEXT, credential_ref TEXT,
+                    verified INTEGER NOT NULL DEFAULT 0, verified_at TEXT,
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL, PRIMARY KEY (runtime_id, model_id)
+                 );
+                 INSERT INTO agents VALUES ('legacy', 'Legacy', 'pi', 'alpha', '2026-11-01T00:00:00Z');",
+            )
+            .expect("write the old shape");
+    }
+
+    let store = Store::open(&path).expect("migrate an old database");
+    let legacy = store.agent("legacy").expect("read").expect("legacy row");
+    assert_eq!(legacy.slug, "legacy", "a blank slug falls back to the id");
+    assert_eq!(legacy.thinking, "medium");
+    assert_eq!(legacy.context_window, "400K");
+    assert_eq!(
+        legacy.tools.len(),
+        anvil_catalog::model::DEFAULT_TOOLS.len(),
+        "a row saved before tools existed keeps the runtime's default set"
+    );
+    assert_eq!(legacy.permission, "medium");
+    assert!(legacy.auto_compact);
+    assert!(legacy.network);
+    assert!(legacy.enabled);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The background poll must never re-probe models. A slow gateway turns a
+/// 1-token probe into a 12-second stall; skills and MCP declarations are local
+/// files and can be re-read as often as the window likes.
+#[test]
+fn inventory_sync_reads_local_families_without_touching_models() {
+    let home = TempHome::new("inventory-sync");
+    let adapter = Arc::new(
+        ScriptedAdapter::new("fake")
+            .discover_at(vec![home.touch("bin/fake")])
+            .with_sync(
+                InventoryKind::Models,
+                SyncAnswer::Items(vec!["model-a".into()]),
+            )
+            .with_sync(
+                InventoryKind::Skills,
+                SyncAnswer::Items(vec!["skill-a".into()]),
+            )
+            .with_sync(InventoryKind::Mcp, SyncAnswer::Items(vec!["mcp-a".into()])),
+    );
+    let calls = adapter.sync_calls.clone();
+    let mut service = service(&home, vec![adapter]);
+    service.scan().expect("scan");
+    calls.store(0, Ordering::SeqCst);
+
+    let outcomes = service.sync_inventory().expect("inventory sync");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "skills, tools and mcp were each offered to the adapter"
+    );
+    assert!(
+        outcomes.iter().all(|outcome| outcome.kind != "models"),
+        "a model probe leaked into the cheap sync: {outcomes:?}"
+    );
+    let snapshot = service.snapshot().expect("snapshot");
+    assert!(snapshot.models.is_empty(), "models stayed untouched");
+    assert_eq!(snapshot.skills.len(), 1);
+    assert_eq!(snapshot.mcp.len(), 1);
+
+    // The full rescan is the one that still offers models.
+    calls.store(0, Ordering::SeqCst);
+    service.sync_runtime("fake").expect("full sync");
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    assert_eq!(service.snapshot().expect("snapshot").models.len(), 1);
+}
+
+/// Delegation has to be in the default tool list, and never in the read-only one.
+///
+/// `--tools` is a whole allowlist, so a tool left out of the list is a tool the
+/// model cannot see. The default set therefore names `subagent` — pi ignores the
+/// name when its extension is absent — while `readonly` must not: a child agent
+/// runs its own tools, so delegation would let a read-only turn write through one.
+#[test]
+fn the_default_tool_list_can_delegate_and_read_only_cannot() {
+    assert!(
+        anvil_catalog::model::DEFAULT_TOOLS.contains(&"subagent"),
+        "the default set must be able to delegate"
+    );
+    assert!(
+        !anvil_catalog::model::READ_ONLY_TOOLS.contains(&"subagent"),
+        "read only must not be able to delegate"
+    );
+    // Narrowing may only remove: every read-only tool is a default tool too.
+    for name in anvil_catalog::model::READ_ONLY_TOOLS {
+        assert!(
+            anvil_catalog::model::DEFAULT_TOOLS.contains(&name),
+            "{name} is missing from the default set"
+        );
+    }
+}
+
+/// An agent saved before delegation existed gains the tool once, and an agent
+/// the user narrowed keeps its exact list.
+///
+/// The distinction matters because both look like "a saved list": one is the old
+/// default that never mentioned delegation, the other is a decision. Widening the
+/// second would silently undo a read-only setup.
+#[test]
+fn only_an_untouched_tool_list_gains_delegation() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .expect("discover");
+
+    let legacy = AgentDraft {
+        // Explicit ids: two saves in the same second would otherwise share the
+        // timestamp-derived id and the second would overwrite the first.
+        id: Some("legacy".to_string()),
+        tools: anvil_catalog::model::BUILTIN_TOOLS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        ..draft(Some("legacy"), "pi", "alpha")
+    };
+    store.save_agent(&legacy, &at).expect("save legacy");
+
+    let narrowed = AgentDraft {
+        id: Some("narrow".to_string()),
+        tools: vec!["read".to_string()],
+        ..draft(Some("narrow"), "pi", "alpha")
+    };
+    store.save_agent(&narrowed, &at).expect("save narrowed");
+
+    store.ensure_default_agent(&at).expect("migrate");
+    let legacy = store.agent("legacy").expect("read").expect("legacy row");
+    assert!(
+        legacy.tools.contains(&"subagent".to_string()),
+        "the old default list gained delegation: {:?}",
+        legacy.tools
+    );
+    let narrow = store.agent("narrow").expect("read").expect("narrow row");
+    assert_eq!(
+        narrow.tools,
+        vec!["read".to_string()],
+        "an edited list is a user decision"
+    );
 }

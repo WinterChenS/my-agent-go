@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use anvil_catalog::model::{CatalogSnapshot, SyncOutcome};
+use anvil_catalog::model::{AdapterFailure, CatalogSnapshot};
 use anvil_catalog::runtime::adapter::{McpProbe, ModelVerification};
 use anvil_catalog::{CatalogService, Store};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 /// Catalog state shared by the commands.
 pub struct CatalogState {
@@ -74,14 +74,43 @@ impl CatalogState {
     }
 
     /// Scan and sync once per process, then answer.
+    ///
+    /// Discovery is best-effort. A runtime that fails to spawn, a gateway that
+    /// times out or a transient store error must never hide the agents and
+    /// models already committed to disk: the previous behaviour propagated the
+    /// error out of `catalog_snapshot`, which put the whole UI into an error
+    /// state that read as "nothing was remembered after a restart". Failures
+    /// are attached to the snapshot instead, so the persisted rows stay on
+    /// screen and the exact problem is still reported in `adapterFailures`.
     fn snapshot_after_startup(&self) -> Result<CatalogSnapshot, String> {
         self.with_service(|service| {
             if !self.scanned.swap(true, Ordering::SeqCst) {
-                service.scan().map_err(|error| error.to_wire())?;
+                if let Err(error) = service.scan() {
+                    let message = error.to_wire();
+                    eprintln!("[catalog] startup scan failed: {message}");
+                    service.record_failure(AdapterFailure {
+                        runtime_id: "catalog".to_string(),
+                        phase: "startup-scan".to_string(),
+                        error: message,
+                    });
+                }
+                // Only the model lists are needed to open the composer. Skills,
+                // tools and MCP declarations are local files the UI re-reads
+                // right after mount, so syncing them here only delayed the
+                // first page: a model page used to wait for every family of
+                // every runtime before it could render a single tab.
                 for runtime_id in service.registry().ids() {
-                    service
-                        .sync_runtime(&runtime_id)
-                        .map_err(|error| error.to_wire())?;
+                    if let Err(error) = service.sync_models(&runtime_id) {
+                        let message = error.to_wire();
+                        eprintln!(
+                            "[catalog] startup model sync failed for {runtime_id}: {message}"
+                        );
+                        service.record_failure(AdapterFailure {
+                            runtime_id,
+                            phase: "startup-sync-models".to_string(),
+                            error: message,
+                        });
+                    }
                 }
             }
             service.snapshot().map_err(|error| error.to_wire())
@@ -104,16 +133,42 @@ pub async fn catalog_refresh(state: State<'_, CatalogState>) -> Result<CatalogSn
     Ok(snapshot)
 }
 
-/// Sync one runtime's resources.
+/// Re-read skills, tools and MCP declarations from local files.
+///
+/// This deliberately skips model discovery and model probes: the UI calls it
+/// on a timer and whenever the window regains focus, so it must stay cheap and
+/// cannot leave a model picker waiting on a slow gateway.
+#[tauri::command]
+pub async fn catalog_sync_inventory(app: AppHandle) -> Result<CatalogSnapshot, String> {
+    // The UI polls this in the background. Keep the file scan off the async
+    // worker so a slow disk cannot stall the window that asked for it.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CatalogState>();
+        state.with_service(|service| {
+            service.sync_inventory().map_err(|error| error.to_wire())?;
+            service.snapshot().map_err(|error| error.to_wire())
+        })
+    })
+    .await
+    .map_err(|error| format!("catalog: inventory sync task ended: {error}"))?
+}
+
+/// Sync one runtime's model list and return the refreshed snapshot.
+///
+/// The models page is split by runtime and syncs the tab the user is looking
+/// at. Discovery (spawning every runtime to read its version) is not repeated
+/// here: that is what made "sync" feel slow, and the rows already exist from
+/// the startup scan.
 #[tauri::command]
 pub async fn catalog_sync(
     state: State<'_, CatalogState>,
     runtime_id: String,
-) -> Result<Vec<SyncOutcome>, String> {
+) -> Result<CatalogSnapshot, String> {
     state.with_service(|service| {
         service
-            .sync_runtime(&runtime_id)
-            .map_err(|error| error.to_wire())
+            .sync_models(&runtime_id)
+            .map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
     })
 }
 
@@ -191,18 +246,15 @@ pub async fn catalog_set_model_enabled(
     })
 }
 
-/// Save a runtime+model binding under a name.
+/// Save one agent: name, binding and every persona field the page edits.
 #[tauri::command]
 pub async fn catalog_save_agent(
     state: State<'_, CatalogState>,
-    id: Option<String>,
-    name: String,
-    runtime_id: String,
-    model_id: String,
+    agent: anvil_catalog::model::AgentDraft,
 ) -> Result<CatalogSnapshot, String> {
     state.with_service(|service| {
         service
-            .save_agent(id.as_deref(), &name, &runtime_id, &model_id)
+            .save_agent(&agent)
             .map_err(|error| error.to_wire())?;
         service.snapshot().map_err(|error| error.to_wire())
     })
@@ -232,4 +284,52 @@ pub async fn catalog_probe_mcp(
             .probe_mcp(&runtime_id, &name)
             .map_err(|error| error.to_wire())
     })
+}
+
+/// What a one-click runtime install did, plus the catalog right after it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeInstallResult {
+    report: crate::runtimes::InstallReport,
+    snapshot: CatalogSnapshot,
+}
+
+/// Install one runtime CLI (an npm package) into the shared prefix, then rescan.
+///
+/// The npm run happens outside the catalog lock: a cold download can take
+/// minutes and must not freeze every other catalog command behind it. The rescan
+/// afterwards is what turns "installed on disk" into "available in the picker" —
+/// discovery reads the same prefix the installer writes to.
+#[tauri::command]
+pub async fn runtime_install(
+    state: State<'_, CatalogState>,
+    runtime_id: String,
+) -> Result<RuntimeInstallResult, String> {
+    let target = runtime_id.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || crate::runtimes::install(&target))
+        .await
+        .map_err(|error| format!("install task: {error}"))??;
+
+    let snapshot = state.with_service(|service| {
+        if report.ok {
+            if let Err(error) = service.scan() {
+                let message = error.to_wire();
+                eprintln!("[catalog] rescan after install failed: {message}");
+                service.record_failure(AdapterFailure {
+                    runtime_id: "catalog".to_string(),
+                    phase: "post-install-scan".to_string(),
+                    error: message,
+                });
+            }
+            if let Err(error) = service.sync_models(&runtime_id) {
+                eprintln!(
+                    "[catalog] post-install model sync failed: {}",
+                    error.to_wire()
+                );
+            }
+        }
+        service.snapshot().map_err(|error| error.to_wire())
+    })?;
+
+    Ok(RuntimeInstallResult { report, snapshot })
 }

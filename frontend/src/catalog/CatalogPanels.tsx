@@ -1,16 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n/LanguageProvider'
 import SyncButton from '../shell/SyncButton'
+import Icon from '../shell/Icon'
 import type { MessageKey } from '../i18n/catalogue'
 import {
   addCustomModel,
+  installPiSubagent,
   loadCatalog,
+  piSubagentStatus,
   probeCatalogMcp,
   setCatalogModelEnabled,
   setDefaultCatalogModel,
   verifyCatalogModel,
   type CatalogModel,
   type CatalogMcp,
+  type PiSubagentStatus,
 } from './client'
 import { byRuntime, modelsFor, syncProblems, type CatalogView } from './useCatalog'
 
@@ -66,6 +70,17 @@ export function CatalogSummary({ view }: { view: CatalogView }) {
         {view.status === 'ready' && t('catalog.scannedAt', { at: scannedAt })}
         {view.status === 'idle' && t('catalog.loading')}
       </span>
+      {view.status === 'ready' ? (
+        <span className="cat-sub cat-auto-sync" data-testid="catalog-auto-sync">
+          {view.autoSync
+            ? t('catalog.inventory.auto', {
+                at: view.lastInventorySyncAt
+                  ? view.lastInventorySyncAt.slice(11, 19)
+                  : t('catalog.inventory.startup'),
+              })
+            : t('catalog.inventory.autoOff')}
+        </span>
+      ) : null}
       {problems.length > 0 && (
         <span className="cat-warn" title={problems.join('\n')} data-testid="catalog-problems">
           {t('catalog.problems', { count: problems.length })}
@@ -137,9 +152,144 @@ export function CatalogRuntimeTable({ view }: { view: CatalogView }) {
   )
 }
 
-/** Models across runtimes plus the custom-model form. */
-export function CatalogModelsPanel({ view }: { view: CatalogView }) {
+/** Host failures arrive as `{code,message}` JSON; anything else passes through. */
+function failureText(error: unknown): string {
+  if (typeof error === 'string') {
+    const start = error.indexOf('{')
+    if (start >= 0) {
+      try {
+        const parsed = JSON.parse(error.slice(start)) as { code?: string; message?: string }
+        if (parsed.message) return parsed.code ? `${parsed.code}: ${parsed.message}` : parsed.message
+      } catch {
+        // Not the host shape; keep the raw text.
+      }
+    }
+    return error
+  }
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+/**
+ * The runtime-side home for pi's `subagent` extension.
+ *
+ * The chat page offers the same install when the extension is missing, but the
+ * capability belongs to the runtime: someone reading "pi" in 设置 → 运行时
+ * should be able to see that delegation is unavailable and fix it there, without
+ * having to start a conversation first. Both surfaces call the same host
+ * commands, so neither is a copy of the other's state.
+ */
+export function SubagentExtensionPanel({
+  view,
+  onNotice,
+}: {
+  view: CatalogView
+  onNotice?: (message: string) => void
+}) {
   const { t } = useI18n()
+  const runtime = view.snapshot?.runtimes.find((row) => row.runtimeId === 'pi')
+  const [status, setStatus] = useState<PiSubagentStatus | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const check = useCallback(() => {
+    setChecking(true)
+    piSubagentStatus()
+      .then((next) => setStatus(next && next.extensionDir ? next : null))
+      .catch(() => setStatus(null))
+      .finally(() => setChecking(false))
+  }, [])
+
+  // Keyed on the pi build, not the object: a rescan replaces the snapshot object
+  // every time, and re-checking on every scan would fight the button's own state.
+  const runtimeKey = runtime ? `${runtime.id}:${runtime.version ?? ''}` : ''
+  useEffect(() => {
+    if (!runtimeKey) return
+    check()
+  }, [check, runtimeKey])
+
+  if (!runtime) return null
+
+  const installed = status?.installed ?? false
+  const install = () => {
+    if (busy || !status?.canInstall) return
+    setBusy(true)
+    installPiSubagent()
+      .then((report) => {
+        setStatus(report.status)
+        onNotice?.(t('catalog.subagent.installedNotice', { count: report.status.agents }))
+      })
+      .catch((cause) => onNotice?.(t('catalog.subagent.failed', { message: failureText(cause) })))
+      .finally(() => setBusy(false))
+  }
+
+  const badge = checking && !status
+    ? t('catalog.subagent.checking')
+    : installed
+      ? t('catalog.subagent.installedBadge')
+      : t('catalog.subagent.missingBadge')
+  const line = installed
+    ? t('catalog.subagent.installedLine', {
+        agents: status?.agents ?? 0,
+        prompts: status?.prompts ?? 0,
+      })
+    : status?.canInstall
+      ? t('catalog.subagent.missingLine')
+      : t('catalog.subagent.noSource')
+
+  return (
+    <div className="cat-subagent" data-testid="catalog-subagent">
+      <span className="cat-subagent-mark" aria-hidden="true">
+        <Icon name="puzzle" size={14} />
+      </span>
+      <div className="cat-subagent-copy">
+        <span className="cat-subagent-title">
+          <b>{t('catalog.subagent.title')}</b>
+          <span
+            className={`cat-badge ${installed ? 'is-success' : checking ? '' : 'is-warn'}`}
+            data-status={installed ? 'installed' : 'missing'}
+            data-testid="catalog-subagent-state"
+          >
+            <i />{badge}
+          </span>
+        </span>
+        <span className="cat-sub">{line}</span>
+        {status ? (
+          <span className="cat-sub mono cat-subagent-path" title={status.extensionDir}>
+            {status.extensionDir}
+          </span>
+        ) : null}
+      </div>
+      <div className="cat-subagent-actions">
+        <button
+          type="button"
+          className="cat-btn"
+          data-testid="catalog-subagent-recheck"
+          disabled={checking || busy}
+          onClick={check}
+        >
+          {t('catalog.subagent.recheck')}
+        </button>
+        {installed ? null : (
+          <button
+            type="button"
+            className="cat-btn cat-btn-primary"
+            data-testid="catalog-subagent-install"
+            disabled={!status?.canInstall || busy || checking}
+            title={status?.source ?? status?.detail}
+            onClick={install}
+          >
+            <Icon name="download" size={12} />
+            {busy ? t('catalog.subagent.installing') : t('catalog.subagent.install')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Models across runtimes plus the custom-model form. */
+export function CatalogModelsPanel({ view }: { view: CatalogView }) {  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [runtimeId, setRuntimeId] = useState('')
   const [modelId, setModelId] = useState('')
@@ -149,16 +299,38 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
   const [credential, setCredential] = useState('')
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
+  /** Runtime whose tab is open; empty means "the default one". */
+  const [tab, setTab] = useState('')
+  /** Tabs already synced in this mount, so switching back is instant. */
+  const synced = useRef<Set<string>>(new Set())
 
   const runtimes = view.snapshot?.runtimes ?? []
   const customisable = runtimes.filter(
     (runtime) => runtime.capabilities.customModels === 'supported' && runtime.status !== 'not_installed',
   )
-  const models = modelsFor(view.snapshot)
+  // One tab per installed runtime, `pi` first: it is the runtime the picker
+  // defaults to, so it is also the one worth showing when the page opens.
+  const tabs = useMemo(() => {
+    const installed = runtimes.filter((runtime) => runtime.status !== 'not_installed')
+    return [...installed].sort(
+      (left, right) => Number(right.runtimeId === 'pi') - Number(left.runtimeId === 'pi'),
+    )
+  }, [runtimes])
+  const active = tabs.find((runtime) => runtime.runtimeId === tab)?.runtimeId ?? tabs[0]?.runtimeId ?? ''
+  const models = modelsFor(view.snapshot, active)
   const sorted = useMemo(
     () => [...models].sort((left, right) => Number(right.isDefault) - Number(left.isDefault)),
     [models],
   )
+
+  // Sync the open tab, and only the open tab. A tab that was already read in
+  // this mount is not read again until the user asks; a failed read is left
+  // unsynced so re-opening (or the button) retries it.
+  useEffect(() => {
+    if (view.status !== 'ready' || !active || synced.current.has(active)) return
+    synced.current.add(active)
+    void view.syncRuntime(active)
+  }, [active, view])
 
   if (view.status !== 'ready') return null
 
@@ -252,8 +424,9 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
         </div>
         <SyncButton
           label={t('catalog.models.sync')}
-          busy={view.refreshing}
-          onClick={() => void view.refresh()}
+          busy={Boolean(active) && view.syncingRuntime === active}
+          disabled={!active || Boolean(view.syncingRuntime)}
+          onClick={() => void view.syncRuntime(active)}
           testId="catalog-models-sync"
         />
         <button
@@ -266,6 +439,32 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {
           {t('catalog.models.add')}
         </button>
       </div>
+
+      {tabs.length > 1 ? (
+        <div
+          className="cat-tabs"
+          role="tablist"
+          aria-label={t('catalog.models.runtime')}
+          data-testid="catalog-model-tabs"
+        >
+          {tabs.map((runtime) => (
+            <button
+              key={runtime.runtimeId}
+              type="button"
+              role="tab"
+              className={`cat-tab${runtime.runtimeId === active ? ' is-active' : ''}`}
+              aria-selected={runtime.runtimeId === active}
+              data-testid={`catalog-model-tab-${runtime.runtimeId}`}
+              onClick={() => setTab(runtime.runtimeId)}
+            >
+              <span>{runtime.displayName}</span>
+              <span className="cat-tab-count">
+                {modelsFor(view.snapshot, runtime.runtimeId).length}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {open && (
         <div className="cat-form" data-testid="catalog-model-form">
@@ -451,6 +650,14 @@ export function CatalogSkillsPanel({ view }: { view: CatalogView }) {
           <h3>{t('catalog.skills.title')}</h3>
           <p className="cat-sub">{t('catalog.skills.sub', { count: skills.length, runtimes: grouped.size })}</p>
         </div>
+        <SyncButton
+          label={t('catalog.inventory.sync')}
+          text={t('catalog.inventory.sync')}
+          busy={view.inventorySyncing}
+          disabled={view.inventorySyncing}
+          onClick={() => void view.syncInventory()}
+          testId="catalog-skills-sync"
+        />
       </div>
       {skills.length === 0 ? (
         <p className="cat-empty">{t('catalog.skills.empty')}</p>
@@ -518,6 +725,14 @@ export function CatalogMcpPanel({ view }: { view: CatalogView }) {
           <h3>{t('catalog.mcp.title')}</h3>
           <p className="cat-sub">{t('catalog.mcp.sub', { count: servers.length })}</p>
         </div>
+        <SyncButton
+          label={t('catalog.inventory.sync')}
+          text={t('catalog.inventory.sync')}
+          busy={view.inventorySyncing}
+          disabled={view.inventorySyncing}
+          onClick={() => void view.syncInventory()}
+          testId="catalog-mcp-sync"
+        />
       </div>
       {notice && <p className="cat-notice" role="status">{notice}</p>}
       {servers.length === 0 ? (

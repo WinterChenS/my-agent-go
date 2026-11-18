@@ -57,13 +57,8 @@ impl CodexAdapter {
 
     fn install_candidates() -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            paths.push(
-                PathBuf::from(local)
-                    .join("pi-node")
-                    .join("current")
-                    .join(if cfg!(windows) { "codex.cmd" } else { "codex" }),
-            );
+        if let Some(prefix) = common::shared_prefix() {
+            paths.push(prefix.join(common::shared_shim(&prefix, "codex")));
         }
         paths
     }

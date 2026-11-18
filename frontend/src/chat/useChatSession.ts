@@ -13,10 +13,13 @@ import {
   deleteCatalogAgent,
   loadCatalog,
   refreshCatalog,
+  blankAgentDraft,
   saveCatalogAgent,
   type CatalogAgent,
   type CatalogModel,
 } from '../catalog/client'
+import { cacheUsable, readCachedSnapshot, writeCachedSnapshot } from '../catalog/cache'
+import { onCatalogChanged } from '../catalog/notify'
 import { isTauriHost } from '../host/tauri'
 import {
   abortTurn,
@@ -34,7 +37,6 @@ import {
   listSessions,
   loadSession,
   loadSessionEvents,
-  mergeDeltaText,
   openSession,
   pinSession,
   renameSession,
@@ -45,57 +47,24 @@ import {
   type ContextEntry,
   type ContextRef,
   type ExportReport,
+  type PermissionMode,
   type ProjectSummary,
   type RailView,
-  type SendReport,
   type SessionDetail,
   type SessionEvent,
+  type SessionRun,
   type SessionSummary,
 } from './client'
 
 /** How often the running turn re-reads the ledger. */
 const POLL_INTERVAL_MS = 120
 
-/**
- * A runtime that never answers must not leave the page saying "generating"
- * forever. The host allows a turn five minutes; the page stops waiting sooner,
- * cancels the run through `session_abort`, and shows a retryable state card.
- */
-const TURN_TIMEOUT_MS = 120_000
-
-/**
- * Wait for one turn, but never forever. `onTimeout` cancels the host's run so
- * the five-minute host budget does not keep a dead turn alive. Kept separate
- * from React so the timeout itself has a direct unit test.
- */
-export async function raceTurn(
-  run: Promise<SendReport>,
-  timeoutMs: number,
-  onTimeout: () => Promise<void>,
-): Promise<{ report: SendReport | null; timedOut: boolean }> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs)
-  })
-  try {
-    const report = await Promise.race([run, timeout])
-    if (report === null) {
-      await onTimeout()
-      return { report: null, timedOut: true }
-    }
-    return { report, timedOut: false }
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-export type TurnFailureKind = 'failed' | 'timeout' | 'error'
+export type TurnFailureKind = 'failed' | 'error'
 
 /** Why the last turn ended without a reply, for the page's state card. */
 export interface TurnFailure {
   kind: TurnFailureKind
   message: string
-  seconds?: number
 }
 
 export type ChatStatus = 'unavailable' | 'loading' | 'ready' | 'error'
@@ -127,6 +96,40 @@ export interface LiveTool {
   output: string
 }
 
+/** One piece of a delegated agent's own transcript, in order. */
+export type SubAgentStep =
+  | { kind: 'text'; text: string; channel: 'answer' | 'thinking' }
+  | { kind: 'tool'; name: string; args: string; ok: boolean | null; output: string }
+
+export type SubAgentState =
+  | 'pending'
+  | 'running'
+  | 'waiting'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+
+/**
+ * A delegated child agent, folded from its `sub_agent` events.
+ *
+ * One card per agent, not per event: a child reports its status, its streamed
+ * answer, its tool calls and its final answer as separate rows, and this is
+ * what puts them back together in the order they arrived.
+ */
+export interface LiveSubAgent {
+  id: string
+  name: string
+  model: string
+  task: string
+  status: SubAgentState
+  parentId: string
+  step: number | null
+  steps: SubAgentStep[]
+  result: string
+  error: string
+  usage: Record<string, unknown> | null
+}
+
 export interface ChatSessionView {
   status: ChatStatus
   error: string | null
@@ -147,13 +150,10 @@ export interface ChatSessionView {
   projects: ProjectSummary[]
   current: SessionDetail | null
   /** Text of the turn in flight, merged from text deltas. */
-  streamText: string
   /** Every event of the turn in flight, in ledger order. */
   turnEvents: SessionEvent[]
   /** The approval card waiting for an answer, if any. */
   pending: ApprovalRequest | null
-  /** Tool calls of the turn in flight, paired with their results. */
-  tools: LiveTool[]
   /** The right rail's four panes, re-read after every turn. */
   rail: RailView | null
   running: boolean
@@ -247,34 +247,364 @@ function lastPendingApproval(events: SessionEvent[]): ApprovalRequest | null {
 }
 
 /**
- * Pair `tool_call` with the `tool_result` that follows it.
+ * One block of a turn, in the order the runtime produced it.
  *
- * Adapters emit them in order and without a shared key, so the pairing is
- * positional: the Nth result belongs to the Nth call that has no result yet.
+ * The turn used to be rendered as three separate piles — all reasoning in one
+ * disclosure, all answers in one bubble, all tool cards in one list at the end
+ * of the thread — which is not what happened. A run reasons, calls a tool,
+ * reads the result, reasons again; the transcript should say that. Grouping the
+ * ledger into ordered parts is what makes that renderable.
  */
-function pairTools(events: SessionEvent[]): LiveTool[] {
-  const tools: LiveTool[] = []
-  for (const event of events) {
-    if (event.kind === 'tool_call') {
-      const args = event.payload.args ?? event.payload.command ?? ''
-      tools.push({
-        id: `${event.runId}:${event.seq}`,
-        name: String(event.payload.tool ?? 'tool'),
-        args: typeof args === 'string' ? args : JSON.stringify(args),
+export type TurnPart =
+  | { kind: 'thinking'; key: string; text: string }
+  | { kind: 'tool'; key: string; tool: LiveTool }
+  | { kind: 'agent'; key: string; agent: LiveSubAgent }
+  | { kind: 'text'; key: string; text: string }
+
+/** A child agent before any of its own events have arrived. */
+function emptySubAgent(id: string): LiveSubAgent {
+  return {
+    id,
+    name: '',
+    model: '',
+    task: '',
+    status: 'running',
+    parentId: '',
+    step: null,
+    steps: [],
+    result: '',
+    error: '',
+    usage: null,
+  }
+}
+
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+/** Convert a snapshot's `steps` payload into the card's own vocabulary. */
+function toSubAgentSteps(raw: unknown): SubAgentStep[] {
+  if (!Array.isArray(raw)) return []
+  const steps: SubAgentStep[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const item = entry as Record<string, unknown>
+    if (item.kind === 'text') {
+      const text = asText(item.text)
+      if (text !== '') steps.push({ kind: 'text', text, channel: 'answer' })
+      continue
+    }
+    if (item.kind === 'tool') {
+      steps.push({
+        kind: 'tool',
+        name: asText(item.name) || 'tool',
+        args: stringifyValue(item.args),
         ok: null,
         output: '',
       })
       continue
     }
-    if (event.kind === 'tool_result') {
-      const tool = [...tools].reverse().find((entry) => entry.ok === null)
-      if (!tool) continue
-      tool.ok = event.payload.ok === true
-      const output = event.payload.output ?? event.payload.text ?? ''
-      tool.output = typeof output === 'string' ? output : JSON.stringify(output)
+    if (item.kind === 'tool_result') {
+      const name = asText(item.name) || 'tool'
+      const open = [...steps]
+        .reverse()
+        .find((step) => step.kind === 'tool' && step.ok === null && step.name === name)
+      if (open && open.kind === 'tool') {
+        open.ok = item.ok === true
+        open.output = stringifyValue(item.output)
+      } else {
+        steps.push({
+          kind: 'tool',
+          name,
+          args: '',
+          ok: item.ok === true,
+          output: stringifyValue(item.output),
+        })
+      }
     }
   }
-  return tools
+  return steps
+}
+
+/**
+ * Fold one `sub_agent` row into the agent's card.
+ *
+ * Two runtimes, two shapes, one card: codex streams increments (append text,
+ * open a tool, close it), pi sends a cumulative snapshot and a `final` copy of
+ * each answer. Handling both here keeps the renderer unaware of which runtime
+ * produced the delegation.
+ */
+function applySubAgentEvent(agent: LiveSubAgent, payload: Record<string, unknown>) {
+  const name = asText(payload.name)
+  if (name !== '') agent.name = name
+  const model = asText(payload.model)
+  if (model !== '') agent.model = model
+  const task = asText(payload.task)
+  if (task !== '') agent.task = task
+  const parent = asText(payload.parentId)
+  if (parent !== '') agent.parentId = parent
+  if (typeof payload.step === 'number') agent.step = payload.step
+  const status = asText(payload.status)
+  if (status !== '') agent.status = status as SubAgentState
+  if (payload.usage && typeof payload.usage === 'object') {
+    agent.usage = payload.usage as Record<string, unknown>
+  }
+  const result = asText(payload.result)
+  if (result !== '') agent.result = result
+  const error = asText(payload.error)
+  if (error !== '') agent.error = error
+
+  const channel: 'answer' | 'thinking' =
+    asText(payload.channel) === 'thinking' ? 'thinking' : 'answer'
+  const phase = asText(payload.phase)
+  if (phase === 'text') {
+    const text = asText(payload.text)
+    if (text === '') return
+    if (payload.final === true) {
+      // The runtime sent the finished message after its deltas; replace the
+      // tail so the answer is not printed twice.
+      for (let index = agent.steps.length - 1; index >= 0; index -= 1) {
+        const step = agent.steps[index]
+        if (step.kind === 'text' && step.channel === channel) {
+          agent.steps[index] = { kind: 'text', text, channel }
+          return
+        }
+      }
+    }
+    const last = agent.steps[agent.steps.length - 1]
+    if (last && last.kind === 'text' && last.channel === channel) {
+      last.text += text
+    } else {
+      agent.steps.push({ kind: 'text', text, channel })
+    }
+    return
+  }
+  if (phase === 'tool') {
+    const tool = (payload.tool ?? {}) as Record<string, unknown>
+    agent.steps.push({
+      kind: 'tool',
+      name: asText(tool.name) || 'tool',
+      args: stringifyValue(tool.args),
+      ok: null,
+      output: '',
+    })
+    return
+  }
+  if (phase === 'tool_result') {
+    const tool = (payload.tool ?? {}) as Record<string, unknown>
+    const name = asText(tool.name) || 'tool'
+    const open = [...agent.steps]
+      .reverse()
+      .find((step) => step.kind === 'tool' && step.ok === null && step.name === name)
+    if (open && open.kind === 'tool') {
+      open.ok = tool.ok === true
+      open.output = stringifyValue(tool.output)
+    }
+    return
+  }
+  if (phase === 'snapshot') {
+    agent.steps = toSubAgentSteps(payload.steps)
+  }
+}
+
+/**
+ * Fold a run's events into chronological parts.
+ *
+ * Every kind of output is a part, and each part ends where the runtime starts
+ * doing something else: reasoning closes when the answer begins, the answer
+ * closes when a tool call interrupts it, and a second burst of reasoning after
+ * that call opens a new part. The transcript therefore reads in the order it
+ * happened — thinking, tool, text, thinking, tool, text — instead of one
+ * disclosure above a single block of prose with every tool card at the end.
+ *
+ * Consecutive deltas of the same kind merge into one part, so a streamed answer
+ * is not one part per token. `tool_result` pairs with the most recent call that
+ * has none yet, because adapters emit the two without a shared key.
+ */
+export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart[] {
+  const parts: TurnPart[] = []
+  let reasoning = ''
+  let reasoningKey = ''
+  let answer = ''
+  let answerKey = ''
+  const flushReasoning = () => {
+    if (reasoning.trim() !== '') {
+      parts.push({ kind: 'thinking', key: reasoningKey, text: reasoning })
+    }
+    reasoning = ''
+    reasoningKey = ''
+  }
+  const flushAnswer = () => {
+    // Only whitespace between two steps is spacing, not an answer.
+    if (answer.trim() !== '') {
+      parts.push({ kind: 'text', key: answerKey, text: answer })
+    }
+    answer = ''
+    answerKey = ''
+  }
+
+  const ordered = [...events].sort((left, right) => left.seq - right.seq)
+  for (const event of ordered) {
+    if (runId !== undefined && event.runId !== runId) continue
+    if (event.kind === 'thinking') {
+      const delta = event.payload.delta
+      if (typeof delta !== 'string' || delta === '') continue
+      // Reasoning that follows an answer starts a new block above it.
+      flushAnswer()
+      if (reasoningKey === '') reasoningKey = `${event.runId}:${event.seq}`
+      reasoning += delta
+      continue
+    }
+    if (event.kind === 'text_delta') {
+      const delta = event.payload.delta
+      if (typeof delta !== 'string' || delta === '') continue
+      flushReasoning()
+      if (answerKey === '') answerKey = `${event.runId}:${event.seq}`
+      answer += delta
+      continue
+    }
+    if (event.kind === 'tool_call') {
+      flushReasoning()
+      flushAnswer()
+      const args = event.payload.args ?? event.payload.command ?? ''
+      parts.push({
+        kind: 'tool',
+        key: `${event.runId}:${event.seq}`,
+        tool: {
+          id: `${event.runId}:${event.seq}`,
+          name: String(event.payload.tool ?? 'tool'),
+          args: typeof args === 'string' ? args : JSON.stringify(args),
+          ok: null,
+          output: '',
+        },
+      })
+      continue
+    }
+    if (event.kind === 'tool_result') {
+      const open = [...parts].reverse().find((part) => part.kind === 'tool' && part.tool.ok === null)
+      if (!open || open.kind !== 'tool') continue
+      open.tool.ok = event.payload.ok === true
+      const output = event.payload.output ?? event.payload.text ?? ''
+      open.tool.output = typeof output === 'string' ? output : JSON.stringify(output)
+      continue
+    }
+    if (event.kind === 'sub_agent') {
+      const id = typeof event.payload.agentId === 'string' ? event.payload.agentId : ''
+      if (id === '') continue
+      // A delegated agent is a block of the transcript in its own right: the
+      // parent stops talking while it works.
+      flushReasoning()
+      flushAnswer()
+      let part = parts.find(
+        (candidate): candidate is Extract<TurnPart, { kind: 'agent' }> =>
+          candidate.kind === 'agent' && candidate.agent.id === id,
+      )
+      if (!part) {
+        part = { kind: 'agent', key: `${event.runId}:agent:${id}`, agent: emptySubAgent(id) }
+        parts.push(part)
+      }
+      applySubAgentEvent(part.agent, event.payload)
+      continue
+    }
+    if (event.kind === 'unknown' && event.payload.type === 'auto_retry') {
+      // pi auto-retries a failed provider call. The abandoned attempt already
+      // streamed its text (and reasoning) into these accumulators; the retry
+      // re-streams the whole answer with different chunk boundaries. Keeping
+      // both weaves the answer into itself — the duplicated-transcript bug.
+      // Drop everything the failed attempt produced and start the retry clean.
+      // The event is recorded in the ledger as `unknown` with this marker so a
+      // replayed session is repaired the same way as a live stream.
+      reasoning = ''
+      reasoningKey = ''
+      answer = ''
+      answerKey = ''
+      continue
+    }
+  }
+  flushReasoning()
+  flushAnswer()
+  return parts
+}
+
+/** Whether every character of `needle` appears in `haystack` in order. */
+function isSubsequence(needle: string, haystack: string): boolean {
+  let cursor = 0
+  for (let index = 0; index < haystack.length && cursor < needle.length; index += 1) {
+    if (haystack[index] === needle[cursor]) cursor += 1
+  }
+  return cursor === needle.length
+}
+
+/**
+ * Fold the authoritative stored answer into the streamed parts.
+ *
+ * The ledger keeps one message per turn next to the deltas that produced it.
+ * Usually they agree, and an adapter that reports fewer deltas than the final
+ * answer just needs its tail completed.
+ *
+ * A runtime can also emit the answer twice. Measured on pi 1.5.0: when a
+ * provider call is auto-retried, the abandoned attempt and the retry stream
+ * their text as two batches of `text_delta` with different chunk boundaries.
+ * Appending both weaves the answer into itself, e.g. `C:/` + `C:/Users/...` +
+ * `Users/.../email_sender/` + `email_sender/`, rendering a broken path. The
+ * stored message is pi's `finalText` from `turn_end`: one clean copy.
+ *
+ * CRITICAL — `finalText` is ONLY the LAST answer. A real agentic turn streams
+ * several distinct text blocks: an opening aside ("I'll take a look"), a
+ * mid-turn note after a tool, and finally the answer, with thinking/tool cards
+ * interleaved. On the real ledger the final block equals `finalText` exactly
+ * while the earlier blocks are different prose. Concatenating every text part
+ * and treating the result as one replayed answer is wrong: it made us move the
+ * final answer up to the FIRST text block and delete the rest, which shoved all
+ * thinking/tool cards below the prose and re-arranged the transcript.
+ *
+ * So reconciliation touches ONLY the last text part and never moves, merges or
+ * drops any part. Earlier text, thinking, tool and agent parts stay exactly
+ * where the turn produced them.
+ */
+export function withStoredAnswer(parts: TurnPart[], stored: string): TurnPart[] {
+  if (stored.trim() === '') return parts
+  const textIndexes = parts
+    .map((part, index) => (part.kind === 'text' ? index : -1))
+    .filter((index) => index >= 0)
+  if (textIndexes.length === 0) return parts
+
+  const last = textIndexes[textIndexes.length - 1]
+  const streamed = (parts[last] as Extract<TurnPart, { kind: 'text' }>).text
+
+  if (stored === streamed) return parts
+
+  if (stored.startsWith(streamed)) {
+    // Normal case: the runtime reported a shorter stream than the stored answer.
+    // Complete the tail on the last text part only; earlier blocks are untouched.
+    const rest = stored.slice(streamed.length)
+    if (rest.trim() === '') return parts
+    return parts.map((part, index) =>
+      index === last && part.kind === 'text' ? { ...part, text: part.text + rest } : part,
+    )
+  }
+
+  // Genuine replay: the last streamed block is LONGER than the clean answer yet
+  // still contains its characters in order (a subsequence — chunks interleave,
+  // no characters lost). Replace just that last block. A different final block
+  // (streamed shorter, or not a subsequence) is left alone — never a replay.
+  if (streamed.length > stored.length && isSubsequence(stored, streamed)) {
+    return parts.map((part, index) =>
+      index === last && part.kind === 'text' ? { ...part, text: stored } : part,
+    )
+  }
+  return parts
+}
+
+/** The wall clock a run began, for the visible waiting clock. */
+function startedAtFrom(run: SessionRun): number | null {
+  const parsed = Date.parse(run.startedAt)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function sleep(ms: number): Promise<void> {
@@ -288,8 +618,33 @@ function sleep(ms: number): Promise<void> {
 const MODEL_WAIT_ATTEMPTS = 60
 const MODEL_WAIT_INTERVAL_MS = 1500
 
-export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): ChatSessionView {
+export function useChatSession({
+  enabled = true,
+  agentId = '',
+  cwd = '',
+  permission = 'medium',
+}: {
+  enabled?: boolean
+  agentId?: string
+  cwd?: string
+  permission?: PermissionMode
+} = {}): ChatSessionView {
   const available = enabled && isTauriHost()
+  // A ref rather than a dependency of `send`: the picker can change while a
+  // turn is in flight, and only the *next* send should adopt the new trust
+  // level. Reading it at send time also avoids re-creating `send` on every
+  // change, which would restart the memo chain feeding the composer.
+  const permissionRef = useRef<PermissionMode>(permission)
+  permissionRef.current = permission
+  // A ref rather than a dependency of `send`: the picker can change while a
+  // turn is in flight, and only the *next new session* should adopt that agent.
+  const agentIdRef = useRef(agentId)
+  agentIdRef.current = agentId
+  // The directory a *new* session runs in. A ref for the same reason as the
+  // agent: switching workspace must not disturb a conversation already open,
+  // and the next "new conversation" picks it up.
+  const cwdRef = useRef(cwd)
+  cwdRef.current = cwd
   const [status, setStatus] = useState<ChatStatus>(() => (available ? 'loading' : 'unavailable'))
   const [error, setError] = useState<string | null>(null)
   const [models, setModels] = useState<ModelChoice[]>([])
@@ -299,7 +654,6 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [current, setCurrent] = useState<SessionDetail | null>(null)
-  const [streamText, setStreamText] = useState('')
   const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
   const [rail, setRail] = useState<RailView | null>(null)
   const [running, setRunning] = useState(false)
@@ -309,6 +663,17 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   const mounted = useRef(true)
   /** Last ledger seq already rendered; resets when the session changes. */
   const eventCursor = useRef(0)
+  /**
+   * Run ids that already existed when this turn started.
+   *
+   * The poll is a loop, not a subscription: the ledger can hold events the
+   * previous turn wrote after its last read (the turn ends, the loop stops).
+   * Those rows used to be merged into the *next* turn's streaming bubble, so
+   * the second answer opened with the first answer's words until the final
+   * reload replaced them. Events from any run that existed before this turn
+   * are history, not this turn's output.
+   */
+  const staleRuns = useRef<Set<string>>(new Set())
   const lastPrompt = useRef('')
   const sendRef = useRef<
     (text: string, context?: ContextRef[]) => Promise<string | null>
@@ -351,14 +716,19 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     // The catalog says which runtimes exist and which models they can use; a
     // chat cannot offer a model the machine does not have.
     const catalog = await loadCatalog()
+    writeCachedSnapshot(catalog)
     const usable = catalog.runtimes
       .filter((runtime) => runtime.status === 'available')
       .map((runtime) => runtime.runtimeId)
     const choices = toChoices(catalog.models, usable)
     if (!mounted.current) return choices.length > 0
-    setModels(choices)
-    setAgents(toAgentChoices(catalog.agents))
-    setModel((existing) => existing ?? pickModel(choices))
+    // An empty probe result (a runtime that failed to spawn this launch) must
+    // not wipe the verified choices already on screen from the cache.
+    if (choices.length > 0) {
+      setModels(choices)
+      setAgents(toAgentChoices(catalog.agents))
+      setModel((existing) => existing ?? pickModel(choices))
+    }
     return choices.length > 0
   }, [])
 
@@ -394,6 +764,23 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       }
     })()
 
+    // A returning window can open the composer from the last verified snapshot
+    // the moment it paints; the host refresh below reconciles it in the
+    // background. Only a genuinely cold start (no usable cache) has to wait on
+    // the startup scan that probes every runtime.
+    const cached = readCachedSnapshot()
+    let cachedReady = false
+    if (cacheUsable(cached) && cached && mounted.current) {
+      const usable = cached.runtimes
+        .filter((runtime) => runtime.status === 'available')
+        .map((runtime) => runtime.runtimeId)
+      const choices = toChoices(cached.models, usable)
+      setModels(choices)
+      setAgents(toAgentChoices(cached.agents))
+      setModel((existing) => existing ?? pickModel(choices))
+      cachedReady = true
+    }
+
     try {
       if (await readModels()) return
       // A cold data directory has an empty catalog until the first scan (which
@@ -401,6 +788,9 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       // left the composer disabled forever, with the page saying "connecting"
       // and no retry: the user's only way out was to press sync. Wait for the
       // scan instead, with a bounded budget so a broken machine still settles.
+      // With a usable cache the composer already works, so a failed background
+      // refresh here does not turn into a blocking wait.
+      if (cachedReady) return
       for (let attempt = 0; attempt < MODEL_WAIT_ATTEMPTS; attempt += 1) {
         await sleep(MODEL_WAIT_INTERVAL_MS)
         if (!mounted.current) return
@@ -417,6 +807,16 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     void boot()
   }, [boot])
 
+  // The first-run wizard turns models on *after* this page mounted, so the
+  // composer would otherwise keep the empty list it read before setup finished
+  // and wait out its discovery budget. Re-read whenever the catalog announces
+  // a change instead of making the user reload the window.
+  useEffect(() => {
+    return onCatalogChanged(() => {
+      void readModels()
+    })
+  }, [readModels])
+
   const syncModels = useCallback(async () => {
     if (!available) return
     setSyncing(true)
@@ -425,6 +825,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       // A manual sync re-scans: a model installed after the startup scan is
       // exactly the case this button exists for, and only a rescan finds it.
       const catalog = await refreshCatalog()
+      writeCachedSnapshot(catalog)
       const usable = catalog.runtimes
         .filter((runtime) => runtime.status === 'available')
         .map((runtime) => runtime.runtimeId)
@@ -456,6 +857,7 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     async (name: string) => {
       if (!model) return null
       const snapshot = await saveCatalogAgent({
+        ...blankAgentDraft(),
         name,
         runtimeId: model.runtimeId,
         modelId: model.modelId,
@@ -490,35 +892,152 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     }
   }, [])
 
+  /**
+   * Follow a run that is still going, after the page was left and came back.
+   *
+   * Leaving `/chat` unmounts this hook: the poll stops with the page, and the
+   * host keeps writing the turn into the ledger. Returning used to show the
+   * user message and nothing else, as if the run had never happened. This picks
+   * the live run up from the ledger's tail and renders it until it ends.
+   */
+  const attach = useCallback(
+    async (sessionId: string, run: SessionRun, runs: SessionRun[]) => {
+      // Read the ledger once. The cursor starts at its end so history is not
+      // replayed by the poll, and this run's own events are kept to rebuild the
+      // half-finished turn. The same read tells us whether the run ended while
+      // the page was away — its terminal event is already in this batch, and
+      // waiting for a new one would wait forever.
+      let since = 0
+      let replay: SessionEvent[] = []
+      let terminal: SessionEvent | null = null
+      try {
+        const ledger = await loadSessionEvents(sessionId, 0)
+        since = latestSeq(ledger, 0)
+        // Only this run: a session with earlier turns must not pour them into
+        // the bubble the reader is coming back to.
+        replay = ledger.filter((event) => event.runId === run.id)
+        terminal =
+          replay.find((event) => event.kind === 'turn_completed' || event.kind === 'aborted') ??
+          null
+      } catch {
+        return
+      }
+      if (!mounted.current) return
+
+      if (terminal) {
+        // Finished between the detail read and this one: just show the result.
+        try {
+          const detail = await loadSession(sessionId)
+          if (mounted.current) setCurrent(detail)
+        } catch {
+          // Keep what is on screen; a manual refresh retries.
+        }
+        await refreshRail(sessionId)
+        return
+      }
+
+      eventCursor.current = since
+      // Only this run's events belong to the live view; every other run in the
+      // session is history and must not leak into it.
+      staleRuns.current = new Set(runs.map((row) => row.id).filter((id) => id !== run.id))
+      // Resume, do not restart. The turn kept going while the page was away:
+      // its reasoning and tool calls are already in the ledger, and starting
+      // from an empty bubble made a half-finished turn look like one that had
+      // just begun — everything it had thought and run so far was gone.
+      setTurnEvents(replay)
+      setTurnFailure(null)
+      setTurnStartedAt(startedAtFrom(run) ?? Date.now())
+      setRunning(true)
+      pollStop.current = false
+
+      while (!pollStop.current) {
+        try {
+          const events = await loadSessionEvents(sessionId, since)
+          if (events.length > 0) {
+            since = latestSeq(events, since)
+            eventCursor.current = since
+            const fresh = events.filter(
+              (event) => !event.runId || !staleRuns.current.has(event.runId),
+            )
+            if (fresh.length > 0 && mounted.current) {
+              setTurnEvents((previous) => [...previous, ...fresh])
+            }
+            terminal =
+              fresh.find(
+                (event) => event.kind === 'turn_completed' || event.kind === 'aborted',
+              ) ?? terminal
+            if (terminal) break
+          }
+        } catch {
+          // A failed poll is not a failed turn: the next tick retries.
+        }
+        await sleep(POLL_INTERVAL_MS)
+      }
+
+      const payload = (terminal?.payload ?? {}) as Record<string, unknown>
+      const status = typeof payload.status === 'string' ? payload.status : 'completed'
+      let failure: TurnFailure | null = null
+      if (status === 'failed') {
+        failure = { kind: 'failed', message: String(payload.error ?? 'the turn failed') }
+      } else if (status === 'aborted') {
+        failure = { kind: 'failed', message: 'the turn was stopped' }
+      }
+
+      try {
+        const detail = await loadSession(sessionId)
+        if (mounted.current) {
+          setCurrent(detail)
+        }
+      } catch {
+        // Keep the streamed view; the next open re-reads it.
+      }
+      await reloadSessions().catch(() => undefined)
+      await refreshRail(sessionId)
+      if (mounted.current) {
+        setRunning(false)
+        setTurnStartedAt(null)
+        setTurnFailure(failure)
+      }
+    },
+    [reloadSessions, refreshRail],
+  )
+
   const select = useCallback(
     async (sessionId: string) => {
       try {
         const detail = await loadSession(sessionId)
         if (!mounted.current) return
         setCurrent(detail)
-        setStreamText('')
         setTurnEvents([])
         setTurnFailure(null)
         setTurnStartedAt(null)
         eventCursor.current = 0
+        // Opening a stored conversation starts no turn: every run in it is
+        // history, so a new message must not replay this transcript.
+        staleRuns.current = new Set(detail.runs.map((run) => run.id))
         setError(null)
+        // A run still marked `running` is a turn the host is executing right
+        // now — the page was simply not here to watch it. Follow it instead of
+        // showing the conversation as if it had stopped after the prompt.
+        const live = detail.runs.find((run) => run.status === 'running')
+        if (live) void attach(sessionId, live, detail.runs)
       } catch (cause) {
         if (mounted.current) setError(describeSessionError(cause))
       }
       await refreshRail(sessionId)
     },
-    [refreshRail],
+    [attach, refreshRail],
   )
 
   const startNew = useCallback(() => {
     setCurrent(null)
-    setStreamText('')
     setTurnEvents([])
     setRail(null)
     setError(null)
     setTurnFailure(null)
     setTurnStartedAt(null)
     eventCursor.current = 0
+    staleRuns.current = new Set()
   }, [])
 
   const send = useCallback(
@@ -536,7 +1055,12 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
             setError(missing)
             return missing
           }
-          const session = await openSession({ runtimeId: choice.runtimeId, model: choice.modelId })
+          const session = await openSession({
+            runtimeId: choice.runtimeId,
+            model: choice.modelId,
+            agentId: agentIdRef.current || undefined,
+            cwd: cwdRef.current || undefined,
+          })
           active = { session, messages: [], runs: [] }
           if (!mounted.current) return null
           setCurrent(active)
@@ -548,6 +1072,10 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       }
 
       const sessionId = active.session.id
+      // A turn only ever shows its own output. `active.runs` is the ledger as
+      // it stood before this prompt, so any event carrying one of those ids is
+      // leftover history from a poll that stopped early.
+      staleRuns.current = new Set(active.runs.map((run) => run.id))
       lastPrompt.current = prompt
       const optimistic = {
         id: `pending-${sessionId}`,
@@ -561,7 +1089,6 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
         existing ? { ...existing, messages: [...existing.messages, optimistic] } : existing,
       )
       setRunning(true)
-      setStreamText('')
       setTurnEvents([])
       setError(null)
       setTurnFailure(null)
@@ -580,12 +1107,14 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
             if (events.length > 0) {
               since = latestSeq(events, since)
               eventCursor.current = since
-              if (mounted.current) {
-                setStreamText((previous) => mergeDeltaText(events, previous))
-                // The turn's tool cards and approval cards come from the same
-                // stream; keeping the batch lets the page render them without a
-                // second read and without re-deriving text.
-                setTurnEvents((previous) => [...previous, ...events])
+              const fresh = events.filter(
+                (event) => !event.runId || !staleRuns.current.has(event.runId),
+              )
+              if (fresh.length > 0 && mounted.current) {
+                // The turn's parts and approval cards come from the same
+                // stream; keeping the batch lets the page render them without
+                // a second read and without re-deriving text.
+                setTurnEvents((previous) => [...previous, ...fresh])
               }
             }
           } catch {
@@ -595,31 +1124,33 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
           await sleep(POLL_INTERVAL_MS)
         }
       }
+      // Advance the cursor past anything written after the last tick. The loop
+      // exits as soon as the run resolves, which can leave the tail of the turn
+      // unread; without this the next prompt would start with a backlog.
+      const drain = async () => {
+        for (let round = 0; round < 8; round += 1) {
+          try {
+            const events = await loadSessionEvents(sessionId, eventCursor.current)
+            if (events.length === 0) return
+            eventCursor.current = latestSeq(events, eventCursor.current)
+          } catch {
+            return
+          }
+        }
+      }
+
       const polling = poll()
 
-      const sendPromise = sendTurn(sessionId, prompt, context)
+      const sendPromise = sendTurn(sessionId, prompt, context, permissionRef.current)
       let failure: string | null = null
       let outcome: TurnFailure | null = null
       try {
-        const { report, timedOut } = await raceTurn(
-          sendPromise,
-          TURN_TIMEOUT_MS,
-          async () => {
-            // Cancel the host's run and let the still-pending IPC settle in the
-            // background instead of keeping the page hostage to it.
-            await abortTurn(sessionId).catch(() => undefined)
-            void sendPromise.catch(() => undefined)
-          },
-        )
-        if (timedOut) {
-          outcome = {
-            kind: 'timeout',
-            message: 'no reply before the turn timeout',
-            seconds: Math.round(TURN_TIMEOUT_MS / 1000),
-          }
-          // The state card carries the timed-out copy; a second notice with the
-          // raw host message would only duplicate it.
-        } else if (report?.status === 'failed') {
+        // No page-level deadline. A turn ends when the runtime says so — a long
+        // run that reads files, runs commands and reasons in between is work,
+        // not a hang, and the page used to throw its reply away. Stopping is the
+        // user's call (`abort`), and a runtime that dies returns a failure.
+        const report = await sendPromise
+        if (report?.status === 'failed') {
           failure = report.error ?? 'the turn failed'
           outcome = { kind: 'failed', message: failure }
         } else if (report?.status === 'aborted') {
@@ -631,13 +1162,13 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
       } finally {
         pollStop.current = true
         await polling
+        await drain()
       }
 
       try {
         const detail = await loadSession(sessionId)
         if (mounted.current) {
           setCurrent(detail)
-          setStreamText('')
         }
       } catch {
         // Keep the optimistic view; the next refresh will retry.
@@ -777,7 +1308,6 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
   )
 
   const pending = lastPendingApproval(turnEvents)
-  const tools = pairTools(turnEvents)
 
   return {
     status,
@@ -793,10 +1323,8 @@ export function useChatSession({ enabled = true }: { enabled?: boolean } = {}): 
     sessions,
     projects,
     current,
-    streamText,
     turnEvents,
     pending,
-    tools,
     rail,
     running,
     turnFailure,

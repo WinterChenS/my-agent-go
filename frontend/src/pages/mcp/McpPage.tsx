@@ -15,6 +15,7 @@ import {
 } from './sampleData'
 import './mcp.css'
 import { useCatalog } from '../../catalog/useCatalog'
+import type { CatalogMcp } from '../../catalog/client'
 import { CatalogMcpPanel, CatalogSummary } from '../../catalog/CatalogPanels'
 
 const STATUS_KEYS: Record<McpStatus, MessageKey> = {
@@ -52,6 +53,15 @@ export default function McpPage() {
   const dialogTrigger = useRef<HTMLElement | null>(null)
 
   const query = search.trim().toLowerCase()
+  // The catalog already holds the imported declarations; show them instead of
+  // the "not connected" placeholder that made the sync look like it failed.
+  const liveServers = catalog.snapshot?.mcp ?? []
+  const liveReady = !sample && (catalog.status === 'ready' || catalog.status === 'loading') && catalog.snapshot !== null
+  const liveServices = liveServers.filter((server) =>
+    !query ||
+    `${server.name} ${server.runtimeId} ${server.command ?? ''} ${server.url ?? ''}`.toLowerCase().includes(query),
+  )
+  const connected = liveServers.filter((server) => server.state === 'connected').length
   const services = sample ? sampleServices.filter((service) => {
     const matchesSearch = !query || service.name.toLowerCase().includes(query) ||
       service.tools.some((tool) => tool.name.toLowerCase().includes(query))
@@ -107,7 +117,7 @@ export default function McpPage() {
         {sampleStats.map((stat) => (
           <div key={stat.key} className="mcp-stat" data-testid={`mcp-stat-${stat.key}`}>
             <span>{t(STAT_LABEL_KEYS[stat.key])}</span>
-            <b>{sample ? stat.value : stat.key === 'latency' ? '—' : '0'}</b>
+            <b>{sample ? stat.value : liveReady ? (stat.key === 'connected' ? connected : '—') : stat.key === 'latency' ? '—' : '0'}</b>
             <small>{sample ? t(stat.subKey as MessageKey) : t('mcp.stats.empty')}</small>
           </div>
         ))}
@@ -116,7 +126,7 @@ export default function McpPage() {
       <div className="mcp-toolbar">
         <label className="mcp-search">
           <Icon name="search" size={12} />
-          <input data-testid="mcp-search" type="search" value={search} disabled={!sample} placeholder={t('mcp.searchPlaceholder')} aria-label={t('mcp.searchPlaceholder')} onChange={(event) => setSearch(event.target.value)} />
+          <input data-testid="mcp-search" type="search" value={search} disabled={!sample && !liveReady} placeholder={t('mcp.searchPlaceholder')} aria-label={t('mcp.searchPlaceholder')} onChange={(event) => setSearch(event.target.value)} />
         </label>
         <select aria-label={t('mcp.filter.transportLabel')} value={transport} disabled={!sample} onChange={(event) => setTransport(event.target.value as typeof transport)}>
           <option value="all">{t('mcp.filter.transport')}</option>
@@ -144,11 +154,17 @@ export default function McpPage() {
         ) : (
           <div className="mcp-empty">{t('mcp.noResults')}</div>
         )
+      ) : liveReady && liveServices.length > 0 ? (
+        <div className="mcp-grid" data-testid="mcp-grid">
+          {liveServices.map((server) => (
+            <LiveMcpCard key={`${server.runtimeId}:${server.name}`} server={server} />
+          ))}
+        </div>
       ) : (
         <div className="mcp-empty" data-testid="mcp-empty-services">
           <Icon name="plug" size={22} />
-          <b>{t('mcp.empty')}</b>
-          <span>{t('mcp.emptyBody')}</span>
+          <b>{liveReady ? t('catalog.mcp.empty') : t('mcp.empty')}</b>
+          <span>{liveReady ? t('catalog.inventory.sync') : t('mcp.emptyBody')}</span>
         </div>
       )}
 
@@ -179,6 +195,33 @@ export default function McpPage() {
 
       <div className="mcp-footnote"><Icon name="shield" size={14} /><span>{t('mcp.footnote')}</span></div>
       <AddMcpDialog open={dialog} onClose={closeDialog} onNotice={announce} />
+    </section>
+  )
+}
+
+/** A declaration the catalog actually read from a runtime's config file. */
+function LiveMcpCard({ server }: { server: CatalogMcp }) {
+  return (
+    <section className={`mcp-card is-${server.state}`} data-testid="mcp-card" data-service={`${server.runtimeId}:${server.name}`}>
+      <div className="mcp-card-head">
+        <div>
+          <h2 className="mono">{server.name}</h2>
+          <span className="mcp-card-desc mono">{server.source}</span>
+        </div>
+        <div className="mcp-card-actions">
+          <span className="mcp-status is-disconnected" data-state={server.state}>{server.state}</span>
+        </div>
+      </div>
+      <div className="mcp-card-config">
+        <code className="mono">{server.command ?? server.url ?? '—'}</code>
+        <div className="mcp-tags">
+          <span className="mcp-tag">{server.transport}</span>
+          <span className="mcp-tag mono">{server.runtimeId}</span>
+          {server.envKeys.length + server.headerKeys.length > 0 ? (
+            <span className="mcp-tag">{server.envKeys.length + server.headerKeys.length} keys</span>
+          ) : null}
+        </div>
+      </div>
     </section>
   )
 }

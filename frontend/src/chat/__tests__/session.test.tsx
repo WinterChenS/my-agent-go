@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,10 +10,10 @@ import {
   mergeDeltaText,
   type SessionDetail,
   type SessionEvent,
-  type SendReport,
   type SessionSummary,
 } from '../client'
-import { raceTurn } from '../useChatSession'
+
+const SKILL_PATH = 'C:/Users/Administrator/.pi/skills/code-review'
 
 function event(seq: number, kind: SessionEvent['kind'], payload: Record<string, unknown> = {}): SessionEvent {
   return { sessionId: 'pi-1', runId: 'pi-1:r1', seq, kind, at: '2026-11-13T00:00:00Z', payload }
@@ -45,36 +45,6 @@ describe('session wire helpers', () => {
     expect(describeSessionError('boom')).toBe('boom')
     expect(describeSessionError(new Error('boom'))).toBe('boom')
     expect(describeSessionError(undefined)).toBe('undefined')
-  })
-
-  it('cancels a turn that never answers instead of waiting forever', async () => {
-    vi.useFakeTimers()
-    try {
-      const cancel = vi.fn(async () => undefined)
-      const never = new Promise<SendReport>(() => {})
-      const outcome = raceTurn(never, 120_000, cancel)
-      await vi.advanceTimersByTimeAsync(120_000)
-      expect(await outcome).toEqual({ report: null, timedOut: true })
-      expect(cancel).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('clears its timer when the turn finishes before the timeout', async () => {
-    vi.useFakeTimers()
-    try {
-      const cancel = vi.fn(async () => undefined)
-      const report: SendReport = { runId: 'pi-1:r1', status: 'completed', eventCount: 1 }
-      expect(await raceTurn(Promise.resolve(report), 120_000, cancel)).toEqual({
-        report,
-        timedOut: false,
-      })
-      expect(cancel).not.toHaveBeenCalled()
-      expect(vi.getTimerCount()).toBe(0)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 })
 
@@ -234,7 +204,14 @@ function catalogSnapshot(withExtra: boolean) {
   }
 }
 
-function installHost(): Host {
+function installHost(
+  options: {
+    /** What `pi_subagent_status` answers; `null` means "no host answer". */
+    subagent?: Record<string, unknown> | null
+    /** What `pi_subagent_install` answers. */
+    install?: Record<string, unknown>
+  } = {},
+): Host {
   const calls: string[] = []
   const lastArgs = new Map<string, unknown>()
   let abortCalled = false
@@ -243,6 +220,8 @@ function installHost(): Host {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       calls.push(command)
       if (args) lastArgs.set(command, args)
+      if (command === 'pi_subagent_status') return options.subagent ?? null
+      if (command === 'pi_subagent_install') return options.install ?? null
       if (command === 'catalog_refresh') {
         // A model that only exists after the manual sync: the picker must be
         // rebuilt from the rescan, not from the startup snapshot.
@@ -279,6 +258,13 @@ function installHost(): Host {
       }
       if (command === 'session_approve') return null
       if (command === 'session_open') return { ...summary(), messageCount: 0 }
+      if (command === 'workspace_defaults') {
+        return { defaultWorkspace: 'C:////Users////A////Anvil', projectsRoot: 'C:////Users////A////Anvil////Projects' }
+      }
+      if (command === 'workspace_ensure') return String(args?.path ?? '')
+      if (command === 'workspace_pick') return 'D:////picked////folder'
+      if (command === 'workspace_pick_file') return 'D:////picked////folder////spec.txt'
+      if (command === 'workspace_create') return `${String(args?.name ?? '')} (created)`
       if (command === 'session_events') {
         return [
           event(1, 'turn_started', { prompt: 'Reply with exactly: ok' }),
@@ -318,6 +304,61 @@ afterEach(() => {
   cleanup()
   clearHost()
 })
+
+/** Catalog plus a session: enough to drive the composer's Skill pickers. */
+function installInventoryHost(
+  extra: Array<{ runtimeId: string; name: string; path: string }> = [],
+): Host {
+  const calls: string[] = []
+  const lastArgs = new Map<string, unknown>()
+  const skill = (runtimeId: string, name: string, path: string) => ({
+    runtimeId,
+    name,
+    description: `${name} skill`,
+    root: path.replace(/\/[^/]+$/, ''),
+    path,
+    state: 'ready',
+    reason: null as string | null,
+    updatedAt: '2026-11-13T00:00:00Z',
+  })
+  const skills = [skill('pi', 'code-review', SKILL_PATH), ...extra.map((row) => skill(row.runtimeId, row.name, row.path))]
+  const internals = {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
+      calls.push(command)
+      if (args) lastArgs.set(command, args)
+      // The page mounts, reads the snapshot, then re-reads it after the
+      // inventory sync. Every one of those replies must carry the skills, or
+      // the last reply (which the store adopts) blanks the list.
+      if (
+        command === 'catalog_snapshot' ||
+        command === 'catalog_refresh' ||
+        command === 'catalog_sync_inventory' ||
+        command === 'catalog_sync'
+      ) {
+        return { ...catalogSnapshot(false), skills }
+      }
+      if (command === 'session_list') return { sessions: [], total: 0 }
+      if (command === 'session_projects') return []
+      if (command === 'session_context_list') {
+        return [
+          { path: 'D:/work/alpha/src/main.rs', relative: 'src/main.rs', kind: 'file', bytes: 120 },
+        ]
+      }
+      if (command === 'session_open') return { ...summary(), messageCount: 0 }
+      if (command === 'session_events') return [event(1, 'turn_started', { prompt: 'first turn' })]
+      if (command === 'session_send') {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        return { runId: 'pi-1:r1', status: 'completed', eventCount: 1 }
+      }
+      if (command === 'session_detail') return detail('done')
+      if (command === 'session_abort') return true
+      return null
+    },
+  }
+  ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+    internals as unknown as TauriInternals
+  return { calls, aborted: () => false, args: (command) => lastArgs.get(command) }
+}
 
 describe('chat live session', () => {
   it('syncs the model list from the composer and shows what the rescan found', async () => {
@@ -390,6 +431,195 @@ describe('chat live session', () => {
     // The composer is usable again once the turn closed.
     await waitFor(() => expect(screen.getByTestId('chat-send')).toBeDisabled())
     expect(host.aborted()).toBe(false)
+  })
+
+  it('clears the transcript when a new conversation is started', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'first turn')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toBeInTheDocument())
+
+    // "New conversation" used to bounce back: the page re-published the id it
+    // was still holding, the sidebar selected it again, and the blank page
+    // came back filled with the previous transcript.
+    await userEvent.click(screen.getByTestId('chat-history-new'))
+
+    await waitFor(() => expect(screen.getByTestId('chat-empty')).toHaveTextContent('还没有会话'))
+    expect(screen.queryByTestId('chat-message-agent')).toBeNull()
+    expect(screen.queryByTestId('chat-message-user')).toBeNull()
+  })
+})
+
+describe('coming back to the conversation', () => {
+  /** A session whose last run is still going when the page opens. */
+  function installRunningHost(): Host {
+    const calls: string[] = []
+    const lastArgs = new Map<string, unknown>()
+    let polls = 0
+    let finished = false
+    const internals = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        calls.push(command)
+        if (args) lastArgs.set(command, args)
+        if (command === 'catalog_snapshot' || command === 'catalog_refresh') {
+          return catalogSnapshot(false)
+        }
+        if (command === 'session_list') {
+          return { sessions: [{ ...summary(), status: finished ? 'idle' : 'running' }], total: 1 }
+        }
+        if (command === 'session_projects') {
+          return [
+            { path: 'D:////project', name: 'project', sessionCount: 1, lastUpdated: '2026-11-13T00:00:00Z' },
+          ]
+        }
+        if (command === 'session_events') {
+          polls += 1
+          // The first read is the ledger tail the page reattaches from; the
+          // turn then runs for a few ticks and reports itself finished.
+          if (polls === 1) {
+            // Everything this turn did before the page came back: it reasoned,
+            // ran a command, and started writing an answer.
+            return [
+              event(1, 'turn_started', { prompt: 'long task' }),
+              event(2, 'thinking', { delta: '先看目录' }),
+              event(3, 'tool_call', { tool: 'bash', args: 'ls' }),
+              event(4, 'tool_result', { tool: 'bash', ok: true, output: 'start.bat' }),
+              event(5, 'text_delta', { delta: 'half ' }),
+            ]
+          }
+          if (polls < 6) return []
+          finished = true
+          return [event(6, 'turn_completed', { status: 'completed' })]
+        }
+        if (command === 'session_detail') {
+          return {
+            ...detail('half done'),
+            runs: [
+              {
+                id: 'pi-1:r1',
+                sessionId: 'pi-1',
+                status: finished ? ('completed' as const) : ('running' as const),
+                startedAt: new Date(Date.now() - 4000).toISOString(),
+                prompt: 'long task',
+              },
+            ],
+          }
+        }
+        if (command === 'session_rail') {
+          return {
+            turns: [],
+            exec: [],
+            artifacts: [],
+            sources: [],
+            browser: { state: 'unavailable', reason: 'no local page in this session' },
+            outsidePaths: 0,
+            empty: true,
+          }
+        }
+        return null
+      },
+    }
+    ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+      internals as unknown as TauriInternals
+    return { calls, aborted: () => false, args: (command) => lastArgs.get(command) }
+  }
+
+  it('reopens the conversation the reader left, instead of a blank page', async () => {
+    const host = installHost()
+    window.localStorage.setItem('anvil.chat.session', 'pi-a')
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }))
+    // The stored transcript is on screen again, not the empty state.
+    expect(await screen.findByTestId('chat-message-agent')).toHaveTextContent('ok')
+    expect(screen.queryByTestId('chat-empty')).toBeNull()
+  })
+
+  it('follows a run that is still going instead of showing a stopped turn', async () => {
+    const host = installRunningHost()
+    window.localStorage.setItem('anvil.chat.session', 'pi-1')
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    // The page was away while the host kept writing this turn: it reattaches
+    // and shows it as still generating rather than as a conversation that
+    // stopped after the prompt.
+    const bubble = await screen.findByTestId('chat-message-streaming')
+    expect(bubble).toHaveTextContent('正在生成')
+    // Resume, not restart: the reasoning and the tool call this turn already
+    // produced are rebuilt from the ledger, in their original order.
+    expect(bubble).toHaveTextContent('先看目录')
+    expect(bubble).toHaveTextContent('half')
+    expect(bubble.querySelector('[data-testid="chat-live-tool"]')).not.toBeNull()
+    const blocks = Array.from(
+      bubble.querySelectorAll<HTMLElement>('[data-testid="chat-live-thinking"], [data-testid="chat-live-tool"]'),
+    )
+    expect(blocks.map((block) => block.dataset.testid)).toEqual([
+      'chat-live-thinking',
+      'chat-live-tool',
+    ])
+
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('half done'), {
+      timeout: 3000,
+    })
+    // The reload that swaps the streamed bubble for the stored message lands a
+    // moment before the turn is marked idle, so wait for both.
+    await waitFor(() => expect(screen.queryByTestId('chat-message-streaming')).toBeNull())
+    expect(screen.queryByTestId('chat-live-failure')).toBeNull()
+    expect(host.calls.filter((call) => call === 'session_list').length).toBeGreaterThan(1)
+  })
+
+})
+
+describe('the shell sidebar', () => {
+  it('lists conversations while another page is open', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    // The list used to render only on `/chat`, so leaving the conversation hid
+    // every other conversation with it.
+    const panel = await screen.findByTestId('chat-history')
+    expect(await within(panel).findByText('Alpha chat')).toBeInTheDocument()
+    expect(within(panel).getByText('Beta chat')).toBeInTheDocument()
+  })
+
+  it('opens a conversation from another page', async () => {
+    const user = userEvent.setup()
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const panel = await screen.findByTestId('chat-history')
+    await user.click(await within(panel).findByText('Alpha chat'))
+
+    // The row lives in the shell, so opening it has to move the window to the
+    // chat route as well — a list that only highlighted would leave the reader
+    // on the settings page.
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }),
+    )
   })
 })
 
@@ -467,20 +697,26 @@ describe('chat history grouping', () => {
       .closest('.chat-history-row')
     expect(row).not.toBeNull()
     await userEvent.click(within(row as HTMLElement).getByLabelText('会话操作'))
-    await userEvent.click(within(row as HTMLElement).getByText('分支会话'))
+    await userEvent.click(within(screen.getByTestId('chat-history-action-menu')).getByText('分支会话'))
     await waitFor(() => expect(host.calls).toContain('session_fork'))
     expect(host.args('session_fork')).toMatchObject({ sessionId: 'pi-a' })
 
     // The branch is selected by the host's reply, and the panel stays usable.
     await waitFor(() => expect(host.calls).toContain('session_detail'))
     await userEvent.click(within(row as HTMLElement).getByLabelText('会话操作'))
-    await userEvent.click(within(row as HTMLElement).getByText('压缩上下文'))
+    await userEvent.click(within(screen.getByTestId('chat-history-action-menu')).getByText('压缩上下文'))
     await waitFor(() => expect(host.calls).toContain('session_compact'))
     expect(host.args('session_compact')).toMatchObject({ sessionId: 'pi-a', keepLast: 6 })
   })
 })
 
-function installToolHost(options: { fail?: boolean } = {}): Host {
+function installToolHost(options: {
+  fail?: boolean
+  thinking?: boolean
+  /** Two reasoning bursts with a tool call between them. */
+  interleave?: boolean
+  answer?: string
+} = {}): Host {
   const calls: string[] = []
   const lastArgs = new Map<string, unknown>()
   let polls = 0
@@ -492,8 +728,26 @@ function installToolHost(options: { fail?: boolean } = {}): Host {
       if (command === 'session_list') return { sessions: [], total: 0 }
       if (command === 'session_open') return { ...summary(), messageCount: 0 }
       if (command === 'session_events') {
+        // Serve the batch to a poll that starts from the beginning of the
+        // ledger, not to "the first call": a poll left over from a previous
+        // test must not swallow this test's batch.
         polls += 1
-        if (polls > 1) return []
+        const after = Number((args as { afterSeq?: number } | undefined)?.afterSeq ?? 0)
+        if (after > 0) return []
+        if (options.interleave) {
+          // Text, reasoning, a tool call, then more text: the order a real turn
+          // produces when the model narrates before and after acting.
+          return [
+            event(1, 'turn_started', { prompt: 'run it' }),
+            event(2, 'text_delta', { delta: '先说明一下。' }),
+            event(3, 'thinking', { delta: '看看目录' }),
+            event(4, 'tool_call', { tool: 'command', args: 'echo anvil' }),
+            event(5, 'tool_result', { tool: 'command', ok: true, output: 'anvil' }),
+            event(6, 'text_delta', { delta: '结论是用 start.bat 启动。' }),
+            // The shape pi really writes: `input`/`output`, no `inputTokens`.
+            event(7, 'usage', { usage: { input: 1200, output: 80, cacheRead: 0, totalTokens: 1280 } }),
+          ]
+        }
         return [
           event(1, 'turn_started', { prompt: 'run it' }),
           event(2, 'tool_call', { tool: 'command', args: 'echo anvil' }),
@@ -514,6 +768,9 @@ function installToolHost(options: { fail?: boolean } = {}): Host {
               createdAt: '2026-11-13T00:00:00Z',
             },
           },
+          ...(options.thinking
+            ? [event(5, 'thinking', { delta: '先读文件再回答' })]
+            : []),
         ]
       }
       if (command === 'session_send') {
@@ -529,7 +786,7 @@ function installToolHost(options: { fail?: boolean } = {}): Host {
         return { runId: 'pi-1:r1', status: 'completed', eventCount: 4 }
       }
       if (command === 'session_abort') return true
-      if (command === 'session_detail') return detail('done')
+      if (command === 'session_detail') return detail(options.answer ?? 'done')
       if (command === 'session_approve') return null
       return null
     },
@@ -539,6 +796,76 @@ function installToolHost(options: { fail?: boolean } = {}): Host {
   return { calls, aborted: () => false, args: (command) => lastArgs.get(command) }
 }
 
+/** Host whose poll stops before the turn's tail is written, like the real one. */
+function installReplayHost(): Host {
+  const calls: string[] = []
+  const lastArgs = new Map<string, unknown>()
+  let turns = 0
+  const internals = {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
+      calls.push(command)
+      if (args) lastArgs.set(command, args)
+      if (command === 'catalog_snapshot' || command === 'catalog_refresh') return catalogSnapshot(false)
+      if (command === 'session_list') return { sessions: [], total: 0 }
+      if (command === 'session_open') return { ...summary(), messageCount: 0 }
+      if (command === 'session_events') {
+        // Turn one's rows only become readable after the turn resolved, which
+        // is what a poll that stops with the turn leaves behind.
+        if (turns === 0) return []
+        return [event(1, 'text_delta', { delta: '第一轮的回答' })]
+      }
+      if (command === 'session_send') {
+        const turn = turns
+        turns += 1
+        await new Promise((resolve) => setTimeout(resolve, turn === 0 ? 40 : 500))
+        return { runId: `pi-1:r${turn + 1}`, status: 'completed', eventCount: 1 }
+      }
+      if (command === 'session_abort') return true
+      if (command === 'session_detail') return detail(turns >= 2 ? '第二轮的回答' : '第一轮的回答')
+      return null
+    },
+  }
+  ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+    internals as unknown as TauriInternals
+  return { calls, aborted: () => false, args: (command) => lastArgs.get(command) }
+}
+
+describe('each turn only shows its own output', () => {
+  it('does not replay the previous answer into the next turn', async () => {
+    installReplayHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const send = async (text: string) => {
+      const composer = screen.getByTestId('chat-composer')
+      await waitFor(() => expect(composer).not.toBeDisabled())
+      await userEvent.clear(composer)
+      await userEvent.type(composer, text)
+      await userEvent.click(screen.getByTestId('chat-send'))
+    }
+
+    await send('first')
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('第一轮的回答'),
+    )
+
+    await send('second')
+    const streaming = await screen.findByTestId('chat-message-streaming')
+    // Several poll ticks: the leftover rows from turn one are readable now.
+    await new Promise((resolve) => setTimeout(resolve, 320))
+    expect(within(streaming).queryByText(/第一轮的回答/)).toBeNull()
+
+    // Let the turn finish: a poll still running after the test would read the
+    // *next* test's host and eat its first batch.
+    await waitFor(
+      () => expect(screen.queryByTestId('chat-message-streaming')).toBeNull(),
+      { timeout: 4000 },
+    )
+  })
+})
+
 describe('chat context and approvals', () => {
   async function sendOnce(text: string) {
     const composer = screen.getByTestId('chat-composer')
@@ -546,6 +873,161 @@ describe('chat context and approvals', () => {
     await userEvent.type(composer, text)
     await userEvent.click(screen.getByTestId('chat-send'))
   }
+
+  it('runs a new conversation in the workspace chosen in the project dialog', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    // The chip is the way in: it names the directory the next turn will use.
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    const current = await screen.findByTestId('workspace-current')
+    expect(current).toHaveTextContent('默认工作区')
+
+    const rows = screen.getAllByTestId('workspace-option')
+    const alpha = rows.find((row) => (row.dataset.path ?? '').includes('alpha'))
+    expect(alpha).toBeDefined()
+    await userEvent.click(alpha!)
+    await waitFor(() => expect(trigger).toHaveTextContent('alpha'))
+    // A successful switch closes the dialog so the chip shows the new project.
+    await waitFor(() => expect(screen.queryByTestId('workspace-current')).toBeNull())
+
+    await sendOnce('hello')
+
+    // The directory travels with the session: this is what puts the
+    // conversation under that project in the sidebar.
+    await waitFor(() => expect(host.args('session_open')).toMatchObject({ cwd: alpha!.dataset.path }))
+  })
+
+  it('turns the browse button into a real folder pick and switches to it', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    await userEvent.click(screen.getByTestId('workspace-browse'))
+    await waitFor(() => expect(host.calls).toContain('workspace_pick'))
+    await waitFor(() => expect(trigger).toHaveTextContent('folder'))
+  })
+
+  it('dismisses the inline new-project field when clicking outside it', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    const toggle = screen.getByTestId('workspace-new')
+    expect(screen.queryByTestId('workspace-name')).toBeNull()
+    await userEvent.click(toggle)
+    expect(screen.getByTestId('workspace-name')).toBeTruthy()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+
+    // A pointer press on other dialog content closes just the popover.
+    await userEvent.click(screen.getByTestId('workspace-current'))
+    expect(screen.queryByTestId('workspace-name')).toBeNull()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('creates a project from the inline field and switches to it', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    await userEvent.click(screen.getByTestId('workspace-new'))
+    const input = screen.getByTestId('workspace-name')
+    await userEvent.type(input, 'demo{Enter}')
+    await waitFor(() => expect(host.calls).toContain('workspace_create'))
+    expect(host.args('workspace_create')).toMatchObject({ name: 'demo' })
+    await waitFor(() => expect(trigger).toHaveTextContent('demo'))
+  })
+
+  it('offers folder and file pickers from the + menu', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    await userEvent.click(screen.getByTestId('workspace-new'))
+    expect(screen.getByTestId('workspace-add-folder')).toBeTruthy()
+    expect(screen.getByTestId('workspace-add-file')).toBeTruthy()
+
+    await userEvent.click(screen.getByTestId('workspace-add-file'))
+    await waitFor(() => expect(host.calls).toContain('workspace_pick_file'))
+    // The parent directory of the chosen file becomes the workspace.
+    await waitFor(() => expect(trigger).toHaveTextContent('folder'))
+    await waitFor(() => expect(screen.queryByTestId('workspace-current')).toBeNull())
+  })
+
+  it('closes the project dialog when the backdrop is pressed', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+    expect(screen.getByTestId('workspace-current')).toBeTruthy()
+
+    const backdrop = document.querySelector('.chat-backdrop') as HTMLElement
+    await userEvent.click(backdrop)
+    await waitFor(() => expect(screen.queryByTestId('workspace-current')).toBeNull())
+  })
+
+  it('can promote the current directory to the default workspace', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const trigger = await screen.findByTestId('chat-project-trigger')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    await userEvent.click(trigger)
+
+    const rows = screen.getAllByTestId('workspace-option')
+    const alpha = rows.find((row) => (row.dataset.path ?? '').includes('alpha'))
+    await userEvent.click(alpha!)
+    await waitFor(() => expect(screen.queryByTestId('workspace-current')).toBeNull())
+
+    await userEvent.click(trigger)
+    const setDefault = await screen.findByTestId('workspace-set-default')
+    await userEvent.click(setDefault)
+    await waitFor(() => expect(host.calls).toContain('workspace_ensure'))
+    // The chip shows the "default" label now; the chosen directory is persisted.
+    await waitFor(() =>
+      expect(window.localStorage.getItem('anvil.chat.defaultWorkspace')).toBe(alpha!.dataset.path),
+    )
+    await waitFor(() => expect(trigger).toHaveTextContent('默认工作区'))
+  })
 
   it('offers project files for @ and sends the chosen ones as context', async () => {
     const host = installHost()
@@ -580,6 +1062,8 @@ describe('chat context and approvals', () => {
   })
 
   it('renders a tool card and answers the approval card from the live stream', async () => {
+    // The timeline is off by default; this case explicitly opts in.
+    window.localStorage.setItem('anvil.chat.showTimeline', '1')
     const host = installToolHost()
     render(
       <MemoryRouter initialEntries={['/chat']}>
@@ -611,6 +1095,43 @@ describe('chat context and approvals', () => {
     })
   })
 
+  it('sends the chosen permission mode with the turn', async () => {
+    window.localStorage.removeItem('anvil.chat.permission')
+    const host = installToolHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const select = screen.getByTestId('chat-permission-select')
+    await waitFor(() => expect(select).not.toBeDisabled())
+    // "Medium" is the safe default; "full" is the trust-workspace answer the
+    // user picks so a path outside the project stops raising a card.
+    expect(select).toHaveValue('medium')
+    await userEvent.selectOptions(select, 'full')
+    expect(window.localStorage.getItem('anvil.chat.permission')).toBe('full')
+
+    await sendOnce('run it')
+    await waitFor(() =>
+      expect(host.args('session_send')).toMatchObject({ permission: 'full' }),
+    )
+  })
+
+  it('drops the approval card once the turn has already failed', async () => {
+    installToolHost({ fail: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+    // The ledger still carries the approval_request, but the run is over and
+    // the host dropped the question: leaving the card up is what makes "allow"
+    // look like a button that does nothing.
+    await screen.findByTestId('chat-live-failure')
+    expect(screen.queryByTestId('chat-approval')).toBeNull()
+  })
+
   it('shows a retryable state card instead of an endless generating bubble', async () => {
     const host = installToolHost({ fail: true })
     render(
@@ -629,6 +1150,335 @@ describe('chat context and approvals', () => {
       expect(host.calls.filter((call) => call === 'session_send')).toHaveLength(2)
     })
   })
+  it('offers installed skills in @ and sends the chosen one as skill context', async () => {
+    const host = installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    // A session must exist before the composer resolves its runtime.
+    await sendOnce('first turn')
+    await waitFor(() => expect(host.calls).toContain('session_send'))
+
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, '@code')
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('chat-mention-entry').some(
+          (entry) => entry.getAttribute('data-mention-kind') === 'skill',
+        ),
+      ).toBe(true),
+    )
+    const skill = screen
+      .getAllByTestId('chat-mention-entry')
+      .find((entry) => entry.getAttribute('data-mention-kind') === 'skill')
+    expect(skill).toBeTruthy()
+    await userEvent.click(skill as HTMLElement)
+
+    // The skill is part of the draft itself now, not a chip above the field.
+    expect(screen.queryByTestId('chat-attachments')).toBeNull()
+    expect(composer).toHaveValue('@code-review ')
+    expect(document.querySelector('.chat-inline-skill')).toHaveTextContent('@code-review')
+
+    await userEvent.type(composer, 'review this')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() =>
+      expect(host.args('session_send')).toMatchObject({
+        text: '@code-review review this',
+        context: [{ kind: 'skill', path: SKILL_PATH, label: 'code-review' }],
+      }),
+    )
+  })
+
+  it('opens a skill-only palette with / and filters it as you type', async () => {
+    const host = installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('first turn')
+    await waitFor(() => expect(host.calls).toContain('session_send'))
+
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, '/')
+    const entries = await screen.findAllByTestId('chat-mention-entry')
+    // A `/` palette is skills only: project files never join this list.
+    expect(entries).toHaveLength(1)
+    expect(entries.every((entry) => entry.getAttribute('data-mention-kind') === 'skill')).toBe(true)
+    expect(screen.getByRole('listbox', { name: 'Skill 列表' })).toHaveAttribute('data-mode', 'slash')
+    expect(host.calls).not.toContain('session_context_list')
+
+    await userEvent.type(composer, 'zzz')
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-mention-empty')).toHaveTextContent('没有匹配的 Skill'),
+    )
+  })
+
+  it('accepts a / skill with Tab and drops the slash token', async () => {
+    installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('first turn')
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, '/code')
+
+    const entry = await screen.findByTestId('chat-mention-entry')
+    expect(entry).toHaveAttribute('aria-selected', 'true')
+    await userEvent.tab()
+
+    expect(composer).toHaveValue('@code-review ')
+    expect(screen.queryByTestId('chat-attachments')).toBeNull()
+    expect(screen.queryByTestId('chat-mention-entry')).toBeNull()
+    // The counter reads the draft, so the inline skill is still one reference.
+    expect(screen.getByText('上下文 1')).toBeInTheDocument()
+
+    // One Backspace from just after the block removes the name and its space.
+    await userEvent.keyboard('{Backspace}')
+    await waitFor(() => expect(composer).toHaveValue(''))
+    expect(document.querySelector('.chat-inline-skill')).toBeNull()
+  })
+
+  it('refuses typing inside an inline skill block', async () => {
+    installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('first turn')
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, '/code')
+    await userEvent.tab()
+    expect(composer).toHaveValue('@code-review ')
+    expect(document.querySelector('.chat-inline-skill')).toHaveAttribute('data-skill', 'code-review')
+
+    // An edit that lands inside the name is refused: the chip can never be
+    // renamed into a different skill by accident.
+    ;(composer as HTMLTextAreaElement).setSelectionRange(4, 4)
+    fireEvent.input(composer, { target: { value: '@coxxde-review ' } })
+    expect(composer).toHaveValue('@code-review ')
+  })
+
+  it('moves the / cursor with the arrow keys before accepting it', async () => {
+    installInventoryHost([
+      { runtimeId: 'codex', name: 'release-notes', path: 'D:/skills/release-notes.md' },
+    ])
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('first turn')
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+    await userEvent.type(composer, '/')
+
+    const entries = await screen.findAllByTestId('chat-mention-entry')
+    expect(entries).toHaveLength(2)
+    // The running runtime's skill sorts first, and that row starts selected.
+    expect(entries[0]).toHaveAttribute('aria-selected', 'true')
+    await userEvent.keyboard('{ArrowDown}')
+    expect(screen.getAllByTestId('chat-mention-entry')[1]).toHaveAttribute('aria-selected', 'true')
+
+    await userEvent.tab()
+    expect(composer).toHaveValue('@release-notes ')
+  })
+
+  it('the + drawer skill entry opens a skill-only picker', async () => {
+    installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    await userEvent.click(screen.getByTestId('chat-add-skill'))
+    expect(composer).toHaveValue('@')
+    const entries = await screen.findAllByTestId('chat-mention-entry')
+    expect(entries.length).toBeGreaterThan(0)
+    expect(entries.every((entry) => entry.getAttribute('data-mention-kind') === 'skill')).toBe(true)
+  })
+
+  it('the + drawer picks a file and attaches it as context', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+
+    const fileButton = screen.getByTestId('chat-add-file')
+    expect(fileButton).not.toBeDisabled()
+
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(host.calls).toContain('workspace_pick_file'))
+    await waitFor(() => expect(screen.queryByTestId('chat-attachment-drawer')).toBeNull())
+    expect(screen.getByTestId('chat-attachments')).toHaveTextContent('spec.txt')
+  })
+
+  it('the + drawer attaches a picked folder too', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+
+    const dirButton = screen.getByTestId('chat-add-dir')
+    expect(dirButton).not.toBeDisabled()
+
+    await userEvent.click(dirButton)
+    await waitFor(() => expect(host.calls).toContain('workspace_pick'))
+    await waitFor(() => expect(screen.queryByTestId('chat-attachment-drawer')).toBeNull())
+    expect(screen.getByTestId('chat-attachments')).toHaveTextContent('folder')
+  })
+
+  it('the + drawer dismisses when pressing outside it', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    expect(screen.getByTestId('chat-attachment-drawer')).toBeTruthy()
+
+    await userEvent.click(screen.getByTestId('chat-thread'))
+    expect(screen.queryByTestId('chat-attachment-drawer')).toBeNull()
+
+    // The plus button still toggles it back open.
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    expect(screen.getByTestId('chat-attachment-drawer')).toBeTruthy()
+  })
+
+  it('offers every catalog skill in @ across runtimes, past the old 12-item cap', async () => {
+    const extra = Array.from({ length: 14 }, (_, index) => ({
+      runtimeId: index % 2 === 0 ? 'pi' : 'codex',
+      name: `skill-${String(index).padStart(2, '0')}`,
+      path: `D:/skills/skill-${index}.md`,
+    }))
+    installInventoryHost(extra)
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    await userEvent.click(screen.getByTestId('chat-add-skill'))
+
+    const entries = await screen.findAllByTestId('chat-mention-entry')
+    expect(entries).toHaveLength(15)
+    expect(entries.every((entry) => entry.getAttribute('data-mention-kind') === 'skill')).toBe(true)
+    // A codex skill is still selectable while the running runtime is pi.
+    expect(screen.getByText('skill-13')).toBeInTheDocument()
+  })
+
+  it('keeps streamed reasoning attached above its own answer, collapsed once settled', async () => {
+    installToolHost({ thinking: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+    const thinking = await screen.findByTestId('chat-live-thinking')
+    expect(thinking).toHaveTextContent('先读文件再回答')
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toBeInTheDocument())
+    // The old disclosure was a panel at the end of the thread: it sat above
+    // the answer while streaming and fell below it once the answer landed.
+    const agent = screen.getByTestId('chat-message-agent')
+    expect(within(agent).getByTestId('chat-live-thinking')).toHaveAttribute('data-open', 'false')
+    const prose = agent.querySelector('.chat-live-text')
+    expect(prose).not.toBeNull()
+    expect(
+      thinking.compareDocumentPosition(prose as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.queryByTestId('chat-thinking')).toBeNull()
+  })
+
+  it('keeps text, reasoning and tools in the order the turn produced them', async () => {
+    installToolHost({ interleave: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+
+    // Every kind of output is a block in ledger order. The answer used to be
+    // hoisted into one prose block at the end, so a turn that spoke, thought,
+    // ran a command and then spoke again read as "everything else, then the
+    // whole answer".
+    const agent = await screen.findByTestId('chat-message-agent')
+    const blocks = Array.from(
+      agent.querySelectorAll<HTMLElement>(
+        '[data-testid="chat-live-thinking"], [data-testid="chat-live-tool"], [data-testid="chat-live-text"]',
+      ),
+    )
+    expect(blocks.map((block) => block.dataset.testid)).toEqual([
+      'chat-live-text',
+      'chat-live-thinking',
+      'chat-live-tool',
+      'chat-live-text',
+    ])
+    expect(blocks[0]).toHaveTextContent('先说明一下')
+    expect(blocks[1]).toHaveTextContent('看看目录')
+    expect(blocks[3]).toHaveTextContent('start.bat')
+    // The stored message is the same words: it must not be printed twice.
+    expect(agent).not.toHaveTextContent('done')
+
+    // Tokens under the answer, with a real output count. The old reader asked
+    // for `outputTokens`, which no runtime sends, so output always read zero.
+    const usageLine = await within(agent).findByTestId('chat-usage')
+    expect(usageLine).toHaveTextContent('用量：输入 1,200 · 输出 80 tokens')
+  })
+
+  it('renders the finished answer as markdown in the real chat page', async () => {
+    installToolHost({ answer: '# 结论\n\n**已验证** 与 `code`' })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+    await screen.findByRole('heading', { level: 1, name: '结论' })
+    expect(screen.getByText('已验证').tagName).toBe('STRONG')
+    expect(screen.getByText('code').tagName).toBe('CODE')
+  })
+
+  it('leaves no turn-timeline card after a normal tool turn by default', async () => {
+    installToolHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('run it')
+    await screen.findByTestId('chat-live-tool')
+    expect(screen.queryByTestId('chat-thinking')).toBeNull()
+  })
+
 })
 
 describe('chat rail', () => {
@@ -791,7 +1641,14 @@ describe('chat rail', () => {
 
     const cite = await screen.findByTestId('chat-cite')
     expect(cite).toHaveAttribute('data-number', '1')
-    await userEvent.click(cite)
+    // A parent re-render must not detach this button mid-click: the Markdown
+    // component map is memoised so the generated DOM survives unrelated reads.
+    expect(cite.isConnected).toBe(true)
+    fireEvent.click(cite)
+    expect(cite.isConnected).toBe(true)
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: '引用 1' })).toHaveAttribute('aria-selected', 'true'),
+    )
     const source = await screen.findByTestId('chat-rail-source')
     expect(source).toHaveAttribute('data-number', '1')
     expect(source).toHaveTextContent('https://docs.example.com/a')
@@ -965,5 +1822,74 @@ describe('chat export', () => {
     expect(host.seen).toHaveLength(1)
     expect(screen.getByTestId('chat-notice')).toHaveTextContent('已取消')
     confirm.mockRestore()
+  })
+})
+
+describe("pi's subagent extension", () => {
+  const missing = {
+    installed: false,
+    agentDir: 'C:/Users/A/.pi/agent',
+    extensionDir: 'C:/Users/A/.pi/agent/extensions/subagent',
+    source: 'C:/Users/A/.pi-node/current/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent',
+    agents: 0,
+    prompts: 0,
+    canInstall: true,
+    detail: 'the subagent extension is not installed in the pi agent directory',
+  }
+  const installed = {
+    ...missing,
+    installed: true,
+    agents: 4,
+    prompts: 3,
+    canInstall: false,
+    detail: undefined,
+  }
+
+  it('offers the install and drops the notice once the host reports it installed', async () => {
+    const host = installHost({
+      subagent: missing,
+      install: { written: 6, skipped: 0, status: installed },
+    })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const notice = await screen.findByTestId('chat-subagent-notice')
+    expect(notice).toHaveTextContent('subagent 扩展未安装')
+    // The path is part of the promise: the user can see where it lands.
+    expect(notice).toHaveTextContent('extensions/subagent')
+
+    await userEvent.click(within(notice).getByTestId('chat-subagent-install'))
+
+    await waitFor(() => expect(host.calls).toContain('pi_subagent_install'))
+    await waitFor(() => expect(screen.queryByTestId('chat-subagent-notice')).toBeNull())
+    expect(screen.getByTestId('chat-notice')).toHaveTextContent('已安装 subagent 扩展（4 个可用子代理）')
+  })
+
+  it('cannot install when the pi package ships no example, and says why', async () => {
+    installHost({ subagent: { ...missing, canInstall: false, source: undefined } })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const notice = await screen.findByTestId('chat-subagent-notice')
+    expect(within(notice).getByTestId('chat-subagent-install')).toBeDisabled()
+    expect(notice).toHaveTextContent('请先更新 pi')
+  })
+
+  it('says nothing when the extension is already active', async () => {
+    const host = installHost({ subagent: installed })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    // The check has to have run before the absence means anything.
+    await waitFor(() => expect(host.calls).toContain('pi_subagent_status'))
+    expect(screen.queryByTestId('chat-subagent-notice')).toBeNull()
   })
 })

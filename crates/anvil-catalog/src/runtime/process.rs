@@ -179,6 +179,15 @@ fn find_in_dir(directory: &Path, name: &str, extensions: &[String]) -> Option<Pa
 /// Directories a runtime can be installed into without being on `PATH`.
 pub fn known_install_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    // The installer honours `ANVIL_RUNTIME_PREFIX`; lookups must follow it,
+    // otherwise a portable prefix installs fine but is never discovered. Pushed
+    // first so it wins over the per-user default.
+    if let Some(value) = std::env::var_os("ANVIL_RUNTIME_PREFIX") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            dirs.push(path);
+        }
+    }
     let mut push_env = |name: &str, suffix: &str| {
         if let Some(base) = std::env::var_os(name) {
             let mut path = PathBuf::from(base);
@@ -191,9 +200,15 @@ pub fn known_install_dirs() -> Vec<PathBuf> {
     push_env("LOCALAPPDATA", "pi-node/current");
     push_env("LOCALAPPDATA", "Programs");
     push_env("APPDATA", "npm");
-    push_env("USERPROFILE", ".local/bin");
-    push_env("USERPROFILE", ".bun/bin");
-    push_env("USERPROFILE", ".npm-global/bin");
+    // macOS and Linux have no `LOCALAPPDATA`: the per-user prefix the installer
+    // writes to is `~/.anvil/runtimes`, whose `bin/` is where npm drops shims.
+    // The other entries are the usual per-user npm/bun install locations.
+    for home in ["USERPROFILE", "HOME"] {
+        push_env(home, ".anvil/runtimes/bin");
+        push_env(home, ".local/bin");
+        push_env(home, ".bun/bin");
+        push_env(home, ".npm-global/bin");
+    }
     dirs
 }
 

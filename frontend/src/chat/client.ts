@@ -13,6 +13,7 @@ export type SessionEventKind =
   | 'session_started'
   | 'turn_started'
   | 'text_delta'
+  | 'thinking'
   | 'message_completed'
   | 'tool_call'
   | 'tool_result'
@@ -24,6 +25,7 @@ export type SessionEventKind =
   | 'aborted'
   | 'compacted'
   | 'context_attached'
+  | 'sub_agent'
   | 'unknown'
 
 export interface SessionSummary {
@@ -321,21 +323,35 @@ export function openSession(input: {
   model: string
   cwd?: string
   title?: string
+  /** When set, the host opens the session with this agent's saved persona. */
+  agentId?: string
 }): Promise<SessionSummary> {
   return hostCall<SessionSummary>('session_open', {
     runtimeId: input.runtimeId,
     model: input.model,
     cwd: input.cwd,
     title: input.title,
+    agentId: input.agentId,
   })
 }
+
+/**
+ * How far the user trusts the workspace for one turn.
+ *
+ * `full` reads paths outside the project without raising an approval card; the
+ * other modes keep the per-path question. It travels with the send rather than
+ * being stored on the session, because "I trust this folder" is a decision about
+ * what to run now, not a permanent property of the conversation.
+ */
+export type PermissionMode = 'readonly' | 'medium' | 'high' | 'full'
 
 export function sendTurn(
   sessionId: string,
   text: string,
   context: ContextRef[] = [],
+  permission: PermissionMode = 'medium',
 ): Promise<SendReport> {
-  return hostCall<SendReport>('session_send', { sessionId, text, context })
+  return hostCall<SendReport>('session_send', { sessionId, text, context, permission })
 }
 
 /** Answer one approval card; the waiting run continues or gives up. */

@@ -18,9 +18,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
 use crate::model::{
-    AdapterFailure, AgentRecord, Capabilities, CatalogSnapshot, InventoryKind, McpRecord,
-    ModelRecord, RuntimeHealth, RuntimeRecord, RuntimeRegistration, RuntimeStatus, SkillRecord,
-    SyncOutcome, ToolRecord,
+    AdapterFailure, AgentDraft, AgentRecord, Capabilities, CatalogSnapshot, InventoryKind,
+    McpRecord, ModelRecord, RuntimeHealth, RuntimeRecord, RuntimeRegistration, RuntimeStatus,
+    SkillRecord, SyncOutcome, ToolRecord,
 };
 
 const SCHEMA_VERSION: i64 = 1;
@@ -161,6 +161,36 @@ impl Store {
         // stored, which left the user no row to bind a runtime to. It is a real
         // row now, so an existing catalog needs the column.
         self.add_column_if_missing("agents", "is_default", "INTEGER NOT NULL DEFAULT 0")?;
+        // The page grew from "a name on a model" to the agent's persona. Every
+        // column is added here so a catalog written by an older build opens with
+        // the defaults the page shows, not with a failed read.
+        for (column, ddl) in [
+            ("slug", "TEXT NOT NULL DEFAULT ''"),
+            ("description", "TEXT NOT NULL DEFAULT ''"),
+            ("thinking", "TEXT NOT NULL DEFAULT 'medium'"),
+            ("context_window", "TEXT NOT NULL DEFAULT '400K'"),
+            ("memory", "INTEGER NOT NULL DEFAULT 0"),
+            ("auto_compact", "INTEGER NOT NULL DEFAULT 1"),
+            ("system_prompt", "TEXT NOT NULL DEFAULT ''"),
+            ("tools", "TEXT NOT NULL DEFAULT ''"),
+            ("skills", "TEXT NOT NULL DEFAULT ''"),
+            ("permission", "TEXT NOT NULL DEFAULT 'medium'"),
+            ("writable_dirs", "TEXT NOT NULL DEFAULT ''"),
+            ("command_allowlist", "TEXT NOT NULL DEFAULT ''"),
+            ("network", "INTEGER NOT NULL DEFAULT 1"),
+            ("confirm_dangerous", "INTEGER NOT NULL DEFAULT 1"),
+            ("group_kind", "TEXT NOT NULL DEFAULT 'main'"),
+            ("delegated_from", "TEXT NOT NULL DEFAULT ''"),
+            ("delegation_policy", "TEXT NOT NULL DEFAULT 'auto'"),
+            ("concurrency", "INTEGER NOT NULL DEFAULT 4"),
+            ("enabled", "INTEGER NOT NULL DEFAULT 1"),
+        ] {
+            self.add_column_if_missing("agents", column, ddl)?;
+        }
+        // A row saved before the slug existed has no identifier the user can
+        // point at; the row id is the one stable value it already has.
+        self.connection
+            .execute("UPDATE agents SET slug = id WHERE TRIM(slug) = ''", [])?;
         // Upgrading must not leave the chat page with nothing to pick: the model
         // that was already the default stays enabled.
         self.connection.execute(
@@ -265,6 +295,32 @@ impl Store {
                         mark.execute(params![id, RuntimeStatus::NotInstalled.as_str()])?;
                     }
                 }
+            }
+        }
+        {
+            // A "not installed" placeholder must not survive the runtime's first
+            // real install. Rows are keyed by executable path, so the placeholder
+            // and the install are two different rows: the stale one sorted first
+            // and the UI kept reporting "未安装" right after a successful install.
+            //
+            // Only runtimes that actually reported an install are touched — a
+            // still-missing runtime keeps its placeholder, which is the only row
+            // that tells the page it exists at all.
+            let missing_marker = RuntimeStatus::NotInstalled.as_str();
+            let mut installed: Vec<&str> = registrations
+                .iter()
+                .filter(|registration| registration.status.as_str() != missing_marker)
+                .map(|registration| registration.runtime_id.as_str())
+                .collect();
+            installed.sort_unstable();
+            installed.dedup();
+            let mut drop_placeholder = transaction.prepare(
+                "DELETE FROM runtimes
+                  WHERE runtime_id = ?1 AND status = ?2
+                    AND (install_path IS NULL OR install_path = '')",
+            )?;
+            for runtime_id in installed {
+                drop_placeholder.execute(params![runtime_id, missing_marker])?;
             }
         }
         transaction.commit()?;
@@ -665,20 +721,32 @@ impl Store {
     /// row derived from the default model gave them nothing to edit.
     pub fn agents(&self) -> Result<Vec<AgentRecord>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, runtime_id, model_id, is_default, updated_at
-             FROM agents ORDER BY is_default DESC, name, id",
+            "SELECT id, name, slug, description, runtime_id, model_id, is_default, thinking,
+                    context_window, memory, auto_compact, system_prompt, tools, skills,
+                    permission, writable_dirs, command_allowlist, network, confirm_dangerous,
+                    group_kind, delegated_from, delegation_policy, concurrency, enabled,
+                    updated_at
+             FROM agents ORDER BY is_default DESC, group_kind, name, id",
         )?;
-        let rows = statement.query_map([], |row| {
-            Ok(AgentRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                runtime_id: row.get(2)?,
-                model_id: row.get(3)?,
-                is_default: row.get::<_, i64>(4)? != 0,
-                updated_at: row.get(5)?,
-            })
-        })?;
+        let rows = statement.query_map([], agent_from_row)?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// One agent by id, for the host when it opens a session.
+    pub fn agent(&self, id: &str) -> Result<Option<AgentRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, slug, description, runtime_id, model_id, is_default, thinking,
+                    context_window, memory, auto_compact, system_prompt, tools, skills,
+                    permission, writable_dirs, command_allowlist, network, confirm_dangerous,
+                    group_kind, delegated_from, delegation_policy, concurrency, enabled,
+                    updated_at
+             FROM agents WHERE id = ?1",
+        )?;
+        let mut rows = statement.query_map(params![id], agent_from_row)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
     }
 
     /// Create the built-in agent once, bound to whatever model is the default.
@@ -703,12 +771,53 @@ impl Store {
             .optional()?;
         let (runtime_id, model_id) = binding.unwrap_or_default();
         self.connection.execute(
-            "INSERT INTO agents (id, name, runtime_id, model_id, is_default, updated_at)
-             VALUES (?1, 'Default Agent', ?2, ?3, 1, ?4)
+            "INSERT INTO agents (id, name, slug, runtime_id, model_id, is_default, updated_at)
+             VALUES (?1, 'Default Agent', ?1, ?2, ?3, 1, ?4)
              ON CONFLICT(id) DO NOTHING",
             params![DEFAULT_AGENT_ID, runtime_id, model_id, now],
         )?;
-        self.repair_default_agent()
+        self.repair_default_agent()?;
+        self.grant_delegation_to_untouched_agents()
+    }
+
+    /// Add the delegation tool to agents saved before it was offered.
+    ///
+    /// `--tools` is a whole allowlist, so a list stored without `subagent` keeps
+    /// hiding delegation: the runtime could spawn a child, the model could not
+    /// ask for one. Only a list that still equals the old built-in set is
+    /// extended — an edited list is a user decision, including "no sub-agents".
+    fn grant_delegation_to_untouched_agents(&self) -> Result<()> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id, tools FROM agents WHERE TRIM(tools) <> ''")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(statement);
+
+        let legacy: Vec<String> = crate::model::BUILTIN_TOOLS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        for (id, raw) in rows {
+            let current = decode_names(&raw, &[]);
+            if current != legacy {
+                continue;
+            }
+            let mut next = current;
+            next.extend(
+                crate::model::DELEGATION_TOOLS
+                    .iter()
+                    .map(|name| (*name).to_string()),
+            );
+            self.connection.execute(
+                "UPDATE agents SET tools = ?2 WHERE id = ?1",
+                params![id, encode_names(&next)],
+            )?;
+        }
+        Ok(())
     }
 
     /// Point the built-in agent at the default model while it has no binding.
@@ -731,23 +840,19 @@ impl Store {
         Ok(())
     }
 
-    /// Create or rename one agent binding. `id` empty means "new".
+    /// Create or update one agent from the page's draft. `draft.id` empty means
+    /// "new".
     ///
     /// The pair has to name a model the catalog knows: a binding to a runtime
     /// that is not installed would look saved and then fail at the first turn.
-    pub fn save_agent(
-        &self,
-        id: Option<&str>,
-        name: &str,
-        runtime_id: &str,
-        model_id: &str,
-        now: &str,
-    ) -> Result<AgentRecord> {
-        let name = name.trim();
+    /// Everything else is the agent's persona and is stored as sent, so saving
+    /// a page and reopening it shows exactly what the user typed.
+    pub fn save_agent(&self, draft: &AgentDraft, now: &str) -> Result<AgentRecord> {
+        let name = draft.name.trim();
         if name.is_empty() {
             return Err(Error::Rejected("an agent needs a name".to_string()));
         }
-        if runtime_id.trim().is_empty() || model_id.trim().is_empty() {
+        if draft.runtime_id.trim().is_empty() || draft.model_id.trim().is_empty() {
             return Err(Error::Rejected(
                 "an agent needs both a runtime and a model".to_string(),
             ));
@@ -756,29 +861,104 @@ impl Store {
             .connection
             .query_row(
                 "SELECT 1 FROM models WHERE runtime_id = ?1 AND model_id = ?2",
-                params![runtime_id, model_id],
+                params![draft.runtime_id, draft.model_id],
                 |row| row.get(0),
             )
             .optional()?;
         if known.is_none() {
             return Err(Error::Rejected(format!(
-                "model {runtime_id}/{model_id} is not in the catalog"
+                "model {}/{} is not in the catalog",
+                draft.runtime_id, draft.model_id
             )));
         }
-        let id = match id.filter(|value| !value.trim().is_empty()) {
+        let id = match draft.id.as_deref().filter(|value| !value.trim().is_empty()) {
             Some(value) => value.to_string(),
             None => format!("agent-{}", crate::clock::unix_now()),
         };
+        let slug = match draft.slug.trim() {
+            "" => id.clone(),
+            value if value.chars().any(char::is_whitespace) => {
+                return Err(Error::Rejected(
+                    "an agent's identifier cannot contain spaces".to_string(),
+                ));
+            }
+            value => value.to_string(),
+        };
+        let taken: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT id FROM agents WHERE slug = ?1 AND id <> ?2",
+                params![slug, id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(other) = taken {
+            return Err(Error::Rejected(format!(
+                "the identifier {slug} is already used by {other}"
+            )));
+        }
         let is_default = id == DEFAULT_AGENT_ID;
         self.connection.execute(
-            "INSERT INTO agents (id, name, runtime_id, model_id, is_default, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO agents (
+                id, name, slug, description, runtime_id, model_id, is_default, thinking,
+                context_window, memory, auto_compact, system_prompt, tools, skills,
+                permission, writable_dirs, command_allowlist, network, confirm_dangerous,
+                group_kind, delegated_from, delegation_policy, concurrency, enabled, updated_at
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                ?19, ?20, ?21, ?22, ?23, ?24, ?25
+             )
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
+                slug = excluded.slug,
+                description = excluded.description,
                 runtime_id = excluded.runtime_id,
                 model_id = excluded.model_id,
+                thinking = excluded.thinking,
+                context_window = excluded.context_window,
+                memory = excluded.memory,
+                auto_compact = excluded.auto_compact,
+                system_prompt = excluded.system_prompt,
+                tools = excluded.tools,
+                skills = excluded.skills,
+                permission = excluded.permission,
+                writable_dirs = excluded.writable_dirs,
+                command_allowlist = excluded.command_allowlist,
+                network = excluded.network,
+                confirm_dangerous = excluded.confirm_dangerous,
+                group_kind = excluded.group_kind,
+                delegated_from = excluded.delegated_from,
+                delegation_policy = excluded.delegation_policy,
+                concurrency = excluded.concurrency,
+                enabled = excluded.enabled,
                 updated_at = excluded.updated_at",
-            params![id, name, runtime_id, model_id, i64::from(is_default), now],
+            params![
+                id,
+                name,
+                slug,
+                draft.description.trim(),
+                draft.runtime_id,
+                draft.model_id,
+                i64::from(is_default),
+                draft.thinking.trim(),
+                draft.context_window.trim(),
+                i64::from(draft.memory),
+                i64::from(draft.auto_compact),
+                draft.system_prompt,
+                encode_names(&draft.tools),
+                encode_names(&draft.skills),
+                draft.permission.trim(),
+                draft.writable_dirs.trim(),
+                draft.command_allowlist.trim(),
+                i64::from(draft.network),
+                i64::from(draft.confirm_dangerous),
+                draft.group_kind.trim(),
+                draft.delegated_from.trim(),
+                draft.delegation_policy.trim(),
+                i64::from(draft.concurrency),
+                i64::from(draft.enabled),
+                now,
+            ],
         )?;
         if is_default {
             // Binding the built-in agent to a model also makes that model the
@@ -788,7 +968,7 @@ impl Store {
                 "UPDATE models SET is_default = CASE
                     WHEN runtime_id = ?1 AND model_id = ?2 THEN 1 ELSE 0 END,
                     enabled = CASE WHEN runtime_id = ?1 AND model_id = ?2 THEN 1 ELSE enabled END",
-                params![runtime_id, model_id],
+                params![draft.runtime_id, draft.model_id],
             )?;
         } else {
             // Naming a binding is configuration, so the model it names becomes
@@ -796,17 +976,11 @@ impl Store {
             // the user can use.
             self.connection.execute(
                 "UPDATE models SET enabled = 1 WHERE runtime_id = ?1 AND model_id = ?2",
-                params![runtime_id, model_id],
+                params![draft.runtime_id, draft.model_id],
             )?;
         }
-        Ok(AgentRecord {
-            id,
-            name: name.to_string(),
-            runtime_id: runtime_id.to_string(),
-            model_id: model_id.to_string(),
-            is_default,
-            updated_at: now.to_string(),
-        })
+        self.agent(&id)?
+            .ok_or_else(|| Error::NotFound(format!("agent {id} did not save")))
     }
 
     /// Remove one saved agent. The built-in one cannot be removed.
@@ -1173,4 +1347,62 @@ pub fn health_ok(detail: Option<&str>) -> RuntimeHealth {
         latency_ms: 0,
         detail: detail.map(str::to_string),
     }
+}
+
+/// Decode a name list column.
+///
+/// An empty column is "written by a build that did not store this field", so it
+/// falls back to `fallback`; a stored `[]` is the user's explicit "none". Those
+/// two must stay distinguishable, or turning every tool off would silently
+/// restore the default set on the next read.
+fn decode_names(raw: &str, fallback: &[&str]) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return fallback.iter().map(|name| (*name).to_string()).collect();
+    }
+    serde_json::from_str::<Vec<String>>(trimmed).unwrap_or_default()
+}
+
+fn encode_names(names: &[String]) -> String {
+    serde_json::to_string(names).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Read one `agents` row; the column order is the one both queries use.
+fn agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
+    Ok(AgentRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        slug: row.get(2)?,
+        description: row.get(3)?,
+        runtime_id: row.get(4)?,
+        model_id: row.get(5)?,
+        is_default: row.get::<_, i64>(6)? != 0,
+        thinking: row.get(7)?,
+        context_window: row.get(8)?,
+        memory: row.get::<_, i64>(9)? != 0,
+        auto_compact: row.get::<_, i64>(10)? != 0,
+        system_prompt: row.get(11)?,
+        tools: {
+            let raw: String = row.get(12)?;
+            // A row saved before tools existed gets the full default set,
+            // delegation included: otherwise an existing install could never
+            // delegate without editing the agent first.
+            decode_names(&raw, &crate::model::DEFAULT_TOOLS)
+        },
+        skills: {
+            let raw: String = row.get(13)?;
+            decode_names(&raw, &[])
+        },
+        permission: row.get(14)?,
+        writable_dirs: row.get(15)?,
+        command_allowlist: row.get(16)?,
+        network: row.get::<_, i64>(17)? != 0,
+        confirm_dangerous: row.get::<_, i64>(18)? != 0,
+        group_kind: row.get(19)?,
+        delegated_from: row.get(20)?,
+        delegation_policy: row.get(21)?,
+        concurrency: row.get::<_, i64>(22)? as u32,
+        enabled: row.get::<_, i64>(23)? != 0,
+        updated_at: row.get(24)?,
+    })
 }

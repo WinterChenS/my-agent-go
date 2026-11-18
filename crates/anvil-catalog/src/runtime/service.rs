@@ -11,8 +11,9 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::ids;
 use crate::model::{
-    AdapterFailure, AgentRecord, Capabilities, CapabilityState, CatalogSnapshot, InventoryKind,
-    RuntimeCandidate, RuntimeHealth, RuntimeRegistration, RuntimeStatus, SyncOutcome,
+    AdapterFailure, AgentDraft, AgentRecord, Capabilities, CapabilityState, CatalogSnapshot,
+    InventoryKind, RuntimeCandidate, RuntimeHealth, RuntimeRegistration, RuntimeStatus,
+    SyncOutcome,
 };
 use crate::runtime::adapter::{
     DiscoveryContext, Inventory, McpProbe, ModelVerification, ProbeContext, RuntimeAdapter,
@@ -105,6 +106,17 @@ impl CatalogService {
         &self.store
     }
 
+    /// Attach a non-fatal failure to the next snapshot.
+    ///
+    /// Startup discovery is best-effort: a broken adapter, a missing runtime
+    /// or a transient store error must not stop the host from answering with
+    /// the agents/models already on disk. Callers use this to surface the
+    /// problem in `adapterFailures` instead of turning the whole catalog into
+    /// an error state that looks like "everything was forgotten".
+    pub fn record_failure(&mut self, failure: AdapterFailure) {
+        self.failures.push(failure);
+    }
+
     pub fn store_mut(&mut self) -> &mut Store {
         &mut self.store
     }
@@ -116,35 +128,53 @@ impl CatalogService {
             home: self.home.clone(),
             timeout: self.timeouts.discovery,
         };
+        let probe_timeout = self.timeouts.probe;
+        let adapters = self.registry.all();
+
+        // Every adapter's discovery spawns its own `--version` processes, and
+        // one process spawn is most of the wall clock. The adapters share
+        // nothing, so they run side by side: a three-runtime machine used to
+        // wait for the sum, and that sum was the first thing the window showed
+        // a spinner for.
+        let outcomes: Vec<AdapterScan> = std::thread::scope(|scope| {
+            let handles: Vec<_> = adapters
+                .iter()
+                .map(|adapter| {
+                    let adapter = adapter.clone();
+                    let discovery = &discovery;
+                    let scanned_at = scanned_at.as_str();
+                    scope
+                        .spawn(move || scan_adapter(&adapter, discovery, probe_timeout, scanned_at))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .zip(adapters.iter())
+                .map(|(handle, adapter)| {
+                    handle.join().unwrap_or_else(|_| AdapterScan {
+                        runtime_id: adapter.id().to_string(),
+                        scanned: false,
+                        registrations: Vec::new(),
+                        failure: Some(AdapterFailure {
+                            runtime_id: adapter.id().to_string(),
+                            phase: "scan".to_string(),
+                            error: "the adapter's scan thread panicked".to_string(),
+                        }),
+                    })
+                })
+                .collect()
+        });
+
         let mut registrations: Vec<RuntimeRegistration> = Vec::new();
         let mut failures: Vec<AdapterFailure> = Vec::new();
         let mut scanned_ids: Vec<String> = Vec::new();
-
-        for adapter in self.registry.all() {
-            let runtime_id = adapter.id().to_string();
-            let candidates = match adapter.discover(&discovery) {
-                Ok(candidates) => candidates,
-                Err(error) => {
-                    // One broken adapter must not stop the others.
-                    failures.push(AdapterFailure {
-                        runtime_id: runtime_id.clone(),
-                        phase: "discover".to_string(),
-                        error: error.to_wire(),
-                    });
-                    continue;
-                }
-            };
-            scanned_ids.push(runtime_id.clone());
-            if candidates.is_empty() {
-                registrations.push(not_installed(&adapter, &scanned_at));
-                continue;
+        for outcome in outcomes {
+            registrations.extend(outcome.registrations);
+            if let Some(failure) = outcome.failure {
+                failures.push(failure);
             }
-            let probe = ProbeContext {
-                home: self.home.clone(),
-                timeout: self.timeouts.probe,
-            };
-            for candidate in dedupe(candidates) {
-                registrations.push(self.register(&adapter, &probe, &candidate, &scanned_at));
+            if outcome.scanned {
+                scanned_ids.push(outcome.runtime_id);
             }
         }
 
@@ -159,58 +189,61 @@ impl CatalogService {
         })
     }
 
-    fn register(
-        &self,
-        adapter: &Arc<dyn RuntimeAdapter>,
-        probe: &ProbeContext,
-        candidate: &RuntimeCandidate,
-        scanned_at: &str,
-    ) -> RuntimeRegistration {
-        let id = ids::registration_id(
-            &candidate.runtime_id,
-            &candidate.executable,
-            candidate.instance.as_deref(),
-        );
-        match adapter.probe(probe, candidate) {
-            Ok(report) => RuntimeRegistration {
-                id,
-                runtime_id: candidate.runtime_id.clone(),
-                display_name: adapter.display_name().to_string(),
-                version: report.version,
-                executable: candidate.executable.clone(),
-                source: candidate.source,
-                config_path: report.config_path,
-                status: report.status,
-                capabilities: adapter.capabilities(),
-                health: RuntimeHealth {
-                    checked_at: scanned_at.to_string(),
-                    latency_ms: report.latency_ms,
-                    detail: report.detail,
-                },
-                last_seen: scanned_at.to_string(),
-            },
-            Err(error) => RuntimeRegistration {
-                id,
-                runtime_id: candidate.runtime_id.clone(),
-                display_name: adapter.display_name().to_string(),
-                version: None,
-                executable: candidate.executable.clone(),
-                source: candidate.source,
-                config_path: None,
-                status: RuntimeStatus::ProbeFailed,
-                capabilities: adapter.capabilities(),
-                health: RuntimeHealth {
-                    checked_at: scanned_at.to_string(),
-                    latency_ms: 0,
-                    detail: Some(error.to_wire()),
-                },
-                last_seen: scanned_at.to_string(),
-            },
-        }
-    }
-
     /// Sync every supported resource family for one runtime.
     pub fn sync_runtime(&mut self, runtime_id: &str) -> Result<Vec<SyncOutcome>> {
+        self.sync_kinds(
+            runtime_id,
+            &[
+                InventoryKind::Models,
+                InventoryKind::Skills,
+                InventoryKind::Tools,
+                InventoryKind::Mcp,
+            ],
+        )
+    }
+
+    /// Re-read one runtime's model list.
+    ///
+    /// The models page shows one runtime at a time, and every adapter reads its
+    /// models from a local JSON file, so this is a handful of milliseconds. The
+    /// expensive part of a full sync is discovery — spawning each runtime to
+    /// read its version — and that is deliberately not part of this call.
+    pub fn sync_models(&mut self, runtime_id: &str) -> Result<Vec<SyncOutcome>> {
+        self.sync_kinds(runtime_id, &[InventoryKind::Models])
+    }
+
+    /// Re-read the local resource families of every installed runtime.
+    ///
+    /// Skills, tools and MCP declarations are files on this machine; a user can
+    /// add one at any moment. This is the cheap sync the UI runs in the
+    /// background: unlike [`Self::sync_runtime`] it never probes a model
+    /// endpoint, so a slow gateway cannot stall the window.
+    pub fn sync_inventory(&mut self) -> Result<Vec<SyncOutcome>> {
+        let kinds = [
+            InventoryKind::Skills,
+            InventoryKind::Tools,
+            InventoryKind::Mcp,
+        ];
+        let runtime_ids: Vec<String> = self
+            .store
+            .runtimes()?
+            .into_iter()
+            .filter(|row| row.status != RuntimeStatus::NotInstalled.as_str())
+            .map(|row| row.runtime_id)
+            .collect();
+        let mut outcomes = Vec::new();
+        for runtime_id in runtime_ids {
+            let mut batch = self.sync_kinds(&runtime_id, &kinds)?;
+            outcomes.append(&mut batch);
+        }
+        Ok(outcomes)
+    }
+
+    fn sync_kinds(
+        &mut self,
+        runtime_id: &str,
+        kinds: &[InventoryKind],
+    ) -> Result<Vec<SyncOutcome>> {
         let rows = self.store.runtimes()?;
         let Some(row) = rows.into_iter().find(|row| {
             row.runtime_id == runtime_id && row.status != RuntimeStatus::NotInstalled.as_str()
@@ -241,12 +274,7 @@ impl CatalogService {
         };
         let fetched_at = clock::now_rfc3339();
         let mut outcomes = Vec::new();
-        for kind in [
-            InventoryKind::Models,
-            InventoryKind::Skills,
-            InventoryKind::Tools,
-            InventoryKind::Mcp,
-        ] {
+        for kind in kinds.iter().copied() {
             let Some(result) = adapter.sync(&context, &registration, kind) else {
                 continue;
             };
@@ -409,16 +437,10 @@ impl CatalogService {
         self.store.set_model_enabled(runtime_id, model_id, enabled)
     }
 
-    /// Create or rename one agent binding.
-    pub fn save_agent(
-        &mut self,
-        id: Option<&str>,
-        name: &str,
-        runtime_id: &str,
-        model_id: &str,
-    ) -> Result<AgentRecord> {
+    /// Create or update one agent from the page's draft.
+    pub fn save_agent(&mut self, draft: &AgentDraft) -> Result<AgentRecord> {
         let now = clock::now_rfc3339();
-        self.store.save_agent(id, name, runtime_id, model_id, &now)
+        self.store.save_agent(draft, &now)
     }
 
     /// Remove one saved agent binding.
@@ -576,6 +598,109 @@ impl CatalogService {
                 })
             }
         }
+    }
+}
+
+/// What one adapter contributed to a scan.
+struct AdapterScan {
+    runtime_id: String,
+    /// Discovery worked, so this adapter's rows should survive the scan.
+    scanned: bool,
+    registrations: Vec<RuntimeRegistration>,
+    failure: Option<AdapterFailure>,
+}
+
+/// Discover and probe one adapter. Runs on its own thread.
+fn scan_adapter(
+    adapter: &Arc<dyn RuntimeAdapter>,
+    discovery: &DiscoveryContext,
+    probe_timeout: Duration,
+    scanned_at: &str,
+) -> AdapterScan {
+    let runtime_id = adapter.id().to_string();
+    let candidates = match adapter.discover(discovery) {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            // One broken adapter must not stop the others.
+            return AdapterScan {
+                runtime_id: runtime_id.clone(),
+                scanned: false,
+                registrations: Vec::new(),
+                failure: Some(AdapterFailure {
+                    runtime_id,
+                    phase: "discover".to_string(),
+                    error: error.to_wire(),
+                }),
+            };
+        }
+    };
+    let probe = ProbeContext {
+        home: discovery.home.clone(),
+        timeout: probe_timeout,
+    };
+    let mut registrations = Vec::new();
+    if candidates.is_empty() {
+        registrations.push(not_installed(adapter, scanned_at));
+    } else {
+        for candidate in dedupe(candidates) {
+            registrations.push(register(adapter, &probe, &candidate, scanned_at));
+        }
+    }
+    AdapterScan {
+        runtime_id,
+        scanned: true,
+        registrations,
+        failure: None,
+    }
+}
+
+/// One registration row from a probe: version, health and capabilities.
+fn register(
+    adapter: &Arc<dyn RuntimeAdapter>,
+    probe: &ProbeContext,
+    candidate: &RuntimeCandidate,
+    scanned_at: &str,
+) -> RuntimeRegistration {
+    let id = ids::registration_id(
+        &candidate.runtime_id,
+        &candidate.executable,
+        candidate.instance.as_deref(),
+    );
+    match adapter.probe(probe, candidate) {
+        Ok(report) => RuntimeRegistration {
+            id,
+            runtime_id: candidate.runtime_id.clone(),
+            display_name: adapter.display_name().to_string(),
+            version: report.version,
+            executable: candidate.executable.clone(),
+            source: candidate.source,
+            config_path: report.config_path,
+            status: report.status,
+            capabilities: adapter.capabilities(),
+            health: RuntimeHealth {
+                checked_at: scanned_at.to_string(),
+                latency_ms: report.latency_ms,
+                detail: report.detail,
+            },
+            last_seen: scanned_at.to_string(),
+        },
+        Err(error) => RuntimeRegistration {
+            id,
+            runtime_id: candidate.runtime_id.clone(),
+            display_name: adapter.display_name().to_string(),
+            version: None,
+            executable: candidate.executable.clone(),
+            source: candidate.source,
+            config_path: None,
+            status: RuntimeStatus::ProbeFailed,
+            capabilities: adapter.capabilities(),
+            health: RuntimeHealth {
+                checked_at: scanned_at.to_string(),
+                latency_ms: 0,
+                detail: Some(error.to_wire()),
+            },
+            last_seen: scanned_at.to_string(),
+        },
     }
 }
 

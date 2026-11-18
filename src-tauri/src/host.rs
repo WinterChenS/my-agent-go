@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anvil_paths::validate_d_path;
+use anvil_paths::{validate_writable_path};
 
 use crate::log::HostLog;
 use crate::options::{MIN_HEIGHT, MIN_WIDTH, WindowSize, initial_url, parse_window_size};
@@ -29,6 +29,104 @@ pub const INITIAL_URL_ENV: &str = "ANVIL_INITIAL_URL";
 pub const WINDOW_WIDTH_ENV: &str = "ANVIL_WINDOW_WIDTH";
 /// Environment variable overriding the window height.
 pub const WINDOW_HEIGHT_ENV: &str = "ANVIL_WINDOW_HEIGHT";
+
+/// The app's per-user data directory: `%USERPROFILE%\.anvil`.
+///
+/// A normal desktop program keeps its data with the user. A fixed `D:` path
+/// tied the app to one machine layout and broke on profiles without a D:
+/// drive. The caller may still override it with [`DATA_DIR_ENV`].
+#[must_use]
+pub fn default_data_dir() -> PathBuf {
+    for key in ["USERPROFILE", "HOME"] {
+        if let Some(value) = std::env::var_os(key) {
+            let path = PathBuf::from(value);
+            if !path.as_os_str().is_empty() {
+                return path.join(".anvil");
+            }
+        }
+    }
+    PathBuf::from(".anvil")
+}
+
+/// Import the old fixed-location data into the per-user directory, once.
+///
+/// Earlier builds kept everything under `D:\Anvil-Experience\data`. On the first
+/// launch with the new `%USERPROFILE%\.anvil` default, copy the ledger, catalog,
+/// preferences and runtime session files so history, models and agent
+/// configuration survive the move. This never overwrites: if the destination
+/// already has a ledger, it is a no-op.
+pub fn migrate_legacy_data(data_dir: &Path, log: &HostLog) {
+    const LEGACY: &str = r"D:\Anvil-Experience\data";
+    let legacy = Path::new(LEGACY);
+    if legacy == data_dir || !legacy.is_dir() {
+        return;
+    }
+    if data_dir.join("sessions.sqlite").exists() || !legacy.join("sessions.sqlite").exists() {
+        return;
+    }
+    log.info(&format!(
+        "migrate: importing legacy data {} -> {}",
+        legacy.display(),
+        data_dir.display()
+    ));
+    for name in ["catalog.sqlite", "sessions.sqlite", "preferences.json"] {
+        let source = legacy.join(name);
+        if !source.is_file() {
+            continue;
+        }
+        let target = data_dir.join(name);
+        let result = if name.ends_with(".sqlite") {
+            copy_sqlite_with_wal(&source, &target)
+        } else {
+            std::fs::copy(&source, &target).map(|_| ())
+        };
+        match result {
+            Ok(()) => log.info(&format!("migrate: {name}")),
+            Err(error) => log.info(&format!("migrate: {name} failed: {error}")),
+        }
+    }
+    // Runtime session files (the workspace root pi and codex write into).
+    let from = legacy.join("sessions");
+    let to = data_dir.join("workspace");
+    if from.is_dir() && !to.exists() {
+        match copy_dir_all(&from, &to) {
+            Ok(()) => log.info("migrate: runtime session files copied"),
+            Err(error) => log.info(&format!("migrate: runtime session files failed: {error}")),
+        }
+    }
+    log.info("migrate: done");
+}
+
+/// Copy a SQLite database together with its `-wal` sidecar.
+///
+/// The databases run in WAL mode, so the most recent commits live in
+/// `<db>-wal`, not in the main file. Copying only the `.sqlite` file would
+/// silently drop exactly the messages written just before the upgrade. The
+/// `-shm` index is deliberately not copied: SQLite rebuilds it on first open.
+fn copy_sqlite_with_wal(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::copy(from, to)?;
+    let wal = std::path::PathBuf::from(format!("{}-wal", from.display()));
+    if wal.is_file() {
+        let target = std::path::PathBuf::from(format!("{}-wal", to.display()));
+        std::fs::copy(&wal, &target)?;
+    }
+    Ok(())
+}
+
+fn copy_dir_all(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
 
 /// Startup failures reported before any window is created.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +180,21 @@ pub struct HostConfig {
 
 impl HostConfig {
     /// Reads the process environment.
+    ///
+    /// A plain double-click of `anvil.exe` (no launcher) has no `ANVIL_*` vars
+    /// set and used to exit immediately with no log — indistinguishable from
+    /// "won't start". Fill in the package's conventional data location so a
+    /// direct launch works too. `prepare` stays strict: its contract tests and
+    /// any explicit (even wrong) value are untouched — we only supply a value
+    /// when the variable is genuinely absent/blank.
     pub fn from_env() -> Result<Self, HostError> {
-        Self::prepare(&|name| std::env::var(name).ok())
+        Self::prepare(&|name| {
+            let value = std::env::var(name).ok();
+            if name == DATA_DIR_ENV && value.as_deref().unwrap_or("").trim().is_empty() {
+                return Some(default_data_dir().to_string_lossy().into_owned());
+            }
+            value
+        })
     }
 
     /// Testable preflight: `env` returns raw environment values.
@@ -92,10 +203,10 @@ impl HostConfig {
         let raw_data_dir = raw_data_dir.trim();
         if raw_data_dir.is_empty() {
             return Err(HostError::DataDirectory(format!(
-                "{DATA_DIR_ENV} is required and must be a writable D: directory (no fallback to another drive)"
+                "{DATA_DIR_ENV} is required and must be a writable directory"
             )));
         }
-        let data = validate_d_path(raw_data_dir, true)
+        let data = validate_writable_path(raw_data_dir, true)
             .map_err(|error| HostError::DataDirectory(format!("{DATA_DIR_ENV}: {error}")))?;
 
         let raw_webview_dir = env(WEBVIEW_DIR_ENV).unwrap_or_default();
@@ -105,12 +216,12 @@ impl HostConfig {
         } else {
             PathBuf::from(raw_webview_dir)
         };
-        let webview = validate_d_path(&webview_requested, true).map_err(|error| {
+        let webview = validate_writable_path(&webview_requested, true).map_err(|error| {
             HostError::WebviewDirectory(format!("WebView2 data directory: {error}"))
         })?;
 
         let log_dir = data.resolved.join("logs");
-        validate_d_path(&log_dir, true)
+        validate_writable_path(&log_dir, true)
             .map_err(|error| HostError::LogDirectory(format!("log directory: {error}")))?;
         let log = HostLog::open(&log_dir).map_err(|error| {
             HostError::LogDirectory(format!(

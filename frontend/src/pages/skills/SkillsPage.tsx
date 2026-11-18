@@ -14,6 +14,7 @@ import {
 } from './sampleData'
 import './skills.css'
 import { useCatalog } from '../../catalog/useCatalog'
+import type { CatalogSkill } from '../../catalog/client'
 import { CatalogSkillsPanel, CatalogSummary } from '../../catalog/CatalogPanels'
 
 const SOURCE_KEYS: Record<SkillSource, MessageKey> = {
@@ -41,8 +42,17 @@ export default function SkillsPage() {
     !normalized ||
     `${skill.name} ${skill.description} ${skill.tags.join(' ')}`.toLowerCase().includes(normalized),
   )
+  // Live mode reads the very rows the catalog just synced from disk. Without
+  // this the page showed a "not connected" empty grid even though the database
+  // held dozens of real skills.
+  const liveSkills = catalog.snapshot?.skills ?? []
+  const liveReady = !sample && (catalog.status === 'ready' || catalog.status === 'loading') && catalog.snapshot !== null
+  const liveFiltered = liveSkills.filter((skill) =>
+    !normalized ||
+    `${skill.name} ${skill.description} ${skill.runtimeId}`.toLowerCase().includes(normalized),
+  )
   const tabs: Array<{ id: SkillTab; label: string }> = [
-    { id: 'installed', label: sample ? t('skills.tab.installedCount', { count: installedSkills.length }) : t('skills.tab.installed') },
+    { id: 'installed', label: sample ? t('skills.tab.installedCount', { count: installedSkills.length }) : liveReady ? t('skills.tab.installedCount', { count: liveSkills.length }) : t('skills.tab.installed') },
     { id: 'market', label: t('skills.tab.market') },
     { id: 'drafts', label: sample ? t('skills.tab.draftsCount', { count: draftSkills.length }) : t('skills.tab.drafts') },
   ]
@@ -117,11 +127,11 @@ export default function SkillsPage() {
       <div className="skills-toolbar">
         <label className="skills-search">
           <Icon name="search" size={12} />
-          <input data-testid="skill-search" type="search" value={query} disabled={!sample} placeholder={t('skills.searchPlaceholder')} aria-label={t('skills.searchPlaceholder')} onChange={(event) => setQuery(event.target.value)} />
+          <input data-testid="skill-search" type="search" value={query} disabled={!sample && !liveReady} placeholder={t('skills.searchPlaceholder')} aria-label={t('skills.searchPlaceholder')} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <select disabled={!sample} aria-label={t('skills.filter.source')}><option>{t('skills.filter.source')}</option></select>
         <select disabled={!sample} aria-label={t('skills.filter.agent')}><option>{t('skills.filter.agent')}</option></select>
-        <div className="skills-toolbar-summary">{sample ? t('skills.toolbar.summary', { count: installedSkills.length }) : t('skills.action.unavailable')}</div>
+        <div className="skills-toolbar-summary">{sample ? t('skills.toolbar.summary', { count: installedSkills.length }) : liveReady ? t('catalog.skills.sub', { count: liveFiltered.length, runtimes: new Set(liveSkills.map((skill) => skill.runtimeId)).size }) : t('skills.action.unavailable')}</div>
       </div>
 
       {sample ? (
@@ -139,6 +149,23 @@ export default function SkillsPage() {
         ) : (
           <div className="skills-empty-grid">{t('skills.listNoMatch')}</div>
         )
+      ) : liveReady && tab === 'installed' && liveFiltered.length > 0 ? (
+        <div className="skills-grid" data-testid="skills-grid">
+          {liveFiltered.map((skill) => (
+            <LiveSkillCard key={`${skill.runtimeId}:${skill.path}`} skill={skill} />
+          ))}
+        </div>
+      ) : liveReady && tab === 'installed' ? (
+        <div className="skills-empty-grid" data-testid="skill-empty-list">
+          <Icon name="puzzle" size={22} />
+          <b>{t('catalog.skills.empty')}</b>
+          <span>{t('catalog.inventory.sync')}</span>
+        </div>
+      ) : liveReady ? (
+        <div className="skills-empty-grid" data-testid="skill-empty-list">
+          <Icon name="puzzle" size={22} />
+          <b>{t('skills.action.unavailable')}</b>
+        </div>
       ) : (
         <div className="skills-empty-grid" data-testid="skill-empty-list">
           <Icon name="puzzle" size={22} />
@@ -159,6 +186,30 @@ export default function SkillsPage() {
 
       <SkillDialogs kind={dialog} initial={editing} onClose={closeDialog} onNotice={announce} />
     </section>
+  )
+}
+
+/** A real catalog row: name, runtime, validation state and the path on disk. */
+function LiveSkillCard({ skill }: { skill: CatalogSkill }) {
+  return (
+    <article className="skills-card" data-testid="skill-item" data-skill={skill.name}>
+      <div className="skills-card-open">
+        <span className="skills-card-head">
+          <span className="skills-ico"><Icon name="puzzle" size={16} /></span>
+          <span>
+            <span className="skills-card-name">{skill.name}</span>
+            <span className="skills-card-meta mono">{skill.runtimeId} · {skill.state}</span>
+          </span>
+        </span>
+        <span className="skills-card-body">
+          <span className="skills-card-desc">{skill.description || skill.path}</span>
+          <span className="skills-pills"><span className="skills-chip mono">{skill.state}</span></span>
+        </span>
+      </div>
+      <div className="skills-card-foot">
+        <span className="skills-card-foot-copy mono" title={skill.path}>{skill.path}</span>
+      </div>
+    </article>
   )
 }
 

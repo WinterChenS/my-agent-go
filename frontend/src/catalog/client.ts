@@ -54,14 +54,122 @@ export interface CatalogModel {
   hasCredential: boolean
 }
 
-/** A saved runtime+model binding; `default` is derived from the default model. */
+/** A saved agent: its binding plus every setting the page edits. */
 export interface CatalogAgent {
   id: string
   name: string
+  slug: string
+  description: string
   runtimeId: string
   modelId: string
   isDefault: boolean
+  thinking: 'off' | 'low' | 'medium' | 'high'
+  contextWindow: string
+  memory: boolean
+  autoCompact: boolean
+  systemPrompt: string
+  tools: string[]
+  skills: string[]
+  permission: 'readonly' | 'medium' | 'high' | 'full'
+  writableDirs: string
+  commandAllowlist: string
+  network: boolean
+  confirmDangerous: boolean
+  groupKind: 'main' | 'sub'
+  delegatedFrom: string
+  delegationPolicy: 'auto' | 'explicit' | 'never'
+  concurrency: number
+  enabled: boolean
   updatedAt: string
+}
+
+/** What the page sends when it saves. `id` is absent for a new agent. */
+export type CatalogAgentDraft = Omit<CatalogAgent, 'id' | 'isDefault' | 'updatedAt'> & {
+  id?: string
+}
+
+/** Tool names pi exposes; the page labels them with the prototype's copy. */
+export const BUILTIN_TOOLS = ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'] as const
+
+/** A blank draft, used by "新建 Agent" and by tests. */
+export function blankAgentDraft(): CatalogAgentDraft {
+  return {
+    name: '',
+    slug: '',
+    description: '',
+    runtimeId: '',
+    modelId: '',
+    thinking: 'medium',
+    contextWindow: '400K',
+    memory: false,
+    autoCompact: true,
+    systemPrompt: '',
+    tools: [...BUILTIN_TOOLS],
+    skills: [],
+    permission: 'medium',
+    writableDirs: '',
+    commandAllowlist: '',
+    network: true,
+    confirmDangerous: true,
+    groupKind: 'main',
+    delegatedFrom: '',
+    delegationPolicy: 'auto',
+    concurrency: 4,
+    enabled: true,
+  }
+}
+
+/**
+ * Fill in persona defaults for a row written by an older host (or a test
+ * fixture). The desktop host always returns every field; this keeps the page
+ * from handing `undefined` to a controlled input.
+ */
+export function normalizeAgent(raw: CatalogAgent): CatalogAgent {
+  const base = blankAgentDraft()
+  return {
+    id: raw.id,
+    name: raw.name ?? '',
+    slug: raw.slug ?? raw.id,
+    description: raw.description ?? '',
+    runtimeId: raw.runtimeId ?? '',
+    modelId: raw.modelId ?? '',
+    isDefault: raw.isDefault ?? false,
+    thinking: raw.thinking ?? base.thinking,
+    contextWindow: raw.contextWindow ?? base.contextWindow,
+    memory: raw.memory ?? base.memory,
+    autoCompact: raw.autoCompact ?? base.autoCompact,
+    systemPrompt: raw.systemPrompt ?? base.systemPrompt,
+    tools: raw.tools ?? base.tools,
+    skills: raw.skills ?? base.skills,
+    permission: raw.permission ?? base.permission,
+    writableDirs: raw.writableDirs ?? base.writableDirs,
+    commandAllowlist: raw.commandAllowlist ?? base.commandAllowlist,
+    network: raw.network ?? base.network,
+    confirmDangerous: raw.confirmDangerous ?? base.confirmDangerous,
+    groupKind: raw.groupKind ?? base.groupKind,
+    delegatedFrom: raw.delegatedFrom ?? base.delegatedFrom,
+    delegationPolicy: raw.delegationPolicy ?? base.delegationPolicy,
+    concurrency: raw.concurrency ?? base.concurrency,
+    enabled: raw.enabled ?? base.enabled,
+    updatedAt: raw.updatedAt ?? '',
+  }
+}
+
+/** Copy a stored agent into an editable draft. */
+export function agentToDraft(agent: CatalogAgent): CatalogAgentDraft {
+  const { id, isDefault: _isDefault, updatedAt: _updatedAt, ...rest } = agent
+  return { ...rest, id }
+}
+
+/** One row of the agent's real run history, read from the session ledger. */
+export interface AgentRun {
+  sessionId: string
+  title: string
+  at: string
+  turns: number
+  toolCalls: number
+  tokens: number
+  status: string
 }
 
 export interface CatalogSkill {
@@ -149,6 +257,25 @@ export function refreshCatalog(): Promise<CatalogSnapshot> {
   return hostCall<CatalogSnapshot>('catalog_refresh')
 }
 
+/**
+ * Re-read local skills, tools and MCP declarations without probing models.
+ * Cheap enough to run on a timer; `refreshCatalog` remains the full rescan.
+ */
+export function syncCatalogInventory(): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_sync_inventory')
+}
+
+/**
+ * Re-read one runtime's model list.
+ *
+ * Every adapter reads its models from a local file, so a per-runtime sync is a
+ * few milliseconds — unlike `refreshCatalog`, which first spawns each runtime
+ * to read its version before syncing everything.
+ */
+export function syncCatalogRuntime(runtimeId: string): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_sync', { runtimeId })
+}
+
 export function addCustomModel(input: {
   runtimeId: string
   modelId: string
@@ -183,18 +310,14 @@ export function setCatalogModelEnabled(
   return hostCall<CatalogSnapshot>('catalog_set_model_enabled', { runtimeId, modelId, enabled })
 }
 
-export function saveCatalogAgent(input: {
-  id?: string
-  name: string
-  runtimeId: string
-  modelId: string
-}): Promise<CatalogSnapshot> {
-  return hostCall<CatalogSnapshot>('catalog_save_agent', {
-    id: input.id,
-    name: input.name,
-    runtimeId: input.runtimeId,
-    modelId: input.modelId,
-  })
+/** Save the whole agent draft; the host persists every field it edits. */
+export function saveCatalogAgent(draft: CatalogAgentDraft): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_save_agent', { agent: draft })
+}
+
+/** The agent's run records, read from the real session ledger. */
+export function loadAgentRuns(agentId: string, limit = 20): Promise<AgentRun[]> {
+  return hostCall<AgentRun[]>('agent_runs', { agentId, limit })
 }
 
 export function deleteCatalogAgent(id: string): Promise<CatalogSnapshot> {
@@ -208,3 +331,63 @@ export function probeCatalogMcp(runtimeId: string, name: string): Promise<McpPro
 /** Host runs the scan on the first call, so `loading` covers discovery too. */
 export const CATALOG_STATUS = ['idle', 'loading', 'ready', 'error', 'unavailable'] as const
 export type CatalogStatus = (typeof CATALOG_STATUS)[number]
+
+/**
+ * Whether pi's `subagent` extension is active for this user.
+ *
+ * `canInstall` says this build found the extension inside the installed pi
+ * package; `installed` says pi will actually load it. A runtime capability, so
+ * it lives with the catalog client rather than with chat.
+ */
+export interface PiSubagentStatus {
+  installed: boolean
+  agentDir: string
+  extensionDir: string
+  source?: string
+  agents: number
+  prompts: number
+  canInstall: boolean
+  detail?: string
+}
+
+/** What one install wrote, plus the status read back after it. */
+export interface PiSubagentInstall {
+  written: number
+  skipped: number
+  status: PiSubagentStatus
+}
+
+export function piSubagentStatus(): Promise<PiSubagentStatus> {
+  return hostCall<PiSubagentStatus>('pi_subagent_status')
+}
+
+export function installPiSubagent(): Promise<PiSubagentInstall> {
+  return hostCall<PiSubagentInstall>('pi_subagent_install')
+}
+
+/** What one runtime install attempt did (npm's own words included). */
+export interface RuntimeInstallReport {
+  runtimeId: string
+  ok: boolean
+  package: string
+  prefix: string
+  installedPath: string | null
+  output: string
+  elapsedMs: number
+}
+
+export interface RuntimeInstallResult {
+  report: RuntimeInstallReport
+  snapshot: CatalogSnapshot
+}
+
+/**
+ * Install one runtime CLI through npm, then rescan.
+ *
+ * The host runs npm into the same shared prefix the adapters scan, so the
+ * returned snapshot already shows the runtime as available — no manual
+ * re-detect and no restart.
+ */
+export function installRuntime(runtimeId: string): Promise<RuntimeInstallResult> {
+  return hostCall<RuntimeInstallResult>('runtime_install', { runtimeId })
+}

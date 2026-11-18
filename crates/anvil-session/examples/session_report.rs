@@ -71,7 +71,8 @@ fn run() -> Result<ExitCode, String> {
     let registry = registry_for(&options)?;
     let service_context = SessionContext {
         state_dir: options.state_dir.clone(),
-        run_timeout: Duration::from_secs(options.timeout),
+        // `--timeout 0` runs without a deadline, like the desktop app.
+        run_timeout: (options.timeout > 0).then(|| Duration::from_secs(options.timeout)),
     };
     let mut service = SessionService::new(store, registry, service_context);
     let recovered = service.recover().map_err(|error| error.to_string())?;
@@ -169,6 +170,7 @@ fn live(service: &mut SessionService, options: &Options) -> Result<serde_json::V
         native_id: None,
         allow_tools: options.allow_tools,
         tools: options.tools.clone(),
+        ..Default::default()
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
     let mut outcome = service
@@ -250,6 +252,7 @@ fn abort(service: &mut SessionService, options: &Options) -> Result<serde_json::
         native_id: None,
         allow_tools: options.allow_tools,
         tools: options.tools.clone(),
+        ..Default::default()
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
     let cancels = service.cancels();
@@ -315,6 +318,7 @@ fn export_action(
         native_id: None,
         allow_tools: true,
         tools: vec!["write".into()],
+        ..Default::default()
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
     service
@@ -464,6 +468,7 @@ impl SessionAdapter for ExportAdapter {
             cwd: spec.cwd.clone(),
             allow_tools: spec.allow_tools,
             tools: spec.tools.clone(),
+            ..Default::default()
         })
     }
 
@@ -516,6 +521,7 @@ fn rail_action(
         native_id: None,
         allow_tools: true,
         tools: vec!["write".into(), "read".into(), "command".into()],
+        ..Default::default()
     };
 
     let session = service.open(&spec).map_err(|error| error.to_string())?;
@@ -675,6 +681,7 @@ impl SessionAdapter for RailAdapter {
             cwd: spec.cwd.clone(),
             allow_tools: spec.allow_tools,
             tools: spec.tools.clone(),
+            ..Default::default()
         })
     }
 
@@ -790,6 +797,7 @@ impl SessionAdapter for EchoAdapter {
             cwd: spec.cwd.clone(),
             allow_tools: spec.allow_tools,
             tools: spec.tools.clone(),
+            ..Default::default()
         })
     }
 
@@ -826,7 +834,7 @@ fn build_service(options: &Options) -> Result<SessionService, String> {
         registry_for(options)?,
         SessionContext {
             state_dir: options.state_dir.clone(),
-            run_timeout: Duration::from_secs(options.timeout),
+            run_timeout: (options.timeout > 0).then(|| Duration::from_secs(options.timeout)),
         },
     ))
 }
@@ -850,6 +858,7 @@ fn history(options: &Options) -> Result<serde_json::Value, String> {
         native_id: None,
         allow_tools: false,
         tools: Vec::new(),
+        ..Default::default()
     };
 
     let mut expected_alpha = Vec::new();
@@ -1158,6 +1167,7 @@ fn context_action(
         native_id: None,
         allow_tools: options.allow_tools,
         tools: options.tools.clone(),
+        ..Default::default()
     };
     let session = service.open(&spec).map_err(|error| error.to_string())?;
 
@@ -1198,6 +1208,8 @@ fn context_action(
         &SessionInput {
             prompt: options.prompt.clone(),
             context,
+
+            ..Default::default()
         },
     );
 

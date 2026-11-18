@@ -28,4 +28,10 @@ tauri = { version = "2", features = [] }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Registry",
+    # The folder picker: `SHBrowseForFolderW` and the COM allocator it returns.
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    # The file picker: `GetOpenFileNameW` from comdlg32.
+    "Win32_UI_Controls_Dialogs",
 ] }

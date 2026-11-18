@@ -23,6 +23,73 @@ pub fn home() -> PathBuf {
     PathBuf::from(".")
 }
 
+/// Shared directory the npm-installed runtime shims live in.
+///
+/// `ANVIL_RUNTIME_PREFIX` wins when set, so a portable install (or an isolated
+/// test rig) can put the shims somewhere else. The installer resolves the prefix
+/// through this very function, which keeps "where we install" and "where we
+/// look" from ever drifting apart.
+///
+/// Windows keeps the established `%LOCALAPPDATA%\pi-node\current`: every runtime
+/// already on a Windows box lives there, so a new install lands beside them and
+/// is discovered without touching `PATH`. macOS and Linux have no such shared
+/// folder, so they get a per-user one under `~/.anvil/runtimes` (no `sudo`,
+/// nothing written outside the user's own directory).
+pub fn shared_prefix() -> Option<PathBuf> {
+    if let Some(value) = std::env::var_os("ANVIL_RUNTIME_PREFIX") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            return Some(PathBuf::from(local).join("pi-node").join("current"));
+        }
+    }
+    Some(home().join(".anvil").join("runtimes"))
+}
+
+/// Where npm puts a package's `bin` shim inside [`shared_prefix`].
+///
+/// npm writes `<name>.cmd` at the prefix root on Windows, and `<prefix>/bin/<name>`
+/// on macOS and Linux.
+pub fn shared_shim(prefix: &Path, binary: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        prefix.join(format!("{binary}.cmd"))
+    }
+    #[cfg(not(windows))]
+    {
+        prefix.join("bin").join(binary)
+    }
+}
+
+/// The npm executable to use for an install into [`shared_prefix`].
+///
+/// Prefers a copy shipped inside the prefix (Windows bundles one beside the
+/// shims), then falls back to whatever `PATH` offers.
+pub fn shared_npm(prefix: &Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        for name in ["npm.cmd", "npm.exe", "npm"] {
+            let candidate = prefix.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let candidate = prefix.join("bin").join("npm");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    process::which("npm")
+}
+
 /// Read a small text file, refusing anything above `limit` bytes.
 pub fn read_text(path: &Path, limit: usize) -> Option<String> {
     let metadata = std::fs::metadata(path).ok()?;

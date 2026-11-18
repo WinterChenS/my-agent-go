@@ -220,7 +220,7 @@ pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error
     let script = inject::initialization_script(&InitialState::new(&preferences, system_dark));
     let [red, green, blue, alpha] = HostConfig::window_background(resolved);
 
-    let window = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         "main",
         WebviewUrl::App(state.config.initial_path().into()),
@@ -233,8 +233,16 @@ pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error
     .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
     .background_color(Color(red, green, blue, alpha))
     .data_directory(state.config.webview_dir.clone())
-    .initialization_script(script)
-    .build()?;
+    .initialization_script(script);
+
+    // Debug hook: `ANVIL_WEBVIEW_ARGS` reaches WebView2 verbatim, so a test run
+    // can open the CDP port (`--remote-debugging-port=9333`) and drive the real
+    // WebView. Unset in normal use, so this adds nothing to the shipped app.
+    if let Ok(extra) = std::env::var("ANVIL_WEBVIEW_ARGS") {
+        builder = builder.additional_browser_args(&extra);
+    }
+
+    let window = builder.build()?;
 
     state.set_window(window);
     state.config.log.info("window created; running");

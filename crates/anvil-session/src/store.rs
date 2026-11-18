@@ -16,12 +16,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{Error, Result};
 use crate::model::{
-    EventKind, Message, ProjectSummary, Role, Run, RunEvent, RunStatus, SessionPage, SessionQuery,
-    SessionStatus, SessionSummary,
+    AgentRun, EventKind, Message, ProjectSummary, Role, Run, RunEvent, RunStatus, SessionPage,
+    SessionQuery, SessionStatus, SessionSummary,
 };
 
 /// One row to insert into `sessions`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NewSession<'a> {
     pub id: &'a str,
     pub runtime_id: &'a str,
@@ -34,7 +34,27 @@ pub struct NewSession<'a> {
     pub branch_at: i64,
     pub allow_tools: bool,
     pub tools: &'a [String],
+    /// Agent persona the session runs with; all of it is resolved at open time
+    /// and stored, so a resumed turn does not depend on the page's current
+    /// state.
+    pub agent_id: &'a str,
+    pub thinking: &'a str,
+    pub system_prompt: &'a str,
+    pub append_prompt: &'a str,
+    pub skills: &'a [String],
     pub at: &'a str,
+}
+
+/// The persona a session was opened with, as the adapter needs it on every
+/// turn. A resumed turn uses this, not the agent page's current values.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionPersona {
+    pub agent_id: String,
+    pub thinking: String,
+    pub system_prompt: String,
+    pub append_prompt: String,
+    /// Absolute or project-relative skill paths.
+    pub skills: Vec<String>,
 }
 
 /// Open ledger handle. One connection, used behind the host's mutex.
@@ -71,6 +91,11 @@ impl Store {
                 branch_at INTEGER NOT NULL DEFAULT 0,
                 allow_tools INTEGER NOT NULL DEFAULT 0,
                 tools TEXT NOT NULL DEFAULT '',
+                agent_id TEXT NOT NULL DEFAULT '',
+                thinking TEXT NOT NULL DEFAULT '',
+                system_prompt TEXT NOT NULL DEFAULT '',
+                append_prompt TEXT NOT NULL DEFAULT '',
+                skills TEXT NOT NULL DEFAULT '',
                 pinned INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -132,6 +157,18 @@ impl Store {
             "branch_at",
             "INTEGER NOT NULL DEFAULT 0",
         )?;
+        // A session opened before the agent page grew a persona has no persona.
+        // Adding the columns keeps that history readable: the turn falls back to
+        // the runtime's own defaults, exactly as it ran back then.
+        for (column, declaration) in [
+            ("agent_id", "TEXT NOT NULL DEFAULT ''"),
+            ("thinking", "TEXT NOT NULL DEFAULT ''"),
+            ("system_prompt", "TEXT NOT NULL DEFAULT ''"),
+            ("append_prompt", "TEXT NOT NULL DEFAULT ''"),
+            ("skills", "TEXT NOT NULL DEFAULT ''"),
+        ] {
+            ensure_column(&connection, "sessions", column, declaration)?;
+        }
         connection.execute_batch(
             "CREATE INDEX IF NOT EXISTS sessions_project ON sessions (project_path, updated_at DESC);",
         )?;
@@ -145,8 +182,10 @@ impl Store {
         transaction.execute(
             "INSERT INTO sessions (id, runtime_id, title, status, native_id, model, project_path,
                                    parent_id, branch_at, allow_tools, tools, pinned, archived,
+                                   agent_id, thinking, system_prompt, append_prompt, skills,
                                    created_at, updated_at, preview)
-             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, ?6, ?7, ?8, ?9, 0, 0, ?10, ?10, '')",
+             VALUES (?1, ?2, ?3, 'idle', '', ?4, ?5, ?6, ?7, ?8, ?9, 0, 0,
+                     ?11, ?12, ?13, ?14, ?15, ?10, ?10, '')",
             params![
                 new.id,
                 new.runtime_id,
@@ -159,7 +198,12 @@ impl Store {
                 new.branch_at,
                 i64::from(new.allow_tools),
                 new.tools.join(","),
-                new.at
+                new.at,
+                new.agent_id.trim(),
+                new.thinking.trim(),
+                new.system_prompt,
+                new.append_prompt,
+                new.skills.join("\n"),
             ],
         )?;
         // The project index is written in the same transaction as the session
@@ -260,6 +304,96 @@ impl Store {
             )
             .optional()?
             .ok_or_else(|| Error::NotFound(format!("session {id:?}")))
+    }
+
+    /// The persona a session was opened with.
+    ///
+    /// Kept out of [`SessionSummary`] on purpose: the history list returns
+    /// dozens of rows and none of them need a full system prompt.
+    pub fn persona(&self, id: &str) -> Result<SessionPersona> {
+        let (agent_id, thinking, system_prompt, append_prompt, skills): (
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) = self
+            .connection
+            .query_row(
+                "SELECT agent_id, thinking, system_prompt, append_prompt, skills
+                 FROM sessions WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("session {id:?}")))?;
+        Ok(SessionPersona {
+            agent_id,
+            thinking,
+            system_prompt,
+            append_prompt,
+            skills: skills
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_string)
+                .collect(),
+        })
+    }
+
+    /// Recent conclusions of one agent, for cross-session memory.
+    ///
+    /// Only the stored previews are read: injecting whole transcripts would
+    /// invent context the user never approved. A session with no assistant text
+    /// contributes nothing.
+    pub fn agent_memory(&self, agent_id: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT title, preview FROM sessions
+             WHERE agent_id = ?1 AND TRIM(preview) <> ''
+             ORDER BY updated_at DESC, id DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![agent_id, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// The run records of one agent, newest first. Counts come from the ledger,
+    /// so a session with no events is honestly `0` turns, `0` tools, `0` tokens.
+    pub fn agent_runs(&self, agent_id: &str, limit: usize) -> Result<Vec<AgentRun>> {
+        let mut statement = self.connection.prepare(
+            "SELECT s.id, s.title, s.updated_at, s.status,
+                    (SELECT COUNT(*) FROM runs r WHERE r.session_id = s.id),
+                    (SELECT COUNT(*) FROM events e
+                       WHERE e.session_id = s.id AND e.kind = 'tool_call'),
+                    COALESCE((
+                       SELECT SUM(CAST(json_extract(e.payload, '$.usage.totalTokens') AS INTEGER))
+                       FROM events e
+                       WHERE e.session_id = s.id AND e.kind = 'usage'
+                    ), 0)
+             FROM sessions s
+             WHERE s.agent_id = ?1
+             ORDER BY s.updated_at DESC, s.id DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![agent_id, limit as i64], |row| {
+            Ok(AgentRun {
+                session_id: row.get(0)?,
+                title: row.get(1)?,
+                at: row.get(2)?,
+                status: row.get(3)?,
+                turns: row.get(4)?,
+                tool_calls: row.get(5)?,
+                tokens: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     /// History page. `cursor` is the opaque `updated_at|id` of the last row of
@@ -570,7 +704,7 @@ impl Store {
 
 const SESSION_SELECT: &str = "SELECT s.id, s.runtime_id, s.title, s.status, s.native_id, s.model,
         s.project_path, s.parent_id, s.branch_at, s.allow_tools, s.tools, s.pinned, s.archived,
-        s.created_at, s.updated_at, s.preview,
+        s.created_at, s.updated_at, s.preview, s.agent_id, s.thinking,
         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id)
      FROM sessions s";
 
@@ -598,7 +732,9 @@ fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
         preview: row.get(15)?,
-        message_count: row.get(16)?,
+        agent_id: row.get(16)?,
+        thinking: row.get(17)?,
+        message_count: row.get(18)?,
     })
 }
 
@@ -692,5 +828,101 @@ fn expect_one(changed: usize, what: &str, id: &str) -> Result<()> {
         Err(Error::NotFound(format!("{what} {id:?}")))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod persona_tests {
+    use super::*;
+
+    fn session(store: &mut Store, id: &str, agent_id: &str) {
+        store
+            .create_session(&NewSession {
+                id,
+                runtime_id: "pi",
+                title: "迁移评估",
+                model: "auto/fast",
+                project_path: "D:/work/api",
+                parent_id: "",
+                branch_at: 0,
+                allow_tools: true,
+                tools: &["read".to_string(), "grep".to_string()],
+                agent_id,
+                thinking: "high",
+                system_prompt: "你是迁移工程师，仓库 {{repo_path}}",
+                append_prompt: "历史结论摘要",
+                skills: &["D:/skills/review.md".to_string()],
+                at: "2026-11-15T00:00:00Z",
+            })
+            .expect("create");
+    }
+
+    #[test]
+    fn the_persona_is_stored_and_read_back_for_every_later_turn() {
+        let mut store = Store::open_in_memory().expect("store");
+        session(&mut store, "s1", "migration-engineer");
+        let persona = store.persona("s1").expect("persona");
+        assert_eq!(persona.agent_id, "migration-engineer");
+        assert_eq!(persona.thinking, "high");
+        assert_eq!(persona.system_prompt, "你是迁移工程师，仓库 {{repo_path}}");
+        assert_eq!(persona.append_prompt, "历史结论摘要");
+        assert_eq!(persona.skills, vec!["D:/skills/review.md"]);
+        let row = store.session("s1").expect("row");
+        assert_eq!(row.agent_id, "migration-engineer");
+        assert_eq!(row.thinking, "high");
+    }
+
+    #[test]
+    fn an_old_session_without_a_persona_opens_with_empty_defaults() {
+        let mut store = Store::open_in_memory().expect("store");
+        session(&mut store, "s1", "");
+        // The migration adds empty columns to rows written by the older build.
+        store
+            .raw()
+            .execute(
+                "UPDATE sessions SET thinking = '', system_prompt = '', append_prompt = '', skills = '' WHERE id = 's1'",
+                [],
+            )
+            .expect("simulate an old row");
+        let persona = store.persona("s1").expect("persona");
+        assert_eq!(persona, SessionPersona::default());
+    }
+
+    #[test]
+    fn run_records_are_counted_not_invented_and_are_scoped_to_one_agent() {
+        let mut store = Store::open_in_memory().expect("store");
+        session(&mut store, "a1", "agent-a");
+        session(&mut store, "a2", "agent-a");
+        session(&mut store, "b1", "agent-b");
+        store
+            .append_event(
+                "a1",
+                "r1",
+                EventKind::ToolCall,
+                &serde_json::json!({ "name": "read" }),
+            )
+            .expect("tool event");
+        store
+            .append_event(
+                "a1",
+                "r1",
+                EventKind::Usage,
+                &serde_json::json!({ "usage": { "totalTokens": 42 } }),
+            )
+            .expect("usage event");
+        let runs = store.agent_runs("agent-a", 20).expect("runs");
+        assert_eq!(runs.len(), 2);
+        let first = runs.iter().find(|run| run.session_id == "a1").expect("a1");
+        assert_eq!(first.tool_calls, 1);
+        assert_eq!(first.tokens, 42);
+        assert_eq!(first.turns, 0, "no run row means no turns");
+        assert!(
+            store
+                .agent_runs("agent-b", 20)
+                .expect("b")
+                .iter()
+                .all(|r| r.session_id == "b1")
+        );
+        assert!(store.agent_memory("agent-a", 3).expect("memory").is_empty());
     }
 }

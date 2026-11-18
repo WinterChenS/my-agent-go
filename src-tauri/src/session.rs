@@ -29,16 +29,14 @@ use anvil_session::{
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-/// Wall-clock budget for one turn.
-///
-/// A runtime that hangs must not hang the chat: the adapter sees this budget and
-/// ends the run as failed, which the UI renders as an error card.
-const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-
 /// Session state shared by the commands.
 pub struct SessionState {
     database: PathBuf,
     state_dir: PathBuf,
+    /// The catalog holds the agent's persona. The ledger must not depend on the
+    /// runtime inventory, so this is a path the host opens only when a session
+    /// is created, not a shared service object.
+    catalog_database: PathBuf,
     writer: Mutex<Option<SessionService>>,
     reader: Mutex<Option<Store>>,
     cancels: Mutex<Option<Cancels>>,
@@ -54,10 +52,11 @@ pub struct SessionState {
 impl SessionState {
     /// Build the state; both connections open on first use, so window creation
     /// never waits for SQLite.
-    pub fn new(database: PathBuf, state_dir: PathBuf) -> Self {
+    pub fn new(database: PathBuf, state_dir: PathBuf, catalog_database: PathBuf) -> Self {
         Self {
             database,
             state_dir,
+            catalog_database,
             writer: Mutex::new(None),
             reader: Mutex::new(None),
             cancels: Mutex::new(None),
@@ -129,7 +128,10 @@ impl SessionState {
             anvil_session::default_registry(),
             SessionContext {
                 state_dir: self.state_dir.clone(),
-                run_timeout: RUN_TIMEOUT,
+                // No deadline: a turn ends when the runtime finishes, fails,
+                // or the user stops it. A fixed budget cut long tool-using
+                // turns mid-answer with "did not finish within 300s".
+                run_timeout: None,
             },
         );
         // A run interrupted by the previous process is `failed`, not `running`:
@@ -186,6 +188,64 @@ impl SessionState {
         action(store)
     }
 
+    /// The saved agent and the skill paths it mounts.
+    ///
+    /// Skill names are what the page stores; pi needs the actual files, and
+    /// those live in the catalog's skill inventory, so resolution happens here
+    /// (on the machine that will run the process) rather than in React.
+    fn agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<(anvil_catalog::model::AgentRecord, Vec<String>), String> {
+        let store = anvil_catalog::Store::open(&self.catalog_database).map_err(|error| {
+            format!(
+                "agent: open catalog {}: {error}",
+                self.catalog_database.display()
+            )
+        })?;
+        let agent = store
+            .agent(agent_id)
+            .map_err(|error| format!("agent: read catalog: {error}"))?
+            .ok_or_else(|| format!("agent {agent_id} is not in the catalog"))?;
+        let wanted: std::collections::HashSet<&str> =
+            agent.skills.iter().map(String::as_str).collect();
+        let skills = store
+            .skills()
+            .map_err(|error| format!("agent: read skills: {error}"))?
+            .into_iter()
+            .filter(|skill| {
+                skill.runtime_id == agent.runtime_id && wanted.contains(skill.name.as_str())
+            })
+            .map(|skill| skill.path)
+            .collect();
+        Ok((agent, skills))
+    }
+
+    /// Cross-session memory is a short block of the agent's own past conclusions.
+    /// Truncation is by characters, never by byte index into UTF-8.
+    fn memory_prompt(&self, agent_id: &str) -> Result<String, String> {
+        let entries = self.with_reader(|store| {
+            store
+                .agent_memory(agent_id, 3)
+                .map_err(|error| error.to_wire().to_string())
+        })?;
+        if entries.is_empty() {
+            return Ok(String::new());
+        }
+        let mut text =
+            String::from("以下是此 Agent 近期会话留下的结论摘要；仅供回忆，未经本次会话复核：\n");
+        for (title, preview) in entries {
+            let short: String = preview.chars().take(240).collect();
+            let name: String = title.chars().take(80).collect();
+            text.push_str("- ");
+            text.push_str(&name);
+            text.push('：');
+            text.push_str(&short);
+            text.push('\n');
+        }
+        Ok(text)
+    }
+
     /// Answer a pending approval without touching the writer lock.
     fn resolve_approval(
         &self,
@@ -218,19 +278,47 @@ impl SessionState {
             .unwrap_or(false))
     }
 
+    /// Directories the catalog currently lists as skill roots.
+    ///
+    /// A missing or not-yet-scanned catalog simply yields no roots: the chat
+    /// still works, and an `@skill` reference is refused rather than silently
+    /// reading an arbitrary path.
+    fn skill_roots(&self) -> Vec<PathBuf> {
+        let Ok(store) = anvil_catalog::Store::open(&self.catalog_database) else {
+            return Vec::new();
+        };
+        let Ok(skills) = store.skills() else {
+            return Vec::new();
+        };
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for skill in skills {
+            let root = PathBuf::from(&skill.root);
+            if !root.as_os_str().is_empty() && !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
+        roots
+    }
+
     fn send(
         &self,
         session_id: &str,
         text: &str,
         context: Vec<ContextRef>,
+        permission: Option<String>,
     ) -> Result<SendReport, String> {
+        let roots = self.skill_roots();
         self.with_writer(|service| {
+            // Picked up on every turn so a skill installed after the window
+            // opened is usable without restarting the app.
+            service.set_skill_roots(roots);
             let outcome = service
                 .send_with(
                     session_id,
                     &SessionInput {
                         prompt: text.to_string(),
                         context,
+                        permission,
                     },
                 )
                 .map_err(|error| error.to_wire().to_string())?;
@@ -329,6 +417,12 @@ pub async fn session_events(
 }
 
 /// Create a session on one runtime. Nothing is sent yet.
+///
+/// With `agentId` the agent's saved persona becomes the session's persona: the
+/// runtime, model, thinking level, system prompt, tool allowlist and skills are
+/// read from the catalog once and stored on the session row. Every later turn
+/// uses that row, so editing the agent afterwards does not rewrite a running
+/// conversation.
 #[tauri::command]
 pub async fn session_open(
     state: State<'_, SessionState>,
@@ -336,21 +430,105 @@ pub async fn session_open(
     model: String,
     cwd: Option<String>,
     title: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<SessionSummary, String> {
+    let persona = match agent_id.as_deref().filter(|id| !id.trim().is_empty()) {
+        Some(id) => {
+            let (agent, skills) = state.agent_config(id)?;
+            let memory = if agent.memory {
+                state.memory_prompt(id)?
+            } else {
+                String::new()
+            };
+            Some(spec_for_agent(
+                agent,
+                skills,
+                memory,
+                cwd.clone().unwrap_or_default(),
+                title.clone(),
+            ))
+        }
+        None => None,
+    };
     state.with_writer(|service| {
-        let spec = SessionSpec {
-            runtime_id,
-            model,
-            cwd: cwd.unwrap_or_else(default_cwd),
-            title,
-            native_id: None,
-            // Tools stay off: a headless run that stops to ask for approval
-            // would sit there until the timeout.
-            allow_tools: false,
-            tools: Vec::new(),
-        };
+        let spec = persona.unwrap_or_else(|| {
+            // No explicit project: the service gives the conversation its own
+            // isolated directory under the workspace root.
+            model_spec(runtime_id, model, cwd.unwrap_or_default(), title)
+        });
         service
             .open(&spec)
+            .map_err(|error| error.to_wire().to_string())
+    })
+}
+
+/// The spec used when the user picks a model instead of a saved Agent.
+///
+/// Behaving like the CLI means the built-in tools are available. Only these
+/// seven are named so `ask_question` cannot stall a headless run waiting for an
+/// answer this build cannot give; a saved Agent still overrides the allowlist.
+fn model_spec(
+    runtime_id: String,
+    model: String,
+    cwd: String,
+    title: Option<String>,
+) -> SessionSpec {
+    SessionSpec {
+        runtime_id,
+        model,
+        cwd,
+        title,
+        allow_tools: true,
+        tools: anvil_catalog::model::DEFAULT_TOOLS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        ..Default::default()
+    }
+}
+
+/// Turn a saved agent into the exact [`SessionSpec`] the runtime will see.
+///
+/// Pure on purpose: the host's part of "the configuration takes effect" is a
+/// mapping, and a mapping can be tested without a Tauri app or a real window.
+/// The catalog lookup and the memory digest are done by the caller.
+fn spec_for_agent(
+    agent: anvil_catalog::model::AgentRecord,
+    skills: Vec<String>,
+    memory: String,
+    cwd: String,
+    title: Option<String>,
+) -> SessionSpec {
+    let allow_tools = agent.allows_tools();
+    let tools = agent.effective_tools();
+    SessionSpec {
+        runtime_id: agent.runtime_id,
+        model: agent.model_id,
+        cwd,
+        title: title
+            .filter(|value| !value.trim().is_empty())
+            .or(Some(agent.name)),
+        native_id: None,
+        agent_id: agent.slug,
+        thinking: agent.thinking,
+        system_prompt: agent.system_prompt,
+        append_system_prompt: memory,
+        skills,
+        allow_tools,
+        tools,
+    }
+}
+
+/// Run records of one agent, read from the ledger (never sample data).
+#[tauri::command]
+pub async fn agent_runs(
+    state: State<'_, SessionState>,
+    agent_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<anvil_session::model::AgentRun>, String> {
+    state.with_reader(|store| {
+        store
+            .agent_runs(&agent_id, limit.unwrap_or(20).clamp(1, 100))
             .map_err(|error| error.to_wire().to_string())
     })
 }
@@ -363,10 +541,11 @@ pub async fn session_send(
     session_id: String,
     text: String,
     context: Option<Vec<ContextRef>>,
+    permission: Option<String>,
 ) -> Result<SendReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<SessionState>();
-        state.send(&session_id, &text, context.unwrap_or_default())
+        state.send(&session_id, &text, context.unwrap_or_default(), permission)
     })
     .await
     .map_err(|error| format!("io: the run task ended unexpectedly: {error}"))?
@@ -560,16 +739,74 @@ pub async fn session_compact(
     })
 }
 
-/// Directory a session runs in when the caller names none.
-fn default_cwd() -> String {
-    std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default()
-}
+// A conversation with no explicit project no longer inherits one shared
+// directory: `Service::open` gives it `<state_dir>/<session-id>` (an isolated
+// per-conversation folder under `~/.anvil/workspace`).
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Picking a model (rather than a saved Agent) used to send `--no-tools`,
+    /// so the runtime could not call anything at all.
+    #[test]
+    fn picking_a_model_keeps_the_builtin_tools_available() {
+        let spec = model_spec("pi".into(), "auto/fast".into(), "D:/work".into(), None);
+        assert!(spec.allow_tools);
+        assert_eq!(
+            spec.tools,
+            anvil_catalog::model::DEFAULT_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert!(!spec.tools.iter().any(|tool| tool == "ask_question"));
+    }
+
+    /// The host maps a saved agent to the exact spec the runtime receives.
+    #[test]
+    fn a_saved_agent_becomes_the_session_spec() {
+        let mut agent = anvil_catalog::model::AgentRecord::default_persona();
+        agent.slug = "migration-engineer".into();
+        agent.name = "迁移工程师".into();
+        agent.runtime_id = "pi".into();
+        agent.model_id = "auto/fast".into();
+        agent.thinking = "high".into();
+        agent.system_prompt = "你是迁移工程师".into();
+        agent.tools = vec!["read".into(), "grep".into()];
+        agent.memory = true;
+
+        let spec = spec_for_agent(
+            agent,
+            vec!["D:/skills/review.md".into()],
+            "历史结论摘要".into(),
+            "D:/work/api".into(),
+            None,
+        );
+        assert_eq!(spec.agent_id, "migration-engineer");
+        assert_eq!(spec.title.as_deref(), Some("迁移工程师"));
+        assert_eq!(spec.thinking, "high");
+        assert_eq!(spec.system_prompt, "你是迁移工程师");
+        assert_eq!(spec.append_system_prompt, "历史结论摘要");
+        assert_eq!(spec.skills, vec!["D:/skills/review.md"]);
+        assert_eq!(spec.tools, vec!["read", "grep"]);
+        assert!(spec.allow_tools);
+    }
+
+    /// Read-only is the one permission mode that changes runtime arguments.
+    #[test]
+    fn readonly_permission_narrows_the_tool_allowlist() {
+        let mut agent = anvil_catalog::model::AgentRecord::default_persona();
+        agent.permission = "readonly".into();
+        agent.tools = vec!["bash".into()];
+        let spec = spec_for_agent(agent, vec![], String::new(), "D:/work".into(), None);
+        assert_eq!(
+            spec.tools,
+            vec!["read", "grep", "find", "ls"],
+            "bash must not survive a read-only agent"
+        );
+        assert!(spec.allow_tools);
+    }
 
     fn state(name: &str) -> SessionState {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -580,7 +817,11 @@ mod tests {
             .join(name);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
-        SessionState::new(dir.join("sessions.sqlite"), dir.join("state"))
+        SessionState::new(
+            dir.join("sessions.sqlite"),
+            dir.join("state"),
+            dir.join("catalog.sqlite"),
+        )
     }
 
     #[test]
@@ -668,5 +909,62 @@ mod tests {
         // The wire shape keeps the code, so the UI can tell "gone" from
         // "database broken" without matching on prose.
         assert!(error.contains("\"code\":\"not_found\""), "{error}");
+    }
+    /// The composer's `@skill` reference is refused unless the host has told
+    /// the ledger which directories are skill roots. This proves the roots are
+    /// read from the live catalog (and de-duplicated), not hardcoded or empty.
+    #[test]
+    fn skill_roots_are_read_from_the_catalog_before_each_turn() {
+        let dir = std::env::temp_dir().join(format!(
+            "anvil-skill-roots-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let root = dir.join("skills");
+        std::fs::create_dir_all(root.join("code-review")).expect("skill dir");
+        std::fs::write(root.join("code-review").join("SKILL.md"), "# review\n")
+            .expect("skill file");
+
+        let catalog = dir.join("catalog.sqlite");
+        let mut store = anvil_catalog::Store::open(&catalog).expect("catalog");
+        let record = |name: &str| anvil_catalog::model::SkillRecord {
+            runtime_id: "pi".to_string(),
+            name: name.to_string(),
+            description: String::new(),
+            root: root.to_string_lossy().into_owned(),
+            path: root.join(name).to_string_lossy().into_owned(),
+            state: "valid".to_string(),
+            reason: None,
+            updated_at: "2026-11-15T00:00:00Z".to_string(),
+        };
+        store
+            .replace_skills(
+                "pi",
+                &[record("code-review"), record("dashi-ppt")],
+                "2026-11-15T00:00:00Z",
+            )
+            .expect("write skills");
+
+        let state = SessionState::new(
+            dir.join("sessions.sqlite"),
+            dir.join("state"),
+            catalog.clone(),
+        );
+        assert_eq!(
+            state.skill_roots(),
+            vec![root.clone()],
+            "roots de-duplicated"
+        );
+
+        // A catalog that does not exist yet must not break sending a message.
+        let empty = SessionState::new(
+            dir.join("sessions.sqlite"),
+            dir.join("state"),
+            dir.join("missing.sqlite"),
+        );
+        assert!(empty.skill_roots().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

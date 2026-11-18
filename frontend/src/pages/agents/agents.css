@@ -644,6 +644,43 @@
   letter-spacing: 0.05em;
 }
 
+.agents-skill-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.agents-skill-counter {
+  color: var(--muted);
+}
+
+.agents-skill-actions {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.agents-mini-btn {
+  padding: 3px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+.agents-mini-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.agents-mini-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .agents-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -1228,4 +1265,31 @@
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* Live page states. The prototype only had a "saved" notice; a failed save and
+   an honest runtime-limitation hint need their own surface. */
+.agents-notice-bar.is-error {
+  border-color: color-mix(in oklab, var(--danger) 35%, var(--border));
+  background: var(--danger-soft);
+  color: var(--fg);
+}
+
+.agents-notice.is-muted {
+  border-style: dashed;
+  color: var(--muted);
+  background: transparent;
+}
+
+.agents-notice.is-muted svg {
+  color: var(--muted);
+}
+
+.agents-btn.is-danger {
+  border-color: color-mix(in oklab, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+
+.agents-list-card [data-testid='agents-live-list'] {
+  display: contents;
 }

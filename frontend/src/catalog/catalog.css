@@ -287,3 +287,116 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Runtime tabs (models page) -----------------------------------------
+   Each runtime's catalogue is read on its own, so the tabs are also the unit
+   of sync: opening a tab is what triggers that runtime's read. */
+
+.cat-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  overflow-x: auto;
+}
+
+.cat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cat-tab:hover {
+  color: var(--fg);
+}
+
+.cat-tab.is-active {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 560;
+}
+
+.cat-tab-count {
+  padding: 0 var(--space-1);
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- runtime extensions ---------- */
+
+/* pi delegates only through its `subagent` extension. The row lives with the
+   runtime table because that is where someone looks after installing pi. */
+.cat-subagent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.cat-subagent-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--fg-2);
+}
+
+.cat-subagent-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cat-subagent-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cat-subagent-title b {
+  color: var(--fg);
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
+}
+
+.cat-subagent-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cat-subagent-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cat-subagent-actions .cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

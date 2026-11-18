@@ -4,6 +4,7 @@
 //! * `store` — SQLite index (sessions, messages, runs, events);
 //! * `context` — `@` references: confinement, budgets and prompt folding;
 //! * `rail` — the right rail: execution, artifacts, citations, local preview;
+//! * `persona` — renders an agent's saved system prompt for one session;
 //! * `export` — HTML/Markdown/JSON transcripts, confined and atomic;
 //! * `adapter` — the `SessionAdapter` contract and its registry;
 //! * `adapters` — the two shipped adapters (Pi, Codex);
@@ -19,10 +20,13 @@ pub mod clock;
 pub mod context;
 pub mod error;
 pub mod export;
+pub mod extensions;
 pub mod model;
+pub mod persona;
 pub mod rail;
 pub mod service;
 pub mod store;
+pub mod subagent;
 
 pub use adapter::{Registry, SessionAdapter};
 pub use adapters::default_registry;

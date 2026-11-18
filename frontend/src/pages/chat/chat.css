@@ -592,6 +592,171 @@ button.chat-badge:hover {
   white-space: pre;
 }
 
+/* delegated agents */
+
+.chat-subagent {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.chat-subagent[data-status='failed'] {
+  border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
+}
+
+.chat-subagent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  min-height: 38px;
+  padding: var(--space-4) var(--space-6);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-subagent-row:hover {
+  background: var(--surface-2);
+}
+
+.chat-subagent-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--fg-2);
+}
+
+.chat-subagent-name {
+  flex: none;
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
+}
+
+.chat-subagent-step,
+.chat-subagent-model,
+.chat-subagent-count {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-count {
+  margin-left: auto;
+}
+
+.chat-subagent.is-open .chat-tool-caret {
+  transform: rotate(90deg);
+}
+
+.chat-subagent-task {
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-5);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+}
+
+.chat-subagent-task span {
+  margin-right: var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.chat-subagent-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-subagent-text {
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-subagent-text.is-thinking {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chat-subagent-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-style: normal;
+}
+
+.chat-subagent-tool {
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--border-strong);
+}
+
+.chat-subagent-tool[data-ok='failed'] {
+  border-left-color: var(--danger);
+}
+
+.chat-subagent-tool-name {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-tool code {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.chat-subagent-tool pre {
+  max-height: 220px;
+  margin: var(--space-2) 0 0;
+  overflow: auto;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  white-space: pre-wrap;
+}
+
+.chat-subagent-error {
+  margin: 0;
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border);
+  color: var(--danger);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-subagent-result {
+  padding: var(--space-5) var(--space-6);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs-plus);
+}
+
 /* turn artifacts */
 
 .chat-turn-artifacts {
@@ -847,8 +1012,46 @@ button.chat-badge:hover {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 20px;
   color: var(--muted);
   font-size: var(--text-xs-plus);
+}
+
+/* The wait for the first token is not a status line: nothing useful can be
+   said about it yet, so it is three dots that say "working" and nothing else. */
+.chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fg-2);
+  animation: chat-typing 1.2s ease-in-out infinite;
+}
+
+.chat-typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chat-typing {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* One turn's blocks: reasoning and tool cards, in ledger order. */
+.chat-parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
 }
 
 .chat-live-dot {
@@ -994,6 +1197,59 @@ button.chat-badge:hover {
   opacity: 0.6;
 }
 
+/* pi's subagent install notice. Without this strip a missing extension is
+   invisible: `--tools subagent` names a tool that does not exist, pi ignores
+   the unknown name, and the model answers that it cannot delegate. */
+
+.chat-subagent-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 760px;
+  margin: 0 auto var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, var(--border));
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+}
+
+.chat-subagent-notice-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--warn);
+}
+
+.chat-subagent-notice-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-subagent-notice-copy b {
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.chat-subagent-notice-copy small {
+  overflow: hidden;
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subagent-notice-btn {
+  flex: none;
+}
+
 .chat-composer {
   position: relative;
   max-width: 760px;
@@ -1103,6 +1359,12 @@ button.chat-badge:hover {
   left: var(--space-3);
   bottom: 42px;
   width: 240px;
+  /* The picker now lists every catalog skill (63+ here). Cap its height so a
+     long list scrolls inside the popover instead of covering the whole chat. */
+  max-height: 320px;
+  overflow-y: auto;
+  /* Reaching the end of the skill list must not start scrolling the thread. */
+  overscroll-behavior: contain;
   padding: var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -1123,9 +1385,15 @@ button.chat-badge:hover {
   cursor: pointer;
 }
 
-.chat-mention-list button:hover {
+.chat-mention-list button:hover,
+.chat-mention-list button.is-active {
   background: var(--surface-2);
   color: var(--fg);
+}
+
+/* The keyboard cursor must stay visible: this outline reads at both themes. */
+.chat-mention-list button.is-active {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* A `@` picker row pairs the relative path with what kind of thing it is. */
@@ -1330,13 +1598,24 @@ button.chat-badge:hover {
   color: var(--fg);
 }
 
+/* The group headings ("Agent" / "模型") are optgroup labels. Without their own
+   colours WebView2 paints them with the system palette — a pale strip with
+   grey text — even though the options below are themed. */
+.chat-ctl select optgroup {
+  background: var(--surface-2);
+  color: var(--fg);
+  font-style: normal;
+}
+
 [data-theme='dark'] .chat-ctl select,
-[data-theme='dark'] .chat-ctl select option {
+[data-theme='dark'] .chat-ctl select option,
+[data-theme='dark'] .chat-ctl select optgroup {
   color-scheme: dark;
 }
 
 [data-theme='light'] .chat-ctl select,
-[data-theme='light'] .chat-ctl select option {
+[data-theme='light'] .chat-ctl select option,
+[data-theme='light'] .chat-ctl select optgroup {
   color-scheme: light;
 }
 
@@ -1788,6 +2067,32 @@ button.chat-badge:hover {
   height: 22px;
 }
 
+.chat-history-new-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: calc(100% - var(--space-4));
+  margin: 0 var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.chat-history-new-btn:hover:not(:disabled) {
+  border-style: solid;
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.chat-history-new-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .chat-history-search {
   display: flex;
   align-items: center;
@@ -2034,20 +2339,24 @@ button.chat-badge:hover {
   border-radius: var(--r-xs);
   background: transparent;
   color: var(--muted);
-  opacity: 0;
+  /* Always visible: an opacity:0 trigger is invisible until hover and cannot
+     be activated by keyboard/assistive input at all. */
+  opacity: 0.55;
   cursor: pointer;
 }
 
 .chat-history-row:hover .chat-history-actions-trigger,
-.chat-history-actions-trigger:focus-visible {
+.chat-history-actions-trigger:focus-visible,
+.chat-history-row.is-menu-open .chat-history-actions-trigger {
   opacity: 1;
 }
 
+/* Fixed against the trigger's viewport rect: an absolute popover inside the
+   history's overflow:auto list was clipped and grew a scrollbar. */
 .chat-history-action-menu {
-  position: absolute;
-  z-index: 95;
-  left: calc(100% + 7px);
-  width: 156px;
+  position: fixed;
+  z-index: 400;
+  width: 184px;
   padding: var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -2423,6 +2732,97 @@ button.chat-badge:hover {
 
 .chat-project-option.is-selected .chat-project-check {
   display: grid;
+}
+
+/* Naming a project inline: the dialog has no text field of its own. */
+.chat-workspace-create {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.chat-workspace-create input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+
+.chat-workspace-create input:focus-visible {
+  outline: 2px solid var(--accent, var(--fg));
+  outline-offset: 1px;
+}
+
+/* The "+" menu: choose a folder, choose a file, or name a new project. */
+.chat-workspace-add {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.chat-workspace-add-title {
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chat-workspace-add-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-workspace-add-option:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.chat-workspace-add-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-workspace-add-option b,
+.chat-workspace-add-option small {
+  display: block;
+}
+
+.chat-workspace-add-option b {
+  font-size: var(--text-xs-plus);
+  font-weight: 550;
+}
+
+.chat-workspace-add-option small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-workspace-add .chat-workspace-create {
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.chat-workspace-default {
+  flex-shrink: 0;
 }
 
 .chat-project-actions {
@@ -2995,4 +3395,285 @@ button.chat-badge:hover {
 
 .chat-history-rename input:focus {
   outline: none;
+}
+
+/* Reasoning transcript: collapsed by default, scrolls inside when expanded. */
+.chat-live-thinking {
+  margin: 0 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-live-thinking > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-live-thinking > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-live-thinking-body {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 0 var(--space-3) var(--space-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+
+/* ---- Markdown transcript ------------------------------------------------
+   react-markdown emits real elements (no innerHTML), so headings, lists,
+   tables and fenced code need their own spacing inside the prose block. */
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--fg);
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.chat-markdown > h1:first-child,
+.chat-markdown > h2:first-child {
+  margin-top: 0;
+}
+
+.chat-markdown h1 { font-size: 1.45em; }
+.chat-markdown h2 { font-size: 1.28em; }
+.chat-markdown h3 { font-size: 1.14em; }
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 { font-size: 1em; }
+
+.chat-markdown ol {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-9);
+  list-style: decimal;
+}
+
+.chat-markdown ul {
+  list-style: disc;
+}
+
+.chat-markdown li > ul,
+.chat-markdown li > ol {
+  margin: var(--space-1) 0 0;
+}
+
+.chat-markdown li > p {
+  margin: 0;
+}
+
+.chat-markdown li:has(> input[type='checkbox']) {
+  margin-left: calc(-1 * var(--space-5));
+  list-style: none;
+}
+
+.chat-markdown input[type='checkbox'] {
+  margin-right: var(--space-2);
+  accent-color: var(--accent);
+}
+
+.chat-markdown del {
+  color: var(--muted);
+}
+
+.chat-markdown blockquote {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--surface-2);
+  color: var(--fg-2);
+}
+
+.chat-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown hr {
+  margin: var(--space-5) 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.chat-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-markdown a:hover {
+  color: var(--accent-hover);
+}
+
+.chat-markdown img {
+  max-width: 100%;
+  border-radius: var(--r-sm);
+}
+
+/* Wide tables scroll inside their own box instead of stretching the bubble. */
+.chat-table-wrap {
+  max-width: 100%;
+  margin: 0 0 var(--space-4);
+  overflow-x: auto;
+}
+
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.chat-markdown th {
+  background: var(--surface-2);
+  color: var(--fg);
+  font-weight: 560;
+}
+
+.chat-markdown tbody tr:nth-child(even) {
+  background: var(--surface-2);
+}
+
+.chat-code-block {
+  margin: 0 0 var(--space-4);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.chat-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-code-copy {
+  padding: 2px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--muted);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.chat-code-copy:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.chat-markdown pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+}
+
+/* The generic inline `code` rule above must not leak into fenced blocks. */
+.chat-markdown pre > code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* ---- Live reasoning ----------------------------------------------------- */
+
+.chat-live-thinking.is-live {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.chat-live-thinking.is-live > summary {
+  color: var(--fg);
+}
+
+.chat-live-thinking > summary > span {
+  flex: 1;
+}
+
+.chat-live-thinking > summary .chat-live-dot {
+  margin-left: auto;
+}
+
+/* ---- Inline skill blocks in the composer -------------------------------
+   A textarea cannot hold an element, so the draft keeps `@name` as plain text
+   and a mirror layer paints a block behind those exact characters. The block
+   adds no padding, border or margin: both layers must wrap at the same place
+   or the block would drift away from the caret. */
+
+.chat-composer-field {
+  position: relative;
+}
+
+.chat-composer-mirror {
+  position: absolute;
+  inset: 0;
+  /* `scrollbar-gutter: stable` on the field always reserves 10px (the global
+     scrollbar width), so the mirror pads it back to stay aligned. */
+  padding: var(--space-6) calc(var(--space-7) + 10px) var(--space-2) var(--space-7);
+  overflow: hidden;
+  pointer-events: none;
+  box-sizing: border-box;
+  color: transparent;
+  font-family: inherit;
+  font-size: var(--text-md-plus);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.chat-inline-skill {
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 32%, transparent);
+}
+
+.chat-composer textarea {
+  position: relative;
+  z-index: 1;
+  /* The UA monospace default would wrap differently from the mirror. */
+  font-family: inherit;
+  scrollbar-gutter: stable;
 }

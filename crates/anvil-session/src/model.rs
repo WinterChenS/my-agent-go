@@ -6,10 +6,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
     /// No run is in flight and the last run finished cleanly.
+    #[default]
     Idle,
     /// A run is in flight.
     Running,
@@ -172,6 +173,9 @@ pub enum EventKind {
     SessionStarted,
     TurnStarted,
     TextDelta,
+    /// Incremental reasoning text from the runtime. Kept in the ledger so a
+    /// turn that thought before answering can actually show it.
+    Thinking,
     MessageCompleted,
     ToolCall,
     ToolResult,
@@ -186,6 +190,11 @@ pub enum EventKind {
     Compacted,
     /// Context references were resolved and folded into the turn's prompt.
     ContextAttached,
+    /// A delegated child agent reported something. The runtime owns the
+    /// delegation decision; this build only records what it reported, so a
+    /// sub-agent that runs, streams, calls tools and finishes is visible
+    /// instead of silently collapsing into one opaque tool card.
+    SubAgent,
     /// A runtime event this build does not model yet; kept, never dropped.
     Unknown,
 }
@@ -197,6 +206,7 @@ impl EventKind {
             Self::SessionStarted => "session_started",
             Self::TurnStarted => "turn_started",
             Self::TextDelta => "text_delta",
+            Self::Thinking => "thinking",
             Self::MessageCompleted => "message_completed",
             Self::ToolCall => "tool_call",
             Self::ToolResult => "tool_result",
@@ -208,6 +218,7 @@ impl EventKind {
             Self::Aborted => "aborted",
             Self::Compacted => "compacted",
             Self::ContextAttached => "context_attached",
+            Self::SubAgent => "sub_agent",
             Self::Unknown => "unknown",
         }
     }
@@ -218,6 +229,7 @@ impl EventKind {
             "session_started" => Some(Self::SessionStarted),
             "turn_started" => Some(Self::TurnStarted),
             "text_delta" => Some(Self::TextDelta),
+            "thinking" => Some(Self::Thinking),
             "message_completed" => Some(Self::MessageCompleted),
             "tool_call" => Some(Self::ToolCall),
             "tool_result" => Some(Self::ToolResult),
@@ -229,6 +241,7 @@ impl EventKind {
             "aborted" => Some(Self::Aborted),
             "compacted" => Some(Self::Compacted),
             "context_attached" => Some(Self::ContextAttached),
+            "sub_agent" => Some(Self::SubAgent),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }
@@ -300,7 +313,7 @@ pub struct Run {
 }
 
 /// A session as the list view needs it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: String,
@@ -321,6 +334,10 @@ pub struct SessionSummary {
     /// Tool policy this session was opened with.
     pub allow_tools: bool,
     pub tools: Vec<String>,
+    /// Agent whose persona this session runs with; empty when none was chosen.
+    pub agent_id: String,
+    /// Thinking level the session was opened with; empty for the runtime default.
+    pub thinking: String,
     pub pinned: bool,
     pub archived: bool,
     pub message_count: i64,
@@ -409,6 +426,21 @@ pub struct ProjectSummary {
     pub last_updated: String,
 }
 
+/// One row of an agent's run history, read from this ledger rather than made
+/// up. `tokens` is zero when the runtime never reported usage, not an estimate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRun {
+    pub session_id: String,
+    pub title: String,
+    pub at: String,
+    pub turns: i64,
+    pub tool_calls: i64,
+    pub tokens: i64,
+    /// `idle` | `running` | `aborted` | `failed` | `archived`.
+    pub status: String,
+}
+
 /// What one compaction did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -428,6 +460,20 @@ pub struct SessionInput {
     pub prompt: String,
     /// Files, directories and skills the user attached with `@`.
     pub context: Vec<ContextRef>,
+    /// How far the user trusts this workspace for this turn.
+    ///
+    /// `full` means "I trust this directory": a reference outside the project
+    /// is read without raising an approval card. Any other value (including
+    /// `None`) keeps the per-path question, because consent to read outside the
+    /// project is the one thing that must never be assumed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<String>,
+}
+
+/// True when the user picked the "trust this workspace" mode for the turn.
+#[must_use]
+pub fn trusts_workspace(permission: Option<&str>) -> bool {
+    matches!(permission, Some(value) if value.eq_ignore_ascii_case("full"))
 }
 
 /// One `@` reference, as the composer sends it.
@@ -552,7 +598,7 @@ pub struct ContextEntry {
 }
 
 /// What the caller asks the adapter to open.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSpec {
     pub runtime_id: String,
@@ -574,10 +620,31 @@ pub struct SessionSpec {
     /// a hint.
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Agent the session runs as; empty for a session opened without one.
+    ///
+    /// Kept on the session row so the ledger can answer "what did this agent
+    /// run" and so a resumed turn uses the same persona, not whatever the page
+    /// happens to hold now.
+    #[serde(default)]
+    pub agent_id: String,
+    /// Thinking level the runtime should use (`off`…`high`); empty leaves the
+    /// runtime's own default in place.
+    #[serde(default)]
+    pub thinking: String,
+    /// Persona prompt, sent as the replacement system prompt.
+    #[serde(default)]
+    pub system_prompt: String,
+    /// Extra system text, appended after the persona prompt. Cross-session
+    /// memory is delivered through this rather than by rewriting the persona.
+    #[serde(default)]
+    pub append_system_prompt: String,
+    /// Skill files or directories the run may load.
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 /// What the adapter returns once the runtime confirmed a session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenedSession {
     pub runtime_id: String,
@@ -593,15 +660,32 @@ pub struct OpenedSession {
     pub allow_tools: bool,
     #[serde(default)]
     pub tools: Vec<String>,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub thinking: String,
+    #[serde(default)]
+    pub system_prompt: String,
+    #[serde(default)]
+    pub append_system_prompt: String,
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
-/// Where an adapter may write and how long it may take.
+/// Where an adapter may write, and whether a run has a deadline.
 #[derive(Debug, Clone)]
 pub struct SessionContext {
     /// D:-only directory for runtime session files.
     pub state_dir: std::path::PathBuf,
-    /// Wall clock budget for one run.
-    pub run_timeout: std::time::Duration,
+    /// Optional wall clock budget for one run.
+    ///
+    /// `None` means the run is not limited by time: it ends when the runtime
+    /// finishes, fails, or the user stops it. The desktop app passes `None` —
+    /// a long tool-using turn is real work, not a hang, and cutting it at some
+    /// round number threw away replies that were still being written. Tests and
+    /// the report example still use a deadline so a broken adapter cannot make
+    /// them wait forever.
+    pub run_timeout: Option<std::time::Duration>,
 }
 
 /// Adapter failure, kept separate from `Error` so a runtime that is simply not
@@ -693,6 +777,7 @@ mod tests {
             created_at: "2026-11-13T00:00:00Z".into(),
             updated_at: "2026-11-13T00:00:00Z".into(),
             preview: "hi".into(),
+            ..Default::default()
         };
         let json = serde_json::to_value(&summary).expect("serialises");
         assert_eq!(json["runtimeId"], "pi");

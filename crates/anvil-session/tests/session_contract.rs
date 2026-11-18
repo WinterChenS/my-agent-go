@@ -64,6 +64,7 @@ impl SessionAdapter for Scripted {
             cwd: spec.cwd.clone(),
             allow_tools: spec.allow_tools,
             tools: spec.tools.clone(),
+            ..Default::default()
         })
     }
 
@@ -113,7 +114,7 @@ fn service_with(timeout: Duration, adapters: Vec<Arc<dyn SessionAdapter>>) -> Se
         registry,
         SessionContext {
             state_dir: std::path::PathBuf::from(".tmp/test/session-contract"),
-            run_timeout: timeout,
+            run_timeout: Some(timeout),
         },
     )
 }
@@ -127,6 +128,7 @@ fn spec(runtime_id: &str) -> SessionSpec {
         native_id: None,
         allow_tools: false,
         tools: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -345,7 +347,7 @@ fn service_on(path: &std::path::Path, adapters: Vec<Arc<dyn SessionAdapter>>) ->
         registry,
         SessionContext {
             state_dir: path.with_file_name("state"),
-            run_timeout: Duration::from_secs(2),
+            run_timeout: Some(Duration::from_secs(2)),
         },
     )
 }

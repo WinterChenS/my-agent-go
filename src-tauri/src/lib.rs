@@ -17,6 +17,8 @@
 //!   (custom model, verification, default model, MCP probe).
 //! * `session` — the phase-2 chat path: open a session on a real runtime, send a
 //!   turn, stream it by polling the ledger, stop it, and manage history.
+//! * `extensions` — runtime extensions the chat path depends on: pi's
+//!   `subagent` extension status and one-click install.
 //!
 //! The crate is Windows-first like the rest of this migration phase, but all
 //! modules here are platform-neutral except `system_theme` (registry read).
@@ -25,14 +27,17 @@ pub mod assets;
 pub mod catalog;
 pub mod commands;
 pub mod desktop;
+pub mod extensions;
 pub mod host;
 pub mod inject;
 pub mod log;
 pub mod options;
 pub mod prefs;
+pub mod runtimes;
 pub mod session;
 pub mod state;
 pub mod system_theme;
+pub mod workspace;
 
 /// Every app command the host registers, in ACL order.
 ///
@@ -46,6 +51,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_snapshot",
     "catalog_refresh",
     "catalog_sync",
+    "catalog_sync_inventory",
     "catalog_add_model",
     "catalog_verify_model",
     "catalog_set_default_model",
@@ -70,4 +76,12 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_context_list",
     "session_rail",
     "session_export",
+    "agent_runs",
+    "workspace_defaults",
+    "workspace_ensure",
+    "workspace_create",
+    "workspace_pick",
+    "workspace_pick_file",
+    "pi_subagent_status",
+    "pi_subagent_install",
 ];

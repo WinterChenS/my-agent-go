@@ -3,11 +3,18 @@ import {
   CatalogUnavailable,
   loadCatalog,
   refreshCatalog,
+  syncCatalogInventory,
+  syncCatalogRuntime,
   type CatalogModel,
   type CatalogRuntime,
   type CatalogSnapshot,
   type CatalogStatus,
 } from './client'
+import { PREF_AUTO_SYNC, useBoolPreference } from '../preferences/flags'
+import { readCachedSnapshot, writeCachedSnapshot } from './cache'
+
+/** How often a visible window re-reads local skills/tools/MCP declarations. */
+const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000
 
 export interface CatalogView {
   status: CatalogStatus
@@ -17,6 +24,19 @@ export interface CatalogView {
   refresh: () => Promise<void>
   /** A manual sync is in flight; the snapshot on screen is still the old one. */
   refreshing: boolean
+  /** Re-read local skills/tools/MCP without probing models. */
+  syncInventory: () => Promise<void>
+  inventorySyncing: boolean
+  /**
+   * Re-read one runtime's models. Resolves to whether the host answered, so a
+   * tab that failed can be retried on the next open.
+   */
+  syncRuntime: (runtimeId: string) => Promise<boolean>
+  /** Runtime whose model list is being re-read, if any. */
+  syncingRuntime: string | null
+  lastInventorySyncAt: string | null
+  /** Whether the background poll is enabled in settings. */
+  autoSync: boolean
   /** Replace the snapshot after an action already returned a fresh one. */
   apply: (snapshot: CatalogSnapshot) => void
   /** Re-run the first load (used by the retry control). */
@@ -33,9 +53,23 @@ export interface CatalogView {
 export function useCatalog(enabled = true): CatalogView {
   const [status, setStatus] = useState<CatalogStatus>('idle')
   const [refreshing, setRefreshing] = useState(false)
+  const [inventorySyncing, setInventorySyncing] = useState(false)
+  const [syncingRuntime, setSyncingRuntime] = useState<string | null>(null)
+  const [lastInventorySyncAt, setLastInventorySyncAt] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<CatalogSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
+  const inventoryInFlight = useRef(false)
+  /**
+   * Which read is allowed to land.
+   *
+   * Several readers run at once (the startup snapshot, the cheap inventory
+   * sync right after mount, a manual tab sync). The last one to *start* is not
+   * necessarily the last to *finish*, so each read remembers its ticket and
+   * only the newest one writes to state.
+   */
+  const readSeq = useRef(0)
+  const [autoSync] = useBoolPreference(PREF_AUTO_SYNC, true)
 
   useEffect(() => {
     mounted.current = true
@@ -49,19 +83,33 @@ export function useCatalog(enabled = true): CatalogView {
       setStatus('unavailable')
       return
     }
-    setStatus('loading')
+    // Show the last verified snapshot immediately. The host re-discovers in
+    // the background below; a returning window no longer waits on a probe that
+    // only needs to happen once per process.
+    const cached = readCachedSnapshot()
+    if (cached) {
+      setSnapshot(cached)
+      setStatus('ready')
+    } else {
+      setStatus('loading')
+    }
     setError(null)
+    const mine = ++readSeq.current
     try {
       const result = await loadCatalog()
-      if (!mounted.current) return
+      if (!mounted.current || mine !== readSeq.current) return
       setSnapshot(result)
       setStatus('ready')
+      writeCachedSnapshot(result)
     } catch (cause) {
       if (!mounted.current) return
       if (cause instanceof CatalogUnavailable) {
-        setStatus('unavailable')
+        setStatus(cached ? 'ready' : 'unavailable')
         return
       }
+      // A background refresh that fails must never blank rows the user is
+      // already looking at; keep the cache and surface nothing intrusive.
+      if (cached) return
       setError(cause instanceof Error ? cause.message : String(cause))
       setStatus('error')
     }
@@ -79,11 +127,13 @@ export function useCatalog(enabled = true): CatalogView {
     // table for several seconds is worse than showing slightly stale data with
     // a spinning control on top.
     setStatus((current) => (current === 'ready' ? 'ready' : 'loading'))
+    const mine = ++readSeq.current
     try {
       const result = await refreshCatalog()
-      if (!mounted.current) return
+      if (!mounted.current || mine !== readSeq.current) return
       setSnapshot(result)
       setStatus('ready')
+      writeCachedSnapshot(result)
     } catch (cause) {
       if (!mounted.current) return
       if (cause instanceof CatalogUnavailable) {
@@ -97,12 +147,108 @@ export function useCatalog(enabled = true): CatalogView {
     }
   }, [enabled])
 
+  /**
+   * Cheap, silent re-read of the on-disk resource families. Used both by the
+   * manual "sync" buttons and by the background poll; a failure must never
+   * blank the page or surface an error the user cannot act on.
+   */
+  const syncInventory = useCallback(async () => {
+    if (!enabled || inventoryInFlight.current) return
+    inventoryInFlight.current = true
+    if (mounted.current) setInventorySyncing(true)
+    try {
+      const result = await syncCatalogInventory()
+      if (mounted.current) {
+        readSeq.current += 1
+        setSnapshot(result)
+        setStatus('ready')
+        writeCachedSnapshot(result)
+        setLastInventorySyncAt(new Date().toISOString())
+      }
+    } catch {
+      // No host, a locked database or one broken adapter: keep the rows on
+      // screen. The next poll (or the manual button) tries again.
+    } finally {
+      inventoryInFlight.current = false
+      if (mounted.current) setInventorySyncing(false)
+    }
+  }, [enabled])
+
+  /**
+   * Re-read one runtime's models.
+   *
+   * The models page is tabbed by runtime and calls this when a tab opens, so
+   * entering the page never waits on a rescan of every adapter. The snapshot it
+   * returns still covers all runtimes, so applying it refreshes the whole view.
+   */
+  const syncRuntime = useCallback(
+    async (runtimeId: string): Promise<boolean> => {
+      if (!enabled || !runtimeId) return false
+      setSyncingRuntime(runtimeId)
+      setError(null)
+      try {
+        const result = await syncCatalogRuntime(runtimeId)
+        if (!mounted.current) return true
+        readSeq.current += 1
+        setSnapshot(result)
+        setStatus('ready')
+        writeCachedSnapshot(result)
+        return true
+      } catch (cause) {
+        // A tab that cannot sync keeps the rows it already had; the page shows
+        // its own error line rather than blanking the table.
+        if (mounted.current && !(cause instanceof CatalogUnavailable)) {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        }
+        return false
+      } finally {
+        if (mounted.current) setSyncingRuntime(null)
+      }
+    },
+    [enabled],
+  )
+
+  useEffect(() => {
+    if (!enabled || !autoSync) return
+    const tick = () => {
+      if (!document.hidden) void syncInventory()
+    }
+    // The startup scan only reads model lists; skills, tools and MCP are read
+    // here, right after the first paint, instead of delaying the window. The
+    // cache means the page is already usable when this lands; model lists are
+    // refreshed by the background `catalog_snapshot` after first paint and can
+    // be re-synced per-tab from the models page without a blocking rescan.
+    tick()
+    const timer = window.setInterval(tick, AUTO_SYNC_INTERVAL_MS)
+    document.addEventListener('visibilitychange', tick)
+    window.addEventListener('focus', tick)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+      window.removeEventListener('focus', tick)
+    }
+  }, [enabled, autoSync, syncInventory])
+
   const apply = useCallback((next: CatalogSnapshot) => {
     setSnapshot(next)
     setStatus('ready')
   }, [])
 
-  return { status, snapshot, error, refresh, refreshing, apply, reload: load }
+  return {
+    status,
+    snapshot,
+    error,
+    refresh,
+    refreshing,
+    syncInventory,
+    inventorySyncing,
+    syncRuntime,
+    syncingRuntime,
+    lastInventorySyncAt,
+    autoSync,
+    apply,
+    reload: load,
+  }
 }
 
 /** Models of one runtime, or all of them. */

@@ -1,31 +1,65 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
 import { Link } from 'react-router-dom'
 import {
+  buildTurnParts,
   useChatSession,
+  withStoredAnswer,
   type AgentChoice,
-  type LiveTool,
+  type LiveSubAgent,
   type ModelChoice,
   type TurnFailure,
+  type TurnPart,
 } from '../../chat/useChatSession'
+import { turnUsage, type TurnUsage } from '../../chat/usage'
 import { useI18n } from '../../i18n/LanguageProvider'
 import LanguageQuickSwitch from '../../i18n/LanguageQuickSwitch'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
+import { PREF_SHOW_TIMELINE, useBoolPreference } from '../../preferences/flags'
+import { useCatalog } from '../../catalog/useCatalog'
+import {
+  installPiSubagent,
+  piSubagentStatus,
+  type CatalogSkill,
+  type PiSubagentStatus,
+} from '../../catalog/client'
 import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDialogs'
 import {
   describeSessionError,
+  loadSessionEvents,
   type ApprovalDecision,
   type ApprovalRequest,
   type ContextEntry,
   type ContextRef,
+  type PermissionMode,
   type SessionEvent,
 } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
+import { useWorkspace } from '../../workspace/WorkspaceProvider'
+import { pickWorkspace, pickWorkspaceFile } from '../../workspace/client'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
 import { useChatHistory } from '../../chat/ChatHistoryProvider'
+import { Markdown } from './Markdown'
+import {
+  chipEditPosition,
+  InlineDraft,
+  insertSkill,
+  skillAtCaret,
+  skillRanges,
+  withoutRange,
+} from './composerText'
 import './chat.css'
 
 type Attachment = {
@@ -36,6 +70,23 @@ type Attachment = {
   path?: string
   size?: string
 }
+
+/** One row of the `@` picker: a project file or an installed skill. */
+type MentionHit = {
+  id: string
+  name: string
+  kind: Attachment['kind']
+  path: string
+  detail: string
+  bytes: number
+}
+
+/**
+ * What opened the context picker: `@` lists project files and skills, the "+"
+ * drawer's Skill entry narrows `@` to skills only, and `/` is a skill palette
+ * that never mixes in files.
+ */
+type MentionMode = 'all' | 'skill' | 'slash'
 
 /** What the composer may do when a runtime is actually connected. */
 interface LiveComposer {
@@ -56,6 +107,9 @@ interface LiveComposer {
 
 /** How many trailing messages a compaction leaves verbatim. */
 const COMPACT_KEEP_LAST = 6
+
+/** Persisted trust level for the composer's permission picker. */
+const PERMISSION_KEY = 'anvil.chat.permission'
 
 /** `runtime::model` is unique even when two runtimes publish the same id. */
 function modelKey(choice: ModelChoice): string {
@@ -83,10 +137,253 @@ function useNarrow() {
   return narrow
 }
 
+/** Split a ledger by run, keeping ledger order inside each run. */
+function groupByRun(events: SessionEvent[]): Record<string, SessionEvent[]> {
+  const grouped: Record<string, SessionEvent[]> = {}
+  for (const event of events) (grouped[event.runId] ??= []).push(event)
+  return grouped
+}
+
+/** Slice a ledger into per-run parts, keeping ledger order inside each run. */
+function partsByRun(events: SessionEvent[]): Record<string, TurnPart[]> {
+  // One pass to group, one short build per run: the ledger interleaves runs,
+  // and re-scanning all of it for every run turned a settled session with many
+  // turns into an O(runs x events) walk on each reload.
+  const result: Record<string, TurnPart[]> = {}
+  for (const [run, runEvents] of Object.entries(groupByRun(events))) {
+    result[run] = buildTurnParts(runEvents, run)
+  }
+  return result
+}
+
+/**
+ * Reasoning, tool calls and their results belong to the reply they produced.
+ *
+ * The completed ledger is read once when a turn settles, so every earlier
+ * answer keeps its own ordered blocks and its own token count; while a turn
+ * streams, the same shape is built from the live poll. Building both from
+ * `buildTurnParts` is what keeps the transcript from re-arranging itself when
+ * the answer lands, and it is why a second reasoning burst after a tool call
+ * shows up as its own block instead of being folded into the first one.
+ */
+function useRunDetail(
+  sessionId: string | undefined,
+  running: boolean,
+  turnEvents: SessionEvent[],
+): { parts: Record<string, TurnPart[]>; usage: Record<string, TurnUsage> } {
+  const [ledger, setLedger] = useState<SessionEvent[]>([])
+  useEffect(() => {
+    // Read the ledger even while a turn is running. Skipping it meant that
+    // coming back to a session mid-turn showed only the turn in flight: the
+    // earlier answers lost the reasoning and tool cards they had while the page
+    // was open, because nothing was loaded until the run ended.
+    if (!sessionId) {
+      setLedger([])
+      return
+    }
+    let cancelled = false
+    void loadSessionEvents(sessionId, 0)
+      .then((events) => {
+        if (!cancelled) setLedger(events)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, running])
+
+  const stored = useMemo(() => partsByRun(ledger), [ledger])
+  const live = useMemo(() => partsByRun(turnEvents), [turnEvents])
+  const parts = useMemo(() => {
+    const merged: Record<string, TurnPart[]> = { ...stored }
+    for (const [run, runParts] of Object.entries(live)) {
+      // A live prefix must never replace a fuller ledger snapshot. Ties go to
+      // the live copy, which carries the tool results the reload may not have
+      // stored yet.
+      if (runParts.length >= (merged[run]?.length ?? 0)) merged[run] = runParts
+    }
+    return merged
+  }, [stored, live])
+
+  // Per-turn tokens. The ledger is authoritative once the turn is written; the
+  // run in flight is summed from the events polled so far, so the number grows
+  // while the runtime works instead of appearing only at the end.
+  const usage = useMemo(() => {
+    const result: Record<string, TurnUsage> = {}
+    for (const [run, runEvents] of Object.entries(groupByRun(ledger))) {
+      const total = turnUsage(runEvents)
+      if (total) result[run] = total
+    }
+    // The live poll is fresher than the ledger read for the run in flight.
+    for (const [run, runEvents] of Object.entries(groupByRun(turnEvents))) {
+      const total = turnUsage(runEvents)
+      if (total) result[run] = total
+    }
+    return result
+  }, [ledger, turnEvents])
+
+  return { parts, usage }
+}
+
+/**
+ * Open while reasoning is still streaming (and kept at its tail), collapsed
+ * once the answer has landed. An explicit click always wins over the default.
+ */
+export function ThinkingDisclosure({ text, running = false }: { text: string; running?: boolean }) {
+  const { t } = useI18n()
+  const [override, setOverride] = useState<boolean | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const open = override ?? running
+  useEffect(() => {
+    if (running && open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [text, running, open])
+  if (!text) return null
+  return (
+    <details
+      className={`chat-live-thinking${running ? ' is-live' : ''}`}
+      data-testid="chat-live-thinking"
+      data-open={open ? 'true' : 'false'}
+      open={open}
+    >
+      <summary
+        onClick={(event) => {
+          // Drive `open` from React only: a native toggle would fight the
+          // streaming state on the next render.
+          event.preventDefault()
+          setOverride(!(override ?? running))
+        }}
+      >
+        <Icon name="sparkle" size={11} />
+        <span>
+          {running
+            ? t('chat.live.thinkingLive', { count: text.length })
+            : t('chat.live.thinking', { count: text.length })}
+        </span>
+        {running ? <i className="chat-live-dot" aria-hidden="true" /> : null}
+      </summary>
+      <div className="chat-live-thinking-body" ref={bodyRef}>
+        {text}
+      </div>
+    </details>
+  )
+}
+
+/**
+ * What the runtime did, in the order it did it.
+ *
+ * One disclosure per reasoning burst, a card per tool call — so a run that
+ * reasons, calls a tool and reasons again reads as exactly that, instead of all
+ * its thinking being poured into a single box above the answer.
+ */
+/** Token counts are read by people: group them like every other number here. */
+const tokenFormat = new Intl.NumberFormat('en-US')
+
+/**
+ * One turn's tokens, as the runtime counted them.
+ *
+ * `input` includes cached prompt reads (each model call in the turn re-sends the
+ * conversation), so the cached part is called out separately instead of being
+ * hidden inside a number that looks too large for one question.
+ */
+function UsageLine({ usage }: { usage: TurnUsage }) {
+  const { t } = useI18n()
+  const input = tokenFormat.format(usage.input)
+  const output = tokenFormat.format(usage.output)
+  return (
+    <span data-testid="chat-usage">
+      {usage.cached > 0
+        ? t('chat.usage.cached', { input, output, cached: tokenFormat.format(usage.cached) })
+        : t('chat.usage.line', { input, output })}
+    </span>
+  )
+}
+
+function TurnPartsList({
+  parts,
+  live = false,
+  sources = 0,
+  onCite,
+}: {
+  parts: TurnPart[]
+  live?: boolean
+  sources?: number
+  onCite?: () => void
+}) {
+  if (parts.length === 0) return null
+  const last = parts[parts.length - 1]
+  return (
+    <div className="chat-parts" data-testid="chat-turn-parts">
+      {parts.map((part) => {
+        if (part.kind === 'thinking') {
+          // Only the tail of the reasoning is still being written; earlier
+          // bursts collapse as soon as a tool call or the answer follows them.
+          return <ThinkingDisclosure key={part.key} text={part.text} running={live && part === last} />
+        }
+        if (part.kind === 'tool') {
+          return <LiveToolCard key={part.key} tool={part.tool} />
+        }
+        if (part.kind === 'agent') {
+          return <SubAgentCard key={part.key} agent={part.agent} sources={sources} onCite={onCite} />
+        }
+        // The answer is a part like any other: when the runtime reasons or runs
+        // a tool again, that text stays where it was written instead of being
+        // hoisted into one block at the end of the turn.
+        return (
+          <div className="chat-prose chat-live-text chat-markdown" key={part.key} data-testid="chat-live-text">
+            <Markdown text={part.text} sources={sources} onCite={onCite ?? (() => undefined)} />
+            {live && part === last ? <span className="chat-caret" aria-hidden="true" /> : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const { t, language } = useI18n()
   const sample = useChatSample()
-  const live = useChatSession({ enabled: !sample })
+  // Off by default: a plain question/answer turn has no execution steps worth
+  // a card. Settings → General can turn it back on for tool-heavy runs.
+  const [showTimeline] = useBoolPreference(PREF_SHOW_TIMELINE, false)
+  // The agent the composer picked. Declared before the hook so the hook can
+  // pass it to `session_open` and the host can apply the saved persona.
+  const [pickedAgent, setPickedAgent] = useState(() =>
+    new URLSearchParams(window.location.search).get('agent') ?? '',
+  )
+  // The directory the next conversation runs in. A new session is created on
+  // the first send, so the workspace is read then (through a ref) rather than
+  // being frozen when the page mounted.
+  const workspace = useWorkspace()
+  // Trust level for the next turn. `full` means "I trust this workspace": a
+  // reference outside it is read without a card. Remembered across reloads so
+  // the answer to "do you trust this folder" is not asked again every launch.
+  const [permission, setPermission] = useState<PermissionMode>(() => {
+    try {
+      const saved = window.localStorage.getItem(PERMISSION_KEY)
+      if (saved === 'readonly' || saved === 'medium' || saved === 'high' || saved === 'full') {
+        return saved
+      }
+    } catch {
+      // A locked-down webview must not break the page over a preference.
+    }
+    return 'medium'
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PERMISSION_KEY, permission)
+    } catch {
+      // Same as above: best effort only.
+    }
+  }, [permission])
+  const live = useChatSession({
+    enabled: !sample,
+    agentId: pickedAgent || undefined,
+    cwd: workspace.path ?? '',
+    permission,
+  })
+  // The catalog is already loaded for the composer's model picker; its skill
+  // rows are the same ones the host resolves when a turn is sent.
+  const catalog = useCatalog(!sample)
   const history = useChatHistory()
   const narrow = useNarrow()
   const [railOpen, setRailOpen] = useState(!narrow)
@@ -112,9 +409,27 @@ export default function ChatPage() {
   // `activeId`. The sidebar sets it, the page follows; a turn that creates a
   // session publishes its id back so the list can highlight it.
   const currentId = live.current?.session.id ?? null
+  // Publishing is one-way and one-shot per id. Without the memo, pressing "new
+  // conversation" put the old id straight back: the sidebar cleared `activeId`,
+  // but this effect still saw `currentId` (the page had not unmounted it yet)
+  // and re-published it, so the select effect loaded the old session again and
+  // the "new" page showed the previous conversation.
+  const publishedId = useRef<string | null>(null)
+  // Opening an old conversation also says which project the reader is in: the
+  // next conversation should start where that one ran, not wherever the window
+  // happened to point before.
+  const adoptWorkspace = workspace.adopt
+  const sessionProject = live.current?.session.projectPath ?? null
+  useEffect(() => {
+    if (sample || !sessionProject) return
+    adoptWorkspace(sessionProject)
+  }, [sample, sessionProject, adoptWorkspace])
+
   useEffect(() => {
     if (sample) return
-    if (currentId && currentId !== history.activeId) history.setActive(currentId)
+    if (!currentId || currentId === publishedId.current) return
+    publishedId.current = currentId
+    if (currentId !== history.activeId) history.setActive(currentId)
   }, [sample, currentId, history])
 
   useEffect(() => {
@@ -122,6 +437,19 @@ export default function ChatPage() {
     if (!history.activeId || history.activeId === currentId) return
     void live.select(history.activeId)
   }, [sample, history.activeId, currentId, live.select])
+
+  // A running turn exists only in the ledger until the sidebar asks for the
+  // list again. `session_open` writes the row immediately, but the panel kept
+  // the list it read at startup, so a long run looked like it had never
+  // produced a conversation. Refresh when the turn starts and keep a slow tick
+  // while it runs so the row and its preview track the work.
+  const refreshHistory = history.refresh
+  useEffect(() => {
+    if (sample || !live.running) return
+    void refreshHistory()
+    const timer = window.setInterval(() => void refreshHistory(), 3000)
+    return () => window.clearInterval(timer)
+  }, [sample, live.running, refreshHistory])
 
   // "New conversation" from the sidebar is a counted request, not just a null
   // id: the id is briefly null while a new session is being created, and that
@@ -181,10 +509,10 @@ export default function ChatPage() {
 
   // A `[n]` marker is a real link to the sources pane: the number in the text
   // and the number in the rail are the same number, from the same read.
-  const showSource = () => {
+  const showSource = useCallback(() => {
     setRailOpen(true)
     setRailTab('sources')
-  }
+  }, [])
 
   // One export, with the overwrite confirm the store requires: the host refuses
   // to replace a file until the person says so, and the dialog stays open with
@@ -215,6 +543,66 @@ export default function ChatPage() {
   const liveReady = !sample && live.status === 'ready' && live.models.length > 0
   const liveSession = live.current?.session ?? null
   const liveMessages = live.current?.messages ?? []
+  // The runtime the next turn will run on. pi delegates only through its
+  // `subagent` extension, so this is also the condition for the install notice.
+  const activeRuntime = liveSession?.runtimeId ?? live.model?.runtimeId ?? ''
+
+  // One check per runtime selection, not per render: the answer is a filesystem
+  // fact and the host command reads it fresh anyway. A failure (plain browser,
+  // jsdom) hides the notice instead of showing a broken one.
+  const [subagent, setSubagent] = useState<PiSubagentStatus | null>(null)
+  const [subagentBusy, setSubagentBusy] = useState(false)
+  useEffect(() => {
+    if (sample || activeRuntime !== 'pi') {
+      setSubagent(null)
+      return
+    }
+    let cancelled = false
+    piSubagentStatus()
+      .then((next) => {
+        if (!cancelled) setSubagent(next)
+      })
+      .catch(() => {
+        if (!cancelled) setSubagent(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sample, activeRuntime])
+
+  const installSubagent = () => {
+    if (subagentBusy) return
+    setSubagentBusy(true)
+    void installPiSubagent()
+      .then((report) => {
+        setSubagent(report.status)
+        setNotice(t('chat.subagent.installed', { count: report.status.agents }))
+      })
+      .catch((cause) => {
+        setNotice(t('chat.subagent.installFailed', { message: describeSessionError(cause) }))
+      })
+      .finally(() => setSubagentBusy(false))
+  }
+  const { parts: partsForRun, usage: usageByRun } = useRunDetail(
+    liveSession?.id,
+    live.running,
+    live.turnEvents,
+  )
+  // A settled turn's stored message is the full answer; the deltas are usually
+  // the same text. Folding them here keeps the timeline blocks in order without
+  // printing the answer twice.
+  const partsWithAnswer = useMemo(() => {
+    const merged: Record<string, TurnPart[]> = { ...partsForRun }
+    for (const message of liveMessages) {
+      if (message.role !== 'assistant' || !message.runId) continue
+      const parts = merged[message.runId]
+      if (parts) merged[message.runId] = withStoredAnswer(parts, message.text)
+    }
+    return merged
+  }, [partsForRun, liveMessages])
+  // The turn in flight: its events are already only this turn's, so one flat
+  // pass gives the thinking/tool stack the transcript should show.
+  const liveParts = useMemo(() => buildTurnParts(live.turnEvents), [live.turnEvents])
 
   const sendLive = (text: string, context: ContextRef[]) => {
     // `send` resolves with the failure message (when there is one) instead of
@@ -454,7 +842,9 @@ export default function ChatPage() {
                   <Icon name="brain" size={22} />
                 </span>
                 <h2>{t('chat.live.noModel')}</h2>
-                <Link to="/settings" className="chat-btn chat-btn-sm">
+                {/* Straight to the section that fixes it: landing on the
+                    general page left the user hunting for the model list. */}
+                <Link to="/settings#models" className="chat-btn chat-btn-sm">
                   {t('chat.live.openSettings')}
                 </Link>
               </div>
@@ -507,22 +897,49 @@ export default function ChatPage() {
                         <span className="chat-agent-name">{liveSession.runtimeId}</span>
                         <span className="chat-agent-model">{liveSession.model}</span>
                       </div>
-                      <div className="chat-prose chat-live-text">
-                        {renderCites(message.text, live.rail?.sources.length ?? 0, showSource)}
-                      </div>
+                      {message.runId && partsWithAnswer[message.runId]?.length ? (
+                        <TurnPartsList
+                          parts={partsWithAnswer[message.runId]}
+                          sources={live.rail?.sources.length ?? 0}
+                          onCite={showSource}
+                        />
+                      ) : null}
+                      {/* The parts already carry the answer when the ledger has
+                          its text deltas; printing the stored message as well
+                          would show the same words twice. The message is the
+                          fallback for a turn whose deltas never landed. */}
+                      {message.runId && partsWithAnswer[message.runId]?.some((part) => part.kind === 'text') ? null : (
+                        <div className="chat-prose chat-live-text chat-markdown">
+                          <Markdown
+                            text={message.text}
+                            sources={live.rail?.sources.length ?? 0}
+                            onCite={showSource}
+                          />
+                        </div>
+                      )}
+                      {/* The count stays under the answer after the turn is
+                          written; it used to exist only in the streaming bubble
+                          and vanished the moment the reply landed. */}
+                      {message.runId && usageByRun[message.runId] ? (
+                        <div className="chat-msg-meta">
+                          <UsageLine usage={usageByRun[message.runId]} />
+                        </div>
+                      ) : null}
                     </article>
                   ),
                 )}
                 <LiveTurnTimeline
+                  showTimeline={showTimeline}
                   events={live.turnEvents}
-                  tools={live.tools}
+                  parts={liveParts}
                   pending={live.pending}
                   running={live.running}
-                  streamText={live.streamText}
                   startedAt={live.turnStartedAt}
                   failure={live.turnFailure}
                   runtimeId={liveSession.runtimeId}
                   model={liveSession.model}
+                  sources={live.rail?.sources.length ?? 0}
+                  onCite={showSource}
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
                 />
@@ -537,6 +954,37 @@ export default function ChatPage() {
               </div>
             )}
           </div>
+
+          {!sample && activeRuntime === 'pi' && subagent && !subagent.installed ? (
+            <div
+              className="chat-subagent-notice"
+              data-testid="chat-subagent-notice"
+              role="status"
+            >
+              <span className="chat-subagent-notice-icon">
+                <Icon name="puzzle" size={14} />
+              </span>
+              <div className="chat-subagent-notice-copy">
+                <b>{t('chat.subagent.missing')}</b>
+                <small title={subagent.detail ?? subagent.extensionDir}>
+                  {subagent.canInstall
+                    ? t('chat.subagent.detail', { dir: subagent.extensionDir })
+                    : t('chat.subagent.noSource')}
+                </small>
+              </div>
+              <button
+                type="button"
+                className="chat-btn chat-btn-sm chat-subagent-notice-btn"
+                data-testid="chat-subagent-install"
+                disabled={!subagent.canInstall || subagentBusy}
+                title={subagent.canInstall ? subagent.source : subagent.detail}
+                onClick={installSubagent}
+              >
+                <Icon name="download" size={12} />
+                {subagentBusy ? t('chat.subagent.installing') : t('chat.subagent.install')}
+              </button>
+            </div>
+          ) : null}
 
           <Composer
             sample={sample}
@@ -557,15 +1005,24 @@ export default function ChatPage() {
                 : null
             }
             language={language}
+            pickedAgent={pickedAgent}
+            setPickedAgent={setPickedAgent}
             attachments={attachments}
             setAttachments={setAttachments}
             mentionOpen={mentionOpen}
             setMentionOpen={setMentionOpen}
             attachmentOpen={attachmentOpen}
             setAttachmentOpen={setAttachmentOpen}
+            permission={permission}
+            setPermission={setPermission}
             onNotice={showNotice}
             onProject={(trigger) => openDialog('project', trigger)}
+            workspaceLabel={
+              workspace.isDefault ? t('workspace.defaultName') : workspace.name
+            }
             onMention={liveReady ? live.mention : undefined}
+            skills={catalog.snapshot?.skills ?? []}
+            runtimeId={live.current?.session.runtimeId ?? live.model?.runtimeId ?? ''}
           />
         </div>
 
@@ -628,6 +1085,7 @@ export default function ChatPage() {
 
       <ChatDialogs
         kind={dialog}
+        sample={sample}
         onClose={closeDialog}
         onNotice={showNotice}
         onExport={liveSession ? runExport : undefined}
@@ -900,54 +1358,151 @@ function Composer({
   sample,
   live,
   language,
+  pickedAgent,
+  setPickedAgent,
   attachments,
   setAttachments,
   mentionOpen,
   setMentionOpen,
   attachmentOpen,
   setAttachmentOpen,
+  permission,
+  setPermission,
   onNotice,
   onProject,
+  workspaceLabel,
   onMention,
+  skills,
+  runtimeId,
 }: {
   sample: boolean
   live: LiveComposer | null
   language: string
+  pickedAgent: string
+  setPickedAgent: (id: string) => void
   attachments: Attachment[]
   setAttachments: (next: Attachment[]) => void
   mentionOpen: boolean
   setMentionOpen: (open: boolean) => void
   attachmentOpen: boolean
   setAttachmentOpen: (open: boolean) => void
+  /** Trust level the next turn runs with; see `PermissionMode`. */
+  permission: PermissionMode
+  setPermission: (next: PermissionMode) => void
   onNotice: (message: string) => void
   onProject: (trigger: HTMLElement) => void
+  /** Directory the next conversation runs in, shown on the project chip. */
+  workspaceLabel: string
   /** Ask the host which files this project offers for `@`. */
   onMention?: (query: string) => Promise<ContextEntry[]>
+  /** Installed skills from the live catalog, filtered to this session's runtime. */
+  skills: CatalogSkill[]
+  runtimeId: string
 }) {
   const { t } = useI18n()
   const enabled = sample || live !== null
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
-  const [mentionHits, setMentionHits] = useState<ContextEntry[]>([])
+  const [mentionHits, setMentionHits] = useState<MentionHit[]>([])
+  const [mentionMode, setMentionMode] = useState<MentionMode>('all')
+  /** Keyboard cursor: arrows move it, Tab/Enter accept it, the wheel scrolls. */
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const mirrorRef = useRef<HTMLDivElement>(null)
+  const mentionListRef = useRef<HTMLDivElement>(null)
+  const attachmentDrawerRef = useRef<HTMLDivElement>(null)
+  const composerPlusRef = useRef<HTMLButtonElement>(null)
+  /** Where the caret must land after React rewrites the draft. */
+  const caretTarget = useRef<number | null>(null)
+
+  // The "+" drawer is a popover: pressing anywhere outside it (or on the button
+  // that opened it) dismisses it. Both pointerdown and mousedown are watched in
+  // the capture phase because WebView2 does not always deliver pointer events
+  // for every target, and composedPath covers reparented nodes.
+  useEffect(() => {
+    if (!attachmentOpen) return
+    const onOutside = (event: Event) => {
+      const node = event.target as Node | null
+      if (!node) return
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+      const drawer = attachmentDrawerRef.current
+      const plus = composerPlusRef.current
+      if (drawer && (drawer.contains(node) || path.includes(drawer))) return
+      if (plus && (plus.contains(node) || path.includes(plus))) return
+      setAttachmentOpen(false)
+    }
+    document.addEventListener('pointerdown', onOutside, true)
+    document.addEventListener('mousedown', onOutside, true)
+    return () => {
+      document.removeEventListener('pointerdown', onOutside, true)
+      document.removeEventListener('mousedown', onOutside, true)
+    }
+  }, [attachmentOpen, setAttachmentOpen])
+
+  // A chip is just `@name` inside the draft; the catalogue decides which names
+  // count. When two runtimes ship the same name, the running one wins.
+  const skillPaths = useMemo(() => {
+    const map = new Map<string, string>()
+    const preferred = new Set<string>()
+    for (const skill of skills) {
+      if (skill.state === 'broken') continue
+      if (skill.runtimeId === runtimeId) {
+        map.set(skill.name, skill.path)
+        preferred.add(skill.name)
+      } else if (!preferred.has(skill.name) && !map.has(skill.name)) {
+        map.set(skill.name, skill.path)
+      }
+    }
+    return map
+  }, [skills, runtimeId])
+  const pathOf = useCallback((name: string) => skillPaths.get(name), [skillPaths])
+
+  // React rewrites the textarea value, which parks the caret at the end.
+  // A pick must leave it right after the inserted chip instead.
+  useLayoutEffect(() => {
+    const target = caretTarget.current
+    if (target === null) return
+    caretTarget.current = null
+    const field = textareaRef.current
+    if (!field) return
+    field.focus()
+    field.setSelectionRange(target, target)
+  }, [text])
+
+  // Keep the highlighted row inside the popover. A 60-row skill list would
+  // otherwise scroll the cursor out of view while arrowing through it.
+  useEffect(() => {
+    if (!mentionOpen) return
+    const active = mentionListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [mentionOpen, mentionIndex, mentionHits])
   // Which agent the picker shows. Choosing a model clears it: the control's
   // value has to be one of its own options, and the two groups overlap in the
   // runtime+model they name.
-  const [pickedAgent, setPickedAgent] = useState('')
   // Naming a binding happens in the composer, so it must not use
   // `window.prompt`: the desktop webview does not implement it and the click
   // would do nothing at all.
   const [namingAgent, setNamingAgent] = useState(false)
   const [agentName, setAgentName] = useState('')
 
-  // The references the user actually attached become the turn's context. Sample
-  // rows have no path, so they never reach the host.
-  const refs = (): ContextRef[] =>
-    attachments
-      .filter((attachment) => Boolean(attachment.path))
-      .map((attachment) => ({
-        kind: attachment.kind,
-        path: attachment.path as string,
-        label: attachment.kind === 'skill' ? attachment.name : undefined,
-      }))
+  // The references the user actually attached become the turn's context.
+  // Inline skills are parsed out of the draft: the chip is only a decoration
+  // over the `@name` that already lives in the text. Sample rows have no path,
+  // so they never reach the host.
+  const refs = (value: string): ContextRef[] => {
+    const out: ContextRef[] = []
+    const seen = new Set<string>()
+    for (const range of skillRanges(value, pathOf)) {
+      if (seen.has(range.path)) continue
+      seen.add(range.path)
+      out.push({ kind: 'skill', path: range.path, label: range.name })
+    }
+    for (const attachment of attachments) {
+      if (!attachment.path || attachment.kind === 'skill' || seen.has(attachment.path)) continue
+      seen.add(attachment.path)
+      out.push({ kind: attachment.kind, path: attachment.path })
+    }
+    return out
+  }
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
@@ -956,43 +1511,236 @@ function Composer({
       return
     }
     if (!live || live.running || !text.trim()) return
-    live.onSend(text, refs())
+    live.onSend(text, refs(text))
     setText('')
-    setMentionOpen(false)
-    setMentionHits([])
+    caretTarget.current = 0
+    closeMentions()
   }
 
   // `@` at the end of the draft opens the picker; everything after it is the
   // query, so typing `@src/ma` narrows the list without leaving the field.
-  const mentionQuery = (value: string): string | null => {
+  const atQuery = (value: string): string | null => {
     const match = /(?:^|\s)@([^\s]*)$/.exec(value)
     return match ? match[1] : null
   }
 
-  const refreshMentions = (value: string) => {
-    const query = mentionQuery(value)
-    if (!query && !value.endsWith('@')) {
-      setMentionOpen(false)
-      setMentionHits([])
+  // `/` is the skill palette. It only triggers at a word boundary, so a path
+  // like `src/main.rs` or a date like `11/16` is left alone.
+  const slashQuery = (value: string): string | null => {
+    const match = /(?:^|\s)\/([^\s]*)$/.exec(value)
+    return match ? match[1] : null
+  }
+
+  /** Every usable skill the catalog discovered. Nothing is hidden behind a
+   *  runtime filter or a hard cap: the typed query narrows the list, and the
+   *  running runtime's skills sort first so the common case stays on top. */
+  const skillHits = (query: string): MentionHit[] =>
+    skills
+      .filter(
+        (skill) =>
+          skill.state !== 'broken' &&
+          `${skill.name} ${skill.description} ${skill.runtimeId}`.toLowerCase().includes(query.toLowerCase()),
+      )
+      .sort((left, right) => {
+        const leftRank = left.runtimeId === runtimeId ? 0 : 1
+        const rightRank = right.runtimeId === runtimeId ? 0 : 1
+        return leftRank - rightRank || left.name.localeCompare(right.name)
+      })
+      .map((skill) => ({
+        id: `skill:${skill.path}`,
+        name: skill.name,
+        kind: 'skill' as const,
+        path: skill.path,
+        detail: `${skill.runtimeId} · Skill`,
+        bytes: 0,
+      }))
+
+  const closeMentions = () => {
+    setMentionOpen(false)
+    setMentionHits([])
+    setMentionMode('all')
+    setMentionIndex(0)
+  }
+
+  const refreshMentions = (value: string, mode: MentionMode = 'all') => {
+    const query = mode === 'slash' ? slashQuery(value) : atQuery(value)
+    const open = mode === 'slash' ? query !== null : query !== null || value.endsWith('@')
+    if (!open) {
+      closeMentions()
       return
     }
     setMentionOpen(true)
-    if (!onMention) return
-    void onMention(query ?? '').then((hits) => setMentionHits(hits))
+    setMentionMode(mode)
+    const matchedSkills = skillHits(query ?? '')
+    // `@` from the drawer and `/` are skill-only; only a plain `@` asks the
+    // host for project files.
+    if (mode !== 'all' || !onMention) {
+      setMentionHits(matchedSkills)
+      setMentionIndex(0)
+      return
+    }
+    void onMention(query ?? '')
+      .then((files) => {
+        setMentionHits([
+          ...matchedSkills,
+          ...files.map<MentionHit>((file) => ({
+            id: file.path,
+            name: file.relative,
+            kind: file.kind,
+            path: file.path,
+            detail: file.kind,
+            bytes: file.bytes,
+          })),
+        ])
+        setMentionIndex(0)
+      })
+      .catch(() => {
+        setMentionHits(matchedSkills)
+        setMentionIndex(0)
+      })
+  }
+
+  /** The drawer's Skill entry: put `@` in the draft and show only skills. */
+  const addSkill = () => {
+    if (!enabled || sample) return
+    const next = `${text}${text && !text.endsWith(' ') ? ' ' : ''}@`
+    setText(next)
+    setAttachmentOpen(false)
+    refreshMentions(next, 'skill')
+    textareaRef.current?.focus()
+  }
+
+  /** Adds one picked path as a context chip; the host reads it on send. */
+  const attachPicked = (path: string, kind: 'file' | 'dir') => {
+    const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+    setAttachments([
+      ...attachments.filter((item) => item.path !== path),
+      { id: `picked:${path}`, name, kind, path },
+    ])
+  }
+
+  /** The drawer's file entry: native picker, then attach the chosen file. */
+  const addFilesFromPicker = async () => {
+    setAttachmentOpen(false)
+    try {
+      const picked = await pickWorkspaceFile()
+      if (picked) {
+        attachPicked(picked, 'file')
+        textareaRef.current?.focus()
+      }
+    } catch (cause) {
+      onNotice(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  /** The drawer's directory entry: attach a whole folder as context. */
+  const addDirFromPicker = async () => {
+    setAttachmentOpen(false)
+    try {
+      const picked = await pickWorkspace()
+      if (picked) {
+        attachPicked(picked, 'dir')
+        textareaRef.current?.focus()
+      }
+    } catch (cause) {
+      onNotice(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  /**
+   * A skill becomes inline text (`@name `), not an attachment chip: it has to
+   * sit where the caret was and read as part of the sentence. Files keep the
+   * chip above the field, because a path is not something you type into prose.
+   */
+  const acceptHit = (hit: MentionHit) => {
+    if (hit.kind === 'skill') {
+      const { value, caret } = insertSkill(
+        text,
+        hit.name,
+        mentionMode === 'slash' ? 'slash' : 'at',
+      )
+      setText(value)
+      caretTarget.current = caret
+      closeMentions()
+      return
+    }
+    setAttachments([
+      ...attachments.filter((item) => item.path !== hit.path),
+      {
+        id: hit.id,
+        name: hit.name,
+        kind: hit.kind,
+        path: hit.path,
+        size: hit.bytes ? `${Math.max(1, Math.round(hit.bytes / 1024))} KB` : undefined,
+      },
+    ])
+    setText((current) => current.replace(/@[^\s]*$/, ''))
+    closeMentions()
+    textareaRef.current?.focus()
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
       submit()
+      return
+    }
+    if (mentionOpen && !sample && mentionHits.length > 0) {
+      const last = mentionHits.length - 1
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setMentionIndex((index) => (index >= last ? 0 : index + 1))
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMentionIndex((index) => (index <= 0 ? last : index - 1))
+        return
+      }
+      // Tab is the requested acceptance key. Enter does the same while the list
+      // is open, so the palette never eats a newline the reader wanted.
+      if (event.key === 'Tab' || event.key === 'Enter') {
+        event.preventDefault()
+        acceptHit(mentionHits[Math.min(mentionIndex, last)])
+        return
+      }
+    }
+    // A chip is one unit: Backspace inside or right after it removes the whole
+    // `@name`, never a character of it. The textarea stays the single source of
+    // truth, so this can never desync the mirror layer.
+    if (!sample && (event.key === 'Backspace' || event.key === 'Delete')) {
+      const field = textareaRef.current
+      if (field && field.selectionStart === field.selectionEnd) {
+        const hit = skillAtCaret(
+          text,
+          skillRanges(text, pathOf),
+          field.selectionStart,
+          event.key === 'Backspace' ? 'back' : 'forward',
+        )
+        if (hit) {
+          event.preventDefault()
+          const next = withoutRange(text, hit)
+          setText(next.value)
+          caretTarget.current = next.caret
+          return
+        }
+      }
     }
     if (event.key === 'Escape') {
       setMentionOpen(false)
       setAttachmentOpen(false)
+      closeMentions()
     }
   }
 
+
   const shown = enabled ? text : ''
+  // The counter reads the same two sources the turn will: file chips above the
+  // field and skills written into the draft. One skill mentioned twice is one
+  // reference, exactly like the dedupe the host receives.
+  const contextCount =
+    attachments.filter((attachment) => Boolean(attachment.path) && attachment.kind !== 'skill').length +
+    new Set(skillRanges(text, pathOf).map((range) => range.path)).size
   const selectedModel = live?.model ? modelKey(live.model) : ''
 
   return (
@@ -1003,34 +1751,69 @@ function Composer({
           className="chat-project-trigger"
           data-testid="chat-project-trigger"
           aria-haspopup="dialog"
-          disabled={!sample}
-          title={sample ? t('chat.composer.project.change') : t('chat.action.unavailable')}
+          disabled={!enabled}
+          title={enabled ? t('chat.composer.project.change') : t('chat.action.unavailable')}
           onClick={(event) => onProject(event.currentTarget)}
         >
           <Icon name="folder" size={12} />
-          <span>{sample ? sampleChat.project : t('chat.composer.project.none')}</span>
+          <span>{sample ? sampleChat.project : workspaceLabel || t('chat.composer.project.none')}</span>
           <Icon name="chevDown" size={11} />
         </button>
       </div>
       <form className="chat-composer" onSubmit={submit} aria-label={t('chat.composer.placeholder')}>
-        <textarea
-          data-testid="chat-composer"
-          rows={2}
-          value={shown}
-          disabled={!enabled}
-          placeholder={enabled ? t('chat.composer.placeholder') : t('chat.composer.normalPlaceholder')}
-          aria-label={t('chat.composer.placeholder')}
-          onChange={(event) => {
-            if (!enabled) return
-            setText(event.target.value)
-            if (sample) {
-              setMentionOpen(event.target.value.endsWith('@'))
-              return
+        <div className="chat-composer-field">
+          {/* Paints the skill blocks behind the real characters. The textarea
+              above keeps every native editing behaviour (caret, selection, IME)
+              and the block adds no padding, so both layers wrap identically. */}
+          <div className="chat-composer-mirror" aria-hidden="true" ref={mirrorRef}>
+            <InlineDraft text={shown} pathOf={pathOf} />
+          </div>
+          <textarea
+            ref={textareaRef}
+            data-testid="chat-composer"
+            rows={2}
+            value={shown}
+            disabled={!enabled}
+            placeholder={enabled ? t('chat.composer.placeholder') : t('chat.composer.normalPlaceholder')}
+            aria-label={t('chat.composer.placeholder')}
+            aria-expanded={mentionOpen}
+            aria-controls={mentionOpen ? 'chat-mention-list' : undefined}
+            aria-activedescendant={
+              mentionOpen && !sample && mentionHits.length > 0
+                ? `chat-mention-${mentionIndex}`
+                : undefined
             }
-            refreshMentions(event.target.value)
-          }}
-          onKeyDown={onKeyDown}
-        />
+            onChange={(event) => {
+              if (!enabled) return
+              const value = event.target.value
+              if (!sample) {
+                // A chip must not be renameable: an edit that lands inside
+                // `@name` would silently point the turn at another skill. Put
+                // the untouched draft back and park the caret on the block.
+                const blocked = chipEditPosition(text, value, skillRanges(text, pathOf))
+                if (blocked !== null) {
+                  event.target.value = text
+                  event.target.setSelectionRange(blocked, blocked)
+                  return
+                }
+              }
+              setText(value)
+              if (sample) {
+                setMentionOpen(value.endsWith('@'))
+                return
+              }
+              // A trailing `/word` is the skill palette; otherwise keep the
+              // skill-only scope the drawer set until a selection clears it.
+              const slash = slashQuery(value) !== null
+              refreshMentions(value, slash ? 'slash' : mentionMode === 'skill' ? 'skill' : 'all')
+            }}
+            onScroll={(event) => {
+              // The mirror only paints: it has to follow the field's scroll.
+              if (mirrorRef.current) mirrorRef.current.scrollTop = event.currentTarget.scrollTop
+            }}
+            onKeyDown={onKeyDown}
+          />
+        </div>
         {attachments.length > 0 ? (
           <div className="chat-composer-attachments" data-testid="chat-attachments" aria-live="polite">
             {attachments.map((attachment) => (
@@ -1056,37 +1839,39 @@ function Composer({
           </div>
         ) : null}
         {mentionOpen && !sample ? (
-          <div className="chat-mention-list" role="listbox" aria-label={t('chat.composer.mention')}>
+          <div
+            id="chat-mention-list"
+            ref={mentionListRef}
+            className="chat-mention-list"
+            role="listbox"
+            data-mode={mentionMode}
+            aria-label={
+              mentionMode === 'slash' ? t('chat.composer.skillPicker') : t('chat.composer.mention')
+            }
+            onWheel={(event) => event.stopPropagation()}
+          >
             {mentionHits.length === 0 ? (
               <span className="chat-mention-empty" data-testid="chat-mention-empty">
-                {t('chat.composer.mentionEmpty')}
+                {mentionMode === 'slash'
+                  ? t('chat.composer.skillEmpty')
+                  : t('chat.composer.mentionEmpty')}
               </span>
             ) : (
-              mentionHits.map((hit) => (
+              mentionHits.map((hit, index) => (
                 <button
-                  key={hit.path}
+                  key={hit.id}
+                  id={`chat-mention-${index}`}
                   type="button"
                   role="option"
-                  aria-selected="false"
+                  aria-selected={index === mentionIndex}
+                  className={index === mentionIndex ? 'is-active' : undefined}
                   data-testid="chat-mention-entry"
-                  onClick={() => {
-                    setAttachments([
-                      ...attachments.filter((item) => item.path !== hit.path),
-                      {
-                        id: hit.path,
-                        name: hit.relative,
-                        kind: hit.kind,
-                        path: hit.path,
-                        size: hit.bytes ? `${Math.max(1, Math.round(hit.bytes / 1024))} KB` : undefined,
-                      },
-                    ])
-                    setText((current) => current.replace(/@[^\s]*$/, ''))
-                    setMentionOpen(false)
-                    setMentionHits([])
-                  }}
+                  data-mention-kind={hit.kind}
+                  onMouseEnter={() => setMentionIndex(index)}
+                  onClick={() => acceptHit(hit)}
                 >
-                  <span className="chat-mention-name">{hit.relative}</span>
-                  <small>{hit.kind}</small>
+                  <span className="chat-mention-name">{hit.name}</span>
+                  <small>{hit.detail}</small>
                 </button>
               ))
             )}
@@ -1112,16 +1897,36 @@ function Composer({
           </div>
         ) : null}
         {attachmentOpen ? (
-          <div className="chat-attachment-drawer" role="menu" aria-label={t('chat.composer.addContext')}>
+          <div
+            ref={attachmentDrawerRef}
+            className="chat-attachment-drawer"
+            role="menu"
+            aria-label={t('chat.composer.addContext')}
+            data-testid="chat-attachment-drawer"
+          >
             <div className="chat-attachment-group">
-              <button type="button" role="menuitem" disabled title={t('chat.action.unavailable')}>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="chat-add-file"
+                disabled={!enabled || sample}
+                title={sample ? t('chat.action.unavailable') : t('chat.composer.chooseFilesDesc')}
+                onClick={() => void addFilesFromPicker()}
+              >
                 <Icon name="file" size={14} />
                 <span>
                   <b>{t('chat.composer.chooseFiles')}</b>
                   <small>{t('chat.composer.chooseFilesDesc')}</small>
                 </span>
               </button>
-              <button type="button" role="menuitem" disabled title={t('chat.action.unavailable')}>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="chat-add-dir"
+                disabled={!enabled || sample}
+                title={sample ? t('chat.action.unavailable') : t('chat.composer.chooseDirDesc')}
+                onClick={() => void addDirFromPicker()}
+              >
                 <Icon name="folder" size={14} />
                 <span>
                   <b>{t('chat.composer.chooseDir')}</b>
@@ -1130,7 +1935,14 @@ function Composer({
               </button>
             </div>
             <div className="chat-attachment-group">
-              <button type="button" role="menuitem" disabled title={t('chat.action.unavailable')}>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="chat-add-skill"
+                disabled={!enabled || sample}
+                title={sample ? t('chat.action.unavailable') : t('chat.composer.skillDesc')}
+                onClick={addSkill}
+              >
                 <Icon name="puzzle" size={14} />
                 <span>
                   <b>{t('chat.composer.skill')}</b>
@@ -1142,8 +1954,10 @@ function Composer({
         ) : null}
         <div className="chat-composer-bar">
           <button
+            ref={composerPlusRef}
             type="button"
             className="chat-composer-plus"
+            data-testid="chat-composer-plus"
             aria-label={t('chat.composer.add')}
             aria-expanded={attachmentOpen}
             disabled={!enabled}
@@ -1309,24 +2123,24 @@ function Composer({
               )}
             </select>
           </label>
-          <label className="chat-ctl" title={t('chat.composer.permission')}>
+          <label className="chat-ctl" title={t('chat.composer.permission.hint')}>
             <Icon name="shield" size={13} />
-            <select aria-label={t('chat.composer.permission')} disabled={!sample} defaultValue={sample ? sampleChat.permission : undefined}>
-              {sample ? (
-                <>
-                  <option value="readonly">{t('chat.composer.permission.readonly')}</option>
-                  <option value="medium">{t('chat.composer.permission.medium')}</option>
-                  <option value="high">{t('chat.composer.permission.high')}</option>
-                  <option value="full">{t('chat.composer.permission.full')}</option>
-                </>
-              ) : (
-                <option>{t('chat.composer.normalPlaceholder')}</option>
-              )}
+            <select
+              aria-label={t('chat.composer.permission')}
+              data-testid="chat-permission-select"
+              disabled={!enabled}
+              value={permission}
+              onChange={(event) => setPermission(event.target.value as PermissionMode)}
+            >
+              <option value="readonly">{t('chat.composer.permission.readonly')}</option>
+              <option value="medium">{t('chat.composer.permission.medium')}</option>
+              <option value="high">{t('chat.composer.permission.high')}</option>
+              <option value="full">{t('chat.composer.permission.full')}</option>
             </select>
           </label>
           <button type="button" className="chat-ctl" disabled={!enabled} onClick={() => onNotice(t('chat.notice.attachment'))}>
             <Icon name="paperclip" size={13} />
-            <span>{t('chat.composer.context', { count: attachments.length })}</span>
+            <span>{t('chat.composer.context', { count: contextCount })}</span>
           </button>
           <div className="chat-composer-actions">
             <button
@@ -1398,27 +2212,31 @@ function ContextChips({ meta }: { meta?: Record<string, unknown> }) {
  * runtime actually wrote to the ledger — no invented reasoning text.
  */
 function LiveTurnTimeline({
+  showTimeline,
   events,
-  tools,
+  parts,
   pending,
   running,
-  streamText,
   startedAt,
   failure,
   runtimeId,
   model,
+  sources,
+  onCite,
   onApprove,
   onRetry,
 }: {
+  showTimeline: boolean
   events: SessionEvent[]
-  tools: LiveTool[]
+  parts: TurnPart[]
   pending: ApprovalRequest | null
   running: boolean
-  streamText: string
   startedAt: number | null
   failure: TurnFailure | null
   runtimeId: string
   model: string
+  sources: number
+  onCite: () => void
   onApprove: (decision: ApprovalDecision) => void
   onRetry: () => void
 }) {
@@ -1456,15 +2274,21 @@ function LiveTurnTimeline({
       case 'tool_call':
         add(`tool-${event.seq}`, t('chat.live.stageTool', { name: String(event.payload.tool ?? 'tool') }))
         break
+      // One stage per delegated agent, so the timeline says "delegated to X"
+      // instead of hiding a whole sub-agent behind the parent's tool calls.
+      case 'sub_agent': {
+        if (event.payload.phase !== 'started') break
+        const id = String(event.payload.agentId ?? '')
+        const name = String(event.payload.name ?? id)
+        add(`agent-${id}`, t('chat.live.stageAgent', { name }))
+        break
+      }
       case 'approval_request':
         add('approval', t('chat.live.stageApproval'))
         break
-      case 'text_delta':
-        add('stream', t('chat.live.stageStream'))
-        break
-      case 'turn_completed':
-        add('done', t('chat.live.stageDone'))
-        break
+      // Streaming text and a clean finish are the conversation itself, not
+      // execution steps. Putting them here produced a "1 开始输出回复" card
+      // after every single answer.
       case 'aborted':
         add('stopped', t('chat.live.stageStopped'))
         break
@@ -1476,52 +2300,17 @@ function LiveTurnTimeline({
     }
   }
 
-  const usagePayload = [...events].reverse().find((event) => event.kind === 'usage')?.payload.usage
-  const usage =
-    usagePayload && typeof usagePayload === 'object'
-      ? (usagePayload as Record<string, unknown>)
-      : null
-  const inputTokens = Number(
-    usage?.inputTokens ?? usage?.promptTokens ?? usage?.totalTokens ?? 0,
-  )
-  const outputTokens = Number(usage?.outputTokens ?? usage?.completionTokens ?? 0)
+  // Summed, not "the last usage event": a turn with tool calls is several model
+  // requests, and each one is billed. The previous code read `inputTokens` and
+  // fell back to `totalTokens` (so input looked plausible) while no runtime
+  // sends `outputTokens` at all, which is why output always read zero.
+  const usage = turnUsage(events)
 
   return (
     <>
-      {stages.length > 0 ? (
-        <ThinkingBlock title={t('chat.live.timeline')} steps={stages} initialOpen={running} />
-      ) : null}
-      {tools.length > 0 ? (
-        <div className="chat-tools" data-testid="chat-live-tools">
-          {tools.map((tool) => (
-            <LiveToolCard key={tool.id} tool={tool} />
-          ))}
-        </div>
-      ) : null}
-      {pending ? <ApprovalCard request={pending} onDecision={onApprove} /> : null}
-      {failure ? (
-        <section
-          className="chat-state-card chat-tone-danger"
-          role="alert"
-          aria-label={t('chat.live.failure')}
-          data-testid="chat-live-failure"
-        >
-          <span className="chat-state-icon">
-            <Icon name="alert" size={14} />
-          </span>
-          <div className="chat-state-copy">
-            <b>
-              {failure.kind === 'timeout'
-                ? t('chat.live.timeout', { seconds: failure.seconds ?? 0 })
-                : t('chat.live.failure')}
-            </b>
-            <span>{failure.message}</span>
-          </div>
-          <button type="button" className="chat-btn chat-btn-sm" onClick={onRetry}>
-            {t('chat.live.retry')}
-          </button>
-        </section>
-      ) : null}
+      {/* Everything the runtime produced, in the order it produced it, then
+          the answer. The same stack is what the settled message shows, so a
+          turn does not re-arrange itself when the reply lands. */}
       {running ? (
         <article className="chat-msg" data-testid="chat-message-streaming">
           <div className="chat-agent-head">
@@ -1533,23 +2322,55 @@ function LiveTurnTimeline({
               {t('chat.live.generating')}
             </span>
           </div>
-          <div className="chat-prose chat-live-text">
-            {streamText || (
-              <div className="chat-stream-status" role="status">
-                <span className="chat-live-dot" aria-hidden="true" />
-                <span>{t('chat.live.waiting')}</span>
-                <span className="chat-caret" aria-hidden="true" />
-              </div>
-            )}
-            {streamText ? <span className="chat-caret" aria-hidden="true" /> : null}
-          </div>
+          {parts.length > 0 ? (
+            <TurnPartsList parts={parts} live sources={sources} onCite={onCite} />
+          ) : null}
+          {/* Nothing written yet, or the runtime is between steps: keep the
+              three dots under the last block so the turn still reads as live. */}
+          {parts.length === 0 || parts[parts.length - 1].kind !== 'text' ? (
+            <div className="chat-stream-status" role="status" aria-label={t('chat.live.generating')}>
+              <span className="chat-typing" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          ) : null}
           <div className="chat-msg-meta">
             <span>{t('chat.live.elapsed', { seconds: elapsed })}</span>
             {usage ? (
-              <span> · {t('chat.live.usage', { input: inputTokens, output: outputTokens })}</span>
+              <span>
+                {' · '}
+                <UsageLine usage={usage} />
+              </span>
             ) : null}
           </div>
         </article>
+      ) : null}
+      {showTimeline && stages.length > 0 ? (
+        <ThinkingBlock title={t('chat.live.timeline')} steps={stages} initialOpen={running} />
+      ) : null}
+      {/* A run that already ended must not keep its card: the host has dropped
+          the question, so pressing "allow" would look like a dead button. */}
+      {pending && running ? <ApprovalCard request={pending} onDecision={onApprove} /> : null}
+      {failure ? (
+        <section
+          className="chat-state-card chat-tone-danger"
+          role="alert"
+          aria-label={t('chat.live.failure')}
+          data-testid="chat-live-failure"
+        >
+          <span className="chat-state-icon">
+            <Icon name="alert" size={14} />
+          </span>
+          <div className="chat-state-copy">
+            <b>{t('chat.live.failure')}</b>
+            <span>{failure.message}</span>
+          </div>
+          <button type="button" className="chat-btn chat-btn-sm" onClick={onRetry}>
+            {t('chat.live.retry')}
+          </button>
+        </section>
       ) : null}
     </>
   )
@@ -1585,6 +2406,117 @@ function LiveToolCard({ tool }: { tool: { name: string; args: string; ok: boolea
 }
 
 /**
+ * A delegated agent's card.
+ *
+ * The runtime owns the delegation; this only shows what it reported. Collapsed
+ * by default because a parent that spawns three children would otherwise push
+ * its own answer off the screen — but the collapsed row still carries the two
+ * things a reader needs at a glance: what state the child is in and what it was
+ * asked to do.
+ */
+export function SubAgentCard({
+  agent,
+  sources = 0,
+  onCite,
+}: {
+  agent: LiveSubAgent
+  sources?: number
+  onCite?: () => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const running =
+    agent.status === 'running' || agent.status === 'pending' || agent.status === 'waiting'
+  const tone =
+    agent.status === 'failed'
+      ? ' chat-tone-danger'
+      : agent.status === 'completed'
+        ? ' chat-tone-success'
+        : running
+          ? ' chat-tone-warn'
+          : ''
+  const tools = agent.steps.filter((step) => step.kind === 'tool').length
+  const title = agent.name || t('chat.subagent.unnamed')
+
+  return (
+    <section
+      className={`chat-subagent${open ? ' is-open' : ''}`}
+      data-testid="chat-subagent"
+      data-status={agent.status}
+      data-agent={agent.id}
+    >
+      <button
+        type="button"
+        className="chat-subagent-row"
+        aria-expanded={open}
+        aria-label={t('chat.subagent.toggle')}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="chat-subagent-icon">
+          <Icon name="layers" size={12} />
+        </span>
+        <span className="chat-subagent-name">{title}</span>
+        {agent.step !== null ? (
+          <span className="chat-subagent-step">{t('chat.subagent.step', { step: agent.step })}</span>
+        ) : null}
+        {agent.model ? <span className="chat-subagent-model">{agent.model}</span> : null}
+        <span className={`chat-badge${tone}`}>{t(`chat.subagent.status.${agent.status}` as MessageKey)}</span>
+        {tools > 0 ? (
+          <span className="chat-subagent-count">{t('chat.subagent.tools', { count: tools })}</span>
+        ) : null}
+        <span className="chat-tool-caret" aria-hidden="true">
+          <Icon name="chevDown" size={10} />
+        </span>
+      </button>
+      {agent.task ? (
+        <p className="chat-subagent-task">
+          <span>{t('chat.subagent.task')}</span>
+          {agent.task}
+        </p>
+      ) : null}
+      {open ? (
+        <div className="chat-subagent-body">
+          {agent.steps.length === 0 ? (
+            <p className="chat-subagent-empty">{t('chat.subagent.empty')}</p>
+          ) : (
+            agent.steps.map((step, index) =>
+              step.kind === 'text' ? (
+                <div
+                  className={`chat-subagent-text${step.channel === 'thinking' ? ' is-thinking' : ''}`}
+                  key={`${agent.id}-step-${index}`}
+                >
+                  {step.channel === 'thinking' ? (
+                    <span className="chat-subagent-label">{t('chat.subagent.thinking')}</span>
+                  ) : null}
+                  {step.text}
+                </div>
+              ) : (
+                <div
+                  className="chat-subagent-tool"
+                  key={`${agent.id}-step-${index}`}
+                  data-ok={step.ok === null ? 'pending' : String(step.ok)}
+                >
+                  <span className="chat-subagent-tool-name">{step.name}</span>
+                  {step.args ? <code>{step.args}</code> : null}
+                  {step.output ? <pre>{step.output}</pre> : null}
+                </div>
+              ),
+            )
+          )}
+        </div>
+      ) : null}
+      {agent.error ? <p className="chat-subagent-error">{agent.error}</p> : null}
+      {agent.result && !agent.error ? (
+        <div className="chat-subagent-result">
+          <span className="chat-subagent-label">{t('chat.subagent.result')}</span>
+          <Markdown text={agent.result} sources={sources} onCite={onCite} />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/**
  * The card a blocked run is waiting on.
  *
  * Closing it is a real answer (`cancel`): leaving a question answerable after
@@ -1606,7 +2538,13 @@ function ApprovalCard({
         <span className="chat-badge chat-tone-warn">{request.kind}</span>
       </div>
       <div className="chat-confirm-body">
-        <p>{t('chat.confirm.desc')}</p>
+        <p>
+          {t(
+            request.kind === 'read_outside_project'
+              ? 'chat.confirm.outside'
+              : 'chat.confirm.desc',
+          )}
+        </p>
         <pre className="chat-confirm-code">{request.detail}</pre>
       </div>
       <div className="chat-confirm-foot">
@@ -1625,41 +2563,3 @@ function ApprovalCard({
   )
 }
 
-/**
- * `[n]` markers in an agent message become buttons that open the sources pane.
- *
- * The count comes from the same rail read that produced the numbers, so a
- * bracket whose number has no source stays literal text: linking to a source
- * that does not exist would be worse than showing the bracket.
- */
-function renderCites(text: string, sources: number, onCite: () => void): ReactNode {
-  if (sources === 0 || !text.includes('[')) return text
-  const nodes: ReactNode[] = []
-  const pattern = /\[(\d{1,3})\]/g
-  let cursor = 0
-  let match: RegExpExecArray | null = pattern.exec(text)
-  while (match !== null) {
-    const number = Number(match[1])
-    if (number >= 1 && number <= sources) {
-      if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
-      nodes.push(
-        <button
-          key={`${number}-${match.index}`}
-          type="button"
-          className="chat-cite"
-          data-testid="chat-cite"
-          data-number={number}
-          aria-label={`[${number}]`}
-          onClick={onCite}
-        >
-          {number}
-        </button>,
-      )
-      cursor = match.index + match[0].length
-    }
-    match = pattern.exec(text)
-  }
-  if (nodes.length === 0) return text
-  if (cursor < text.length) nodes.push(text.slice(cursor))
-  return <>{nodes}</>
-}

@@ -10,6 +10,7 @@ import ConnectorsPage from './pages/connectors/ConnectorsPage'
 import SchedulesPage from './pages/schedules/SchedulesPage'
 import LibraryPage from './pages/library/LibraryPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
+import OnboardingDialog from './onboarding/OnboardingDialog'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
 import { SHELL_ROUTES, WORKBENCH_ROUTE } from './shell/routes'
@@ -80,6 +81,7 @@ export function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
+      <OnboardingDialog />
       <AppRoutes />
     </BrowserRouter>
   )

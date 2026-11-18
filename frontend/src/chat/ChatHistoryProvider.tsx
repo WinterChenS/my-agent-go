@@ -65,12 +65,39 @@ const HistoryContext = createContext<ChatHistory | null>(null)
 /** How many rows the panel shows; the ledger pages beyond this on demand. */
 const HISTORY_LIMIT = 50
 
+/**
+ * The session the page was last showing.
+ *
+ * The chat page is one route among many: leaving it unmounts the conversation,
+ * and coming back used to start from a blank page even though nothing had
+ * closed the conversation. Remembering the id makes the return land where the
+ * reader left, including on a run that is still going.
+ */
+const ACTIVE_KEY = 'anvil.chat.session'
+
+function readActive(): string | null {
+  try {
+    return window.localStorage.getItem(ACTIVE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeActive(id: string | null) {
+  try {
+    if (id) window.localStorage.setItem(ACTIVE_KEY, id)
+    else window.localStorage.removeItem(ACTIVE_KEY)
+  } catch {
+    // A locked-down webview is not a reason to lose the session on screen.
+  }
+}
+
 export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const sample = useChatSample()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(() => readActive())
   const [newSeq, setNewSeq] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -87,6 +114,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const setActive = useCallback((id: string | null) => {
     activeRef.current = id
     setActiveId(id)
+    writeActive(id)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -103,8 +131,16 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       setSessions(page.sessions)
       setProjects(index)
       setError(null)
-      // A session deleted elsewhere must not stay the active one.
-      if (activeRef.current && !page.sessions.some((row) => row.id === activeRef.current)) {
+      // A session deleted elsewhere must not stay the active one. Only decide
+      // that from a complete list: an old conversation beyond the first page is
+      // missing from `sessions` without having been deleted, and dropping it
+      // would blank the page the reader just came back to.
+      const complete = page.sessions.length < HISTORY_LIMIT
+      if (
+        complete &&
+        activeRef.current &&
+        !page.sessions.some((row) => row.id === activeRef.current)
+      ) {
         setActive(null)
       }
     } catch (cause) {

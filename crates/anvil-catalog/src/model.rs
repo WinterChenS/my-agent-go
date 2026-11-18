@@ -285,25 +285,198 @@ pub struct ToolRecord {
     pub source: String,
 }
 
-/// A named binding of one runtime and one model.
+/// Thinking levels the runtime accepts, lowest first.
+pub const THINKING_LEVELS: [&str; 4] = ["off", "low", "medium", "high"];
+
+/// Permission modes the agent page offers, narrowest first.
+pub const PERMISSION_MODES: [&str; 4] = ["readonly", "medium", "high", "full"];
+
+/// Context-window presets, in the order the page offers them.
+pub const CONTEXT_WINDOWS: [&str; 3] = ["200K", "400K", "1M"];
+
+/// How a main agent may hand work to its sub agents.
+pub const DELEGATION_POLICIES: [&str; 3] = ["auto", "explicit", "never"];
+
+/// Which side of the agent list a row belongs to.
+pub const AGENT_GROUPS: [&str; 2] = ["main", "sub"];
+
+/// Tools the read-only permission mode keeps.
 ///
-/// The composer offers agents and models; an agent is just a saved pair, so
-/// One agent: a name on a runtime+model pair.
+/// These are pi's own tool names, and they are what the adapter passes to
+/// `--tools`; a mode that named tools the runtime does not have would look
+/// enforced and change nothing.
+pub const READ_ONLY_TOOLS: [&str; 4] = ["read", "grep", "find", "ls"];
+
+/// Built-in tool set a runtime exposes when the user has not narrowed it.
 ///
-/// Picking one is the same code path as picking a model with two decisions
-/// already made. The built-in `default` agent is a stored row like any other
-/// (it is created on the first snapshot), so the user can bind it to whatever
-/// runtime and model they run; only its removal is refused.
+/// Names come from `pi --help`, which documents them in its own examples
+/// (`--tools read,grep,find,ls`, `--exclude-tools ask_question`).
+pub const BUILTIN_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+
+/// Tools a runtime can expose *besides* its built-ins.
+///
+/// `subagent` is what pi's official `subagent` extension registers, and what
+/// lets the runtime delegate to child agents. It has to be named in the tool
+/// list, because `--tools` is a whole allowlist: leaving it out hid the
+/// extension from the model, so a machine with the extension installed still
+/// could not delegate.
+///
+/// Naming a tool the runtime does not have is harmless — pi ignores unknown
+/// names rather than failing — so this belongs in the default set even when the
+/// extension is not installed.
+pub const DELEGATION_TOOLS: [&str; 1] = ["subagent"];
+
+/// The tool list a new agent gets: the built-ins plus delegation.
+///
+/// Read-only mode deliberately excludes delegation: a child agent runs its own
+/// tools, so allowing it would let a "read only" turn write through one.
+pub const DEFAULT_TOOLS: [&str; 8] = [
+    "read", "write", "edit", "bash", "grep", "find", "ls", "subagent",
+];
+
+/// One agent: a name on a runtime+model pair plus the persona it runs with.
+///
+/// The composer offers agents and models; an agent is a saved pair with the
+/// settings a conversation inherits. Picking one is the same code path as
+/// picking a model with the persona decisions already made. The built-in
+/// `default` agent is a stored row like any other (it is created on the first
+/// snapshot), so the user can bind it to whatever runtime and model they run;
+/// only its removal is refused.
+///
+/// Only the persona fields are executed by this build: `thinking`,
+/// `system_prompt`, `tools` and `skills` reach the runtime as command-line
+/// arguments. The rest are stored so the page keeps what the user configured,
+/// and every surface that cannot execute a field says so instead of pretending.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRecord {
     pub id: String,
     pub name: String,
+    /// Stable identifier the user types; unique across agents.
+    pub slug: String,
+    pub description: String,
     pub runtime_id: String,
     pub model_id: String,
     /// True for the built-in `default` agent, which cannot be removed.
     pub is_default: bool,
+    /// `off` | `low` | `medium` | `high`; reaches the runtime as `--thinking`.
+    pub thinking: String,
+    /// Preset label only; the runtime caps its own window.
+    pub context_window: String,
+    /// Bring a summary of this agent's earlier conclusions into a new session.
+    pub memory: bool,
+    /// Fold early turns once the window is nearly full.
+    pub auto_compact: bool,
+    /// Sent as `--system-prompt`; `{{variables}}` are rendered per session.
+    pub system_prompt: String,
+    /// Tool names the runtime may use. Empty means the runtime's own default
+    /// set; a named list is a real allowlist passed as `--tools`.
+    pub tools: Vec<String>,
+    /// Skill names mounted for this agent, resolved to paths when a session
+    /// opens and passed as `--skill`.
+    pub skills: Vec<String>,
+    pub permission: String,
+    pub writable_dirs: String,
+    pub command_allowlist: String,
+    pub network: bool,
+    pub confirm_dangerous: bool,
+    /// `main` or `sub`.
+    pub group_kind: String,
+    /// Main agent a sub agent was delegated from; empty for `main`.
+    pub delegated_from: String,
+    pub delegation_policy: String,
+    /// Global ceiling on concurrent delegated runs.
+    pub concurrency: u32,
+    pub enabled: bool,
     pub updated_at: String,
+}
+
+impl AgentRecord {
+    /// The settings a new agent starts from.
+    #[must_use]
+    pub fn default_persona() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            slug: String::new(),
+            description: String::new(),
+            runtime_id: String::new(),
+            model_id: String::new(),
+            is_default: false,
+            thinking: "medium".to_string(),
+            context_window: "400K".to_string(),
+            memory: false,
+            auto_compact: true,
+            system_prompt: String::new(),
+            tools: Vec::new(),
+            skills: Vec::new(),
+            permission: "medium".to_string(),
+            writable_dirs: String::new(),
+            command_allowlist: String::new(),
+            network: true,
+            confirm_dangerous: true,
+            group_kind: "main".to_string(),
+            delegated_from: String::new(),
+            delegation_policy: "auto".to_string(),
+            concurrency: 4,
+            enabled: true,
+            updated_at: String::new(),
+        }
+    }
+
+    /// Narrow the tool allowlist to what the permission mode permits.
+    ///
+    /// `readonly` is the only mode this build can turn into a runtime fact: it
+    /// becomes pi's `--tools read,grep,find,ls`. The wider modes keep the
+    /// configured list, because pi has no approval channel to consult.
+    #[must_use]
+    pub fn effective_tools(&self) -> Vec<String> {
+        if self.permission == "readonly" {
+            return READ_ONLY_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect();
+        }
+        self.tools.clone()
+    }
+
+    /// Whether the runtime may use any tool at all.
+    ///
+    /// Turning every tool off is a real choice, so it maps to `--no-tools`
+    /// rather than to "the runtime's default set".
+    #[must_use]
+    pub fn allows_tools(&self) -> bool {
+        !self.effective_tools().is_empty()
+    }
+}
+
+/// What the agent page sends when it saves.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentDraft {
+    pub id: Option<String>,
+    pub name: String,
+    pub slug: String,
+    pub description: String,
+    pub runtime_id: String,
+    pub model_id: String,
+    pub thinking: String,
+    pub context_window: String,
+    pub memory: bool,
+    pub auto_compact: bool,
+    pub system_prompt: String,
+    pub tools: Vec<String>,
+    pub skills: Vec<String>,
+    pub permission: String,
+    pub writable_dirs: String,
+    pub command_allowlist: String,
+    pub network: bool,
+    pub confirm_dangerous: bool,
+    pub group_kind: String,
+    pub delegated_from: String,
+    pub delegation_policy: String,
+    pub concurrency: u32,
+    pub enabled: bool,
 }
 
 /// One MCP server declaration, with every secret removed.

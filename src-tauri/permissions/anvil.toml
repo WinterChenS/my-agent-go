@@ -35,6 +35,11 @@ description = "Allows syncing one runtime's resources."
 commands.allow = ["catalog_sync"]
 
 [[permission]]
+identifier = "allow-catalog-sync-inventory"
+description = "Allows re-reading local skills, tools and MCP declarations without probing models."
+commands.allow = ["catalog_sync_inventory"]
+
+[[permission]]
 identifier = "allow-catalog-add-model"
 description = "Allows adding a custom model; the credential is encrypted with DPAPI before storage."
 commands.allow = ["catalog_add_model"]
@@ -68,6 +73,11 @@ commands.allow = ["catalog_delete_agent"]
 identifier = "allow-catalog-probe-mcp"
 description = "Allows connecting to one declared MCP server and enumerating its tools."
 commands.allow = ["catalog_probe_mcp"]
+
+[[permission]]
+identifier = "allow-runtime-install"
+description = "Allows installing one runtime CLI (pi / codex / opencode / claude) through npm into the shared prefix."
+commands.allow = ["runtime_install"]
 
 [[permission]]
 identifier = "allow-session-list"
@@ -145,6 +155,11 @@ description = "Allows writing one conversation to the application's export folde
 commands.allow = ["session_export"]
 
 [[permission]]
+identifier = "allow-agent-runs"
+description = "Allows reading one agent's run records from the session ledger."
+commands.allow = ["agent_runs"]
+
+[[permission]]
 identifier = "allow-session-rail"
 description = "Allows reading the right rail: what a session executed, produced, cited and can preview."
 commands.allow = ["session_rail"]
@@ -154,6 +169,41 @@ identifier = "allow-session-compact"
 description = "Allows folding the older part of a session's transcript into one summary row."
 commands.allow = ["session_compact"]
 
+[[permission]]
+identifier = "allow-workspace-defaults"
+description = "Allows reading (and creating on first use) the default workspace and projects root."
+commands.allow = ["workspace_defaults"]
+
+[[permission]]
+identifier = "allow-workspace-ensure"
+description = "Allows validating a directory the user picked and getting its canonical path."
+commands.allow = ["workspace_ensure"]
+
+[[permission]]
+identifier = "allow-workspace-create"
+description = "Allows creating one project folder under the projects root."
+commands.allow = ["workspace_create"]
+
+[[permission]]
+identifier = "allow-workspace-pick"
+description = "Allows opening the native folder picker."
+commands.allow = ["workspace_pick"]
+
+[[permission]]
+identifier = "allow-workspace-pick-file"
+description = "Allows opening the native file picker (its parent directory becomes the workspace)."
+commands.allow = ["workspace_pick_file"]
+
+[[permission]]
+identifier = "allow-pi-subagent-status"
+description = "Allows checking whether the installed pi ships and has activated the subagent extension."
+commands.allow = ["pi_subagent_status"]
+
+[[permission]]
+identifier = "allow-pi-subagent-install"
+description = "Allows copying pi's bundled subagent extension into the pi agent directory."
+commands.allow = ["pi_subagent_install"]
+
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install"]

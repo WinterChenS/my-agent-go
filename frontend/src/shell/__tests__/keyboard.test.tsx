@@ -26,7 +26,9 @@ describe('shell keyboard access', () => {
     const user = userEvent.setup()
     renderAt('/')
     const order: string[] = []
-    for (let index = 0; index < 8; index += 1) {
+    // Enough stops to get past the sidebar's conversation list, which sits
+    // between the nav and the topbar and grows with the ledger.
+    for (let index = 0; index < 30; index += 1) {
       await user.tab()
       order.push(activeLabel())
     }

@@ -23,11 +23,11 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('agents normal entry', () => {
-  it('renders the live binding manager and is honest without the desktop host', async () => {
+  it('renders the live agent page and is honest without the desktop host', async () => {
     renderAt('/agents')
     const page = screen.getByTestId('agents-page')
     expect(page).toHaveAttribute('data-mode', 'live')
-    expect(screen.getByRole('heading', { name: 'Agent' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Agent 管理' })).toBeInTheDocument()
     // No host, no runtimes: the page says so instead of offering a dead form.
     await waitFor(() => expect(page).toHaveTextContent('当前没有连接桌面宿主'))
     expect(screen.getByRole('button', { name: '新建 Agent' })).toBeDisabled()
@@ -37,15 +37,15 @@ describe('agents normal entry', () => {
     }
   })
 
-  it('keeps the live manager honest in English', async () => {
+  it('keeps the live agent page honest in English', async () => {
     window.localStorage.setItem('anvil.language', 'en-US')
     renderAt('/agents')
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
-    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Agent management' })).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.getByTestId('agents-page')).toHaveTextContent('The desktop host is not connected'),
     )
-    expect(screen.getByRole('button', { name: 'New agent' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'New Agent' })).toBeDisabled()
   })
 })
 

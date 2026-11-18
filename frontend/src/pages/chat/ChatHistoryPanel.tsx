@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectSummary, SessionSummary } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
+import { useWorkspace } from '../../workspace/WorkspaceProvider'
 import { sampleChat } from './sampleData'
 
 type Session = {
@@ -44,6 +45,7 @@ export default function ChatHistoryPanel({
   onClose?: () => void
 }) {
   const { t } = useI18n()
+  const workspace = useWorkspace()
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState('')
   const [visible, setVisible] = useState(4)
@@ -116,10 +118,16 @@ export default function ChatHistoryPanel({
     })
     return keys.map((path) => ({
       path,
-      name: names.get(path) ?? (path || t('chat.history.noProject')),
+      // The default workspace is a real directory with a name of its own; the
+      // folder is called "Anvil", which says nothing about why every new chat
+      // starts there.
+      name:
+        path && path === workspace.defaultPath
+          ? t('workspace.defaultName')
+          : names.get(path) ?? (path || t('chat.history.noProject')),
       sessions: groups.get(path) ?? [],
     }))
-  }, [live?.projects, t, visibleLive])
+  }, [live?.projects, t, visibleLive, workspace.defaultPath])
 
   const noResults = normalized
     ? visibleProjects.length === 0 && visiblePersonal.length === 0 && visibleLive.length === 0
@@ -167,31 +175,34 @@ export default function ChatHistoryPanel({
     >
       <div className="chat-history-head">
         <span>{t('chat.history.title')}</span>
-        <div className="chat-history-head-actions">
-          <button
-            type="button"
-            className="chat-iconbtn"
-            data-testid="chat-history-new"
-            aria-label={t('chat.live.newSession')}
-            title={actionsEnabled ? t('chat.live.newSession') : t('chat.action.unavailable')}
-            disabled={!sample && !actionsEnabled}
-            onClick={() => {
-              if (live) {
-                live.onNew()
-                return
-              }
-              setNotice(t('chat.notice.history'))
-            }}
-          >
-            <Icon name="plus" size={12} />
-          </button>
-          {variant === 'drawer' ? (
+        {variant === 'drawer' ? (
+          <div className="chat-history-head-actions">
             <button type="button" className="chat-iconbtn" aria-label={t('chat.dialog.close')} onClick={onClose}>
               <Icon name="x" size={12} />
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
+      {/* A full-width, labelled entry. The old 22px "+" icon in the heading was
+          easy to miss and did not read as "start a new conversation". */}
+      <button
+        type="button"
+        className="chat-history-new-btn"
+        data-testid="chat-history-new"
+        aria-label={t('chat.live.newSession')}
+        title={sample || actionsEnabled ? t('chat.history.newChat') : t('chat.action.unavailable')}
+        disabled={!sample && !actionsEnabled}
+        onClick={() => {
+          if (live) {
+            live.onNew()
+            return
+          }
+          setNotice(t('chat.notice.history'))
+        }}
+      >
+        <Icon name="plus" size={13} />
+        <span>{t('chat.history.newChat')}</span>
+      </button>
       <label className="chat-history-search">
         <Icon name="search" size={11} />
         <input
@@ -259,6 +270,7 @@ export default function ChatHistoryPanel({
                             setMenuFor((current) => (current === session.id ? null : session.id))
                           }}
                           onCloseMenu={() => setMenuFor(null)}
+                          onAction={() => setNotice(t('chat.notice.history'))}
                         />
                       ))}
                     </div>
@@ -284,6 +296,7 @@ export default function ChatHistoryPanel({
                     setMenuFor((current) => (current === session.id ? null : session.id))
                   }}
                   onCloseMenu={() => setMenuFor(null)}
+                  onAction={() => setNotice(t('chat.notice.history'))}
                 />
               ))}
             </div>
@@ -390,6 +403,36 @@ function SessionRow({
 }) {
   const { t } = useI18n()
   const id = `session-${session.id}`
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [anchor, setAnchor] = useState({ top: 0, left: 0 })
+
+  // The sidebar list is an `overflow: auto` container. An absolutely
+  // positioned menu inside it is either clipped or grows a scrollbar: the
+  // stylesheet makes this popover `position: fixed` and it is placed against
+  // the trigger's viewport rect, so it stays out of the list's layout.
+  useEffect(() => {
+    if (!menuOpen) return
+    const openedAt = Date.now()
+    // The very click that opened the popover must not close it again in the
+    // same frame, before the browser has finished dispatching it.
+    const closeOnOutside = (event: MouseEvent) => {
+      if (Date.now() - openedAt < 300) return
+      const target = event.target as Node
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      onCloseMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseMenu()
+    }
+    document.addEventListener('click', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('click', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [menuOpen, onCloseMenu])
+
   return (
     <div className={`chat-history-row${session.pinned ? ' is-pinned' : ''}${menuOpen ? ' is-menu-open' : ''}`} id={id}>
       {rename ? (
@@ -428,59 +471,78 @@ function SessionRow({
         </button>
       )}
       <button
+        ref={triggerRef}
         type="button"
         className="chat-history-actions-trigger"
         aria-label={t('chat.history.actions')}
-        aria-haspopup="menu"
         aria-expanded={menuOpen}
+        data-testid={`chat-history-actions-${session.id}`}
         onClick={(event) => {
           event.stopPropagation()
+          // A single click toggles the menu, exactly like the original row.
+          // Only the popover's positioning changed (fixed, out of the list's
+          // scrolling layout); its open/close behaviour is untouched.
+          const rect = triggerRef.current?.getBoundingClientRect()
+          if (rect) {
+            const width = 184
+            const height = 210
+            const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+            const below = rect.bottom + 4
+            const top = below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below
+            setAnchor({ top, left })
+          }
           onMenu()
         }}
       >
         <Icon name="more" size={11} />
       </button>
       {menuOpen ? (
-        <div className="chat-history-action-menu" role="menu" aria-label={t('chat.history.actions')}>
-          {(['pin', 'rename', 'archive', 'fork', 'compact', 'delete'] as const).map((action) => (
-            <button
-              key={action}
-              type="button"
-              role="menuitem"
-              className={action === 'delete' ? 'is-danger' : ''}
-              disabled={!onAction}
-              title={onAction ? t(`chat.history.${action}` as 'chat.history.pin') : t('chat.action.unavailable')}
-              onClick={() => {
-                if (!onAction) {
-                  onCloseMenu()
-                  onOpen()
-                  return
-                }
-                onAction(action)
-              }}
+        <div
+              ref={menuRef}
+              className="chat-history-action-menu"
+              role="menu"
+              aria-label={t('chat.history.actions')}
+              data-testid="chat-history-action-menu"
+              data-session-id={session.id}
+              style={{ top: anchor.top, left: anchor.left }}
             >
-              <Icon
-                name={
-                  action === 'pin'
-                    ? 'pin'
-                    : action === 'delete'
-                      ? 'trash'
-                      : action === 'archive'
-                        ? 'archive'
-                        : action === 'fork'
-                          ? 'branch'
-                          : 'file'
-                }
-                size={11}
-              />
-              <span>
-                {action === 'delete' && confirmingDelete
-                  ? t('chat.history.deleteConfirm')
-                  : t(`chat.history.${action}` as 'chat.history.pin')}
-              </span>
-            </button>
-          ))}
-        </div>
+              {(['pin', 'rename', 'archive', 'fork', 'compact', 'delete'] as const).map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  role="menuitem"
+                  className={action === 'delete' ? 'is-danger' : ''}
+                  title={t(`chat.history.${action}` as 'chat.history.pin')}
+                  onClick={() => {
+                    if (!onAction) {
+                      onCloseMenu()
+                      return
+                    }
+                    onAction(action)
+                  }}
+                >
+                  <Icon
+                    name={
+                      action === 'pin'
+                        ? 'pin'
+                        : action === 'delete'
+                          ? 'trash'
+                          : action === 'archive'
+                            ? 'archive'
+                            : action === 'fork'
+                              ? 'branch'
+                              : 'file'
+                    }
+                    size={11}
+                  />
+                  <span>
+                    {action === 'delete' && confirmingDelete
+                      ? t('chat.history.deleteConfirm')
+                      : t(`chat.history.${action}` as 'chat.history.pin')}
+                  </span>
+                </button>
+              ))}
+      </div>
       ) : null}
     </div>
   )

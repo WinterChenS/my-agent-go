@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AppRoutes } from '../../../App'
+import type { TauriInternals } from '../../../host/tauri'
 import { SETTINGS_SECTIONS } from '../SettingsPage'
 
 function renderAt(url: string) {
@@ -179,5 +180,94 @@ describe('settings responsive contract', () => {
     renderAt('/settings')
     expect(screen.getByRole('heading', { name: '主题' })).toBeInTheDocument()
     expect(screen.queryByTestId('settings-provider-row')).toBeNull()
+  })
+})
+
+describe('settings runtime extensions', () => {
+  const missing = {
+    installed: false,
+    agentDir: 'C:/Users/A/.pi/agent',
+    extensionDir: 'C:/Users/A/.pi/agent/extensions/subagent',
+    source: 'C:/pi/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent',
+    agents: 0,
+    prompts: 0,
+    canInstall: true,
+    detail: 'the subagent extension is not installed in the pi agent directory',
+  }
+  const installed = { ...missing, installed: true, agents: 4, prompts: 3, canInstall: false }
+
+  function installRuntimeHost() {
+    const calls: string[] = []
+    const snapshot = {
+      agents: [],
+      runtimes: [
+        {
+          id: 'pi:abc',
+          runtimeId: 'pi',
+          displayName: 'Pi Agent',
+          version: '1.5.0',
+          installPath: 'C:/Users/A/AppData/Local/pi-node/current/pi.cmd',
+          installSource: 'path',
+          configPath: 'C:/Users/A/.pi/agent',
+          status: 'available',
+          capabilities: {
+            models: 'supported',
+            customModels: 'supported',
+            skills: 'supported',
+            tools: 'supported',
+            mcp: 'supported',
+            sessions: 'supported',
+          },
+          health: { checkedAt: '2026-11-17T00:00:00Z', latencyMs: 12, detail: null },
+          lastSeen: '2026-11-17T00:00:00Z',
+          firstSeen: '2026-11-17T00:00:00Z',
+          snapshotState: 'fresh',
+          adapterRegistered: true,
+        },
+      ],
+      models: [],
+      skills: [],
+      tools: [],
+      mcp: [],
+      syncs: [],
+      adapterFailures: [],
+      scannedAt: '2026-11-17T00:00:00Z',
+    }
+    const internals = {
+      invoke: async (command: string) => {
+        calls.push(command)
+        if (command === 'catalog_snapshot' || command === 'catalog_sync_inventory') return snapshot
+        if (command === 'pi_subagent_status') return missing
+        if (command === 'pi_subagent_install') return { written: 6, skipped: 0, status: installed }
+        if (command === 'session_list') return { sessions: [], total: 0 }
+        if (command === 'session_projects') return []
+        return null
+      },
+    }
+    ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
+      internals as unknown as TauriInternals
+    return calls
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
+  })
+
+  it('offers the pi subagent install on the runtime page, not only in a conversation', async () => {
+    const calls = installRuntimeHost()
+    const user = userEvent.setup()
+    renderAt('/settings#runtime')
+
+    const card = await screen.findByTestId('settings-extensions')
+    const row = within(card).getByTestId('catalog-subagent')
+    expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('未安装')
+
+    await user.click(within(row).getByTestId('catalog-subagent-install'))
+
+    await waitFor(() => expect(calls).toContain('pi_subagent_install'))
+    await waitFor(() =>
+      expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('已安装'),
+    )
+    expect(screen.getByTestId('settings-notice')).toHaveTextContent('已安装 subagent 扩展')
   })
 })

@@ -25,7 +25,18 @@ export default function Sidebar() {
     location.pathname === '/__sample/skills' || new URLSearchParams(location.search).get('sample') === 'skills'
   const mcpSample =
     location.pathname === '/__sample/mcp' || new URLSearchParams(location.search).get('sample') === 'mcp'
-  const isChat = location.pathname === '/chat' || location.pathname === '/__sample/chat' || chatSample
+
+  // Clicking the "对话" nav item should resume the most recent conversation,
+  // not drop the reader into a blank composer. This only fills in when there
+  // is no active session yet; once one is open, the NavLink just navigates to
+  // the same chat route and leaves the current conversation alone.
+  const onPrimaryNav = (routeId: string) => {
+    if (routeId !== 'chat' || chatSample || shellSample) return
+    if (!history.activeId && history.sessions.length > 0) {
+      history.open(history.sessions[0].id)
+    }
+  }
+
   return (
     <aside className="sidebar" id="sidebar">
       <Link className="brand" to="/" aria-label="Anvil">
@@ -47,6 +58,7 @@ export default function Sidebar() {
               key={route.id}
               id={`nav-${route.id}`}
               to={route.path}
+              onClick={() => onPrimaryNav(route.id)}
               className={({ isActive }) => `nav-item${isActive || (chatSample && route.id === 'chat') || (agentsSample && route.id === 'agents') || (skillsSample && route.id === 'skills') || (mcpSample && route.id === 'mcp') ? ' is-active' : ''}`}
               aria-label={count === null ? t(route.navKey) : t('sample.nav.chat', { count })}
               data-nav-entry
@@ -67,36 +79,38 @@ export default function Sidebar() {
 
       <ToolsMenu sample={shellSample} />
 
-      {isChat ? (
-        <ChatHistoryPanel
-          sample={chatSample}
-          live={
-            chatSample || !isTauriHost()
-              ? undefined
-              : {
-                  sessions: history.sessions,
-                  projects: history.projects,
-                  activeId: history.activeId,
-                  onOpen: history.open,
-                  onNew: () => {
-                    // A new conversation is a state of the chat page, so the
-                    // shell asks for it the same way it asks for a session.
-                    history.startNew()
-                    if (location.pathname !== '/chat') navigate('/chat')
-                  },
-                  onRename: (id, title) => void history.rename(id, title),
-                  onPin: (id) => {
-                    const row = history.sessions.find((session) => session.id === id)
-                    void history.setPinned(id, !(row?.pinned ?? false))
-                  },
-                  onArchive: (id) => void history.setArchived(id, true),
-                  onDelete: (id) => void history.remove(id),
-                  onFork: (id) => void history.fork(id),
-                  onCompact: (id) => void history.compact(id, COMPACT_KEEP_LAST),
-                }
-          }
-        />
-      ) : null}
+      {/* The conversation list belongs to the window, not to one route. It used
+          to render only while `/chat` was open, so every other page hid the
+          history — and with it the only way back into a conversation. The rows
+          are the same shared ledger; `open` navigates to the chat route. */}
+      <ChatHistoryPanel
+        sample={chatSample}
+        live={
+          chatSample || !isTauriHost()
+            ? undefined
+            : {
+                sessions: history.sessions,
+                projects: history.projects,
+                activeId: history.activeId,
+                onOpen: history.open,
+                onNew: () => {
+                  // A new conversation is a state of the chat page, so the
+                  // shell asks for it the same way it asks for a session.
+                  history.startNew()
+                  if (location.pathname !== '/chat') navigate('/chat')
+                },
+                onRename: (id, title) => void history.rename(id, title),
+                onPin: (id) => {
+                  const row = history.sessions.find((session) => session.id === id)
+                  void history.setPinned(id, !(row?.pinned ?? false))
+                },
+                onArchive: (id) => void history.setArchived(id, true),
+                onDelete: (id) => void history.remove(id),
+                onFork: (id) => void history.fork(id),
+                onCompact: (id) => void history.compact(id, COMPACT_KEEP_LAST),
+              }
+        }
+      />
 
       <div className="sidebar-foot">
         <div className="runtime-mini" aria-label={t('runtime.title')}>

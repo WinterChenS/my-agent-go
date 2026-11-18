@@ -290,6 +290,53 @@ pub fn validate_d_path_with(
     Ok(resolution)
 }
 
+/// Validate that `path` is a writable location on **any** volume.
+///
+/// This is the same reparse/junction-safe check as [`validate_d_path`] minus the
+/// hard `D:` requirement. It exists for the app's own per-user data directory
+/// (`%USERPROFILE%\.anvil`), which lives on whichever drive the profile does —
+/// typically `C:`. Everything else (no silent fallback, no probing residue, a
+/// re-resolve after creation) is unchanged.
+pub fn validate_writable_path<P: AsRef<Path>>(path: P, create: bool) -> Result<Resolution, PathError> {
+    validate_writable_path_with(path.as_ref(), create, &SystemResolver)
+}
+
+/// [`validate_writable_path`] with an injected [`Resolver`].
+pub fn validate_writable_path_with(
+    path: &Path,
+    create: bool,
+    resolver: &dyn Resolver,
+) -> Result<Resolution, PathError> {
+    let first = resolver.resolve(path)?;
+
+    let resolution = if create {
+        resolver
+            .create_dir_all(&first.resolved)
+            .map_err(|source| PathError::NotWritable {
+                path: first.resolved.clone(),
+                source: Box::new(source),
+            })?;
+        // Re-resolve after creation so a component swapped for a junction in
+        // between cannot redirect the write.
+        resolver.resolve(&first.resolved)?
+    } else {
+        if first.has_missing_components() {
+            return Err(PathError::Missing {
+                path: first.resolved,
+            });
+        }
+        first
+    };
+
+    resolver
+        .probe_writable(&resolution.resolved)
+        .map_err(|source| PathError::NotWritable {
+            path: resolution.resolved.clone(),
+            source: Box::new(source),
+        })?;
+    Ok(resolution)
+}
+
 /// A structurally validated absolute request: `D:` volume plus cleaned path.
 struct RequestedPath {
     absolute: PathBuf,

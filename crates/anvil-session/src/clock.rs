@@ -42,6 +42,13 @@ pub fn now_rfc3339() -> String {
     rfc3339(unix_now())
 }
 
+/// Today's date as `YYYY-MM-DD`, for persona placeholders.
+#[must_use]
+pub fn today() -> String {
+    let stamp = now_rfc3339();
+    stamp.split('T').next().unwrap_or_default().to_string()
+}
+
 /// Howard Hinnant's `civil_from_days`: days since 1970-01-01 to a civil date.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let shifted = days + 719_468;

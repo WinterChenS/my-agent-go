@@ -34,10 +34,13 @@ describe('workbench normal entry', () => {
     expect(screen.queryByTestId('sample-banner')).toBeNull()
     expect(screen.queryByTestId('nav-count-chat')).toBeNull()
     await waitFor(() => expect(screen.getAllByText('尚未接入运行时').length).toBeGreaterThan(0))
-    expect(screen.getByText('尚未接入会话')).toBeInTheDocument()
-    expect(screen.getByText('尚未接入产出物')).toBeInTheDocument()
-    expect(screen.getByText('尚未接入 Agent')).toBeInTheDocument()
-    expect(screen.getByText('尚未接入定时任务')).toBeInTheDocument()
+    // Scoped to the page: the shell sidebar now always shows the conversation
+    // list, and its own empty state shares this wording.
+    const page = screen.getByTestId('workbench-page')
+    expect(within(page).getByText('尚未接入会话')).toBeInTheDocument()
+    expect(within(page).getByText('尚未接入产出物')).toBeInTheDocument()
+    expect(within(page).getByText('尚未接入 Agent')).toBeInTheDocument()
+    expect(within(page).getByText('尚未接入定时任务')).toBeInTheDocument()
   })
 
   it('does not show prototype fixtures in the normal entry', () => {

@@ -6,6 +6,7 @@
 //! another thread.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -120,12 +121,42 @@ impl RunOutcome {
     }
 }
 
+/// One turn as the user composed it.
+///
+/// Images are paths, not bytes: every runtime that accepts them wants a file
+/// path (pi reads `@path` itself and turns the file into an image content
+/// block), and a path keeps the adapter free of image decoding.
+#[derive(Debug, Clone, Copy)]
+pub struct Turn<'a> {
+    pub prompt: &'a str,
+    pub images: &'a [PathBuf],
+}
+
+impl<'a> Turn<'a> {
+    #[must_use]
+    pub fn text(prompt: &'a str) -> Self {
+        Self {
+            prompt,
+            images: &[],
+        }
+    }
+}
+
 /// One runtime, as this build sees it.
 pub trait SessionAdapter: Send + Sync {
     /// Stable id, the same string the catalog uses (`pi`, `codex`, …).
     fn id(&self) -> &str;
 
     fn capabilities(&self) -> SessionCapabilities;
+
+    /// Whether `send_turn` can hand images to the runtime.
+    ///
+    /// Default `false`: a runtime that was never taught the attachment channel
+    /// must refuse images loudly instead of silently dropping them from a turn
+    /// the user believes carried a picture.
+    fn supports_images(&self) -> bool {
+        false
+    }
 
     /// Start or resume a session and return the runtime's own identifier.
     fn open(&self, context: &SessionContext, spec: &SessionSpec) -> Result<OpenedSession>;
@@ -142,6 +173,21 @@ pub trait SessionAdapter: Send + Sync {
         cancel: &Cancel,
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome>;
+
+    /// Run one turn with its attachments.
+    ///
+    /// Default: attachments cannot be represented, so the prompt travels alone.
+    /// Only adapters that opt in through `supports_images` override this.
+    fn send_turn(
+        &self,
+        context: &SessionContext,
+        opened: &OpenedSession,
+        turn: &Turn<'_>,
+        cancel: &Cancel,
+        sink: &mut dyn FnMut(AdapterEvent),
+    ) -> Result<RunOutcome> {
+        self.send(context, opened, turn.prompt, cancel, sink)
+    }
 
     /// Stop a run started by `send`. Default: rely on `Cancel`.
     fn abort(&self, _opened: &OpenedSession) -> Result<()> {
@@ -276,6 +322,7 @@ mod tests {
                 cwd: spec.cwd.clone(),
                 allow_tools: spec.allow_tools,
                 tools: spec.tools.clone(),
+                ..Default::default()
             })
         }
 

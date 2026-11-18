@@ -24,10 +24,12 @@ import {
 } from './settingsData'
 import './settings.css'
 import { useCatalog } from '../../catalog/useCatalog'
+import { PREF_AUTO_SYNC, PREF_SHOW_TIMELINE, useBoolPreference } from '../../preferences/flags'
 import {
   CatalogModelsPanel,
   CatalogRuntimeTable,
   CatalogSummary,
+  SubagentExtensionPanel,
 } from '../../catalog/CatalogPanels'
 
 type SectionId = 'general' | 'models' | 'runtime' | 'observability' | 'security'
@@ -136,6 +138,7 @@ export default function SettingsPage() {
                 onLanguage={setLanguage}
                 onNotice={announce}
               />
+              <BehaviourCard />
               <ThemeSettings />
               <LanguageSettings />
               <NotificationsCard sample={sample} onNotice={announce} />
@@ -148,6 +151,53 @@ export default function SettingsPage() {
         </div>
       </div>
     </section>
+  )
+}
+
+/** Real UI preferences. These are not sample-only switches: both change the
+ *  running app, so they stay enabled outside the prototype fixture mode. */
+function BehaviourCard() {
+  const { t } = useI18n()
+  const [showTimeline, setShowTimeline] = useBoolPreference(PREF_SHOW_TIMELINE, false)
+  const [autoSync, setAutoSync] = useBoolPreference(PREF_AUTO_SYNC, true)
+  return (
+    <Card title={t('settings.behaviour.title')} sub={t('settings.behaviour.sub')} testId="settings-behaviour">
+      <div className="st-rows">
+        <SettingRow title={t('settings.behaviour.timeline')} sub={t('settings.behaviour.timelineSub')}>
+          <PrefSwitch
+            checked={showTimeline}
+            label={t('settings.behaviour.timeline')}
+            testId="settings-show-timeline"
+            onChange={() => setShowTimeline(!showTimeline)}
+          />
+        </SettingRow>
+        <SettingRow title={t('settings.behaviour.autoSync')} sub={t('settings.behaviour.autoSyncSub')}>
+          <PrefSwitch
+            checked={autoSync}
+            label={t('settings.behaviour.autoSync')}
+            testId="settings-auto-sync"
+            onChange={() => setAutoSync(!autoSync)}
+          />
+        </SettingRow>
+      </div>
+    </Card>
+  )
+}
+
+/** Controlled switch: unlike the sample-only Switch above it has no local state. */
+function PrefSwitch({ checked, label, testId, onChange }: { checked: boolean; label: string; testId: string; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      className="st-switch"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      data-testid={testId}
+      onClick={onChange}
+    >
+      <span />
+    </button>
   )
 }
 
@@ -427,6 +477,16 @@ function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (messag
           />
         )}
       </Card>
+
+      {!sample && catalog.status === 'ready' && catalog.snapshot?.runtimes.some((row) => row.runtimeId === 'pi') ? (
+        <Card
+          title={t('catalog.subagent.cardTitle')}
+          sub={t('catalog.subagent.cardSub')}
+          testId="settings-extensions"
+        >
+          <SubagentExtensionPanel view={catalog} onNotice={onNotice} />
+        </Card>
+      ) : null}
 
       <Card title={t('settings.runtime.defaults')} sub={t('settings.runtime.defaultsSub')} testId="settings-runtime-defaults">
         <div className="st-rows">

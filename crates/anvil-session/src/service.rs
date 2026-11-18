@@ -12,14 +12,14 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::Condvar;
 
-use crate::adapter::{AdapterEvent, Cancel, Registry};
+use crate::adapter::{AdapterEvent, Cancel, Registry, Turn};
 use crate::clock::{now_rfc3339, unix_millis};
 use crate::context::{self, Prepared, Step};
 use crate::error::{Error, Result};
 use crate::model::{
     ApprovalDecision, ApprovalRequest, CompactReport, EventKind, Message, OpenedSession,
     ProjectSummary, Role, Run, RunEvent, RunStatus, SessionContext, SessionDetail, SessionInput,
-    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary,
+    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary, trusts_workspace,
 };
 use crate::store::{NewSession, Store};
 
@@ -311,6 +311,16 @@ impl SessionService {
         self
     }
 
+    /// Refresh the directories an `@skill` reference may resolve inside.
+    ///
+    /// The catalog is scanned independently of the session ledger, so the
+    /// roots can change while a session is open. The host calls this before
+    /// each turn; without it every skill the composer attached would be
+    /// refused by the context planner as "outside a configured root".
+    pub fn set_skill_roots(&mut self, roots: Vec<PathBuf>) {
+        self.skill_roots = roots;
+    }
+
     /// Override the approval deadline (tests use a short one).
     #[must_use]
     pub fn with_approval_timeout(mut self, timeout: std::time::Duration) -> Self {
@@ -363,6 +373,17 @@ impl SessionService {
         }
 
         let id = new_session_id(&spec.runtime_id);
+        // A conversation with no explicit project runs inside its own isolated
+        // directory: `<state_dir>/<session-id>`. One conversation's scratch files
+        // and runtime transcript then never sit next to another's.
+        let mut effective = spec.clone();
+        if effective.cwd.trim().is_empty() {
+            let dir = self.context.state_dir.join(&id);
+            std::fs::create_dir_all(&dir).map_err(|error| {
+                Error::Failed(format!("create session dir {}: {error}", dir.display()))
+            })?;
+            effective.cwd = dir.to_string_lossy().into_owned();
+        }
         let title = spec
             .title
             .clone()
@@ -374,15 +395,20 @@ impl SessionService {
             runtime_id: &spec.runtime_id,
             title: &title,
             model: &spec.model,
-            project_path: &spec.cwd,
+            project_path: &effective.cwd,
             parent_id: "",
             branch_at: 0,
             allow_tools: spec.allow_tools,
             tools: &spec.tools,
+            agent_id: &spec.agent_id,
+            thinking: &spec.thinking,
+            system_prompt: &spec.system_prompt,
+            append_prompt: &spec.append_system_prompt,
+            skills: &spec.skills,
             at: &now,
         })?;
 
-        let opened = match adapter.open(&self.context, spec) {
+        let opened = match adapter.open(&self.context, &effective) {
             Ok(opened) => opened,
             Err(error) => {
                 // The row stays, marked failed: a session the user started that
@@ -403,6 +429,12 @@ impl SessionService {
                 "runtimeId": opened.runtime_id,
                 "nativeId": opened.native_id,
                 "model": opened.model,
+                // What the run will actually use, so the transcript can answer
+                // "which agent and which thinking level produced this".
+                "agentId": opened.agent_id,
+                "thinking": opened.thinking,
+                "systemPromptChars": opened.system_prompt.chars().count(),
+                "skills": opened.skills.len(),
             }),
         )?;
         self.store.session(&id)
@@ -415,6 +447,8 @@ impl SessionService {
             &SessionInput {
                 prompt: prompt.to_string(),
                 context: Vec::new(),
+
+                ..Default::default()
             },
         )
     }
@@ -461,6 +495,13 @@ impl SessionService {
                 match step {
                     Step::Ready(prepared) => references.push(*prepared),
                     Step::Awaiting { reference, path } => {
+                        // "full" means the user already trusted this workspace:
+                        // reading outside it is the thing they asked for, so no
+                        // card is raised. Every other mode keeps the question.
+                        if trusts_workspace(input.permission.as_deref()) {
+                            references.push(context::allow(&reference, &path)?);
+                            continue;
+                        }
                         // A path outside the project is exactly what a stale
                         // card must not be able to approve, so the question is
                         // raised with the session's own identity.
@@ -502,6 +543,20 @@ impl SessionService {
                     }
                 }
             }
+        }
+        let images = context::attachments(&references);
+        if !images.is_empty() && !adapter.supports_images() {
+            // Dropping them quietly would answer a question about a picture
+            // nobody looked at.
+            return Err(Error::Rejected(format!(
+                "the {} runtime cannot attach images; switch to a runtime that can, or remove {} from the composer",
+                summary.runtime_id,
+                images
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
         }
         let context_meta = if references.is_empty() {
             None
@@ -583,6 +638,10 @@ impl SessionService {
             )?;
         }
 
+        // The persona comes from the session row, not from the caller: a turn
+        // sent an hour later still runs as the agent it was opened with, even if
+        // the page has since been edited to something else.
+        let persona = self.store.persona(session_id)?;
         let opened = OpenedSession {
             runtime_id: summary.runtime_id.clone(),
             native_id: summary.native_id.clone(),
@@ -590,6 +649,11 @@ impl SessionService {
             cwd: summary.project_path.clone(),
             allow_tools: summary.allow_tools,
             tools: summary.tools.clone(),
+            agent_id: persona.agent_id,
+            thinking: persona.thinking,
+            system_prompt: persona.system_prompt,
+            append_system_prompt: persona.append_prompt,
+            skills: persona.skills,
         };
 
         let mut event_count = 0usize;
@@ -624,7 +688,11 @@ impl SessionService {
                 .append_event(session_id, &run_id, event.kind, &event.payload);
         };
 
-        let outcome = adapter.send(&self.context, &opened, &adapter_prompt, &cancel, &mut sink);
+        let turn = Turn {
+            prompt: &adapter_prompt,
+            images: &images,
+        };
+        let outcome = adapter.send_turn(&self.context, &opened, &turn, &cancel, &mut sink);
         closed.store(true, Ordering::SeqCst);
         let ended_at = now_rfc3339();
 
@@ -853,6 +921,9 @@ impl SessionService {
         let id = new_session_id(&source.runtime_id);
         let now = now_rfc3339();
         let title = format!("{} · branch", source.title.trim());
+        // A branch is the same agent on a diverged transcript: the persona is
+        // copied with the messages, or the branch would answer as somebody else.
+        let persona = self.store.persona(&source.id)?;
         self.store.create_session(&NewSession {
             id: &id,
             runtime_id: &source.runtime_id,
@@ -863,6 +934,11 @@ impl SessionService {
             branch_at,
             allow_tools: source.allow_tools,
             tools: &source.tools,
+            agent_id: &persona.agent_id,
+            thinking: &persona.thinking,
+            system_prompt: &persona.system_prompt,
+            append_prompt: &persona.append_prompt,
+            skills: &persona.skills,
             at: &now,
         })?;
 
@@ -876,6 +952,11 @@ impl SessionService {
             native_id: None,
             allow_tools: source.allow_tools,
             tools: source.tools.clone(),
+            agent_id: persona.agent_id,
+            thinking: persona.thinking,
+            system_prompt: persona.system_prompt,
+            append_system_prompt: persona.append_prompt,
+            skills: persona.skills,
         };
         match adapter.open(&self.context, &spec) {
             Ok(opened) => {
@@ -1139,6 +1220,7 @@ mod tests {
                 cwd: spec.cwd.clone(),
                 allow_tools: spec.allow_tools,
                 tools: spec.tools.clone(),
+                ..Default::default()
             })
         }
 
@@ -1169,7 +1251,7 @@ mod tests {
             registry,
             SessionContext {
                 state_dir: std::path::PathBuf::from(".tmp/test/session"),
-                run_timeout: std::time::Duration::from_secs(5),
+                run_timeout: Some(std::time::Duration::from_secs(5)),
             },
         )
     }
@@ -1183,6 +1265,7 @@ mod tests {
             native_id: None,
             allow_tools: false,
             tools: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -1408,6 +1491,7 @@ mod tests {
                 cwd: spec.cwd.clone(),
                 allow_tools: spec.allow_tools,
                 tools: spec.tools.clone(),
+                ..Default::default()
             })
         }
 
@@ -1477,6 +1561,8 @@ mod tests {
                         path: "docs/notes.md".into(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect("send");
@@ -1525,6 +1611,8 @@ mod tests {
                         path: outside.to_string_lossy().to_string(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect_err("denied");
@@ -1566,6 +1654,8 @@ mod tests {
                         path: outside.to_string_lossy().to_string(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect("send");
@@ -1608,6 +1698,8 @@ mod tests {
                         path: outside.to_string_lossy().to_string(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect("the owner's own answer still allows it");
@@ -1638,12 +1730,47 @@ mod tests {
                         path: outside.to_string_lossy().to_string(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect_err("cancelled");
         assert_eq!(error.code(), "rejected");
         handle.join().expect("join").expect("answer");
         assert_eq!(service.detail(&session.id).expect("detail").runs.len(), 0);
+    }
+
+    /// "Full control · trust workspace": a path outside the project is read
+    /// without a card, because that is exactly what the user asked for.
+    #[test]
+    fn trusting_the_workspace_reads_outside_paths_without_a_card() {
+        let (root, outside) = project("trust");
+        let mut service = service();
+        let mut spec = spec();
+        spec.cwd = root.to_string_lossy().to_string();
+        let session = service.open(&spec).expect("open");
+        // No `answer_later`: with "full" the turn must never wait on a question.
+        let outcome = service
+            .send_with(
+                &session.id,
+                &SessionInput {
+                    prompt: "summary?".into(),
+                    context: vec![crate::model::ContextRef {
+                        kind: crate::model::ContextKind::File,
+                        path: outside.to_string_lossy().to_string(),
+                        label: None,
+                    }],
+                    permission: Some("full".into()),
+                },
+            )
+            .expect("send");
+        assert_eq!(outcome.run.status, RunStatus::Completed);
+        let events = service.events(&session.id).expect("events");
+        let kinds: Vec<&str> = events.iter().map(|event| event.kind.as_str()).collect();
+        assert!(
+            !kinds.contains(&"approval_request"),
+            "a trusted workspace must not raise a card: {kinds:?}"
+        );
     }
 
     #[test]
@@ -1658,7 +1785,7 @@ mod tests {
             registry,
             SessionContext {
                 state_dir: std::path::PathBuf::from(".tmp/test/session"),
-                run_timeout: std::time::Duration::from_secs(5),
+                run_timeout: Some(std::time::Duration::from_secs(5)),
             },
         )
         .with_approval_timeout(std::time::Duration::from_millis(120));
@@ -1675,6 +1802,8 @@ mod tests {
                         path: outside.to_string_lossy().to_string(),
                         label: None,
                     }],
+
+                    ..Default::default()
                 },
             )
             .expect_err("timed out");
@@ -1699,7 +1828,7 @@ mod tests {
             registry,
             SessionContext {
                 state_dir: std::path::PathBuf::from(".tmp/test/session"),
-                run_timeout: std::time::Duration::from_secs(5),
+                run_timeout: Some(std::time::Duration::from_secs(5)),
             },
         );
         let mut spec = spec();

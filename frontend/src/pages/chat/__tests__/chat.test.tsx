@@ -122,7 +122,7 @@ describe('chat sample entry', () => {
     expect(screen.getByTestId('nav-tool-meta-schedules')).toHaveTextContent('6 个任务')
   })
 
-  it('filters history, expands projects, paginates and exposes disabled session actions', async () => {
+  it('filters history, expands projects, paginates and exposes working session actions', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=chat')
     const history = screen.getByTestId('chat-history')
@@ -150,11 +150,36 @@ describe('chat sample entry', () => {
 
     const actions = within(history).getAllByRole('button', { name: '会话操作' })[0]
     await user.click(actions)
-    const menu = within(history).getByRole('menu')
-    expect(within(menu).getByRole('menuitem', { name: '置顶 / 取消置顶' })).toBeDisabled()
-    expect(within(menu).getByRole('menuitem', { name: '重命名' })).toBeDisabled()
-    expect(within(menu).getByRole('menuitem', { name: '归档' })).toBeDisabled()
-    expect(within(menu).getByRole('menuitem', { name: '删除' })).toBeDisabled()
+    // Fixed positioning keeps the popover out of the scrolling list's layout:
+    // no clipping and no scrollbar. Assert it against the real stylesheet.
+    const menu = screen.getByTestId('chat-history-action-menu')
+    const css = readFileSync(resolve(process.cwd(), 'src/pages/chat/chat.css'), 'utf8')
+    const ruleStart = css.indexOf('.chat-history-action-menu {')
+    const menuRule = css.slice(ruleStart, css.indexOf('}', ruleStart))
+    expect(menuRule).toContain('position: fixed')
+    expect(menuRule).not.toContain('left:')
+    expect(menu.getAttribute('style')).toContain('top')
+    expect(within(history).getByRole('menu')).toBeInTheDocument()
+    for (const name of ['置顶 / 取消置顶', '重命名', '归档', '分支会话', '压缩上下文', '删除']) {
+      expect(within(menu).getByRole('menuitem', { name })).toBeEnabled()
+    }
+    await user.click(within(menu).getByRole('menuitem', { name: '重命名' }))
+    expect(screen.getByTestId('chat-history-notice')).toHaveTextContent('样例模式')
+  })
+
+  it('shows a labelled new-chat button and closes the popover on Escape', async () => {
+    const user = userEvent.setup()
+    renderAt('/?sample=chat')
+    const newChat = screen.getByTestId('chat-history-new')
+    expect(newChat).toHaveTextContent('新建对话')
+    expect(newChat).toBeEnabled()
+    await user.click(newChat)
+    expect(screen.getByTestId('chat-history-notice')).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: '会话操作' })[0])
+    expect(screen.getByTestId('chat-history-action-menu')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('chat-history-action-menu')).toBeNull()
   })
 
   it('toggles thinking and tool cards', async () => {
@@ -186,10 +211,10 @@ describe('chat sample entry', () => {
     expect(screen.queryByText('api-client.ts')).toBeNull()
 
     await user.type(composer, '@')
-    const mentions = screen.getByRole('listbox', { name: '引用文件或 Agent' })
+    const mentions = screen.getByRole('listbox', { name: '引用文件或 Skill' })
     expect(mentions).toBeInTheDocument()
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByRole('listbox', { name: '引用文件或 Agent' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('listbox', { name: '引用文件或 Skill' })).toBeNull())
   })
 
   it('opens dialogs with Escape and restores focus to the opener', async () => {

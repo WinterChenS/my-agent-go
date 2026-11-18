@@ -9,9 +9,10 @@ import {
   CatalogRuntimeTable,
   CatalogSkillsPanel,
   CatalogSummary,
+  SubagentExtensionPanel,
 } from '../CatalogPanels'
 import { useCatalog, type CatalogView } from '../useCatalog'
-import type { CatalogSnapshot } from '../client'
+import { normalizeAgent, type CatalogAgent, type CatalogSnapshot } from '../client'
 
 interface HostCall {
   command: string
@@ -21,14 +22,14 @@ interface HostCall {
 function snapshotFixture(): CatalogSnapshot {
   return {
     agents: [
-      {
+      normalizeAgent({
         id: 'default',
         name: 'Default Agent',
         runtimeId: 'pi',
         modelId: 'custom-1',
         isDefault: true,
         updatedAt: '2026-01-01T00:00:00Z',
-      },
+      } as CatalogAgent),
     ],
     runtimes: [
       {
@@ -181,6 +182,10 @@ function installHost(overrides: Partial<Record<string, (args?: Record<string, un
       if (command === 'catalog_snapshot') return snapshotFixture()
       if (command === 'catalog_add_model') return snapshotFixture()
       if (command === 'catalog_refresh') return snapshotFixture()
+      // The models panel syncs the tab it opens; the inventory poll is what
+      // fills skills/MCP after mount.
+      if (command === 'catalog_sync') return snapshotFixture()
+      if (command === 'catalog_sync_inventory') return snapshotFixture()
       if (command === 'catalog_verify_model') return { ok: true, detail: 'HTTP 200' }
       if (command === 'catalog_set_default_model') return snapshotFixture()
       if (command === 'catalog_probe_mcp') return { ok: true, tools: ['echo', 'ping'], detail: '2 tools' }
@@ -265,15 +270,20 @@ describe('catalog panels', () => {
     expect(promote).toBeDisabled()
   })
 
-  it('syncs models on demand and keeps the rows on screen while it runs', async () => {
+  it('syncs the open runtime and keeps the rows on screen while it runs', async () => {
     // A holder object, not a `let`: the compiler cannot see that the executor
     // runs, so it would narrow a `let` to `never` at the call site.
     const gate: { release?: () => void } = {}
+    // The first read belongs to the tab itself; only the manual sync hangs.
+    let reads = 0
     const calls = installHost({
-      catalog_refresh: () =>
-        new Promise((resolve) => {
+      catalog_sync: () => {
+        reads += 1
+        if (reads === 1) return snapshotFixture()
+        return new Promise((resolve) => {
           gate.release = () => resolve(snapshotFixture())
-        }),
+        })
+      },
     })
     const user = userEvent.setup()
     render(
@@ -284,11 +294,14 @@ describe('catalog panels', () => {
     await waitFor(() => expect(screen.getByTestId('catalog-models')).toBeInTheDocument())
     const sync = screen.getByTestId('catalog-models-sync')
     expect(sync).toHaveAccessibleName('同步模型')
+    await waitFor(() => expect(sync).not.toBeDisabled())
 
     await user.click(sync)
-    await waitFor(() => expect(calls.some((call) => call.command === 'catalog_refresh')).toBe(true))
+    await waitFor(() =>
+      expect(calls.filter((call) => call.command === 'catalog_sync')).toHaveLength(2),
+    )
     // The table is still there and the control reports work in progress: a
-    // rescan must not blank the page it is refreshing.
+    // sync must not blank the page it is refreshing.
     expect(screen.getByTestId('catalog-models')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('catalog-models-sync')).toHaveAttribute('aria-busy', 'true'))
 
@@ -376,5 +389,94 @@ describe('catalog panels', () => {
       expect(calls.some((call) => call.command === 'catalog_probe_mcp')).toBe(true)
     })
     expect(await screen.findByText('pencil 连接成功，2 个工具')).toBeInTheDocument()
+  })
+})
+
+describe("pi's subagent extension on the runtime page", () => {
+  const missing = {
+    installed: false,
+    agentDir: 'C:/Users/A/.pi/agent',
+    extensionDir: 'C:/Users/A/.pi/agent/extensions/subagent',
+    source: 'C:/pi/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent',
+    agents: 0,
+    prompts: 0,
+    canInstall: true,
+    detail: 'the subagent extension is not installed in the pi agent directory',
+  }
+  const installed = {
+    ...missing,
+    installed: true,
+    agents: 4,
+    prompts: 3,
+    canInstall: false,
+    detail: undefined,
+  }
+
+  it('shows the missing state with its install path and installs from here', async () => {
+    const notices: string[] = []
+    const calls = installHost({
+      pi_subagent_status: () => missing,
+      pi_subagent_install: () => ({ written: 6, skipped: 0, status: installed }),
+    })
+    const user = userEvent.setup()
+    render(
+      <LanguageProvider>
+        <Harness>
+          {(view) => <SubagentExtensionPanel view={view} onNotice={(m) => notices.push(m)} />}
+        </Harness>
+      </LanguageProvider>,
+    )
+
+    const row = await screen.findByTestId('catalog-subagent')
+    expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('未安装')
+    // The destination is part of the offer, not a surprise. The status arrives
+    // from a host call inside an effect, so wait for it before reading the path.
+    await waitFor(() => expect(row).toHaveTextContent('extensions/subagent'))
+
+    await user.click(within(row).getByTestId('catalog-subagent-install'))
+
+    await waitFor(() => expect(calls.some((c) => c.command === 'pi_subagent_install')).toBe(true))
+    await waitFor(() =>
+      expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('已安装'),
+    )
+    expect(within(row).queryByTestId('catalog-subagent-install')).toBeNull()
+    expect(row).toHaveTextContent('4 个 agent、3 个工作流')
+    expect(notices).toContain('已安装 subagent 扩展（4 个可用子代理）。')
+  })
+
+  it('disables the install when the pi package ships no example', async () => {
+    installHost({ pi_subagent_status: () => ({ ...missing, canInstall: false, source: undefined }) })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <SubagentExtensionPanel view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    const row = await screen.findByTestId('catalog-subagent')
+    expect(within(row).getByTestId('catalog-subagent-install')).toBeDisabled()
+    expect(row).toHaveTextContent('请先更新 pi')
+  })
+
+  it('reports the host failure instead of pretending the install worked', async () => {
+    const notices: string[] = []
+    installHost({
+      pi_subagent_status: () => missing,
+      pi_subagent_install: () => {
+        throw '{"code":"not_found","message":"pi executable not found on PATH"}'
+      },
+    })
+    const user = userEvent.setup()
+    render(
+      <LanguageProvider>
+        <Harness>
+          {(view) => <SubagentExtensionPanel view={view} onNotice={(m) => notices.push(m)} />}
+        </Harness>
+      </LanguageProvider>,
+    )
+    const row = await screen.findByTestId('catalog-subagent')
+    await user.click(within(row).getByTestId('catalog-subagent-install'))
+    await waitFor(() => expect(notices.length).toBeGreaterThan(0))
+    expect(notices[0]).toContain('not_found: pi executable not found on PATH')
+    // Still missing, so the button is still there for a retry.
+    expect(within(row).getByTestId('catalog-subagent-install')).toBeInTheDocument()
   })
 })
