@@ -81,6 +81,11 @@ export function CatalogSummary({ view }: { view: CatalogView }) {
             : t('catalog.inventory.autoOff')}
         </span>
       ) : null}
+      {view.status === 'ready' && view.snapshot?.scanning ? (
+        <span className="cat-sub" data-testid="catalog-scanning">
+          {t('catalog.scanning')}
+        </span>
+      ) : null}
       {problems.length > 0 && (
         <span className="cat-warn" title={problems.join('\n')} data-testid="catalog-problems">
           {t('catalog.problems', { count: problems.length })}

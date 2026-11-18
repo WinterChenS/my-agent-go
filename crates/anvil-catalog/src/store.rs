@@ -619,6 +619,33 @@ impl Store {
     /// list for a picker. It is also wrong to offer nothing: a fresh install
     /// would open chat with a dead composer and no clue. So exactly one model
     /// per runtime is turned on, once; everything else waits for the user.
+    /// Whether the user finished first-run setup.
+    ///
+    /// A `meta` row rather than WebView state: the onboarding wizard must stay
+    /// closed across a localStorage reset, and it cannot be inferred from
+    /// "some model is enabled" because discovery switches one on by itself.
+    pub fn setup_complete(&self) -> Result<bool> {
+        let value: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'setup_done'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value.is_some())
+    }
+
+    /// Record that the user finished first-run setup.
+    pub fn mark_setup_complete(&self, now: &str) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO meta (key, value) VALUES ('setup_done', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![now],
+        )?;
+        Ok(())
+    }
+
     /// Whether this runtime's first-run seeding already happened.
     pub fn picker_seeded(&self, runtime_id: &str) -> Result<bool> {
         // Per runtime, not once for the whole catalog: a runtime installed
@@ -1297,6 +1324,9 @@ impl Store {
             syncs: self.syncs()?,
             adapter_failures: failures,
             scanned_at,
+            // Both are process/UI facts the host fills in, not store facts.
+            scanning: false,
+            setup_done: self.setup_complete()?,
         })
     }
 

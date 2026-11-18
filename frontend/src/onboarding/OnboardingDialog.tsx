@@ -35,6 +35,7 @@ import { useCatalog } from '../catalog/useCatalog'
 import {
   installPiSubagent,
   installRuntime,
+  markCatalogSetupDone,
   piSubagentStatus,
   setCatalogModelEnabled,
   setDefaultCatalogModel,
@@ -167,14 +168,16 @@ export default function OnboardingDialog() {
   const failed = catalog.status === 'error' || catalog.status === 'unavailable'
 
   /**
-   * "Already set up" is read from a promoted default model, not from a flag:
-   * discovery pre-enables a couple of entries on a brand-new profile (pi's own
-   * default and codex's auto-review), so `enabled` alone cannot tell a fresh
-   * install from a configured one. A default model only ever comes from a user
-   * decision, and it lives in the data directory — so it survives a WebView
-   * storage reset instead of depending on the localStorage flag alone.
+   * "Already set up" is read from the data directory first — the wizard used to
+   * be skipped only when a model had been promoted to default, and that is a
+   * side effect discovery can no longer be relied on to produce (the seed is
+   * chosen from disk now, so nothing is verified during startup). The promoted
+   * default stays as the fallback for profiles set up before that flag existed.
    */
-  const configured = useMemo(() => models.some((model) => model.isDefault), [models])
+  const configured = useMemo(
+    () => catalog.snapshot?.setupDone === true || models.some((model) => model.isDefault),
+    [catalog.snapshot, models],
+  )
 
   useEffect(() => {
     if (finished || !configured) return
@@ -210,6 +213,10 @@ export default function OnboardingDialog() {
 
   const finish = useCallback((apply: boolean) => {
     writeBoolPreference(PREF_ONBOARDING_DONE, true)
+    // Also in the data directory: localStorage lives in the WebView, and a
+    // forced quit or a storage reset would otherwise reopen the wizard on a
+    // profile that is already set up.
+    void markCatalogSetupDone().catch(() => undefined)
     setFinished(true)
     if (apply) notifyCatalogChanged()
   }, [])
@@ -342,6 +349,12 @@ export default function OnboardingDialog() {
   const chosenCount = selected.filter((runtimeId) =>
     available.some((runtime) => runtime.runtimeId === runtimeId),
   ).length
+  /**
+   * Model lists land with the discovery pass. Finishing before they do would be
+   * a silent no-op — there is nothing to switch on yet — and a button that does
+   * nothing reads as broken.
+   */
+  const modelsPending = catalog.snapshot?.scanning === true && models.length === 0
 
   return (
     <div className="ob-backdrop" data-testid="onboarding">
@@ -573,11 +586,11 @@ export default function OnboardingDialog() {
             <button
               type="button"
               className="ob-btn"
-              disabled={busy || chosenCount === 0}
+              disabled={busy || chosenCount === 0 || modelsPending}
               data-testid="onboarding-finish"
               onClick={() => void complete()}
             >
-              {busy ? '处理中…' : '完成设置'}
+              {busy ? '处理中…' : modelsPending ? '正在读取模型…' : '完成设置'}
             </button>
           )}
         </div>

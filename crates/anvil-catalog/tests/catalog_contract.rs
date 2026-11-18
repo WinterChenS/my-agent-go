@@ -44,6 +44,7 @@ struct ScriptedAdapter {
     sync_answers: Mutex<BTreeMap<String, SyncAnswer>>,
     verify: Option<ModelVerification>,
     sync_calls: Arc<AtomicUsize>,
+    verify_calls: Arc<AtomicUsize>,
 }
 
 impl ScriptedAdapter {
@@ -69,6 +70,7 @@ impl ScriptedAdapter {
                 detail: Some("HTTP 200".into()),
             }),
             sync_calls: Arc::new(AtomicUsize::new(0)),
+            verify_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -181,6 +183,7 @@ impl RuntimeAdapter for ScriptedAdapter {
         _model: &ModelRecord,
         _credential: Option<&str>,
     ) -> Option<Result<ModelVerification>> {
+        self.verify_calls.fetch_add(1, Ordering::SeqCst);
         self.verify.clone().map(Ok)
     }
 }
@@ -436,6 +439,82 @@ fn unknown_adapter_travels_the_whole_pipeline() {
         runtime.capabilities.custom_models,
         CapabilityState::Supported
     );
+}
+
+#[test]
+fn the_startup_seed_never_asks_a_model_for_a_token() {
+    // Startup is what the runtime page waits on, so it must not depend on a
+    // gateway: the first pick comes from disk and nothing is verified.
+    let home = TempHome::new("local-seed");
+    let executable = home.touch("bin/scripted.exe");
+    let adapter = ScriptedAdapter::new("scripted")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Models,
+            SyncAnswer::Items(vec!["b-model".into(), "a-model".into()]),
+        );
+    let probes = Arc::clone(&adapter.verify_calls);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    service.scan().expect("scan");
+    service
+        .sync_models_local("scripted")
+        .expect("local model sync");
+    let snapshot = service.snapshot().expect("snapshot");
+
+    let enabled: Vec<&str> = snapshot
+        .models
+        .iter()
+        .filter(|model| model.enabled)
+        .map(|model| model.model_id.as_str())
+        .collect();
+    // Exactly one pick, and a deterministic one: the lowest id when nothing is
+    // verified yet.
+    assert_eq!(enabled, vec!["a-model"]);
+    assert_eq!(
+        probes.load(Ordering::SeqCst),
+        0,
+        "the startup seed must not probe a model"
+    );
+}
+
+#[test]
+fn an_explicit_sync_still_proves_the_seed() {
+    // The refresh path keeps the old behaviour: ask, and mark what answered.
+    let home = TempHome::new("probe-seed");
+    let executable = home.touch("bin/scripted.exe");
+    let adapter = ScriptedAdapter::new("scripted")
+        .discover_at(vec![executable])
+        .with_sync(
+            InventoryKind::Models,
+            SyncAnswer::Items(vec!["b-model".into(), "a-model".into()]),
+        );
+    let probes = Arc::clone(&adapter.verify_calls);
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+
+    service.scan().expect("scan");
+    service.sync_models("scripted").expect("model sync");
+    let snapshot = service.snapshot().expect("snapshot");
+
+    assert!(probes.load(Ordering::SeqCst) > 0);
+    let seeded = snapshot
+        .models
+        .iter()
+        .find(|model| model.enabled)
+        .expect("one seeded model");
+    assert!(seeded.verified, "a model that answered is recorded as verified");
+}
+
+#[test]
+fn setup_done_is_remembered_in_the_store() {
+    // The wizard's "already set up" check reads this, so it has to live with
+    // the catalog and not in WebView storage.
+    let store = Store::open_in_memory().expect("store");
+    assert!(!store.setup_complete().expect("read"));
+    store
+        .mark_setup_complete(&clock::now_rfc3339())
+        .expect("write");
+    assert!(store.setup_complete().expect("read"));
 }
 
 #[test]

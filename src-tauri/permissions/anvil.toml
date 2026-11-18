@@ -60,6 +60,11 @@ description = "Allows turning one catalog model on or off for the chat picker."
 commands.allow = ["catalog_set_model_enabled"]
 
 [[permission]]
+identifier = "allow-catalog-mark-setup-done"
+description = "Allows recording that first-run setup is finished, so the wizard stays closed."
+commands.allow = ["catalog_mark_setup_done"]
+
+[[permission]]
 identifier = "allow-catalog-save-agent"
 description = "Allows saving a runtime+model binding under a name."
 commands.allow = ["catalog_save_agent"]

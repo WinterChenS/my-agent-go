@@ -536,4 +536,21 @@ pub struct CatalogSnapshot {
     pub syncs: Vec<SyncOutcome>,
     pub adapter_failures: Vec<AdapterFailure>,
     pub scanned_at: Option<String>,
+    /// A discovery pass is still running, so the rows above are what the host
+    /// last committed rather than a fresh probe.
+    ///
+    /// The first `catalog_snapshot` of a process answers from disk and starts
+    /// discovery behind it. Without this flag an empty profile looks exactly
+    /// like a machine with nothing installed, and the UI would say "没有可用的
+    /// 运行时" while it is still reading them.
+    #[serde(default)]
+    pub scanning: bool,
+    /// The user finished first-run setup.
+    ///
+    /// Stored in the data directory, not in the WebView: the wizard has to stay
+    /// closed even when localStorage was lost (a forced quit, a storage reset),
+    /// and it must not be inferred from model state — discovery enables models
+    /// by itself on a brand-new profile.
+    #[serde(default)]
+    pub setup_done: bool,
 }

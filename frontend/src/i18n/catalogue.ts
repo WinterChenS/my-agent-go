@@ -2661,6 +2661,7 @@ const settingsEn: Record<keyof typeof settingsZh, string> = {
 
 const catalogZh = {
   'catalog.loading': '正在扫描本机运行时…',
+  'catalog.scanning': '正在后台重新检测…',
   'catalog.unavailable': '未在桌面宿主中运行，运行目录不可用',
   'catalog.error': '扫描失败：{message}',
   'catalog.scannedAt': '最近扫描 {at}',
@@ -2763,6 +2764,7 @@ const catalogZh = {
 
 const catalogEn: Record<keyof typeof catalogZh, string> = {
   'catalog.loading': 'Scanning local runtimes…',
+  'catalog.scanning': 'Refreshing in the background…',
   'catalog.unavailable': 'Not running in the desktop host; the catalog is unavailable',
   'catalog.error': 'Scan failed: {message}',
   'catalog.scannedAt': 'Scanned {at}',

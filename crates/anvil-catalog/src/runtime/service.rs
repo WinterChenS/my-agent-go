@@ -5,6 +5,7 @@
 //! comes out of the adapter behind [`Registry`].
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,6 +34,17 @@ const SEED_PROBES: usize = 3;
 /// so 5 s marked a live model as dead; 12 s is a real answer and still shorter
 /// than three sequential 8 s timeouts.
 const SEED_PROBE_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// How much work a model sync may do before it returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SeedMode {
+    /// Pick the seed from what is already on disk. No token request, no
+    /// network: this is the startup path, where nothing may wait on a gateway.
+    Local,
+    /// Ask up to [`SEED_PROBES`] candidates for one token and seed the first
+    /// that answers. This is the refresh path, where waiting is the point.
+    Probe,
+}
 
 /// Deadlines used for one refresh.
 #[derive(Clone, Copy, Debug)]
@@ -68,6 +80,10 @@ pub struct CatalogService {
     timeouts: Timeouts,
     failures: Vec<AdapterFailure>,
     scanned_at: Option<String>,
+    /// Shared with the host: a discovery pass is still running for this
+    /// process. Every snapshot carries it, so the UI can tell "nothing is
+    /// installed" from "nothing has been read yet".
+    scanning: Arc<AtomicBool>,
 }
 
 impl CatalogService {
@@ -95,7 +111,17 @@ impl CatalogService {
             timeouts,
             failures: Vec::new(),
             scanned_at: None,
+            scanning: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Share the host's "still discovering" flag with this service.
+    ///
+    /// The service is the one place every snapshot is assembled, so wiring the
+    /// flag here means each command reports it without the host remembering to
+    /// annotate a dozen return values.
+    pub fn set_scanning_flag(&mut self, flag: Arc<AtomicBool>) {
+        self.scanning = flag;
     }
 
     pub fn registry(&self) -> &Registry {
@@ -199,6 +225,7 @@ impl CatalogService {
                 InventoryKind::Tools,
                 InventoryKind::Mcp,
             ],
+            SeedMode::Probe,
         )
     }
 
@@ -209,7 +236,18 @@ impl CatalogService {
     /// expensive part of a full sync is discovery — spawning each runtime to
     /// read its version — and that is deliberately not part of this call.
     pub fn sync_models(&mut self, runtime_id: &str) -> Result<Vec<SyncOutcome>> {
-        self.sync_kinds(runtime_id, &[InventoryKind::Models])
+        self.sync_kinds(runtime_id, &[InventoryKind::Models], SeedMode::Probe)
+    }
+
+    /// Re-read one runtime's model list without asking any model for a token.
+    ///
+    /// This is what startup uses. Seeding a picker with [`SeedMode::Probe`]
+    /// costs up to three concurrent 12-second requests when the gateway is slow
+    /// or offline, and that was the multi-second wait the runtime page sat
+    /// behind on a fresh profile. The first pick is chosen from disk instead;
+    /// an explicit refresh still proves the candidates.
+    pub fn sync_models_local(&mut self, runtime_id: &str) -> Result<Vec<SyncOutcome>> {
+        self.sync_kinds(runtime_id, &[InventoryKind::Models], SeedMode::Local)
     }
 
     /// Re-read the local resource families of every installed runtime.
@@ -233,7 +271,7 @@ impl CatalogService {
             .collect();
         let mut outcomes = Vec::new();
         for runtime_id in runtime_ids {
-            let mut batch = self.sync_kinds(&runtime_id, &kinds)?;
+            let mut batch = self.sync_kinds(&runtime_id, &kinds, SeedMode::Local)?;
             outcomes.append(&mut batch);
         }
         Ok(outcomes)
@@ -243,6 +281,7 @@ impl CatalogService {
         &mut self,
         runtime_id: &str,
         kinds: &[InventoryKind],
+        seed: SeedMode,
     ) -> Result<Vec<SyncOutcome>> {
         let rows = self.store.runtimes()?;
         let Some(row) = rows.into_iter().find(|row| {
@@ -287,9 +326,16 @@ impl CatalogService {
                         // Choosing a default is a convenience; a probe that
                         // misbehaves must never turn a successful sync into a
                         // failed one.
-                        if let Err(error) =
-                            self.seed_picker(runtime_id, adapter.clone(), &context, &registration)
-                        {
+                        let seeded = match seed {
+                            SeedMode::Probe => self.seed_picker(
+                                runtime_id,
+                                adapter.clone(),
+                                &context,
+                                &registration,
+                            ),
+                            SeedMode::Local => self.seed_picker_local(runtime_id),
+                        };
+                        if let Err(error) = seeded {
                             let _ = self.store.mark_sync_failed(
                                 runtime_id,
                                 InventoryKind::Models,
@@ -394,6 +440,42 @@ impl CatalogService {
             .seed_picker(runtime_id, &model_id, verified, &clock::now_rfc3339())
     }
 
+    /// Seed the picker from what is already on disk.
+    ///
+    /// Same ordering as [`Self::seed_picker`] — an already-verified entry wins,
+    /// then whatever discovery switched on, then the first id — but nothing is
+    /// asked for a token. Startup uses this so a slow or offline gateway cannot
+    /// hold the runtime list hostage; the models page can still verify a model
+    /// on demand, and an explicit refresh re-runs the probing variant.
+    fn seed_picker_local(&mut self, runtime_id: &str) -> Result<()> {
+        if self.store.picker_seeded(runtime_id)? {
+            return Ok(());
+        }
+        let mut candidates: Vec<crate::model::ModelRecord> = self
+            .store
+            .models()?
+            .into_iter()
+            .filter(|model| model.runtime_id == runtime_id)
+            .collect();
+        if candidates.is_empty() {
+            self.store.seed_picker_once(runtime_id)?;
+            return Ok(());
+        }
+        candidates.sort_by(|a, b| {
+            b.verified
+                .cmp(&a.verified)
+                .then_with(|| b.enabled.cmp(&a.enabled))
+                .then_with(|| a.model_id.cmp(&b.model_id))
+        });
+        let choice = &candidates[0];
+        self.store.seed_picker(
+            runtime_id,
+            &choice.model_id,
+            choice.verified,
+            &clock::now_rfc3339(),
+        )
+    }
+
     fn persist(&mut self, runtime_id: &str, inventory: Inventory) -> Result<()> {
         let now = clock::now_rfc3339();
         match inventory {
@@ -417,6 +499,7 @@ impl CatalogService {
         let mut snapshot = self
             .store
             .snapshot(self.failures.clone(), self.scanned_at.clone())?;
+        snapshot.scanning = self.scanning.load(Ordering::SeqCst);
         for runtime in &mut snapshot.runtimes {
             runtime.adapter_registered = self.registry.contains(&runtime.runtime_id);
             if !runtime.adapter_registered && runtime.status != RuntimeStatus::NotInstalled.as_str()
@@ -435,6 +518,11 @@ impl CatalogService {
         enabled: bool,
     ) -> Result<()> {
         self.store.set_model_enabled(runtime_id, model_id, enabled)
+    }
+
+    /// Remember that the user finished first-run setup.
+    pub fn mark_setup_complete(&mut self) -> Result<()> {
+        self.store.mark_setup_complete(&clock::now_rfc3339())
     }
 
     /// Create or update one agent from the page's draft.

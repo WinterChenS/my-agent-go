@@ -17,6 +17,7 @@
     "allow-catalog-verify-model",
     "allow-catalog-set-default-model",
     "allow-catalog-set-model-enabled",
+    "allow-catalog-mark-setup-done",
     "allow-catalog-save-agent",
     "allow-catalog-delete-agent",
     "allow-catalog-probe-mcp",

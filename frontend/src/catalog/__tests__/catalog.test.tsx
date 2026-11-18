@@ -13,6 +13,7 @@ import {
 } from '../CatalogPanels'
 import { useCatalog, type CatalogView } from '../useCatalog'
 import { normalizeAgent, type CatalogAgent, type CatalogSnapshot } from '../client'
+import { readCachedSnapshot, writeCachedSnapshot } from '../cache'
 
 interface HostCall {
   command: string
@@ -224,6 +225,37 @@ describe('catalog panels', () => {
       </LanguageProvider>,
     )
     await waitFor(() => expect(screen.getByTestId('catalog-summary')).toHaveTextContent('桌面宿主'))
+  })
+
+  it('treats an empty snapshot that is still scanning as loading, not empty', async () => {
+    // The host answers from disk and discovers behind it. On a fresh profile
+    // that first answer has no rows — which must not read as "nothing is
+    // installed" while the pass is still running.
+    const scanning = () => ({ ...snapshotFixture(), runtimes: [], models: [], scanning: true })
+    installHost({ catalog_snapshot: scanning, catalog_sync_inventory: scanning })
+    render(
+      <LanguageProvider>
+        <Harness>
+          {(view) => (
+            <>
+              <span data-testid="status">{view.status}</span>
+              <CatalogRuntimeTable view={view} />
+            </>
+          )}
+        </Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('loading'))
+    expect(screen.queryByTestId('catalog-runtimes-empty')).not.toBeInTheDocument()
+  })
+
+  it('does not cache an empty snapshot taken mid-discovery', async () => {
+    // "There is a cache" is what keeps the wizard closed for a returning
+    // window, so an empty one must never be written.
+    writeCachedSnapshot({ ...snapshotFixture(), runtimes: [], models: [], scanning: true })
+    expect(readCachedSnapshot()).toBeNull()
+    writeCachedSnapshot(snapshotFixture())
+    expect(readCachedSnapshot()?.runtimes.length).toBeGreaterThan(0)
   })
 
   it('renders runtime status, versions and the rescan control', async () => {

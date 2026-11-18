@@ -13,6 +13,7 @@ import {
 import { PREF_AUTO_SYNC, useBoolPreference } from '../preferences/flags'
 import { readCachedSnapshot, writeCachedSnapshot } from './cache'
 import { takeCatalogPrefetch } from './prefetch'
+import { onCatalogScanned } from './watch'
 
 /** How often a visible window re-reads local skills/tools/MCP declarations. */
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -79,6 +80,20 @@ export function useCatalog(enabled = true): CatalogView {
     }
   }, [])
 
+  /**
+   * Land a snapshot and decide what it means.
+   *
+   * An empty snapshot is only "nothing is installed" once discovery has
+   * finished. While the host is still scanning it means "nothing read yet", and
+   * the pages must show their skeleton instead of an empty state that reads as
+   * a broken machine.
+   */
+  const settle = useCallback((next: CatalogSnapshot) => {
+    setSnapshot(next)
+    writeCachedSnapshot(next)
+    setStatus(next.scanning === true && next.runtimes.length === 0 ? 'loading' : 'ready')
+  }, [])
+
   const load = useCallback(async () => {
     if (!enabled) {
       setStatus('unavailable')
@@ -102,9 +117,7 @@ export function useCatalog(enabled = true): CatalogView {
       // and a retry after a failure — go to the host directly.
       const result = await (takeCatalogPrefetch() ?? loadCatalog())
       if (!mounted.current || mine !== readSeq.current) return
-      setSnapshot(result)
-      setStatus('ready')
-      writeCachedSnapshot(result)
+      settle(result)
     } catch (cause) {
       if (!mounted.current) return
       if (cause instanceof CatalogUnavailable) {
@@ -117,11 +130,33 @@ export function useCatalog(enabled = true): CatalogView {
       setError(cause instanceof Error ? cause.message : String(cause))
       setStatus('error')
     }
-  }, [enabled])
+  }, [enabled, settle])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  /**
+   * Re-read once the host's discovery pass commits.
+   *
+   * The first snapshot of a process answers from disk, so the rows on screen
+   * are one pass behind until this lands. A quiet read: no spinner, no status
+   * flip, and a failure leaves the current rows alone.
+   */
+  useEffect(() => {
+    if (!enabled) return
+    return onCatalogScanned(() => {
+      const mine = ++readSeq.current
+      void loadCatalog()
+        .then((next) => {
+          if (!mounted.current || mine !== readSeq.current) return
+          settle(next)
+        })
+        .catch(() => {
+          // Keep what is on screen; the next manual sync retries.
+        })
+    })
+  }, [enabled, settle])
 
   const refresh = useCallback(async () => {
     if (!enabled) return
@@ -164,9 +199,7 @@ export function useCatalog(enabled = true): CatalogView {
       const result = await syncCatalogInventory()
       if (mounted.current) {
         readSeq.current += 1
-        setSnapshot(result)
-        setStatus('ready')
-        writeCachedSnapshot(result)
+        settle(result)
         setLastInventorySyncAt(new Date().toISOString())
       }
     } catch {
@@ -194,9 +227,7 @@ export function useCatalog(enabled = true): CatalogView {
         const result = await syncCatalogRuntime(runtimeId)
         if (!mounted.current) return true
         readSeq.current += 1
-        setSnapshot(result)
-        setStatus('ready')
-        writeCachedSnapshot(result)
+        settle(result)
         return true
       } catch (cause) {
         // A tab that cannot sync keeps the rows it already had; the page shows
@@ -233,10 +264,12 @@ export function useCatalog(enabled = true): CatalogView {
     }
   }, [enabled, autoSync, syncInventory])
 
-  const apply = useCallback((next: CatalogSnapshot) => {
-    setSnapshot(next)
-    setStatus('ready')
-  }, [])
+  const apply = useCallback(
+    (next: CatalogSnapshot) => {
+      settle(next)
+    },
+    [settle],
+  )
 
   return {
     status,

@@ -39,6 +39,12 @@ export function writeCachedSnapshot(snapshot: CatalogSnapshot | null): void {
       window.localStorage.removeItem(CACHE_KEY)
       return
     }
+    // A snapshot taken while discovery is still running carries no rows on a
+    // fresh profile, and the cache's whole job is to have rows on the next
+    // launch. Keeping the previous (real) snapshot is strictly better than
+    // overwriting it with an empty one — which would also read as "this profile
+    // has been set up" to the wizard's returning-window check.
+    if (snapshot.scanning === true && snapshot.runtimes.length === 0) return
     const payload: CachedSnapshot = { version: CACHE_VERSION, snapshot, savedAt: Date.now() }
     window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload))
   } catch {

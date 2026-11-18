@@ -223,6 +223,13 @@ export interface CatalogSnapshot {
   syncs: CatalogSync[]
   adapterFailures: CatalogFailure[]
   scannedAt: string | null
+  /**
+   * Discovery is still running in the host. The rows above are what it last
+   * committed, so "no runtime" only means "nothing read yet" while this is true.
+   */
+  scanning?: boolean
+  /** The user finished first-run setup; kept in the data directory. */
+  setupDone?: boolean
 }
 
 export interface ModelVerification {
@@ -310,6 +317,17 @@ export function setCatalogModelEnabled(
   return hostCall<CatalogSnapshot>('catalog_set_model_enabled', { runtimeId, modelId, enabled })
 }
 
+/**
+ * Record that first-run setup is finished.
+ *
+ * The wizard keeps a localStorage flag too, but that lives in the WebView and
+ * a forced quit or a storage reset drops it. This one lives in the data
+ * directory, so a configured profile does not open on the wizard again.
+ */
+export function markCatalogSetupDone(): Promise<void> {
+  return hostCall<void>('catalog_mark_setup_done')
+}
+
 /** Save the whole agent draft; the host persists every field it edits. */
 export function saveCatalogAgent(draft: CatalogAgentDraft): Promise<CatalogSnapshot> {
   return hostCall<CatalogSnapshot>('catalog_save_agent', { agent: draft })
@@ -328,7 +346,10 @@ export function probeCatalogMcp(runtimeId: string, name: string): Promise<McpPro
   return hostCall<McpProbeResult>('catalog_probe_mcp', { runtimeId, name })
 }
 
-/** Host runs the scan on the first call, so `loading` covers discovery too. */
+/**
+ * Host answers `catalog_snapshot` from disk and scans in the background, so
+ * `loading` means "nothing read yet", never "waiting on a probe".
+ */
 export const CATALOG_STATUS = ['idle', 'loading', 'ready', 'error', 'unavailable'] as const
 export type CatalogStatus = (typeof CATALOG_STATUS)[number]
 

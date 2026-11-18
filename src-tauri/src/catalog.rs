@@ -1,25 +1,41 @@
 //! Catalog commands: discovery, sync and the explicit resource actions.
 //!
 //! The service is opened lazily on the first command so window creation never
-//! waits for a scan, and the first request performs the startup scan. Every
-//! command is `async` because scanning spawns processes (bounded by the
+//! waits for a scan, and the first `catalog_snapshot` answers **from disk** and
+//! starts discovery behind it. That split is what keeps 设置 → 运行时 (and the
+//! runtime step of first-run setup) instant: a scan spawns every installed
+//! runtime to read its version, and a seed probe can wait on a gateway for
+//! twelve seconds — neither belongs on a call the UI is blocking on. When the
+//! background pass commits its rows the host emits [`CATALOG_SCANNED_EVENT`]
+//! and the pages re-read the snapshot.
+//!
+//! Every command is `async` because scanning spawns processes (bounded by the
 //! adapter timeouts) and must not block the UI thread.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use anvil_catalog::model::{AdapterFailure, CatalogSnapshot};
 use anvil_catalog::runtime::adapter::{McpProbe, ModelVerification};
 use anvil_catalog::{CatalogService, Store};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+/// Emitted once the background discovery pass has committed its rows.
+pub const CATALOG_SCANNED_EVENT: &str = "anvil://catalog-scanned";
 
 /// Catalog state shared by the commands.
 pub struct CatalogState {
     database: PathBuf,
     home: PathBuf,
     service: Mutex<Option<CatalogService>>,
+    /// Discovery already ran, or was claimed by a background thread.
     scanned: AtomicBool,
+    /// The background discovery thread is still working. Handed to the service
+    /// so every snapshot it builds carries the flag.
+    scanning: Arc<AtomicBool>,
+    /// Rows as of the last read, served while discovery owns the service.
+    last: Mutex<Option<CatalogSnapshot>>,
     init_error: Mutex<Option<String>>,
 }
 
@@ -31,6 +47,8 @@ impl CatalogState {
             home,
             service: Mutex::new(None),
             scanned: AtomicBool::new(false),
+            scanning: Arc::new(AtomicBool::new(false)),
+            last: Mutex::new(None),
             init_error: Mutex::new(None),
         }
     }
@@ -65,63 +83,168 @@ impl CatalogState {
                     return Err(message);
                 }
             };
-            let service = CatalogService::new(store, self.home.clone())
+            let mut service = CatalogService::new(store, self.home.clone())
                 .map_err(|error| format!("catalog: registry: {error}"))?;
+            service.set_scanning_flag(Arc::clone(&self.scanning));
             *guard = Some(service);
         }
         let service = guard.as_mut().expect("service was just created");
         action(service)
     }
 
-    /// Scan and sync once per process, then answer.
+    /// Stamp a snapshot with the live "still discovering" flag.
+    ///
+    /// Applied on the way out *and* on the way out of the cache: the flag moves
+    /// while a pass runs, and a cached snapshot that keeps its old value would
+    /// tell the UI discovery is finished when it is not.
+    fn annotate(&self, mut snapshot: CatalogSnapshot) -> CatalogSnapshot {
+        snapshot.scanning = self.scanning.load(Ordering::SeqCst);
+        snapshot
+    }
+
+    /// The snapshot as it stands right now.
+    ///
+    /// This is a database read (a few hundred microseconds), not a probe: the
+    /// rows are the ones the host last committed.
+    ///
+    /// While discovery owns the service it holds its lock, so a second page
+    /// opening at that moment gets the rows from the previous read instead of
+    /// queueing behind a three-second process probe. Those rows are identical —
+    /// only discovery can change them, and it has not committed yet.
+    fn snapshot_now(&self) -> Result<CatalogSnapshot, String> {
+        if self.scanning.load(Ordering::SeqCst) {
+            if let Some(cached) = self.last.lock().ok().and_then(|slot| slot.clone()) {
+                return Ok(self.annotate(cached));
+            }
+        }
+        let snapshot = self.with_service(|service| {
+            service.snapshot().map_err(|error| error.to_wire())
+        })?;
+        let snapshot = self.annotate(snapshot);
+        if let Ok(mut slot) = self.last.lock() {
+            *slot = Some(snapshot.clone());
+        }
+        Ok(snapshot)
+    }
+
+    /// Start the one discovery pass this process gets.
     ///
     /// Discovery is best-effort. A runtime that fails to spawn, a gateway that
     /// times out or a transient store error must never hide the agents and
-    /// models already committed to disk: the previous behaviour propagated the
-    /// error out of `catalog_snapshot`, which put the whole UI into an error
-    /// state that read as "nothing was remembered after a restart". Failures
-    /// are attached to the snapshot instead, so the persisted rows stay on
-    /// screen and the exact problem is still reported in `adapterFailures`.
-    fn snapshot_after_startup(&self) -> Result<CatalogSnapshot, String> {
-        self.with_service(|service| {
-            if !self.scanned.swap(true, Ordering::SeqCst) {
-                if let Err(error) = service.scan() {
+    /// models already committed to disk: failures are attached to the snapshot,
+    /// so the persisted rows stay on screen and the exact problem is still
+    /// reported in `adapterFailures`.
+    ///
+    /// Runs on its own thread rather than a runtime worker: it spawns processes
+    /// with multi-second deadlines, and the window must stay responsive while
+    /// it does.
+    fn discover_in_background(&self, app: &AppHandle) -> bool {
+        // Whoever gets here first owns the pass. A second window opening at the
+        // same moment rides on `scanning` instead of starting a parallel probe.
+        if self.scanned.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        self.scanning.store(true, Ordering::SeqCst);
+        // The cached rows are still the right answer, but they are now "from
+        // before the pass" — a reader landing mid-scan must not be told the
+        // catalog is settled.
+        if let Ok(mut slot) = self.last.lock() {
+            if let Some(snapshot) = slot.as_mut() {
+                snapshot.scanning = true;
+            }
+        }
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let ran = {
+                let state = app.state::<CatalogState>();
+                let ran =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.discover()));
+                // Cleared even when the pass panicked: a stuck `scanning` flag
+                // would leave an empty profile on the skeleton forever.
+                state.scanning.store(false, Ordering::SeqCst);
+                // The next read must come from the database, not from the rows
+                // this pass has just replaced.
+                if let Ok(mut slot) = state.last.lock() {
+                    *slot = None;
+                }
+                ran
+            };
+            if ran.is_err() {
+                eprintln!("[catalog] discovery panicked; rows on screen were kept");
+            }
+            // The rows changed under a page that is already on screen.
+            let _ = app.emit(CATALOG_SCANNED_EVENT, ());
+        });
+        true
+    }
+
+    /// Scan and read model lists, without asking any model for a token.
+    fn discover(&self) {
+        let outcome = self.with_service(|service| {
+            if let Err(error) = service.scan() {
+                let message = error.to_wire();
+                eprintln!("[catalog] startup scan failed: {message}");
+                service.record_failure(AdapterFailure {
+                    runtime_id: "catalog".to_string(),
+                    phase: "startup-scan".to_string(),
+                    error: message,
+                });
+            }
+            // Only the model lists are needed to open the composer, and only
+            // from disk: skills, tools and MCP declarations are local files the
+            // UI re-reads right after mount, and seeding a picker by probing a
+            // model is the request that used to hold the runtime page for ten
+            // seconds on a fresh profile.
+            for runtime_id in service.registry().ids() {
+                if let Err(error) = service.sync_models_local(&runtime_id) {
                     let message = error.to_wire();
-                    eprintln!("[catalog] startup scan failed: {message}");
+                    eprintln!("[catalog] startup model sync failed for {runtime_id}: {message}");
                     service.record_failure(AdapterFailure {
-                        runtime_id: "catalog".to_string(),
-                        phase: "startup-scan".to_string(),
+                        runtime_id,
+                        phase: "startup-sync-models".to_string(),
                         error: message,
                     });
                 }
-                // Only the model lists are needed to open the composer. Skills,
-                // tools and MCP declarations are local files the UI re-reads
-                // right after mount, so syncing them here only delayed the
-                // first page: a model page used to wait for every family of
-                // every runtime before it could render a single tab.
-                for runtime_id in service.registry().ids() {
-                    if let Err(error) = service.sync_models(&runtime_id) {
-                        let message = error.to_wire();
-                        eprintln!(
-                            "[catalog] startup model sync failed for {runtime_id}: {message}"
-                        );
-                        service.record_failure(AdapterFailure {
-                            runtime_id,
-                            phase: "startup-sync-models".to_string(),
-                            error: message,
-                        });
-                    }
-                }
             }
-            service.snapshot().map_err(|error| error.to_wire())
-        })
+            Ok(())
+        });
+        if let Err(error) = outcome {
+            eprintln!("[catalog] discovery could not open the catalog: {error}");
+        }
     }
 }
 
 /// Every runtime, resource and sync state the UI renders.
+///
+/// Answers immediately from disk and starts discovery in the background; the
+/// returned snapshot says `scanning` while that pass is running.
 #[tauri::command]
-pub async fn catalog_snapshot(state: State<'_, CatalogState>) -> Result<CatalogSnapshot, String> {
-    state.snapshot_after_startup()
+pub async fn catalog_snapshot(app: AppHandle) -> Result<CatalogSnapshot, String> {
+    let snapshot = {
+        let state = app.state::<CatalogState>();
+        // Read first, then start the pass: the other order lets the scan take
+        // the service lock before this read, and the first paint of a fresh
+        // profile would wait for the very probe this is meant to skip.
+        let mut snapshot = state.snapshot_now()?;
+        if state.discover_in_background(&app) {
+            // Say "still reading" on the way out. Without this the caller sees
+            // an empty list with `scanning: false` and renders "没有可用的
+            // 运行时" while discovery is only just starting.
+            snapshot = state.annotate(snapshot);
+        }
+        snapshot
+    };
+    Ok(snapshot)
+}
+
+/// Record that the user finished first-run setup.
+///
+/// Written to the data directory so the wizard stays closed after a WebView
+/// storage reset, instead of depending on a localStorage flag (or on "some
+/// model is default", which discovery alone can also produce).
+#[tauri::command]
+pub async fn catalog_mark_setup_done(state: State<'_, CatalogState>) -> Result<(), String> {
+    state.with_service(|service| service.mark_setup_complete().map_err(|error| error.to_wire()))
 }
 
 /// Re-scan and re-sync everything.
@@ -321,7 +444,7 @@ pub async fn runtime_install(
                     error: message,
                 });
             }
-            if let Err(error) = service.sync_models(&runtime_id) {
+            if let Err(error) = service.sync_models_local(&runtime_id) {
                 eprintln!(
                     "[catalog] post-install model sync failed: {}",
                     error.to_wire()

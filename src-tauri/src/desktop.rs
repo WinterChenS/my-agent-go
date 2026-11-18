@@ -74,6 +74,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_verify_model,
             crate::catalog::catalog_set_default_model,
             crate::catalog::catalog_set_model_enabled,
+            crate::catalog::catalog_mark_setup_done,
             crate::catalog::catalog_save_agent,
             crate::catalog::catalog_delete_agent,
             crate::catalog::catalog_probe_mcp,
