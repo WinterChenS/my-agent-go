@@ -1,4 +1,5 @@
-// First-run setup: choose which runtimes to turn on, and one model per runtime.
+// First-run setup: pick a theme, choose which runtimes to turn on, and one
+// model per runtime.
 //
 // Why a checklist instead of "everything that was detected": discovery reports
 // every runtime and every model it can reach. Handing all of that to the chat
@@ -12,9 +13,13 @@
 // the data directory — so it survives a WebView storage reset, not just the
 // localStorage flag.
 //
-// The host can auto-install pi's `subagent` extension, but not pi/codex itself;
-// when nothing is available we say so honestly and offer a re-detect instead of
-// pretending a button can install a whole CLI.
+// Styling: every colour comes from the frozen tokens in design/tokens.css
+// (`--surface`, `--fg`, `--fg-2`, `--muted`, `--border`, `--accent`, ...).
+// This screen used to invent its own names (`--text`, `--button-bg`,
+// `--input-bg`), none of which exist, so `var(--text, #1f2430)` always fell back
+// to a near-black and the whole card was unreadable in the dark theme. Text is
+// toned down with `--fg-2` / `--muted`, never with `opacity`, which used to make
+// the body copy fade into the scrim.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCatalog } from '../catalog/useCatalog'
@@ -31,6 +36,8 @@ import {
 } from '../catalog/client'
 import { writeCachedSnapshot } from '../catalog/cache'
 import { notifyCatalogChanged } from '../catalog/notify'
+import { useTheme } from '../preferences/ThemeProvider'
+import type { ThemeMode } from '../preferences/theme'
 import { PREF_ONBOARDING_DONE, readBoolPreference, writeBoolPreference } from '../preferences/flags'
 import { isTauriHost } from '../host/tauri'
 
@@ -39,51 +46,86 @@ const PREFERRED_ORDER = ['pi', 'codex', 'opencode']
 /** The one that is on by default, when it is actually installed. */
 const DEFAULT_RUNTIME = 'pi'
 
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+]
+
 const overlayStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  background: 'rgba(8, 12, 22, 0.55)',
+  // `--scrim` is the token every other overlay in the app uses; it follows the
+  // active theme instead of assuming a dark window.
+  background: 'var(--scrim)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  padding: 24,
   zIndex: 9000,
 }
 const cardStyle: React.CSSProperties = {
-  width: 560,
+  width: 566,
   maxWidth: '92vw',
   maxHeight: '86vh',
   overflow: 'auto',
-  background: 'var(--surface, #ffffff)',
-  color: 'var(--text, #1f2430)',
-  borderRadius: 16,
+  background: 'var(--surface)',
+  color: 'var(--fg)',
+  borderRadius: 'var(--r-lg)',
   padding: 26,
-  boxShadow: '0 24px 80px rgba(0, 0, 0, 0.35)',
-  border: '1px solid var(--border, rgba(127,127,127,.2))',
+  boxShadow: 'var(--shadow-lg)',
+  border: '1px solid var(--border-strong)',
+  fontFamily: 'var(--font-body)',
 }
 const buttonBase: React.CSSProperties = {
-  border: '1px solid var(--border, rgba(127,127,127,.3))',
-  background: 'var(--button-bg, #2563eb)',
-  color: '#fff',
-  borderRadius: 8,
+  border: '1px solid transparent',
+  background: 'var(--accent)',
+  color: 'var(--on-accent)',
+  borderRadius: 'var(--r-md)',
   padding: '9px 18px',
   cursor: 'pointer',
-  fontSize: 13,
+  fontSize: 'var(--text-md)',
   fontWeight: 600,
+  fontFamily: 'inherit',
 }
 const ghostButton: React.CSSProperties = {
   ...buttonBase,
   background: 'transparent',
-  color: 'var(--text, #1f2430)',
+  border: '1px solid var(--border-strong)',
+  color: 'var(--fg-2)',
 }
-const sectionTitle: React.CSSProperties = { fontSize: 12, fontWeight: 700, marginBottom: 8 }
+const sectionTitle: React.CSSProperties = {
+  fontSize: 'var(--text-sm)',
+  fontWeight: 700,
+  color: 'var(--fg-2)',
+  marginBottom: 8,
+}
+const sectionNote: React.CSSProperties = {
+  fontWeight: 400,
+  color: 'var(--muted)',
+  marginLeft: 8,
+}
 const selectStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 10px',
-  borderRadius: 8,
-  border: '1px solid var(--border, rgba(127,127,127,.3))',
-  background: 'var(--input-bg, transparent)',
-  color: 'var(--text, inherit)',
-  fontSize: 13,
+  borderRadius: 'var(--r-md)',
+  border: '1px solid var(--border-strong)',
+  background: 'var(--surface-2)',
+  color: 'var(--fg)',
+  fontSize: 'var(--text-md)',
+  fontFamily: 'inherit',
+}
+const bodyText: React.CSSProperties = {
+  margin: '0 0 18px',
+  fontSize: 'var(--text-md)',
+  color: 'var(--fg-2)',
+  lineHeight: 1.7,
+}
+const hintText: React.CSSProperties = {
+  margin: '8px 0 0',
+  fontSize: 'var(--text-sm)',
+  color: 'var(--muted)',
+  lineHeight: 1.6,
 }
 
 const modelKey = (model: CatalogModel) => `${model.runtimeId}|${model.modelId}`
@@ -115,11 +157,67 @@ function pickModel(models: CatalogModel[]): CatalogModel | undefined {
   )
 }
 
+/**
+ * Theme switch, shown on the first screen so the look is settled before the app
+ * is. Reads and writes through the normal ThemeProvider, so the choice made here
+ * is the same one 设置 → 外观 shows, and it survives as the host preference.
+ */
+function ThemePicker() {
+  const { mode, setMode } = useTheme()
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 2,
+        padding: 2,
+        borderRadius: 'var(--r-md)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        flexShrink: 0,
+      }}
+      role="radiogroup"
+      aria-label="主题"
+      data-testid="onboarding-theme"
+    >
+      {THEME_OPTIONS.map((option) => {
+        const active = mode === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            data-testid={`onboarding-theme-${option.value}`}
+            onClick={() => setMode(option.value)}
+            style={{
+              border: `1px solid ${active ? 'var(--border-strong)' : 'transparent'}`,
+              background: active ? 'var(--surface)' : 'transparent',
+              color: active ? 'var(--fg)' : 'var(--muted)',
+              borderRadius: 'var(--r-xs)',
+              padding: '5px 10px',
+              cursor: 'pointer',
+              fontSize: 'var(--text-sm)',
+              fontWeight: active ? 600 : 500,
+              fontFamily: 'inherit',
+              lineHeight: 1.3,
+            }}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function OnboardingDialog() {
-  const catalog = useCatalog(true)
   const [finished, setFinished] = useState(
     () => !isTauriHost() || readBoolPreference(PREF_ONBOARDING_DONE, false),
   )
+  // Only read the catalog while this screen can still be shown. A configured
+  // user finishes on the first frame, and a finished wizard must not keep a
+  // second background inventory poller alive next to the page's own.
+  const catalog = useCatalog(!finished)
   /** Runtimes the user turned on. Seeded once, to pi only. */
   const [selected, setSelected] = useState<string[]>([])
   /** runtimeId → modelId, for the model picker under each checked runtime. */
@@ -332,8 +430,11 @@ export default function OnboardingDialog() {
     return (
       <div style={overlayStyle} data-testid="onboarding">
         <div style={cardStyle}>
-          <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>无法读取运行时目录</h2>
-          <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.6 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 10 }}>
+            <h2 style={{ margin: 0, flex: 1, fontSize: 'var(--text-2xl)' }}>无法读取运行时目录</h2>
+            <ThemePicker />
+          </div>
+          <p style={{ ...bodyText, marginBottom: 16 }}>
             {catalog.error ?? '桌面宿主没有响应。'}
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -360,17 +461,18 @@ export default function OnboardingDialog() {
   return (
     <div style={overlayStyle} data-testid="onboarding">
       <div style={cardStyle}>
-        <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>欢迎使用 Anvil</h2>
-        <p style={{ margin: '0 0 18px', fontSize: 13, opacity: 0.8, lineHeight: 1.6 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 8 }}>
+          <h2 style={{ margin: 0, flex: 1, fontSize: 'var(--text-2xl)' }}>欢迎使用 Anvil</h2>
+          <ThemePicker />
+        </div>
+        <p style={bodyText}>
           只需设置一次。默认只启用已安装的 pi，其它运行时按需勾选；没装的可以一键安装（走 npm，装到当前用户目录，不需要系统权限），设置完成后启动会直接使用上次的配置。
         </p>
 
         <div style={{ marginBottom: 18 }}>
           <div style={sectionTitle}>
             1. 运行时
-            <span style={{ fontWeight: 400, opacity: 0.6, marginLeft: 8 }}>
-              勾选要启用的，其余保持关闭
-            </span>
+            <span style={sectionNote}>勾选要启用的，其余保持关闭</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -390,22 +492,24 @@ export default function OnboardingDialog() {
                       alignItems: 'center',
                       gap: 10,
                       padding: '10px 12px',
-                      borderRadius: 10,
-                      border: '1px dashed var(--border, rgba(127,127,127,.35))',
-                      opacity: started ? 1 : 0.9,
+                      borderRadius: 'var(--r-md)',
+                      background: 'var(--surface-2)',
+                      border: '1px dashed var(--border-strong)',
                     }}
                   >
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>
+                    <span style={{ flex: 1, fontSize: 'var(--text-md)', fontWeight: 600 }}>
                       {runtime.displayName || runtime.runtimeId}
-                      <span style={{ fontWeight: 400, opacity: 0.6, marginLeft: 6 }}>未安装</span>
+                      <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 6 }}>
+                        未安装
+                      </span>
                     </span>
                     <button
                       type="button"
                       style={{
                         ...buttonBase,
                         padding: '5px 12px',
-                        fontSize: 12,
-                        opacity: installing && !started ? 0.5 : 1,
+                        fontSize: 'var(--text-sm)',
+                        opacity: installing && !started ? 0.55 : 1,
                       }}
                       disabled={installing !== null || busy}
                       data-testid={`onboarding-install-${runtime.runtimeId}`}
@@ -427,10 +531,10 @@ export default function OnboardingDialog() {
                     alignItems: 'center',
                     gap: 10,
                     padding: '10px 12px',
-                    borderRadius: 10,
+                    borderRadius: 'var(--r-md)',
                     cursor: 'pointer',
-                    border: `1px solid ${checked ? 'rgba(37,99,235,.55)' : 'var(--border, rgba(127,127,127,.25))'}`,
-                    background: checked ? 'rgba(37,99,235,.08)' : 'transparent',
+                    border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                    background: checked ? 'var(--accent-soft)' : 'transparent',
                   }}
                 >
                   <input
@@ -438,23 +542,24 @@ export default function OnboardingDialog() {
                     checked={checked}
                     data-testid={`onboarding-runtime-toggle-${runtime.runtimeId}`}
                     onChange={() => toggle(runtime.runtimeId)}
-                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                    style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent)' }}
                   />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>
+                  <span style={{ flex: 1, fontSize: 'var(--text-md)', fontWeight: 600 }}>
                     {runtime.displayName || runtime.runtimeId}
                     {runtime.version ? (
-                      <span style={{ fontWeight: 400, opacity: 0.6, marginLeft: 6 }}>
+                      <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 6 }}>
                         v{runtime.version}
                       </span>
                     ) : null}
                   </span>
                   <span
                     style={{
-                      fontSize: 11,
+                      fontSize: 'var(--text-2xs)',
                       padding: '2px 8px',
                       borderRadius: 999,
-                      border: '1px solid rgba(34,197,94,.45)',
-                      background: 'rgba(34,197,94,.12)',
+                      color: 'var(--success)',
+                      border: '1px solid color-mix(in oklab, var(--success) 45%, transparent)',
+                      background: 'var(--success-soft)',
                     }}
                   >
                     已就绪
@@ -465,16 +570,13 @@ export default function OnboardingDialog() {
           </div>
 
           {installing ? (
-            <p
-              style={{ margin: '8px 0 0', fontSize: 12, opacity: 0.75 }}
-              data-testid="onboarding-installing"
-            >
+            <p style={hintText} data-testid="onboarding-installing">
               正在通过 npm 安装 {installing}，首次下载可能需要一到三分钟…
             </p>
           ) : null}
 
           {available.length === 0 ? (
-            <p style={{ margin: '8px 0 0', fontSize: 12, opacity: 0.75, lineHeight: 1.6 }}>
+            <p style={hintText}>
               本机还没有可用的运行时。点“一键安装”会用 npm 装到当前用户目录（不动系统 PATH），装完自动识别并勾选。
             </p>
           ) : null}
@@ -482,7 +584,7 @@ export default function OnboardingDialog() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             <button
               type="button"
-              style={{ ...ghostButton, padding: '6px 12px', fontSize: 12 }}
+              style={{ ...ghostButton, padding: '6px 12px', fontSize: 'var(--text-sm)' }}
               disabled={busy || installing !== null}
               data-testid="onboarding-redetect"
               onClick={() => void catalog.refresh()}
@@ -492,7 +594,7 @@ export default function OnboardingDialog() {
             {subagent?.canInstall && !subagent?.installed ? (
               <button
                 type="button"
-                style={{ ...ghostButton, padding: '6px 12px', fontSize: 12 }}
+                style={{ ...ghostButton, padding: '6px 12px', fontSize: 'var(--text-sm)' }}
                 disabled={busy || installing !== null}
                 data-testid="onboarding-install-subagent"
                 onClick={() => void installSubagent()}
@@ -506,12 +608,12 @@ export default function OnboardingDialog() {
         <div style={{ marginBottom: 8 }}>
           <div style={sectionTitle}>
             2. 模型
-            <span style={{ fontWeight: 400, opacity: 0.6, marginLeft: 8 }}>
-              每个启用的运行时选一个，其余可在设置里再打开
-            </span>
+            <span style={sectionNote}>每个启用的运行时选一个，其余可在设置里再打开</span>
           </div>
           {selected.length === 0 ? (
-            <p style={{ margin: 0, fontSize: 13, opacity: 0.7 }}>勾选运行时后，在这里选择它的模型。</p>
+            <p style={{ margin: 0, fontSize: 'var(--text-md)', color: 'var(--muted)' }}>
+              勾选运行时后，在这里选择它的模型。
+            </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {selected.map((runtimeId) => {
@@ -519,7 +621,13 @@ export default function OnboardingDialog() {
                 const choices = modelsOf(runtimeId)
                 return (
                   <div key={runtimeId}>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+                    <div
+                      style={{
+                        fontSize: 'var(--text-sm)',
+                        color: 'var(--muted)',
+                        marginBottom: 4,
+                      }}
+                    >
                       {runtime?.displayName || runtimeId}
                     </div>
                     {choices.length > 0 ? (
@@ -538,7 +646,7 @@ export default function OnboardingDialog() {
                         ))}
                       </select>
                     ) : (
-                      <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>
+                      <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--muted)' }}>
                         该运行时暂未返回模型，可在设置里同步。
                       </p>
                     )}
@@ -550,7 +658,10 @@ export default function OnboardingDialog() {
         </div>
 
         {notice ? (
-          <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f59e0b' }} data-testid="onboarding-notice">
+          <p
+            style={{ margin: '12px 0 0', fontSize: 'var(--text-sm)', color: 'var(--warn)' }}
+            data-testid="onboarding-notice"
+          >
             {notice}
           </p>
         ) : null}
