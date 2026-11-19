@@ -873,7 +873,9 @@ export function useChatSession({
       const view = await loadRail(sessionId)
       if (mounted.current) setRail(view)
     } catch {
-      if (mounted.current) setRail(null)
+      // Keep whatever is on screen. Blanking the pane on a transient read error
+      // turned "the file list did not load yet" into "this conversation has no
+      // data", which is a different and false claim.
     }
   }, [])
 
@@ -1069,6 +1071,12 @@ export function useChatSession({
         text: prompt,
         seq: Number.MAX_SAFE_INTEGER,
         createdAt: new Date().toISOString(),
+        // The chips the composer showed belong on this bubble from the first
+        // frame. They used to appear only when the turn finished and the ledger
+        // was read back, so a two-minute analysis left the file list in the
+        // composer's past and nowhere on screen. The host replaces this with the
+        // resolved copy (bytes, truncation, outside-project) when it lands.
+        ...(context.length > 0 ? { meta: { context } } : {}),
       }
       setCurrent((existing) =>
         existing ? { ...existing, messages: [...existing.messages, optimistic] } : existing,
@@ -1126,6 +1134,29 @@ export function useChatSession({
 
       const polling = poll()
 
+      // The host writes the user message — with its context — before it spawns
+      // the runtime, so the pane can list the attachments within a moment of
+      // sending. Filling it only at the end meant a long analysis sat next to
+      // "尚未接入会话数据" for minutes, right after the reader handed over files.
+      let warmStop = false
+      const warmRail = (async () => {
+        for (let round = 0; round < 20; round += 1) {
+          await sleep(400)
+          if (warmStop || !mounted.current) return
+          try {
+            const view = await loadRail(sessionId)
+            if (warmStop || !mounted.current) return
+            setRail(view)
+            // A turn that carried nothing has nothing to wait for: one read
+            // after the message lands is all it needs.
+            if ((view.references?.length ?? 0) >= context.length) return
+            if (context.length === 0 && round >= 1) return
+          } catch {
+            // The message may not be committed yet; the next round retries.
+          }
+        }
+      })()
+
       const sendPromise = sendTurn(
         sessionId,
         prompt,
@@ -1152,8 +1183,12 @@ export function useChatSession({
         outcome = { kind: 'error', message: failure }
       } finally {
         pollStop.current = true
+        warmStop = true
         await polling
         await drain()
+        // Let the warm read finish before the authoritative one, so a slow tail
+        // cannot overwrite the finished view with the mid-turn copy.
+        await warmRail
       }
 
       try {

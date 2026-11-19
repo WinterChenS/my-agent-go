@@ -210,6 +210,8 @@ function installHost(
     subagent?: Record<string, unknown> | null
     /** What `pi_subagent_install` answers. */
     install?: Record<string, unknown>
+    /** Leave `session_send` unanswered, so only the page's own state is visible. */
+    hangSend?: boolean
   } = {},
 ): Host {
   const calls: string[] = []
@@ -277,6 +279,11 @@ function installHost(
         ]
       }
       if (command === 'session_send') {
+        if (options.hangSend) {
+          // Never answers: whatever the page shows now came from its own state,
+          // not from reading the ledger back after the turn.
+          await new Promise(() => {})
+        }
         // Long enough for the poll to run at least once, short enough to keep
         // the test fast.
         await new Promise((resolve) => setTimeout(resolve, 200))
@@ -1441,6 +1448,32 @@ describe('chat context and approvals', () => {
     expect(chips).toHaveTextContent('spec.txt')
     // Multi-select: the dialog returned two paths and both became chips.
     expect(chips).toHaveTextContent('plan.md')
+  })
+
+  it('shows the attachments on the bubble while the turn is still running', async () => {
+    const host = installHost({ hangSend: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    await userEvent.click(screen.getByTestId('chat-add-file'))
+    await waitFor(() => expect(screen.getByTestId('chat-attachments')).toHaveTextContent('spec.txt'))
+
+    await userEvent.type(composer, 'read them')
+    await userEvent.keyboard('{Enter}')
+
+    // The host never answers, so nothing was read back: these chips can only be
+    // the ones the composer handed to the turn.
+    const bubble = await screen.findByTestId('chat-message-user')
+    expect(bubble).toHaveTextContent('read them')
+    const chips = await screen.findByTestId('chat-context-chips')
+    expect(chips).toHaveTextContent('spec.txt')
+    expect(chips).toHaveTextContent('plan.md')
+    expect(host.calls).toContain('session_send')
   })
 
   it('clears the composer attachments once the turn carries them', async () => {

@@ -86,9 +86,11 @@ export default function ChatRail({
 
       <div className="chat-rail-body">
         {!sample && !view ? (
-          <div className="chat-rail-empty">
+          <div className="chat-rail-empty" data-testid="chat-rail-pending">
             <Icon name="panel" size={20} />
-            <p>{t('chat.rail.empty')}</p>
+            {/* A turn in flight has data on the way; saying "no data" then is a
+                claim about the conversation, not about the read. */}
+            <p>{live?.running ? t('chat.rail.loading') : t('chat.rail.empty')}</p>
           </div>
         ) : null}
 
@@ -420,43 +422,44 @@ function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string
           {t('chat.rail.references.empty')}
         </div>
       ) : (
-        references.map((reference) => (
-          <div
-            key={reference.path}
-            className="chat-file-row is-static"
-            data-testid="chat-rail-reference"
-            data-kind={reference.kind}
-            data-turn={reference.turn}
-            title={reference.path}
-          >
-            <span className="chat-file-ext">{referenceBadge(reference)}</span>
-            <span className="chat-file-main">
-              <span className="chat-file-name">{reference.label}</span>
-              <span className="chat-file-sub">
-                {reference.turn > 0
-                  ? `${t('chat.rail.artifacts.turn', { turn: reference.turn })} · `
-                  : ''}
-                {reference.kind === 'dir' ? t('chat.rail.references.dir') : size(reference.bytes)}
-                {reference.truncated ? ` · ${t('chat.rail.references.truncated')}` : ''}
+        references.map((reference) => {
+          // One line of facts under the name, not a row of badges: the rail can
+          // be 200px wide, and badges there squeezed the file name to "a…".
+          const facts = [
+            reference.turn > 0 ? t('chat.rail.artifacts.turn', { turn: reference.turn }) : '',
+            reference.kind === 'dir' ? t('chat.rail.references.dir') : size(reference.bytes),
+            reference.touches > 1 ? t('chat.rail.references.reused', { count: reference.touches }) : '',
+            reference.truncated ? t('chat.rail.references.truncated') : '',
+            reference.outsideRoot ? t('chat.rail.references.outside') : '',
+          ].filter(Boolean)
+          return (
+            <div
+              key={reference.path}
+              className="chat-file-row chat-ref-row"
+              data-testid="chat-rail-reference"
+              data-kind={reference.kind}
+              data-turn={reference.turn}
+              title={reference.path.replace(/^\\\\\?\\/, '')}
+            >
+              <span className="chat-file-ext">{referenceBadge(reference)}</span>
+              <span className="chat-file-main">
+                <span className="chat-file-name">{reference.label}</span>
+                <span className={`chat-file-sub${reference.outsideRoot ? ' is-outside' : ''}`}>
+                  {facts.join(' · ')}
+                </span>
               </span>
-            </span>
-            {reference.outsideRoot ? (
-              <span className="chat-badge chat-tone-warn">{t('chat.rail.references.outside')}</span>
-            ) : null}
-            {reference.touches > 1 ? (
-              <span className="chat-badge">{t('chat.rail.references.reused', { count: reference.touches })}</span>
-            ) : null}
-            {reference.turn > 0 && onTurn ? (
-              <button
-                type="button"
-                className="chat-btn chat-btn-sm chat-btn-ghost"
-                onClick={() => onTurn(reference.runId)}
-              >
-                {t('chat.rail.turnGo')}
-              </button>
-            ) : null}
-          </div>
-        ))
+              {reference.turn > 0 && onTurn ? (
+                <button
+                  type="button"
+                  className="chat-btn chat-btn-sm chat-btn-ghost chat-ref-go"
+                  onClick={() => onTurn(reference.runId)}
+                >
+                  {t('chat.rail.turnGo')}
+                </button>
+              ) : null}
+            </div>
+          )
+        })
       )}
       <div className="chat-rail-section-head">
         <span>{t('chat.rail.sources.heading', { count: sources.length })}</span>
