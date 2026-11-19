@@ -45,7 +45,9 @@ export default function ChatRail({
     : {
         browser: view?.browser.state === 'local' ? 1 : 0,
         artifacts: view?.artifacts.length ?? 0,
-        sources: view?.sources.length ?? 0,
+        // "引用" is the pane's whole subject: the attached files and the cited
+        // URLs, so the number on the tab is what the pane lists.
+        sources: (view?.references.length ?? 0) + (view?.sources.length ?? 0),
         exec: view?.exec.length ?? 0,
       }
 
@@ -403,20 +405,68 @@ function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: stri
   )
 }
 
-/** Sources: the same numbers the transcript prints as `[n]`. */
+/** Sources: the files the reader attached, then the URLs an answer cited. */
 function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string) => void }) {
   const { t } = useI18n()
+  const references = view.references ?? []
+  const sources = view.sources ?? []
   return (
     <>
       <div className="chat-rail-section-head">
-        <span>{t('chat.rail.sources.heading', { count: view.sources.length })}</span>
+        <span>{t('chat.rail.references.heading', { count: references.length })}</span>
       </div>
-      {view.sources.length === 0 ? (
+      {references.length === 0 ? (
+        <div className="chat-rail-hint" data-testid="chat-rail-references-empty">
+          {t('chat.rail.references.empty')}
+        </div>
+      ) : (
+        references.map((reference) => (
+          <div
+            key={reference.path}
+            className="chat-file-row is-static"
+            data-testid="chat-rail-reference"
+            data-kind={reference.kind}
+            data-turn={reference.turn}
+            title={reference.path}
+          >
+            <span className="chat-file-ext">{referenceBadge(reference)}</span>
+            <span className="chat-file-main">
+              <span className="chat-file-name">{reference.label}</span>
+              <span className="chat-file-sub">
+                {reference.turn > 0
+                  ? `${t('chat.rail.artifacts.turn', { turn: reference.turn })} · `
+                  : ''}
+                {reference.kind === 'dir' ? t('chat.rail.references.dir') : size(reference.bytes)}
+                {reference.truncated ? ` · ${t('chat.rail.references.truncated')}` : ''}
+              </span>
+            </span>
+            {reference.outsideRoot ? (
+              <span className="chat-badge chat-tone-warn">{t('chat.rail.references.outside')}</span>
+            ) : null}
+            {reference.touches > 1 ? (
+              <span className="chat-badge">{t('chat.rail.references.reused', { count: reference.touches })}</span>
+            ) : null}
+            {reference.turn > 0 && onTurn ? (
+              <button
+                type="button"
+                className="chat-btn chat-btn-sm chat-btn-ghost"
+                onClick={() => onTurn(reference.runId)}
+              >
+                {t('chat.rail.turnGo')}
+              </button>
+            ) : null}
+          </div>
+        ))
+      )}
+      <div className="chat-rail-section-head">
+        <span>{t('chat.rail.sources.heading', { count: sources.length })}</span>
+      </div>
+      {sources.length === 0 ? (
         <div className="chat-rail-hint" data-testid="chat-rail-sources-empty">
           {t('chat.rail.sources.empty')}
         </div>
       ) : (
-        view.sources.map((source) => (
+        sources.map((source) => (
           <button
             key={source.url}
             type="button"
@@ -437,6 +487,16 @@ function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string
       )}
     </>
   )
+}
+
+/** The two-letter badge above a reference row. */
+function referenceBadge(reference: { kind: string; label: string }): string {
+  if (reference.kind === 'dir') return 'DIR'
+  if (reference.kind === 'skill') return 'SKL'
+  if (reference.kind === 'image') return 'IMG'
+  const dot = reference.label.lastIndexOf('.')
+  const ext = dot > 0 ? reference.label.slice(dot + 1) : ''
+  return (ext || 'file').slice(0, 4).toUpperCase()
 }
 
 /** Browser: a local page in a frame with no permissions, or the reason there

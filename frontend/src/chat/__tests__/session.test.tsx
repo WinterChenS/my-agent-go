@@ -264,6 +264,10 @@ function installHost(
       if (command === 'workspace_ensure') return String(args?.path ?? '')
       if (command === 'workspace_pick') return 'D:////picked////folder'
       if (command === 'workspace_pick_file') return 'D:////picked////folder////spec.txt'
+      if (command === 'workspace_pick_files') {
+        // Two paths in one answer: the composer must attach both, not one.
+        return ['D:/picked/folder/spec.txt', 'D:/picked/folder/plan.md']
+      }
       if (command === 'workspace_create') return `${String(args?.name ?? '')} (created)`
       if (command === 'session_events') {
         return [
@@ -518,6 +522,7 @@ describe('coming back to the conversation', () => {
             exec: [],
             artifacts: [],
             sources: [],
+            references: [],
             browser: { state: 'unavailable', reason: 'no local page in this session' },
             outsidePaths: 0,
             empty: true,
@@ -1430,9 +1435,41 @@ describe('chat context and approvals', () => {
     expect(fileButton).not.toBeDisabled()
 
     await userEvent.click(fileButton)
-    await waitFor(() => expect(host.calls).toContain('workspace_pick_file'))
+    await waitFor(() => expect(host.calls).toContain('workspace_pick_files'))
     await waitFor(() => expect(screen.queryByTestId('chat-attachment-drawer')).toBeNull())
-    expect(screen.getByTestId('chat-attachments')).toHaveTextContent('spec.txt')
+    const chips = screen.getByTestId('chat-attachments')
+    expect(chips).toHaveTextContent('spec.txt')
+    // Multi-select: the dialog returned two paths and both became chips.
+    expect(chips).toHaveTextContent('plan.md')
+  })
+
+  it('clears the composer attachments once the turn carries them', async () => {
+    const host = installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.click(screen.getByTestId('chat-composer-plus'))
+    await userEvent.click(screen.getByTestId('chat-add-file'))
+    await waitFor(() => expect(screen.getByTestId('chat-attachments')).toHaveTextContent('spec.txt'))
+
+    await userEvent.type(composer, 'read them')
+    await userEvent.keyboard('{Enter}')
+
+    await waitFor(() =>
+      expect(host.args('session_send')).toMatchObject({
+        context: [
+          { kind: 'file', path: 'D:/picked/folder/spec.txt' },
+          { kind: 'file', path: 'D:/picked/folder/plan.md' },
+        ],
+      }),
+    )
+    // The chips belonged to the turn that just started, so they leave the field
+    // with it: the transcript keeps the record.
+    await waitFor(() => expect(screen.queryByTestId('chat-attachments')).toBeNull())
   })
 
   it('the + drawer attaches a picked folder too', async () => {
@@ -1595,6 +1632,7 @@ describe('chat rail', () => {
         exec: [],
         artifacts: [],
         sources: [],
+        references: [],
         browser: { state: 'unavailable', reason: 'no local page in this session' },
         outsidePaths: 0,
         empty: true,
@@ -1642,6 +1680,19 @@ describe('chat rail', () => {
           turn: 1,
           runId: 'pi-1:r1',
           origin: 'message',
+        },
+      ],
+      references: [
+        {
+          path: 'D:/project/src/main.rs',
+          label: 'main.rs',
+          kind: 'file',
+          turn: 1,
+          runId: 'pi-1:r1',
+          bytes: 1200,
+          truncated: false,
+          outsideRoot: false,
+          touches: 2,
         },
       ],
       usage: { input: 240, output: 9, cacheRead: 6912, cacheWrite: 0, cost: 0.5, events: 1 },
@@ -1752,11 +1803,34 @@ describe('chat rail', () => {
     fireEvent.click(cite)
     expect(cite.isConnected).toBe(true)
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: '引用 1' })).toHaveAttribute('aria-selected', 'true'),
+      // Two things are cited in this turn: the attached file and the URL.
+      expect(screen.getByRole('tab', { name: '引用 2' })).toHaveAttribute('aria-selected', 'true'),
     )
     const source = await screen.findByTestId('chat-rail-source')
     expect(source).toHaveAttribute('data-number', '1')
     expect(source).toHaveTextContent('https://docs.example.com/a')
+  })
+
+  it('lists the attached files in the rail 引用 pane', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+    await sendOneTurn()
+
+    await userEvent.click(screen.getByRole('tab', { name: '引用 2' }))
+    const rows = await screen.findAllByTestId('chat-rail-reference')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('main.rs')
+    expect(rows[0]).toHaveAttribute('data-kind', 'file')
+    // It says which turn carried it and that two turns used it.
+    expect(rows[0]).toHaveTextContent('第 1 轮')
+    expect(rows[0]).toHaveTextContent('2 轮共用')
+    // The URL is still there, in its own section, below.
+    expect(screen.getByTestId('chat-rail-source')).toHaveTextContent('https://docs.example.com/a')
   })
 
   it('renders a local page only inside an empty sandbox', async () => {
@@ -1826,6 +1900,7 @@ describe('chat export', () => {
             exec: [],
             artifacts: [],
             sources: [],
+            references: [],
             browser: { state: 'unavailable', reason: '' },
             outsidePaths: 0,
             empty: true,

@@ -1929,6 +1929,18 @@ button.chat-badge:hover {
   background: var(--surface-2);
 }
 
+/* A reference row is not itself clickable: the only action is the small
+   "定位" button, so the row must not pretend to be one big button. */
+.chat-file-row.is-static {
+  cursor: default;
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.chat-file-row.is-static:hover {
+  background: transparent;
+}
+
 .chat-file-ext {
   display: grid;
   place-items: center;

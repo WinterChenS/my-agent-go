@@ -142,6 +142,7 @@ pub fn workspace_create(name: String) -> Result<String, String> {
 enum PickKind {
     Folder,
     File,
+    Files,
 }
 
 /// Ask Windows for a folder.
@@ -166,7 +167,7 @@ pub async fn workspace_pick(
     log_pick(&app, "folder: opening");
     let outcome = pick_on_main_thread(&app, owner, PickKind::Folder);
     log_pick(&app, &format!("folder: {outcome:?}"));
-    outcome
+    outcome.map(|picked| picked.and_then(|paths| paths.into_iter().next()))
 }
 
 /// Ask Windows for a *file*. A workspace is a directory, so the file's parent
@@ -181,7 +182,24 @@ pub async fn workspace_pick_file(
     log_pick(&app, "file: opening");
     let outcome = pick_on_main_thread(&app, owner, PickKind::File);
     log_pick(&app, &format!("file: {outcome:?}"));
-    outcome
+    outcome.map(|picked| picked.and_then(|paths| paths.into_iter().next()))
+}
+
+/// Ask Windows for one or more *files* to attach as context.
+///
+/// This is the composer's "文件" entry, not the project picker: several files
+/// are the normal case for a turn ("these three configs"), and selecting them
+/// one dialog at a time is the reason the old control felt broken.
+#[tauri::command]
+pub async fn workspace_pick_files(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Vec<String>, String> {
+    let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
+    log_pick(&app, "files: opening");
+    let outcome = pick_on_main_thread(&app, owner, PickKind::Files);
+    log_pick(&app, &format!("files: {outcome:?}"));
+    Ok(outcome?.unwrap_or_default())
 }
 
 /// Records one picker step in the host log, so "the button did nothing" can be
@@ -200,12 +218,13 @@ fn pick_on_main_thread(
     app: &tauri::AppHandle,
     owner: Option<isize>,
     kind: PickKind,
-) -> Result<Option<String>, String> {
+) -> Result<Option<Vec<String>>, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
         let outcome = match kind {
-            PickKind::Folder => pick_folder(owner),
-            PickKind::File => pick_file(owner),
+            PickKind::Folder => pick_folder(owner).map(|one| one.map(|path| vec![path])),
+            PickKind::File => pick_file(owner).map(|one| one.map(|path| vec![path])),
+            PickKind::Files => pick_files(owner),
         };
         let _ = sender.send(outcome);
     })
@@ -297,6 +316,96 @@ fn pick_file(owner: Option<isize>) -> Result<Option<String>, String> {
     Ok(Some(String::from_utf16_lossy(&file[..len])))
 }
 
+/// The composer's file picker: `OFN_ALLOWMULTISELECT` with an explorer-style
+/// dialog, which is the only combination where the dialog returns more than one
+/// path.
+///
+/// The result is either one full path, or the chosen directory followed by the
+/// names inside it — every entry NUL-terminated, the list ending with an empty
+/// entry. Both shapes are handled below, because getting this wrong silently
+/// produces paths like `C:\proj\a.rs b.rs`.
+#[cfg(windows)]
+fn pick_files(owner: Option<isize>) -> Result<Option<Vec<String>>, String> {
+    use windows_sys::Win32::UI::Controls::Dialogs::{
+        GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST,
+        OPENFILENAMEW,
+    };
+
+    // One buffer holds every name, and a selection that does not fit is refused
+    // rather than truncated. 64 KiB of UTF-16 is ~2000 long paths, far past what
+    // anyone clicks in one dialog.
+    let mut file = vec![0u16; 32 * 1024];
+    let filter: Vec<u16> = "All files\0*.*\0\0".encode_utf16().collect();
+    let title: Vec<u16> = "选择文件（可多选，Ctrl / Shift 连续选择）\0"
+        .encode_utf16()
+        .collect();
+
+    let mut options = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: owner.unwrap_or(0) as *mut core::ffi::c_void,
+        lpstrFilter: filter.as_ptr(),
+        nFilterIndex: 1,
+        lpstrFile: file.as_mut_ptr(),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: title.as_ptr(),
+        Flags: OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST,
+        ..Default::default()
+    };
+
+    // SAFETY: the filter/title/file buffers outlive the modal call; the dialog
+    // fills `file` with NUL-terminated entries.
+    let ok = unsafe { GetOpenFileNameW(&mut options) };
+    if ok == 0 {
+        return Ok(None);
+    }
+    parse_multi_selection(&file)
+}
+
+/// Reads the buffer `GetOpenFileNameW` writes when `OFN_ALLOWMULTISELECT` is
+/// set.
+///
+/// Two shapes come back, and they are easy to confuse:
+///
+/// * one choice — the full path, NUL-terminated;
+/// * several  — the directory, then one entry per selected *name*, NUL-terminated,
+///   the list ending with an empty entry.
+///
+/// Treating the second as the first produces paths like `C:\proj\a.rs b.rs`.
+/// This lives outside `#[cfg(windows)]` so a unit test can check it anywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_multi_selection(file: &[u16]) -> Result<Option<Vec<String>>, String> {
+    let mut entries: Vec<String> = Vec::new();
+    let mut start = 0usize;
+    let mut ended = false;
+    for (index, unit) in file.iter().enumerate() {
+        if *unit != 0 {
+            continue;
+        }
+        if index == start {
+            ended = true;
+            break;
+        }
+        entries.push(String::from_utf16_lossy(&file[start..index]));
+        start = index + 1;
+    }
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    if !ended {
+        return Err("一次选中的文件太多，对话框放不下；请分两次添加。".to_string());
+    }
+    if entries.len() == 1 {
+        return Ok(Some(entries));
+    }
+    let directory = PathBuf::from(&entries[0]);
+    Ok(Some(
+        entries[1..]
+            .iter()
+            .map(|name| directory.join(name).to_string_lossy().to_string())
+            .collect(),
+    ))
+}
+
 #[cfg(not(windows))]
 fn pick_folder(_owner: Option<isize>) -> Result<Option<String>, String> {
     Err("the folder picker is only implemented on Windows".to_string())
@@ -304,6 +413,11 @@ fn pick_folder(_owner: Option<isize>) -> Result<Option<String>, String> {
 
 #[cfg(not(windows))]
 fn pick_file(_owner: Option<isize>) -> Result<Option<String>, String> {
+    Err("the file picker is only implemented on Windows".to_string())
+}
+
+#[cfg(not(windows))]
+fn pick_files(_owner: Option<isize>) -> Result<Option<Vec<String>>, String> {
     Err("the file picker is only implemented on Windows".to_string())
 }
 
@@ -362,5 +476,56 @@ mod tests {
         assert!(workspace_ensure("   ".to_string()).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The buffer a dialog writes: NUL-terminated entries, zeros after the end.
+    fn buffer(entries: &[&str]) -> Vec<u16> {
+        let mut out = Vec::new();
+        for entry in entries {
+            out.extend(entry.encode_utf16());
+            out.push(0);
+        }
+        out.push(0);
+        out.extend(std::iter::repeat(0u16).take(16));
+        out
+    }
+
+    #[test]
+    fn one_selected_file_is_its_own_path() {
+        // `OFN_ALLOWMULTISELECT` still writes a bare path when one file is
+        // chosen; splitting it into directory + name would invent a directory
+        // called `C:\a\b.txt`.
+        let parsed = parse_multi_selection(&buffer(&[r"C:\proj\src\main.rs"])).unwrap();
+        assert_eq!(parsed, Some(vec![r"C:\proj\src\main.rs".to_string()]));
+    }
+
+    #[test]
+    fn several_selected_files_are_joined_to_their_directory() {
+        let parsed = parse_multi_selection(&buffer(&[r"C:\proj\src", "main.rs", "lib.rs"])).unwrap();
+        assert_eq!(
+            parsed,
+            Some(vec![
+                r"C:\proj\src\main.rs".to_string(),
+                r"C:\proj\src\lib.rs".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn a_cancelled_dialog_and_an_empty_buffer_both_mean_nothing() {
+        assert_eq!(parse_multi_selection(&buffer(&[])).unwrap(), None);
+    }
+
+    #[test]
+    fn a_list_that_filled_the_buffer_is_refused_instead_of_truncated() {
+        // No terminating empty entry: the dialog ran out of room, and the paths
+        // it did write cannot be trusted to be all of them.
+        let mut filled = Vec::new();
+        for name in [r"C:\proj", "a.rs", "b.rs"] {
+            filled.extend(name.encode_utf16());
+            filled.push(0);
+        }
+        let error = parse_multi_selection(&filled).unwrap_err();
+        assert!(error.contains("分两次"), "{error}");
     }
 }

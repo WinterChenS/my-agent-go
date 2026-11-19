@@ -200,6 +200,11 @@ description = "Allows opening the native file picker (its parent directory becom
 commands.allow = ["workspace_pick_file"]
 
 [[permission]]
+identifier = "allow-workspace-pick-files"
+description = "Allows opening the native multi-select file picker for composer attachments."
+commands.allow = ["workspace_pick_files"]
+
+[[permission]]
 identifier = "allow-pi-subagent-status"
 description = "Allows checking whether the installed pi ships and has activated the subagent extension."
 commands.allow = ["pi_subagent_status"]
@@ -211,4 +216,4 @@ commands.allow = ["pi_subagent_install"]
 
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install"]

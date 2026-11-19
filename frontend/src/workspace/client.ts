@@ -42,3 +42,14 @@ export function pickWorkspace(): Promise<string | null> {
 export function pickWorkspaceFile(): Promise<string | null> {
   return call<string | null>('workspace_pick_file')
 }
+
+/**
+ * Native *multi*-select file picker, for the composer's attachments.
+ *
+ * Resolves to every chosen path, and to an empty list when the dialog was
+ * cancelled: a turn may legitimately attach several files, so one call has to
+ * be able to return more than one path.
+ */
+export function pickWorkspaceFiles(): Promise<string[]> {
+  return call<string[]>('workspace_pick_files')
+}

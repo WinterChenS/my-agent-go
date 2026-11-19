@@ -102,6 +102,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::workspace::workspace_create,
             crate::workspace::workspace_pick,
             crate::workspace::workspace_pick_file,
+            crate::workspace::workspace_pick_files,
             crate::extensions::pi_subagent_status,
             crate::extensions::pi_subagent_install
         ])

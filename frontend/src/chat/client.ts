@@ -130,6 +130,20 @@ export interface RailSource {
   origin: string
 }
 
+/** A file, folder or skill the user attached to a turn. */
+export interface RailReference {
+  path: string
+  label: string
+  /** `file`, `dir`, `image` or `skill`. */
+  kind: string
+  turn: number
+  runId: string
+  bytes: number
+  truncated: boolean
+  outsideRoot: boolean
+  touches: number
+}
+
 export interface RailTurn {
   turn: number
   runId: string
@@ -169,6 +183,8 @@ export interface RailView {
   exec: RailExec[]
   artifacts: RailArtifact[]
   sources: RailSource[]
+  /** Files, folders and skills the user attached, per turn. */
+  references: RailReference[]
   usage?: RailUsage
   browser: RailBrowser
   /** Paths a turn named outside the project: counted, never listed. */

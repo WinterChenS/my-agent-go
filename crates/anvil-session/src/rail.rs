@@ -98,6 +98,34 @@ pub struct RailSource {
     pub origin: String,
 }
 
+/// A file or folder the user attached to a turn.
+///
+/// This is the other half of "引用": the sources pane already lists the URLs an
+/// answer cited, and these are the things the reader put in front of the model
+/// — the composer chips, kept per turn so the pane can send the reader back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RailReference {
+    /// Absolute path as the host resolved it (symlinks resolved).
+    pub path: String,
+    /// The name the chip showed; the file name when the turn carried none.
+    pub label: String,
+    /// `file`, `dir`, `image` or `skill`.
+    pub kind: String,
+    /// Turn that first attached it.
+    pub turn: i64,
+    /// Run of that turn, so a click can jump back to it.
+    pub run_id: String,
+    /// Bytes of the source, before any truncation.
+    pub bytes: u64,
+    /// The reference was larger than the inline budget and was cut.
+    pub truncated: bool,
+    /// It sits outside the project and was allowed by an approval.
+    pub outside_root: bool,
+    /// How many turns attached the same path.
+    pub touches: usize,
+}
+
 /// A page the rail can render, with the permission it is rendered under.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +186,8 @@ pub struct RailView {
     pub exec: Vec<RailExec>,
     pub artifacts: Vec<RailArtifact>,
     pub sources: Vec<RailSource>,
+    /// Files, folders and skills the user attached, per turn.
+    pub references: Vec<RailReference>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<RailUsage>,
     pub browser: RailBrowser,
@@ -213,21 +243,115 @@ pub fn build(
         .collect::<Vec<_>>();
 
     let sources = collect_sources(messages, &turn_for);
+    let references = collect_references(messages, &turn_for);
     let usage = collect_usage(events);
     let browser = browser_for(&artifacts);
 
-    let empty = turns.is_empty() && exec.is_empty() && artifacts.is_empty() && sources.is_empty();
+    let empty = turns.is_empty()
+        && exec.is_empty()
+        && artifacts.is_empty()
+        && sources.is_empty()
+        && references.is_empty();
 
     RailView {
         turns,
         exec,
         artifacts,
         sources,
+        references,
         usage,
         browser,
         outside_paths,
         empty,
     }
+}
+
+/// The attachments of every user turn, first attachment first.
+///
+/// The record is the message metadata the send path already writes
+/// (`meta.context`), not a second list kept in the UI: a conversation reopened
+/// tomorrow shows the same references, and editing the composer cannot change
+/// what a past turn is said to have carried.
+fn collect_references(
+    messages: &[Message],
+    turn_for: &dyn Fn(&str) -> i64,
+) -> Vec<RailReference> {
+    let mut out: Vec<RailReference> = Vec::new();
+    let mut index: BTreeMap<String, usize> = BTreeMap::new();
+
+    for message in messages {
+        if message.role != Role::User {
+            continue;
+        }
+        let Some(entries) = message
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("context"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        let run_id = message.run_id.clone().unwrap_or_default();
+        let turn = turn_for(&run_id);
+        for entry in entries {
+            let Some(path) = entry.get("path").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if path.is_empty() {
+                continue;
+            }
+            // Windows paths are case-insensitive: `C:\a\B.rs` and `c:\a\b.rs`
+            // are one file, and two rows for it would be a lie about how much
+            // the model was given.
+            let key = path.to_lowercase();
+            if let Some(&existing) = index.get(&key) {
+                out[existing].touches += 1;
+                continue;
+            }
+            index.insert(key, out.len());
+            out.push(RailReference {
+                path: path.to_string(),
+                run_id: run_id.clone(),
+                label: display_name(entry, path),
+                kind: entry
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("file")
+                    .to_string(),
+                turn,
+                bytes: entry
+                    .get("bytes")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0),
+                truncated: entry
+                    .get("truncated")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+                outside_root: entry
+                    .get("outsideRoot")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+                touches: 1,
+            });
+        }
+    }
+    out
+}
+
+/// The chip's name for an attachment, else the last path segment.
+fn display_name(entry: &serde_json::Value, path: &str) -> String {
+    if let Some(label) = entry.get("label").and_then(serde_json::Value::as_str) {
+        if !label.trim().is_empty() {
+            return label.to_string();
+        }
+    }
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 /// Walk the event stream once, pairing calls with results and collecting the
@@ -876,6 +1000,64 @@ mod tests {
         assert_eq!(usage.cache_read, 6912);
         assert!((usage.cost - 0.5).abs() < f64::EPSILON);
         assert_eq!(usage.events, 2);
+    }
+
+    #[test]
+    fn the_attachments_of_each_turn_appear_once_with_their_turn() {
+        // Two turns attach the same file: the pane lists it once, says which
+        // turn introduced it, and reports that both turns used it.
+        let runs = vec![
+            run("s:r1", RunStatus::Completed),
+            run("s:r2", RunStatus::Completed),
+        ];
+        let mut first = message(1, Role::User, "s:r1", "read this");
+        first.meta = Some(serde_json::json!({
+            "context": [
+                {
+                    "kind": "file",
+                    "path": "D:/project/src/main.rs",
+                    "bytes": 1200,
+                    "chars": 1200,
+                    "truncated": false,
+                    "outsideRoot": false
+                },
+                {
+                    "kind": "dir",
+                    "path": "D:/project/docs",
+                    "label": "需求文档",
+                    "bytes": 0,
+                    "chars": 40,
+                    "truncated": true,
+                    "outsideRoot": true
+                },
+            ],
+        }));
+        let mut second = message(3, Role::User, "s:r2", "and again");
+        second.meta = Some(serde_json::json!({
+            "context": [
+                {
+                    "kind": "file",
+                    "path": "d:/PROJECT/src/main.rs",
+                    "bytes": 1200,
+                    "chars": 1200,
+                    "truncated": false,
+                    "outsideRoot": false
+                }
+            ],
+        }));
+
+        let view = build("D:/project", &[first, second], &runs, &[]);
+        assert_eq!(view.references.len(), 2, "one row per distinct path");
+        let file = &view.references[0];
+        assert_eq!(file.label, "main.rs", "falls back to the file name");
+        assert_eq!(file.turn, 1);
+        assert_eq!(file.run_id, "s:r1");
+        assert_eq!(file.touches, 2, "case-insensitive on Windows");
+        let dir = &view.references[1];
+        assert_eq!(dir.label, "需求文档");
+        assert_eq!(dir.kind, "dir");
+        assert!(dir.truncated && dir.outside_root);
+        assert!(!view.empty, "attachments alone are data worth showing");
     }
 
     #[test]

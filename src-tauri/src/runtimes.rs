@@ -160,10 +160,10 @@ mod tests {
 
     #[test]
     fn every_supported_runtime_has_a_package_and_a_binary() {
-        for spec in &SPECS {
-            assert!(!spec.package.is_empty(), "{} has no package", spec.id);
-            assert!(!spec.binary.is_empty(), "{} has no shim", spec.id);
-            assert!(spec(spec.id).is_some());
+        for entry in &SPECS {
+            assert!(!entry.package.is_empty(), "{} has no package", entry.id);
+            assert!(!entry.binary.is_empty(), "{} has no shim", entry.id);
+            assert!(spec(entry.id).is_some());
         }
         assert!(spec("does-not-exist").is_none());
     }

@@ -5,8 +5,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type FormEvent,
   type KeyboardEvent,
+  type SetStateAction,
 } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -48,7 +50,7 @@ import {
 } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
-import { pickWorkspace, pickWorkspaceFile } from '../../workspace/client'
+import { pickWorkspace, pickWorkspaceFiles } from '../../workspace/client'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
 import { useChatHistory } from '../../chat/ChatHistoryProvider'
@@ -1446,7 +1448,7 @@ function Composer({
   pickedAgent: string
   setPickedAgent: (id: string) => void
   attachments: Attachment[]
-  setAttachments: (next: Attachment[]) => void
+  setAttachments: Dispatch<SetStateAction<Attachment[]>>
   mentionOpen: boolean
   setMentionOpen: (open: boolean) => void
   attachmentOpen: boolean
@@ -1581,6 +1583,11 @@ function Composer({
     if (!live || live.running || !text.trim()) return
     live.onSend(text, refs(text))
     setText('')
+    // The chips were the turn's context, and that turn has been handed to the
+    // host: leaving them above an empty field reads as "these will go with the
+    // next message too", which is not what happened. The transcript keeps the
+    // record (each user message prints its own chips) and the rail lists them.
+    setAttachments([])
     caretTarget.current = 0
     closeMentions()
   }
@@ -1678,21 +1685,30 @@ function Composer({
     textareaRef.current?.focus()
   }
 
-  /** Adds one picked path as a context chip; the host reads it on send. */
-  const attachPicked = (path: string, kind: 'file' | 'dir') => {
-    const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
-    setAttachments([
-      ...attachments.filter((item) => item.path !== path),
-      { id: `picked:${path}`, name, kind, path },
-    ])
+  /** Adds picked paths as context chips; the host reads them on send. */
+  const attachPicked = (paths: string[], kind: 'file' | 'dir') => {
+    if (paths.length === 0) return
+    setAttachments((current) => {
+      const next = [...current]
+      for (const path of paths) {
+        const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+        const index = next.findIndex((item) => item.path === path)
+        const chip = { id: `picked:${path}`, name, kind, path }
+        // Re-picking a path that is already attached must not create a second
+        // chip, and must not drop the size a mention already knew about.
+        if (index >= 0) next[index] = { ...next[index], ...chip, size: next[index].size }
+        else next.push(chip)
+      }
+      return next
+    })
   }
 
-  /** The drawer's file entry: native picker, then attach the chosen file. */
+  /** The drawer's file entry: native multi-select picker, then attach them all. */
   const addFilesFromPicker = async () => {
     setAttachmentOpen(false)
     try {
-      const picked = await pickWorkspaceFile()
-      if (picked) {
+      const picked = await pickWorkspaceFiles()
+      if (picked.length > 0) {
         attachPicked(picked, 'file')
         textareaRef.current?.focus()
       }
@@ -1707,7 +1723,7 @@ function Composer({
     try {
       const picked = await pickWorkspace()
       if (picked) {
-        attachPicked(picked, 'dir')
+        attachPicked([picked], 'dir')
         textareaRef.current?.focus()
       }
     } catch (cause) {

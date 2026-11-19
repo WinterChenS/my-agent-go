@@ -44,6 +44,7 @@
     "allow-workspace-create",
     "allow-workspace-pick",
     "allow-workspace-pick-file",
+    "allow-workspace-pick-files",
     "allow-pi-subagent-status",
     "allow-pi-subagent-install",
     "allow-runtime-install"
