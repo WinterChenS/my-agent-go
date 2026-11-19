@@ -1572,6 +1572,38 @@ button.chat-badge:hover {
   cursor: not-allowed;
 }
 
+/* "Full control · trust workspace" is the one mode that stops asking, so the
+   control carrying it stops looking like every other setting. Both the icon and
+   the select text take the danger colour, on a faint danger tint, in either
+   theme: --danger is the palette's own readable red on each background. */
+.chat-ctl.is-danger {
+  border-color: color-mix(in oklab, var(--danger) 32%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.chat-ctl.is-danger:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--danger) 52%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.chat-ctl.is-danger select,
+.chat-ctl.is-danger select option {
+  color: var(--danger);
+}
+
+/* The trusted label is the longest one in the picker and it is the one that
+   must not be misread; give it the room the other three modes do not need. */
+.chat-ctl.is-danger select {
+  max-width: 176px;
+}
+
+.chat-ctl.is-danger select option:checked {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .chat-ctl select {
   max-width: 132px;
   overflow: hidden;
@@ -2500,6 +2532,27 @@ button.chat-badge:hover {
   color: var(--muted);
   font-size: var(--text-base);
   line-height: 1.6;
+}
+
+/* What a trusted workspace turns off. Tinted, not shouty: the reader is one
+   click from a mode that stops asking, so the list carries the warning and the
+   dialog needs no second colour. */
+.chat-trust-points {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-4) var(--space-9);
+  border: 1px solid color-mix(in oklab, var(--danger) 28%, var(--border));
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--fg-2);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  list-style: disc;
+}
+
+.chat-trust-points li::marker {
+  color: var(--danger);
 }
 
 .chat-dialog-body {

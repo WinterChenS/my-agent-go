@@ -5,7 +5,7 @@ import Icon from '../../shell/Icon'
 import { useWorkspace, workspaceName } from '../../workspace/WorkspaceProvider'
 import { sampleChat } from './sampleData'
 
-export type ChatDialogKind = 'project' | 'export' | 'thread' | 'thil' | null
+export type ChatDialogKind = 'project' | 'export' | 'thread' | 'thil' | 'trust' | null
 
 /** What the export dialog asks the page to do. */
 export type ExportRequest = { format: 'html' | 'markdown' | 'json'; includeTools: boolean }
@@ -15,6 +15,7 @@ export default function ChatDialogs({
   onClose,
   onNotice,
   onExport,
+  onConfirmTrust,
   sample = false,
 }: {
   kind: ChatDialogKind
@@ -24,6 +25,8 @@ export default function ChatDialogs({
   sample?: boolean
   /** Absent in sample mode: the prototype has nothing to export. */
   onExport?: (request: ExportRequest) => Promise<{ ok: boolean; message: string }>
+  /** Only called from the trust warning, after the reader says yes. */
+  onConfirmTrust?: () => void
 }) {
   const { t } = useI18n()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -218,6 +221,51 @@ export default function ChatDialogs({
             <div className="chat-dialog-foot">
               <button type="button" className="chat-btn" onClick={onClose}>
                 {t('chat.thread.close')}
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        {kind === 'trust' ? (
+          <>
+            <div className="chat-dialog-head">
+              <div>
+                <h2 id="chat-dialog-trust-title">{t('chat.permission.trust.title')}</h2>
+                <p>{t('chat.permission.trust.desc')}</p>
+              </div>
+              <button
+                type="button"
+                className="chat-iconbtn"
+                aria-label={t('chat.dialog.close')}
+                onClick={onClose}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="chat-dialog-body">
+              {/* The three consequences worth reading before the switch, not a
+                  generic "are you sure": each line is something the mode turns
+                  off, and the last one says how to undo it. */}
+              <ul className="chat-trust-points" data-testid="chat-trust-points">
+                <li>{t('chat.permission.trust.point1')}</li>
+                <li>{t('chat.permission.trust.point2')}</li>
+                <li>{t('chat.permission.trust.point3')}</li>
+              </ul>
+            </div>
+            <div className="chat-dialog-foot">
+              <button type="button" className="chat-btn" data-testid="chat-trust-cancel" onClick={onClose}>
+                {t('chat.permission.trust.cancel')}
+              </button>
+              <button
+                type="button"
+                className="chat-btn chat-btn-danger"
+                data-testid="chat-trust-confirm"
+                onClick={() => {
+                  onConfirmTrust?.()
+                  onClose()
+                }}
+              >
+                {t('chat.permission.trust.confirm')}
               </button>
             </div>
           </>

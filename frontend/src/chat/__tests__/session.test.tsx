@@ -1118,7 +1118,7 @@ describe('chat context and approvals', () => {
     })
   })
 
-  it('sends the chosen permission mode with the turn', async () => {
+  it('asks before switching to full control, and the control reads as a warning', async () => {
     window.localStorage.removeItem('anvil.chat.permission')
     const host = installToolHost()
     render(
@@ -1131,8 +1131,26 @@ describe('chat context and approvals', () => {
     // "Medium" is the safe default; "full" is the trust-workspace answer the
     // user picks so a path outside the project stops raising a card.
     expect(select).toHaveValue('medium')
+    expect(select.closest('.chat-ctl')?.className).not.toContain('is-danger')
+
+    // Picking it raises the warning instead of switching.
     await userEvent.selectOptions(select, 'full')
+    const points = await screen.findByTestId('chat-trust-points')
+    expect(points).toHaveTextContent('读取工作区之外的路径不再逐次询问')
+    expect(select).toHaveValue('medium')
+    expect(window.localStorage.getItem('anvil.chat.permission')).not.toBe('full')
+
+    // Declining leaves the picker where it was.
+    await userEvent.click(screen.getByTestId('chat-trust-cancel'))
+    await waitFor(() => expect(screen.queryByTestId('chat-trust-points')).toBeNull())
+    expect(select).toHaveValue('medium')
+
+    // Confirming switches, and the control turns red from then on.
+    await userEvent.selectOptions(select, 'full')
+    await userEvent.click(await screen.findByTestId('chat-trust-confirm'))
+    await waitFor(() => expect(select).toHaveValue('full'))
     expect(window.localStorage.getItem('anvil.chat.permission')).toBe('full')
+    expect(select.closest('.chat-ctl')?.className).toContain('is-danger')
 
     await sendOnce('run it')
     await waitFor(() =>

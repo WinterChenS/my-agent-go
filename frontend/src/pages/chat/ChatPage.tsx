@@ -1066,6 +1066,14 @@ export default function ChatPage() {
             setAttachmentOpen={setAttachmentOpen}
             permission={permission}
             setPermission={setPermission}
+            onTrust={() => {
+              // Focus goes back to the permission select, not to whatever was
+              // last clicked: the dialog is reachable from that control only.
+              dialogTrigger.current = document.querySelector<HTMLElement>(
+                '[data-testid="chat-permission-select"]',
+              )
+              setDialog('trust')
+            }}
             thinking={thinking}
             setThinking={setThinking}
             onNotice={showNotice}
@@ -1142,6 +1150,7 @@ export default function ChatPage() {
         onClose={closeDialog}
         onNotice={showNotice}
         onExport={liveSession ? runExport : undefined}
+        onConfirmTrust={() => setPermission('full')}
       />
     </section>
   )
@@ -1421,6 +1430,7 @@ function Composer({
   setAttachmentOpen,
   permission,
   setPermission,
+  onTrust,
   thinking,
   setThinking,
   onNotice,
@@ -1444,6 +1454,8 @@ function Composer({
   /** Trust level the next turn runs with; see `PermissionMode`. */
   permission: PermissionMode
   setPermission: (next: PermissionMode) => void
+  /** Ask the page for the confirmation a switch to `full` requires. */
+  onTrust: () => void
   /** Thinking level the next turn runs with; see `ThinkingLevel`. */
   thinking: ThinkingLevel
   setThinking: (next: ThinkingLevel) => void
@@ -2137,14 +2149,29 @@ function Composer({
               ))}
             </select>
           </label>
-          <label className="chat-ctl" title={t('chat.composer.permission.hint')}>
+          {/* A trusted workspace is the one mode that stops asking, so it is
+              also the one mode that reads as a warning: red control, and the
+              switch only happens after the reader confirms in a dialog. The
+              select is controlled by `permission`, so declining simply leaves
+              the old value in place. */}
+          <label
+            className={`chat-ctl${permission === 'full' ? ' is-danger' : ''}`}
+            title={t('chat.composer.permission.hint')}
+          >
             <Icon name="shield" size={13} />
             <select
               aria-label={t('chat.composer.permission')}
               data-testid="chat-permission-select"
               disabled={!enabled}
               value={permission}
-              onChange={(event) => setPermission(event.target.value as PermissionMode)}
+              onChange={(event) => {
+                const next = event.target.value as PermissionMode
+                if (next === 'full' && permission !== 'full') {
+                  onTrust()
+                  return
+                }
+                setPermission(next)
+              }}
             >
               <option value="readonly">{t('chat.composer.permission.readonly')}</option>
               <option value="medium">{t('chat.composer.permission.medium')}</option>
