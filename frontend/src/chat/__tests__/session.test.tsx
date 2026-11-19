@@ -1667,6 +1667,7 @@ describe('chat rail', () => {
         artifacts: [],
         sources: [],
         references: [],
+        subagents: [],
         browser: { state: 'unavailable', reason: 'no local page in this session' },
         outsidePaths: 0,
         empty: true,
@@ -1729,6 +1730,7 @@ describe('chat rail', () => {
           touches: 2,
         },
       ],
+      subagents: [],
       usage: { input: 240, output: 9, cacheRead: 6912, cacheWrite: 0, cost: 0.5, events: 1 },
       browser: {
         state: 'local',

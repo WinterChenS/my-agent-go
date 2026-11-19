@@ -40,6 +40,7 @@ import {
   renameSession,
   sendTurn,
   SessionUnavailable,
+  steerTurn,
   type ApprovalDecision,
   type ApprovalRequest,
   type ContextEntry,
@@ -163,6 +164,12 @@ export interface ChatSessionView {
   select: (sessionId: string) => Promise<void>
   startNew: () => void
   send: (text: string, context?: ContextRef[]) => Promise<string | null>
+  /**
+   * Write a message into the turn that is streaming.
+   *
+   * Returns `false` when nothing was live to steer; the caller keeps the text.
+   */
+  steer: (text: string) => Promise<boolean>
   /** Answer the pending approval card. */
   approve: (decision: ApprovalDecision) => Promise<boolean>
   /** Files and directories the composer may reference in this project. */
@@ -256,6 +263,8 @@ export type TurnPart =
   | { kind: 'thinking'; key: string; text: string }
   | { kind: 'tool'; key: string; tool: LiveTool }
   | { kind: 'agent'; key: string; agent: LiveSubAgent }
+  /** A message the reader injected while this turn was already running. */
+  | { kind: 'steer'; key: string; text: string }
   | { kind: 'text'; key: string; text: string }
 
 /** A child agent before any of its own events have arrived. */
@@ -488,6 +497,17 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
       open.tool.ok = event.payload.ok === true
       const output = event.payload.output ?? event.payload.text ?? ''
       open.tool.output = typeof output === 'string' ? output : JSON.stringify(output)
+      continue
+    }
+    if (event.kind === 'user_steer') {
+      // A steer is not a new turn: it belongs in the transcript at the point
+      // the reader sent it, between the work it interrupted.
+      flushReasoning()
+      flushAnswer()
+      const text = event.payload.text
+      if (typeof text === 'string' && text.trim() !== '') {
+        parts.push({ kind: 'steer', key: `${event.runId}:steer:${event.seq}`, text })
+      }
       continue
     }
     if (event.kind === 'sub_agent') {
@@ -1257,6 +1277,21 @@ export function useChatSession({
     [current],
   )
 
+  const steer = useCallback(
+    async (text: string) => {
+      const sessionId = current?.session.id
+      const prompt = text.trim()
+      if (!sessionId || !prompt) return false
+      try {
+        return await steerTurn(sessionId, prompt)
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+        return false
+      }
+    },
+    [current],
+  )
+
   const abort = useCallback(async () => {
     const sessionId = current?.session.id
     if (!sessionId) return false
@@ -1358,6 +1393,7 @@ export function useChatSession({
     select,
     startNew,
     send,
+    steer,
     approve,
     mention,
     exportSession,

@@ -26,6 +26,7 @@ export type SessionEventKind =
   | 'compacted'
   | 'context_attached'
   | 'sub_agent'
+  | 'user_steer'
   | 'unknown'
 
 export interface SessionSummary {
@@ -178,6 +179,34 @@ export interface RailBrowser {
 }
 
 /** Everything the four rail panes render, for one session. */
+/** One step of a child agent's own transcript. */
+export interface RailSubAgentStep {
+  kind: 'text' | 'tool' | 'tool_result' | string
+  text?: string
+  channel?: 'answer' | 'thinking' | string
+  name?: string
+  args?: unknown
+  ok?: boolean | null
+  output?: unknown
+}
+
+/** A delegated child agent, folded by the host from its observations. */
+export interface RailSubAgent {
+  id: string
+  name: string
+  task: string
+  model: string
+  status: 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'interrupted' | string
+  step?: number
+  /** 1-based turn that delegated it. */
+  turn: number
+  runId: string
+  steps: RailSubAgentStep[]
+  result: string
+  error: string
+  usage?: Record<string, unknown>
+}
+
 export interface RailView {
   turns: RailTurn[]
   exec: RailExec[]
@@ -185,6 +214,8 @@ export interface RailView {
   sources: RailSource[]
   /** Files, folders and skills the user attached, per turn. */
   references: RailReference[]
+  /** Delegated child agents, one row per agent. */
+  subagents: RailSubAgent[]
   usage?: RailUsage
   browser: RailBrowser
   /** Paths a turn named outside the project: counted, never listed. */
@@ -429,6 +460,16 @@ export function listContext(
 
 export function abortTurn(sessionId: string): Promise<boolean> {
   return hostCall<boolean>('session_abort', { sessionId })
+}
+
+/**
+ * Write a message into the turn that is streaming right now.
+ *
+ * `false` means there was nothing live to steer, so the caller keeps the text
+ * instead of losing it into a pipe nobody reads.
+ */
+export function steerTurn(sessionId: string, text: string): Promise<boolean> {
+  return hostCall<boolean>('session_steer', { sessionId, text })
 }
 
 export function renameSession(sessionId: string, title: string): Promise<void> {

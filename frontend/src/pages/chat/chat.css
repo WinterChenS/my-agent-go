@@ -767,6 +767,424 @@ button.chat-badge:hover {
   font-size: var(--text-xs-plus);
 }
 
+/* delegated agents: the composer control, the list, and the floating panel */
+
+.chat-subagent-slot {
+  position: relative;
+  display: inline-flex;
+  margin-left: var(--space-4);
+}
+
+.chat-subagent-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 24px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+.chat-subagent-trigger:hover,
+.chat-subagent-trigger.is-open {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.chat-subagent-trigger.has-failure {
+  border-color: color-mix(in oklab, var(--danger) 32%, var(--border));
+}
+
+.chat-subagent-trigger-name {
+  white-space: nowrap;
+}
+
+.chat-subagent-trigger-total {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.chat-subagent-trigger-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--danger);
+}
+
+.chat-subagent-popover {
+  position: absolute;
+  /* Upwards: the list belongs to the row above the composer, and covering the
+     field the reader is about to type into is never what they asked for. */
+  bottom: calc(100% + var(--space-3));
+  left: 0;
+  z-index: 60;
+  width: 380px;
+  max-width: min(380px, 82vw);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.chat-subagent-popover-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 34px;
+  padding: 0 var(--space-4) 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-subagent-popover-head b {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+
+.chat-subagent-popover-empty {
+  margin: 0;
+  padding: var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-subagent-list {
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.chat-subagent-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--r-sm);
+}
+
+.chat-subagent-item:hover,
+.chat-subagent-item.is-active {
+  background: var(--surface-2);
+}
+
+.chat-subagent-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-subagent-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.chat-subagent-item-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
+}
+
+.chat-subagent-item-name small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+}
+
+.chat-subagent-item-task {
+  overflow: hidden;
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subagent-item-meta {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-item-archive {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-right: var(--space-2);
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-subagent-item-archive:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.chat-subagent-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.chat-subagent-dot[data-status='completed'] {
+  background: var(--success, var(--accent));
+}
+
+.chat-subagent-dot[data-status='failed'] {
+  background: var(--danger);
+}
+
+.chat-subagent-dot.is-live {
+  background: var(--accent);
+  animation: chat-pulse 1.4s ease-in-out infinite;
+}
+
+/* The row in the transcript: a pointer to the panel, not the panel itself. */
+.chat-subagent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  min-height: 34px;
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-subagent-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.chat-subagent-row[data-status='failed'] {
+  border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
+}
+
+.chat-subagent-open {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.chat-subagent-row:hover .chat-subagent-open {
+  color: var(--fg-2);
+}
+
+.chat-subagent-row .chat-tool-caret {
+  transform: rotate(-90deg);
+}
+
+/* The floating panel: one agent's own transcript, over the conversation. */
+.chat-subagent-drawer {
+  position: fixed;
+  /* Above the composer, not over it: the reader can keep typing (and steering)
+     while reading a child's transcript. */
+  top: 64px;
+  right: 16px;
+  max-height: calc(100vh - 200px);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg, var(--r-md));
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.chat-subagent-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-subagent-drawer-head .chat-subagent-dot {
+  margin-top: 0;
+}
+
+.chat-subagent-drawer-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-subagent-drawer-title b {
+  font-size: var(--text-sm);
+}
+
+.chat-subagent-drawer-title small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-drawer-task {
+  flex: none;
+  margin: 0;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+}
+
+.chat-subagent-drawer-task span {
+  margin-right: var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+  background: var(--surface-2);
+}
+
+.chat-subagent-drawer-body .chat-subagent-text,
+.chat-subagent-drawer-body .chat-subagent-tool,
+.chat-subagent-drawer-body .chat-subagent-result {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+/* A message the reader sent into a running turn. */
+.chat-steer-note {
+  align-self: flex-end;
+  max-width: 78%;
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-5);
+  border: 1px dashed color-mix(in oklab, var(--accent) 45%, var(--border));
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--accent) 7%, var(--surface));
+}
+
+.chat-steer-note span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-steer-note p {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* queued messages */
+
+.chat-queue {
+  max-width: 760px;
+  margin: 0 auto var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.chat-queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-queue-head b {
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-queue-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.chat-queue-item p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-xs-plus);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
 /* turn artifacts */
 
 .chat-turn-artifacts {
@@ -1160,6 +1578,7 @@ button.chat-badge:hover {
 /* ---------- composer ---------- */
 
 .chat-composer-wrap {
+  position: relative;
   flex: none;
   padding: var(--space-5) var(--space-12) var(--space-7);
   background: var(--bg);

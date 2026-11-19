@@ -1,12 +1,12 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../../../i18n/LanguageProvider'
 import type { LanguageEnvironment } from '../../../i18n/language'
-import type { SessionEvent } from '../../../chat/client'
+import type { RailSubAgent, SessionEvent } from '../../../chat/client'
 import { buildTurnParts, type LiveSubAgent } from '../../../chat/useChatSession'
-import { SubAgentCard } from '../ChatPage'
+import { SubAgentButton, SubAgentDrawer, SubAgentRow, mergeSubAgents, subAgentFromLive } from '../SubAgents'
 
 afterEach(() => cleanup())
 
@@ -166,7 +166,21 @@ describe('sub-agent parts', () => {
   })
 })
 
-describe('sub-agent card', () => {
+
+const base: LiveSubAgent = {
+  id: 'child',
+  name: 'scout',
+  model: '',
+  task: '',
+  status: 'running',
+  parentId: '',
+  step: null,
+  steps: [],
+  result: '',
+  error: '',
+  usage: null,
+}
+describe('sub-agent surfaces', () => {
   const agent: LiveSubAgent = {
     id: 'child-1',
     name: 'scout',
@@ -185,37 +199,109 @@ describe('sub-agent card', () => {
     usage: null,
   }
 
-  it('shows the agent, its state and its task while collapsed', () => {
-    render(wrap(<SubAgentCard agent={agent} />))
-    const card = screen.getByTestId('chat-subagent')
-    expect(card.getAttribute('data-status')).toBe('running')
-    expect(within(card).getByText('scout')).toBeInTheDocument()
-    expect(within(card).getByText('gpt-6-astra')).toBeInTheDocument()
-    expect(within(card).getByText('运行中')).toBeInTheDocument()
-    expect(within(card).getByText('count the rust files')).toBeInTheDocument()
-    // The transcript is what the disclosure is for; it stays closed until asked.
-    expect(within(card).queryByText('there are 42 files')).toBeNull()
+  it('keeps the transcript out of the main window: the row is a pointer', () => {
+    const onOpen = vi.fn()
+    render(wrap(<SubAgentRow agent={subAgentFromLive(agent)} onOpen={onOpen} />))
+    const row = screen.getByTestId('chat-subagent-row')
+    expect(row.getAttribute('data-status')).toBe('running')
+    expect(within(row).getByText('scout')).toBeInTheDocument()
+    expect(within(row).getByText('gpt-6-astra')).toBeInTheDocument()
+    expect(within(row).getByText('运行中')).toBeInTheDocument()
+    // The child's own words live in the panel, not here.
+    expect(within(row).queryByText('there are 42 files')).toBeNull()
+    expect(within(row).queryByText('counting files')).toBeNull()
   })
 
-  it('reveals the child transcript on demand, marking tools and reasoning', async () => {
-    render(wrap(<SubAgentCard agent={agent} />))
-    await userEvent.click(screen.getByRole('button', { name: '展开子 Agent 详情' }))
-    expect(screen.getByText('there are 42 files')).toBeInTheDocument()
-    expect(screen.getByText('bash')).toBeInTheDocument()
-    expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText('思考')).toBeInTheDocument()
+  it('opens the panel for the agent the reader clicked', async () => {
+    const onOpen = vi.fn()
+    render(wrap(<SubAgentRow agent={subAgentFromLive(agent)} onOpen={onOpen} />))
+    await userEvent.click(screen.getByTestId('chat-subagent-row'))
+    expect(onOpen).toHaveBeenCalledWith('child-1')
+  })
+
+  it('shows the child transcript in the floating panel, tools and reasoning included', () => {
+    render(wrap(<SubAgentDrawer agent={subAgentFromLive(agent)} onClose={() => undefined} onArchive={() => undefined} />))
+    const panel = screen.getByTestId('chat-subagent-drawer')
+    expect(within(panel).getByText('count the rust files')).toBeInTheDocument()
+    expect(within(panel).getByText('there are 42 files')).toBeInTheDocument()
+    expect(within(panel).getByText('bash')).toBeInTheDocument()
+    expect(within(panel).getByText('42')).toBeInTheDocument()
+    expect(within(panel).getByText('思考')).toBeInTheDocument()
   })
 
   it('shows the failure reason instead of pretending it finished', () => {
-    render(wrap(<SubAgentCard agent={{ ...agent, status: 'failed', error: 'model quota exhausted' }} />))
-    const card = screen.getByTestId('chat-subagent')
-    expect(within(card).getByText('失败')).toBeInTheDocument()
-    expect(within(card).getByText('model quota exhausted')).toBeInTheDocument()
+    render(
+      wrap(
+        <SubAgentDrawer
+          agent={subAgentFromLive({ ...agent, status: 'failed', error: 'model quota exhausted' })}
+          onClose={() => undefined}
+          onArchive={() => undefined}
+        />,
+      ),
+    )
+    const panel = screen.getByTestId('chat-subagent-drawer')
+    expect(within(panel).getByText(/失败/)).toBeInTheDocument()
+    expect(within(panel).getByText('model quota exhausted')).toBeInTheDocument()
   })
 
   it('renders the final answer once it exists', () => {
-    render(wrap(<SubAgentCard agent={{ ...agent, status: 'completed', result: '42 files under src' }} />))
-    expect(screen.getByText('已完成')).toBeInTheDocument()
+    render(
+      wrap(
+        <SubAgentDrawer
+          agent={subAgentFromLive({ ...agent, status: 'completed', result: '42 files under src' })}
+          onClose={() => undefined}
+          onArchive={() => undefined}
+        />,
+      ),
+    )
+    expect(screen.getByText(/已完成/)).toBeInTheDocument()
     expect(screen.getByText('42 files under src')).toBeInTheDocument()
+  })
+})
+
+describe('sub-agent counts and merging', () => {
+  const rail = (id: string, status: string, turn = 1): RailSubAgent => ({
+    id,
+    name: id,
+    task: '',
+    model: '',
+    status,
+    turn,
+    runId: `r${turn}`,
+    steps: [],
+    result: '',
+    error: '',
+  })
+
+  it('counts running and failed agents on the composer control', () => {
+    const agents = [
+      subAgentFromLive({ ...base, id: 'a', status: 'running' }),
+      subAgentFromLive({ ...base, id: 'b', status: 'waiting' }),
+      subAgentFromLive({ ...base, id: 'c', status: 'failed' }),
+      subAgentFromLive({ ...base, id: 'd', status: 'completed' }),
+    ]
+    render(wrap(<SubAgentButton agents={agents} open={false} onToggle={() => undefined} />))
+    const trigger = screen.getByTestId('chat-subagent-trigger')
+    expect(trigger.getAttribute('data-running')).toBe('2')
+    expect(trigger.getAttribute('data-failed')).toBe('1')
+    expect(within(trigger).getByText('2 运行中')).toBeInTheDocument()
+    expect(within(screen.getByTestId('chat-subagent-failed')).getByText('1 失败')).toBeInTheDocument()
+  })
+
+  it('merges the stored list with the live one by agent id and puts live work first', () => {
+    const merged = mergeSubAgents(
+      [rail('done', 'completed', 1), rail('live', 'running', 2)],
+      [{ ...base, id: 'live', status: 'completed' }],
+    )
+    expect(merged.map((agent) => agent.id)).toEqual(['done', 'live'])
+    // The live copy is fresher, and the stored turn survives the merge.
+    expect(merged[1].status).toBe('completed')
+    expect(merged[1].turn).toBe(2)
+  })
+
+  it('keeps an agent the rail has not seen yet', () => {
+    const merged = mergeSubAgents([], [{ ...base, id: 'fresh', status: 'running' }])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].turn).toBe(0)
   })
 })

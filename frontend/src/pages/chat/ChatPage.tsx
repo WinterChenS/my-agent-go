@@ -8,6 +8,7 @@ import {
   type Dispatch,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   type SetStateAction,
 } from 'react'
 import { Link } from 'react-router-dom'
@@ -16,7 +17,6 @@ import {
   useChatSession,
   withStoredAnswer,
   type AgentChoice,
-  type LiveSubAgent,
   type ModelChoice,
   type TurnFailure,
   type TurnPart,
@@ -36,6 +36,14 @@ import {
   type PiSubagentStatus,
 } from '../../catalog/client'
 import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDialogs'
+import {
+  SubAgentButton,
+  SubAgentDrawer,
+  SubAgentList,
+  SubAgentRow,
+  mergeSubAgents,
+  subAgentFromLive,
+} from './SubAgents'
 import {
   describeSessionError,
   loadSessionEvents,
@@ -99,11 +107,20 @@ interface LiveComposer {
   agents: AgentChoice[]
   onModel: (choice: ModelChoice) => void
   onSend: (text: string, context: ContextRef[]) => void
+  /** Queue a message for the turn that is already running. */
+  onQueue: (text: string, context: ContextRef[]) => void
   onStop: () => void
   /** Re-scan the machine for models. */
   onSync: () => void
   syncing: boolean
   running: boolean
+}
+
+/** A message the reader wrote while a turn was still running. */
+export interface QueuedTurn {
+  id: string
+  text: string
+  refs: ContextRef[]
 }
 
 /** How many trailing messages a compaction leaves verbatim. */
@@ -338,12 +355,16 @@ function TurnPartsList({
   live = false,
   sources = 0,
   onCite,
+  onOpenAgent,
 }: {
   parts: TurnPart[]
   live?: boolean
   sources?: number
   onCite?: () => void
+  /** Open the floating panel for one delegated agent. */
+  onOpenAgent?: (id: string) => void
 }) {
+  const { t } = useI18n()
   if (parts.length === 0) return null
   const last = parts[parts.length - 1]
   return (
@@ -358,7 +379,23 @@ function TurnPartsList({
           return <LiveToolCard key={part.key} tool={part.tool} />
         }
         if (part.kind === 'agent') {
-          return <SubAgentCard key={part.key} agent={part.agent} sources={sources} onCite={onCite} />
+          // The child's own words are not printed in this window any more: one
+          // row says that a delegation happened, and the panel holds the rest.
+          return (
+            <SubAgentRow
+              key={part.key}
+              agent={subAgentFromLive(part.agent)}
+              onOpen={onOpenAgent ?? (() => undefined)}
+            />
+          )
+        }
+        if (part.kind === 'steer') {
+          return (
+            <div className="chat-steer-note" key={part.key} data-testid="chat-steer-note">
+              <span>{t('chat.subagent.steerLabel')}</span>
+              <p>{part.text}</p>
+            </div>
+          )
         }
         // The answer is a part like any other: when the runtime reasons or runs
         // a tool again, that text stays where it was written instead of being
@@ -447,6 +484,17 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<Attachment[]>(sample ? sampleChat.attachments : [])
   const [mentionOpen, setMentionOpen] = useState(false)
   const [attachmentOpen, setAttachmentOpen] = useState(false)
+  // Sub-agents: the composer-row control counts them, the floating panel shows
+  // one. Archived ids are per conversation and only hide rows — nothing about
+  // the ledger changes.
+  const [subAgentOpen, setSubAgentOpen] = useState(false)
+  const [subAgentActive, setSubAgentActive] = useState<string | null>(null)
+  const [archivedAgents, setArchivedAgents] = useState<string[]>([])
+  // Messages written while a turn is streaming. They are not sent until the
+  // reader says "now" (steer) or the turn ends.
+  const [queue, setQueue] = useState<QueuedTurn[]>([])
+  /** A queued message handed back to the composer for editing. */
+  const [draftRequest, setDraftRequest] = useState<{ id: number; text: string } | null>(null)
   const dialogTrigger = useRef<HTMLElement | null>(null)
   const railToggle = useRef<HTMLButtonElement>(null)
   const historyToggle = useRef<HTMLButtonElement>(null)
@@ -615,7 +663,12 @@ export default function ChatPage() {
   // The composer waits for the model list: a chat with no model can only fail.
   const liveReady = !sample && live.status === 'ready' && live.models.length > 0
   const liveSession = live.current?.session ?? null
-  const liveMessages = live.current?.messages ?? []
+  // A steer is stored as a user message *and* as an event of the running turn.
+  // The event is what the transcript renders (it sits between the steps it
+  // interrupted); printing the message as well would show it twice.
+  const liveMessages = (live.current?.messages ?? []).filter(
+    (message) => !(message.meta as { steer?: boolean } | undefined)?.steer,
+  )
   // The runtime the next turn will run on. pi delegates only through its
   // `subagent` extension, so this is also the condition for the install notice.
   const activeRuntime = liveSession?.runtimeId ?? live.model?.runtimeId ?? ''
@@ -676,6 +729,132 @@ export default function ChatPage() {
   // The turn in flight: its events are already only this turn's, so one flat
   // pass gives the thinking/tool stack the transcript should show.
   const liveParts = useMemo(() => buildTurnParts(live.turnEvents), [live.turnEvents])
+
+  // Which agents this conversation has delegated to. The rail holds the stored
+  // list; the live turn is fresher for one that is still talking, so the two are
+  // merged by the runtime's own id.
+  const liveAgents = useMemo(
+    () =>
+      liveParts
+        .filter((part): part is Extract<TurnPart, { kind: 'agent' }> => part.kind === 'agent')
+        .map((part) => part.agent),
+    [liveParts],
+  )
+  const subAgents = useMemo(
+    () => mergeSubAgents(live.rail?.subagents, liveAgents),
+    [live.rail, liveAgents],
+  )
+  const visibleAgents = useMemo(
+    () => subAgents.filter((agent) => !archivedAgents.includes(agent.id)),
+    [subAgents, archivedAgents],
+  )
+  // The panel opens for any agent a row points at, including an archived one:
+  // archiving hides a row from the list, it does not delete the transcript.
+  const activeAgent = subAgents.find((agent) => agent.id === subAgentActive) ?? null
+
+  // Archive is a view decision, kept per conversation: hiding a finished child
+  // must survive a reload without touching the ledger.
+  useEffect(() => {
+    if (!currentId) {
+      setArchivedAgents([])
+      return
+    }
+    try {
+      const raw = window.localStorage.getItem(`anvil.chat.subagents.archived.${currentId}`)
+      setArchivedAgents(raw ? (JSON.parse(raw) as string[]) : [])
+    } catch {
+      setArchivedAgents([])
+    }
+  }, [currentId])
+
+  const archiveSubAgent = (id: string) => {
+    setArchivedAgents((previous) => {
+      const next = previous.includes(id) ? previous : [...previous, id]
+      try {
+        if (currentId) {
+          window.localStorage.setItem(
+            `anvil.chat.subagents.archived.${currentId}`,
+            JSON.stringify(next),
+          )
+        }
+      } catch {
+        // A locked-down webview keeps the row; nothing else breaks.
+      }
+      return next
+    })
+    setSubAgentActive((open) => (open === id ? null : open))
+    showNotice(t('chat.subagent.panel.archived'))
+  }
+
+  const openSubAgent = (id: string) => {
+    setSubAgentActive(id)
+    setSubAgentOpen(false)
+  }
+
+  // ---- queued messages ----------------------------------------------------
+  const enqueue = (text: string, context: ContextRef[]) => {
+    const prompt = text.trim()
+    if (!prompt) return
+    setQueue((previous) => [
+      ...previous,
+      { id: `q-${Date.now()}-${previous.length}`, text: prompt, refs: context },
+    ])
+    showNotice(t('chat.queue.queued'))
+  }
+
+  const steerQueued = (id: string) => {
+    const item = queue.find((entry) => entry.id === id)
+    if (!item) return
+    void live.steer(item.text).then((accepted) => {
+      if (!accepted) {
+        showNotice(t('chat.queue.steerFailed'))
+        return
+      }
+      setQueue((previous) => previous.filter((entry) => entry.id !== id))
+      showNotice(t('chat.queue.steered'))
+    })
+  }
+
+  const editQueued = (id: string) => {
+    const item = queue.find((entry) => entry.id === id)
+    if (!item) return
+    setQueue((previous) => previous.filter((entry) => entry.id !== id))
+    setDraftRequest({ id: Date.now(), text: item.text })
+    showNotice(t('chat.queue.editing'))
+  }
+
+  const dropQueued = (id: string) => {
+    setQueue((previous) => previous.filter((entry) => entry.id !== id))
+  }
+
+  // A queue is a promise about the *next* turn: when this one ends, the head
+  // goes out. Refs rather than dependencies so the effect fires on the running
+  // flag alone instead of on every keystroke that re-creates a callback.
+  const queueRef = useRef<QueuedTurn[]>([])
+  queueRef.current = queue
+  const sendRef = useRef(live.send)
+  sendRef.current = live.send
+  const sawRun = useRef(false)
+  useEffect(() => {
+    if (live.running) {
+      sawRun.current = true
+      return
+    }
+    if (!sawRun.current) return
+    sawRun.current = false
+    const next = queueRef.current[0]
+    if (!next) return
+    setQueue((previous) => previous.slice(1))
+    void sendRef.current(next.text, next.refs)
+  }, [live.running])
+
+  // A different conversation has its own queue, its own agents and its own
+  // drafts; carrying them across would send text into the wrong thread.
+  useEffect(() => {
+    setQueue([])
+    setSubAgentActive(null)
+    setSubAgentOpen(false)
+  }, [currentId])
 
   const sendLive = (text: string, context: ContextRef[]) => {
     // `send` resolves with the failure message (when there is one) instead of
@@ -977,6 +1156,7 @@ export default function ChatPage() {
                           parts={partsWithAnswer[message.runId]}
                           sources={live.rail?.sources.length ?? 0}
                           onCite={showSource}
+                          onOpenAgent={openSubAgent}
                         />
                       ) : null}
                       {/* The parts already carry the answer when the ledger has
@@ -1017,6 +1197,7 @@ export default function ChatPage() {
                   onCite={showSource}
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
+                  onOpenAgent={openSubAgent}
                 />
               </div>
             ) : (
@@ -1071,6 +1252,7 @@ export default function ChatPage() {
                     agents: live.agents,
                     onModel: chooseModel,
                     onSend: sendLive,
+                    onQueue: enqueue,
                     onStop: stopLive,
                     onSync: () => void live.syncModels(),
                     syncing: live.syncing,
@@ -1107,6 +1289,38 @@ export default function ChatPage() {
             onMention={liveReady ? live.mention : undefined}
             skills={catalog.snapshot?.skills ?? []}
             runtimeId={live.current?.session.runtimeId ?? live.model?.runtimeId ?? ''}
+            projectAside={
+              sample ? undefined : (
+                <div className="chat-subagent-slot">
+                  <SubAgentButton
+                    agents={visibleAgents}
+                    open={subAgentOpen}
+                    onToggle={() => setSubAgentOpen((open) => !open)}
+                  />
+                  {subAgentOpen ? (
+                    <SubAgentList
+                      agents={visibleAgents}
+                      activeId={subAgentActive}
+                      onOpen={openSubAgent}
+                      onArchive={archiveSubAgent}
+                      onClose={() => setSubAgentOpen(false)}
+                    />
+                  ) : null}
+                </div>
+              )
+            }
+            queueAside={
+              sample ? undefined : (
+                <QueuedMessages
+                  items={queue}
+                  running={live.running}
+                  onSteer={steerQueued}
+                  onEdit={editQueued}
+                  onDrop={dropQueued}
+                />
+              )
+            }
+            draftRequest={draftRequest}
           />
         </div>
 
@@ -1126,6 +1340,13 @@ export default function ChatPage() {
           setRailOpen(false)
           railToggle.current?.focus()
         }} onNotice={showNotice} />
+        {sample ? null : (
+          <SubAgentDrawer
+            agent={activeAgent}
+            onClose={() => setSubAgentActive(null)}
+            onArchive={archiveSubAgent}
+          />
+        )}
       </div>
 
       {historyOpen ? (
@@ -1439,6 +1660,77 @@ scope docs/**                               允许
   )
 }
 
+/**
+ * Messages written while a turn was still streaming.
+ *
+ * Above the field, not inside it: the draft below is the *next* thing the
+ * reader is writing, and the queue is what they already wrote. Sending one into
+ * the live run is a deliberate click — pi folds it in at its next step.
+ */
+function QueuedMessages({
+  items,
+  running,
+  onSteer,
+  onEdit,
+  onDrop,
+}: {
+  items: QueuedTurn[]
+  running: boolean
+  onSteer: (id: string) => void
+  onEdit: (id: string) => void
+  onDrop: (id: string) => void
+}) {
+  const { t } = useI18n()
+  if (items.length === 0) return null
+  return (
+    <div className="chat-queue" data-testid="chat-queue">
+      <div className="chat-queue-head">
+        <Icon name="clock" size={12} />
+        <b>{t('chat.queue.title', { count: items.length })}</b>
+        <span>{t('chat.queue.hint')}</span>
+      </div>
+      <ul className="chat-queue-list">
+        {items.map((item) => (
+          <li key={item.id} className="chat-queue-item" data-testid="chat-queue-item">
+            <p title={item.text}>{item.text}</p>
+            <div className="chat-queue-actions">
+              <button
+                type="button"
+                className="chat-btn chat-btn-sm"
+                data-testid="chat-queue-steer"
+                disabled={!running}
+                title={t('chat.queue.steer')}
+                onClick={() => onSteer(item.id)}
+              >
+                <Icon name="send" size={11} />
+                {t('chat.queue.steer')}
+              </button>
+              <button
+                type="button"
+                className="chat-btn chat-btn-sm"
+                data-testid="chat-queue-edit"
+                onClick={() => onEdit(item.id)}
+              >
+                {t('chat.queue.edit')}
+              </button>
+              <button
+                type="button"
+                className="chat-iconbtn"
+                data-testid="chat-queue-drop"
+                aria-label={t('chat.queue.remove')}
+                title={t('chat.queue.remove')}
+                onClick={() => onDrop(item.id)}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function Composer({
   sample,
   live,
@@ -1462,6 +1754,9 @@ function Composer({
   onMention,
   skills,
   runtimeId,
+  projectAside,
+  queueAside,
+  draftRequest,
 }: {
   sample: boolean
   live: LiveComposer | null
@@ -1491,6 +1786,12 @@ function Composer({
   /** Installed skills from the live catalog, filtered to this session's runtime. */
   skills: CatalogSkill[]
   runtimeId: string
+  /** The sub-agent control, shown next to the workspace chip. */
+  projectAside?: ReactNode
+  /** Messages queued behind the running turn, shown above the field. */
+  queueAside?: ReactNode
+  /** A queued message handed back for editing; the id makes each handoff fire once. */
+  draftRequest?: { id: number; text: string } | null
 }) {
   const { t } = useI18n()
   const enabled = sample || live !== null
@@ -1552,6 +1853,15 @@ function Composer({
   }, [skills, runtimeId])
   const pathOf = useCallback((name: string) => skillPaths.get(name), [skillPaths])
 
+  // A queued message handed back for editing lands in the field, caret at the
+  // end, ready to be re-sent. Keyed by the handoff id so re-renders do not keep
+  // overwriting whatever the reader has typed since.
+  useEffect(() => {
+    if (!draftRequest) return
+    setText(draftRequest.text)
+    caretTarget.current = draftRequest.text.length
+  }, [draftRequest])
+
   // React rewrites the textarea value, which parks the caret at the end.
   // A pick must leave it right after the inserted chip instead.
   useLayoutEffect(() => {
@@ -1601,8 +1911,15 @@ function Composer({
       onNotice(t('chat.notice.send'))
       return
     }
-    if (!live || live.running || !text.trim()) return
-    live.onSend(text, refs(text))
+    if (!live || !text.trim()) return
+    // A turn that is still streaming does not refuse the message: it goes to
+    // the queue above the field, where the reader can send it into the live
+    // run, edit it, or withdraw it before it is ever sent.
+    if (live.running) {
+      live.onQueue(text, refs(text))
+    } else {
+      live.onSend(text, refs(text))
+    }
     setText('')
     // The chips were the turn's context, and that turn has been handed to the
     // host: leaving them above an empty field reads as "these will go with the
@@ -1875,7 +2192,9 @@ function Composer({
           <span>{sample ? sampleChat.project : workspaceLabel || t('chat.composer.project.none')}</span>
           <Icon name="chevDown" size={11} />
         </button>
+        {projectAside}
       </div>
+      {queueAside}
       <form className="chat-composer" onSubmit={submit} aria-label={t('chat.composer.placeholder')}>
         <div className="chat-composer-field">
           {/* Paints the skill blocks behind the real characters. The textarea
@@ -2236,7 +2555,7 @@ function Composer({
               className="chat-send"
               data-testid="chat-send"
               aria-label={t('chat.composer.send')}
-              disabled={!enabled || (live !== null && (live.running || !text.trim()))}
+              disabled={!enabled || !text.trim()}
             >
               <Icon name="send" size={14} />
             </button>
@@ -2303,6 +2622,7 @@ function LiveTurnTimeline({
   onCite,
   onApprove,
   onRetry,
+  onOpenAgent,
 }: {
   showTimeline: boolean
   events: SessionEvent[]
@@ -2317,6 +2637,7 @@ function LiveTurnTimeline({
   onCite: () => void
   onApprove: (decision: ApprovalDecision) => void
   onRetry: () => void
+  onOpenAgent: (id: string) => void
 }) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(0)
@@ -2401,7 +2722,13 @@ function LiveTurnTimeline({
             </span>
           </div>
           {parts.length > 0 ? (
-            <TurnPartsList parts={parts} live sources={sources} onCite={onCite} />
+            <TurnPartsList
+              parts={parts}
+              live
+              sources={sources}
+              onCite={onCite}
+              onOpenAgent={onOpenAgent}
+            />
           ) : null}
           {/* Nothing written yet, or the runtime is between steps: keep the
               three dots under the last block so the turn still reads as live. */}
@@ -2479,117 +2806,6 @@ function LiveToolCard({ tool }: { tool: { name: string; args: string; ok: boolea
         </span>
       </button>
       {open ? <pre className="chat-tool-body">{tool.output || tool.args}</pre> : null}
-    </section>
-  )
-}
-
-/**
- * A delegated agent's card.
- *
- * The runtime owns the delegation; this only shows what it reported. Collapsed
- * by default because a parent that spawns three children would otherwise push
- * its own answer off the screen — but the collapsed row still carries the two
- * things a reader needs at a glance: what state the child is in and what it was
- * asked to do.
- */
-export function SubAgentCard({
-  agent,
-  sources = 0,
-  onCite,
-}: {
-  agent: LiveSubAgent
-  sources?: number
-  onCite?: () => void
-}) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const running =
-    agent.status === 'running' || agent.status === 'pending' || agent.status === 'waiting'
-  const tone =
-    agent.status === 'failed'
-      ? ' chat-tone-danger'
-      : agent.status === 'completed'
-        ? ' chat-tone-success'
-        : running
-          ? ' chat-tone-warn'
-          : ''
-  const tools = agent.steps.filter((step) => step.kind === 'tool').length
-  const title = agent.name || t('chat.subagent.unnamed')
-
-  return (
-    <section
-      className={`chat-subagent${open ? ' is-open' : ''}`}
-      data-testid="chat-subagent"
-      data-status={agent.status}
-      data-agent={agent.id}
-    >
-      <button
-        type="button"
-        className="chat-subagent-row"
-        aria-expanded={open}
-        aria-label={t('chat.subagent.toggle')}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="chat-subagent-icon">
-          <Icon name="layers" size={12} />
-        </span>
-        <span className="chat-subagent-name">{title}</span>
-        {agent.step !== null ? (
-          <span className="chat-subagent-step">{t('chat.subagent.step', { step: agent.step })}</span>
-        ) : null}
-        {agent.model ? <span className="chat-subagent-model">{agent.model}</span> : null}
-        <span className={`chat-badge${tone}`}>{t(`chat.subagent.status.${agent.status}` as MessageKey)}</span>
-        {tools > 0 ? (
-          <span className="chat-subagent-count">{t('chat.subagent.tools', { count: tools })}</span>
-        ) : null}
-        <span className="chat-tool-caret" aria-hidden="true">
-          <Icon name="chevDown" size={10} />
-        </span>
-      </button>
-      {agent.task ? (
-        <p className="chat-subagent-task">
-          <span>{t('chat.subagent.task')}</span>
-          {agent.task}
-        </p>
-      ) : null}
-      {open ? (
-        <div className="chat-subagent-body">
-          {agent.steps.length === 0 ? (
-            <p className="chat-subagent-empty">{t('chat.subagent.empty')}</p>
-          ) : (
-            agent.steps.map((step, index) =>
-              step.kind === 'text' ? (
-                <div
-                  className={`chat-subagent-text${step.channel === 'thinking' ? ' is-thinking' : ''}`}
-                  key={`${agent.id}-step-${index}`}
-                >
-                  {step.channel === 'thinking' ? (
-                    <span className="chat-subagent-label">{t('chat.subagent.thinking')}</span>
-                  ) : null}
-                  {step.text}
-                </div>
-              ) : (
-                <div
-                  className="chat-subagent-tool"
-                  key={`${agent.id}-step-${index}`}
-                  data-ok={step.ok === null ? 'pending' : String(step.ok)}
-                >
-                  <span className="chat-subagent-tool-name">{step.name}</span>
-                  {step.args ? <code>{step.args}</code> : null}
-                  {step.output ? <pre>{step.output}</pre> : null}
-                </div>
-              ),
-            )
-          )}
-        </div>
-      ) : null}
-      {agent.error ? <p className="chat-subagent-error">{agent.error}</p> : null}
-      {agent.result && !agent.error ? (
-        <div className="chat-subagent-result">
-          <span className="chat-subagent-label">{t('chat.subagent.result')}</span>
-          <Markdown text={agent.result} sources={sources} onCite={onCite} />
-        </div>
-      ) : null}
     </section>
   )
 }
