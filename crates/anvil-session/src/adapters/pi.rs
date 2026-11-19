@@ -163,6 +163,19 @@ impl PiAdapter {
                 command.arg(flag);
             }
         }
+        // Project-local trust. A print-mode run cannot show the trust prompt, so
+        // without an override the folder's `.pi/extensions`, `.pi/skills`,
+        // `.pi/settings.json` and `.pi/mcp.json` are skipped. The permission
+        // picker decides per turn whether to load them.
+        match opened.project_trust {
+            Some(true) => {
+                command.arg("--approve");
+            }
+            Some(false) => {
+                command.arg("--no-approve");
+            }
+            None => {}
+        }
         // Persona. `--system-prompt` replaces the coding-assistant prompt, which
         // is what an agent means: the user wrote who this agent is. Variables are
         // rendered here because the values are per session, not per save.
@@ -275,6 +288,9 @@ impl SessionAdapter for PiAdapter {
             thinking: spec.thinking.clone(),
             system_prompt: spec.system_prompt.clone(),
             append_system_prompt: spec.append_system_prompt.clone(),
+            // Trust is a per-turn decision (see `permission_plan`); opening a
+            // session never loads a folder's `.pi` on its own.
+            project_trust: None,
             skills: spec.skills.clone(),
         })
     }
@@ -1160,6 +1176,7 @@ mod tests {
                 .into(),
             append_system_prompt: "历史结论摘要".into(),
             skills: vec!["D:/skills/review.md".into(), "D:/skills/docs".into()],
+            project_trust: None,
         };
         let args = argv(opened, true, &["read".into(), "grep".into()]);
         let flag = |name: &str| -> Option<String> {
@@ -1259,6 +1276,48 @@ mod tests {
             allowed.as_deref(),
             Some("read,write,edit,bash,grep,find,ls,ask_question"),
             "an explicit choice is respected rather than overridden by our default"
+        );
+    }
+
+    /// The permission picker reaches the CLI as flags, not as a label.
+    #[test]
+    fn the_permission_plan_becomes_a_tool_allowlist_and_a_trust_flag() {
+        // read-only: pi's own documented read-only mode.
+        let read_only = argv(
+            OpenedSession {
+                project_trust: Some(false),
+                ..OpenedSession::default()
+            },
+            true,
+            &crate::model::READ_ONLY_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<Vec<_>>(),
+        );
+        let allowed = read_only
+            .iter()
+            .position(|arg| arg == "--tools")
+            .and_then(|index| read_only.get(index + 1))
+            .cloned();
+        assert_eq!(allowed.as_deref(), Some("read,grep,find,ls"), "{read_only:?}");
+        assert!(read_only.iter().any(|arg| arg == "--no-approve"), "{read_only:?}");
+
+        let trusted = argv(
+            OpenedSession {
+                project_trust: Some(true),
+                ..OpenedSession::default()
+            },
+            true,
+            &[],
+        );
+        assert!(trusted.iter().any(|arg| arg == "--approve"), "{trusted:?}");
+        assert!(!trusted.iter().any(|arg| arg == "--no-approve"), "{trusted:?}");
+
+        // No decision means no flag: the runtime keeps its own default.
+        let untouched = argv(OpenedSession::default(), true, &[]);
+        assert!(
+            !untouched.iter().any(|arg| arg == "--approve" || arg == "--no-approve"),
+            "{untouched:?}"
         );
     }
 

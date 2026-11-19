@@ -376,7 +376,17 @@ button.chat-badge:hover {
 .chat-prose {
   color: var(--fg-2);
   font-size: var(--text-md-plus);
-  line-height: 1.75;
+  /* 1.75 at 13.5px opened ~24px between baselines: a paragraph of Chinese
+     prose read as a list of separate lines rather than a block of text. 1.55
+     keeps descenders clear without the airy spacing. */
+  line-height: 1.55;
+}
+
+/* Inside a list the line box is already spaced by the item gap, so the same
+   leading there reads as double spacing. */
+.chat-prose li,
+.chat-markdown li {
+  line-height: 1.5;
 }
 
 .chat-prose p {
@@ -3308,6 +3318,15 @@ button.chat-badge:hover {
 .chat-live-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Streamed text used to be plain text, so it kept its newlines with
+   `pre-wrap`. Now the same element renders Markdown, and the newlines in the
+   source are already structure — keeping them painted a blank line between
+   every paragraph and between every list item, which is what made the answer
+   read as double-spaced. Code blocks keep their own `pre`. */
+.chat-prose.chat-markdown {
+  white-space: normal;
 }
 
 /* ---- live rail rows -------------------------------------------------------

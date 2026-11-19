@@ -484,6 +484,75 @@ pub fn trusts_workspace(permission: Option<&str>) -> bool {
     matches!(permission, Some(value) if value.eq_ignore_ascii_case("full"))
 }
 
+/// Tools that can read but cannot change anything.
+///
+/// This is the runtime's own documented read-only mode (`pi --tools
+/// read,grep,find,ls`), not an invention: the same four names the CLI prints as
+/// its example for "no file modifications possible".
+pub const READ_ONLY_TOOLS: [&str; 4] = ["read", "grep", "find", "ls"];
+
+/// What one permission mode lets a turn do, in terms the adapters can honour.
+///
+/// The picker offers four levels, and three of them have to mean something a
+/// user could observe — otherwise the control is decoration:
+///
+/// | mode       | tools                    | project-local `.pi` | outside reads |
+/// |------------|--------------------------|---------------------|---------------|
+/// | `readonly` | read,grep,find,ls        | skipped             | asks          |
+/// | `medium`   | the session's own list   | skipped             | asks          |
+/// | `high`     | the session's own list   | loaded              | asks          |
+/// | `full`     | the session's own list   | loaded              | no question   |
+///
+/// `high` is the one level that widens what the runtime may load rather than
+/// narrowing it: a working folder's `.pi/extensions`, `.pi/skills`,
+/// `.pi/settings.json` and `.pi/mcp.json` are executable configuration, and a
+/// non-interactive run refuses them unless it is told to trust the folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PermissionPlan {
+    /// Replace the turn's tool list with [`READ_ONLY_TOOLS`].
+    pub read_only: bool,
+    /// `--approve` / `--no-approve`; `None` leaves the runtime's default.
+    pub project_trust: Option<bool>,
+    /// Skip the approval card for a path outside the project.
+    pub trusts_workspace: bool,
+}
+
+impl Default for PermissionPlan {
+    fn default() -> Self {
+        // The safe answer for an absent or unrecognised value: keep the
+        // session's tools, do not load a stranger's `.pi`, keep asking.
+        Self {
+            read_only: false,
+            project_trust: Some(false),
+            trusts_workspace: false,
+        }
+    }
+}
+
+/// Map the composer's picker onto flags.
+#[must_use]
+pub fn permission_plan(permission: Option<&str>) -> PermissionPlan {
+    let asked = permission.map(str::trim).filter(|value| !value.is_empty());
+    match asked.map(str::to_ascii_lowercase).as_deref() {
+        Some("readonly") => PermissionPlan {
+            read_only: true,
+            ..PermissionPlan::default()
+        },
+        Some("high") => PermissionPlan {
+            read_only: false,
+            project_trust: Some(true),
+            trusts_workspace: false,
+        },
+        Some("full") => PermissionPlan {
+            read_only: false,
+            project_trust: Some(true),
+            trusts_workspace: true,
+        },
+        // `medium` and anything this build does not know.
+        _ => PermissionPlan::default(),
+    }
+}
+
 /// Levels pi accepts for `--thinking`, weakest first.
 ///
 /// Kept here rather than in the adapter so the service can reject a value the
@@ -698,6 +767,13 @@ pub struct OpenedSession {
     pub append_system_prompt: String,
     #[serde(default)]
     pub skills: Vec<String>,
+    /// Whether this run may load the working folder's own `.pi` resources.
+    ///
+    /// `Some(true)` maps to the runtime's `--approve`, `Some(false)` to
+    /// `--no-approve`, `None` leaves the runtime's default — which for a
+    /// non-interactive run is "skip", because there is nobody to ask.
+    #[serde(default)]
+    pub project_trust: Option<bool>,
 }
 
 /// Where an adapter may write, and whether a run has a deadline.
@@ -740,6 +816,48 @@ impl AdapterFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every level in the picker has to differ from its neighbours in something
+    /// a user could observe, or the control is decoration.
+    #[test]
+    fn each_permission_level_maps_to_distinct_flags() {
+        let readonly = permission_plan(Some("readonly"));
+        let medium = permission_plan(Some("medium"));
+        let high = permission_plan(Some("high"));
+        let full = permission_plan(Some("full"));
+
+        assert!(readonly.read_only, "read-only must narrow the tool list");
+        assert!(!medium.read_only, "medium keeps the session's tools");
+        assert!(!high.read_only, "high keeps the session's tools");
+
+        assert_eq!(medium.project_trust, Some(false), "medium skips a folder's .pi");
+        assert_eq!(high.project_trust, Some(true), "high loads it");
+        assert_eq!(full.project_trust, Some(true));
+
+        assert!(!readonly.trusts_workspace);
+        assert!(!medium.trusts_workspace);
+        assert!(!high.trusts_workspace, "only full stops asking about outside paths");
+        assert!(full.trusts_workspace);
+
+        // All four are distinct, which is the whole point.
+        let all = [readonly, medium, high, full];
+        for (index, left) in all.iter().enumerate() {
+            for right in &all[index + 1..] {
+                assert_ne!(left, right, "{left:?} and {right:?} behave the same");
+            }
+        }
+    }
+
+    #[test]
+    fn an_unknown_permission_falls_back_to_asking() {
+        for value in [None, Some(""), Some("  "), Some("superuser")] {
+            assert_eq!(permission_plan(value), PermissionPlan::default(), "{value:?}");
+            assert!(!permission_plan(value).trusts_workspace);
+            assert!(!permission_plan(value).read_only);
+        }
+        // Case and stray spaces are the picker's problem, not the runtime's.
+        assert_eq!(permission_plan(Some(" FULL ")), permission_plan(Some("full")));
+    }
 
     #[test]
     fn statuses_round_trip_through_labels() {

@@ -1194,6 +1194,34 @@ describe('chat context and approvals', () => {
     expect(screen.queryByTestId('chat-save-agent')).toBeNull()
   })
 
+  it('sends deny and cancel from the approval card, and the card goes away', async () => {
+    // Both buttons must reach the host as their own decision; a card whose
+    // "取消" quietly sends "allow" would be worse than no card at all.
+    for (const [label, decision] of [
+      ['拒绝', 'deny'],
+      ['取消发送', 'cancel'],
+    ] as const) {
+      cleanup()
+      const host = installToolHost()
+      render(
+        <MemoryRouter initialEntries={['/chat']}>
+          <AppRoutes />
+        </MemoryRouter>,
+      )
+      await sendOnce('run it')
+      const card = await screen.findByTestId('chat-approval')
+      await userEvent.click(within(card).getByText(label))
+      await waitFor(() =>
+        expect(host.args('session_approve')).toMatchObject({
+          sessionId: 'pi-1',
+          approvalId: 'pi-1:a1-0',
+          decision,
+        }),
+      )
+      await waitFor(() => expect(screen.queryByTestId('chat-approval')).toBeNull())
+    }
+  })
+
   it('drops the approval card once the turn has already failed', async () => {
     installToolHost({ fail: true })
     render(

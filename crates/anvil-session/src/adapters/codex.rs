@@ -153,6 +153,9 @@ impl SessionAdapter for CodexAdapter {
             thinking: spec.thinking.clone(),
             system_prompt: spec.system_prompt.clone(),
             append_system_prompt: spec.append_system_prompt.clone(),
+            // Trust is a per-turn decision (see `permission_plan`); opening a
+            // session never loads a folder's `.pi` on its own.
+            project_trust: None,
             skills: spec.skills.clone(),
         })
     }

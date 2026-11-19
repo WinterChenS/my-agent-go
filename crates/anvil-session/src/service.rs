@@ -19,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::model::{
     ApprovalDecision, ApprovalRequest, CompactReport, EventKind, Message, OpenedSession,
     ProjectSummary, Role, Run, RunEvent, RunStatus, SessionContext, SessionDetail, SessionInput,
-    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary, trusts_workspace,
+    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary,
 };
 use crate::store::{NewSession, Store};
 
@@ -484,6 +484,10 @@ impl SessionService {
 
         let adapter = self.registry.require(&summary.runtime_id)?;
         let cancel = self.cancels.register(session_id);
+        // What this turn is allowed to do. Read at send time, not at open time:
+        // the picker can change between turns, and a read-only turn must not
+        // keep the shell a previous turn was allowed to use.
+        let plan = crate::model::permission_plan(input.permission.as_deref());
 
         // ---- context references -----------------------------------------
         let mut references: Vec<Prepared> = Vec::new();
@@ -498,7 +502,7 @@ impl SessionService {
                         // "full" means the user already trusted this workspace:
                         // reading outside it is the thing they asked for, so no
                         // card is raised. Every other mode keeps the question.
-                        if trusts_workspace(input.permission.as_deref()) {
+                        if plan.trusts_workspace {
                             references.push(context::allow(&reference, &path)?);
                             continue;
                         }
@@ -654,12 +658,23 @@ impl SessionService {
             model: summary.model.clone(),
             cwd: summary.project_path.clone(),
             allow_tools: summary.allow_tools,
-            tools: summary.tools.clone(),
+            // A read-only turn gets the runtime's read-only tool set; every
+            // other mode keeps whatever the session (or its agent) was opened
+            // with, so a saved allowlist still wins over the picker.
+            tools: if plan.read_only {
+                crate::model::READ_ONLY_TOOLS
+                    .iter()
+                    .map(|name| (*name).to_string())
+                    .collect()
+            } else {
+                summary.tools.clone()
+            },
             agent_id: persona.agent_id,
             thinking,
             system_prompt: persona.system_prompt,
             append_system_prompt: persona.append_prompt,
             skills: persona.skills,
+            project_trust: plan.project_trust,
         };
 
         let mut event_count = 0usize;
