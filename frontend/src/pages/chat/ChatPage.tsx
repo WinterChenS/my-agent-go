@@ -541,13 +541,25 @@ export default function ChatPage() {
 
   // Jumping from a rail row to the turn it came from. The highlight is cleared
   // by a timer, so a second jump does not leave two rows lit.
-  const jumpToTurn = (runId: string) => {
+  //
+  // The run id is the precise key, but it is not always paintable: while a turn
+  // is starting, the bubble on screen is the optimistic message, which has no
+  // run id yet (the host only returns it when the turn ends). The rail, on the
+  // other hand, already read the stored row — so a click there used to answer
+  // "找不到该轮对话" about a turn the reader was watching. Hence the fallback by
+  // turn index, which the row prints anyway.
+  const jumpToTurn = (runId: string, turn?: number) => {
     const thread = document.querySelector('[data-testid="chat-thread"]')
-    const target = thread
-      ? Array.from(thread.querySelectorAll<HTMLElement>('[data-run]')).find(
-          (node) => node.dataset.run === runId,
-        )
-      : undefined
+    const rows = thread
+      ? Array.from(thread.querySelectorAll<HTMLElement>('[data-run]'))
+      : []
+    let target = runId ? rows.find((node) => node.dataset.run === runId) : undefined
+    if (!target && turn && turn > 0) {
+      const bubbles = thread
+        ? Array.from(thread.querySelectorAll<HTMLElement>('[data-testid="chat-message-user"]'))
+        : []
+      target = bubbles[turn - 1]
+    }
     if (!target) {
       showNotice(t('chat.rail.turnMissing'))
       return
@@ -555,8 +567,17 @@ export default function ChatPage() {
     // `scrollIntoView` is absent in the test DOM and in some webviews; the
     // highlight still lands, so a missing scroll must not abort the jump.
     target.scrollIntoView?.({ block: 'center' })
-    setFocusedRun(runId)
-    window.setTimeout(() => setFocusedRun((current) => (current === runId ? null : current)), 2400)
+    const run = target.dataset.run
+    if (!run) {
+      // The bubble has no run id yet (the turn has not been written back), so
+      // the class is the only handle on it. React drops it on the next render,
+      // which is what the timer would have done anyway.
+      target.classList.add('is-focused')
+      window.setTimeout(() => target.classList.remove('is-focused'), 2400)
+      return
+    }
+    setFocusedRun(run)
+    window.setTimeout(() => setFocusedRun((current) => (current === run ? null : current)), 2400)
   }
 
   // A `[n]` marker is a real link to the sources pane: the number in the text

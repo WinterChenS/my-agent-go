@@ -17,8 +17,14 @@ export interface RailLive {
   view: RailView | null
   /** A turn is in flight: a call without a result is pending, not lost. */
   running: boolean
-  /** Send the reader back to the turn a row came from. */
-  onTurn: (runId: string) => void
+  /**
+   * Send the reader back to the turn a row came from.
+   *
+   * `turn` is the 1-based index the row already prints. It is the fallback
+   * when the run id has no element yet — a turn that is still starting has a
+   * stored run id but the bubble on screen is the optimistic one.
+   */
+  onTurn: (runId: string, turn?: number) => void
 }
 
 export default function ChatRail({
@@ -277,7 +283,7 @@ function LiveExec({
 }: {
   view: RailView
   running: boolean
-  onTurn?: (runId: string) => void
+  onTurn?: (runId: string, turn?: number) => void
 }) {
   const { t } = useI18n()
   return (
@@ -299,7 +305,7 @@ function LiveExec({
             data-turn={row.turn}
             data-run={row.runId}
             data-status={row.status}
-            onClick={() => onTurn?.(row.runId)}
+            onClick={() => onTurn?.(row.runId, row.turn)}
           >
             <span className="chat-exec-time">{timeOf(row.at)}</span>
             <div>
@@ -366,7 +372,7 @@ function ExecBadge({ status, running }: { status: RailExec['status']; running: b
 }
 
 /** Artifacts: real files, each one returning to the turn that wrote it. */
-function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: string) => void }) {
+function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: string, turn?: number) => void }) {
   const { t } = useI18n()
   return (
     <>
@@ -387,7 +393,7 @@ function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: stri
             data-turn={artifact.turn}
             data-run={artifact.runId}
             title={artifact.path}
-            onClick={() => onTurn?.(artifact.runId)}
+            onClick={() => onTurn?.(artifact.runId, artifact.turn)}
           >
             <span className="chat-file-ext">{(artifact.ext || 'file').slice(0, 4)}</span>
             <span className="chat-file-main">
@@ -408,7 +414,7 @@ function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: stri
 }
 
 /** Sources: the files the reader attached, then the URLs an answer cited. */
-function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string) => void }) {
+function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string, turn?: number) => void }) {
   const { t } = useI18n()
   const references = view.references ?? []
   const sources = view.sources ?? []
@@ -452,7 +458,7 @@ function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string
                 <button
                   type="button"
                   className="chat-btn chat-btn-sm chat-btn-ghost chat-ref-go"
-                  onClick={() => onTurn(reference.runId)}
+                  onClick={() => onTurn(reference.runId, reference.turn)}
                 >
                   {t('chat.rail.turnGo')}
                 </button>
@@ -477,7 +483,7 @@ function LiveSources({ view, onTurn }: { view: RailView; onTurn?: (runId: string
             data-testid="chat-rail-source"
             data-number={source.number}
             data-run={source.runId}
-            onClick={() => onTurn?.(source.runId)}
+            onClick={() => onTurn?.(source.runId, source.turn)}
           >
             <div className="chat-source-head">
               <span className="chat-source-num">{source.number}</span>

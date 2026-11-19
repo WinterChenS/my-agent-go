@@ -8,6 +8,7 @@ import {
   describeSessionError,
   latestSeq,
   mergeDeltaText,
+  type RailView,
   type SessionDetail,
   type SessionEvent,
   type SessionSummary,
@@ -1658,7 +1659,7 @@ describe('chat context and approvals', () => {
 
 describe('chat rail', () => {
   /** A rail view shaped like the host's, with one of everything. */
-  function railView(empty = false) {
+  function railView(empty = false): RailView {
     if (empty) {
       return {
         turns: [],
@@ -1739,7 +1740,10 @@ describe('chat rail', () => {
     }
   }
 
-  function installRailHost(empty = false) {
+  function installRailHost(
+    empty = false,
+    patch: (view: RailView) => RailView = (view) => view,
+  ) {
     const calls: string[] = []
     const internals = {
       invoke: async (command: string) => {
@@ -1753,7 +1757,7 @@ describe('chat rail', () => {
         if (command === 'session_events') return []
         if (command === 'session_send') return { runId: 'pi-1:r1', status: 'completed', eventCount: 0 }
         if (command === 'session_detail') return detail('see [1] for details')
-        if (command === 'session_rail') return railView(empty)
+        if (command === 'session_rail') return patch(railView(empty))
         if (command === 'session_context_list') return []
         return null
       },
@@ -1864,6 +1868,27 @@ describe('chat rail', () => {
     expect(rows[0]).toHaveTextContent('2 轮共用')
     // The URL is still there, in its own section, below.
     expect(screen.getByTestId('chat-rail-source')).toHaveTextContent('https://docs.example.com/a')
+  })
+
+  it('jumps to the turn by index when its run has no bubble yet', async () => {
+    // A turn that is still starting has a stored run id but the bubble on
+    // screen is the optimistic message, which has none. Clicking 定位 there used
+    // to answer "找不到该轮对话" about a turn the reader was watching.
+    installRailHost(false, (view) => ({
+      ...view,
+      references: view.references.map((reference) => ({ ...reference, runId: 'pi-1:not-yet' })),
+    }))
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOneTurn()
+    await userEvent.click(screen.getByRole('tab', { name: /引用/ }))
+    const go = await screen.findByText('定位')
+    await userEvent.click(go)
+    expect(screen.queryByText('找不到该轮对话')).toBeNull()
+    expect(screen.getAllByTestId('chat-message-user')[0]).toHaveClass('is-focused')
   })
 
   it('renders a local page only inside an empty sandbox', async () => {
