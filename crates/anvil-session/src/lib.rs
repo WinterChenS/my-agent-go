@@ -32,5 +32,5 @@ pub use adapter::{Registry, SessionAdapter};
 pub use adapters::default_registry;
 pub use error::{Error, Result};
 pub use model::*;
-pub use service::{Approvals, Cancels, SendOutcome, SessionService};
+pub use service::{Approvals, Cancels, SendOutcome, SessionService, Steers};
 pub use store::Store;

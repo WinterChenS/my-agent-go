@@ -195,6 +195,13 @@ pub enum EventKind {
     /// sub-agent that runs, streams, calls tools and finishes is visible
     /// instead of silently collapsing into one opaque tool card.
     SubAgent,
+    /// The user injected a message into a run that was already streaming.
+    ///
+    /// This is not a new turn: the runtime keeps working and picks the message
+    /// up at its next step. It is recorded as an event of the *current* run so
+    /// the transcript can place it where it happened instead of appending it
+    /// after the answer.
+    UserSteer,
     /// A runtime event this build does not model yet; kept, never dropped.
     Unknown,
 }
@@ -219,6 +226,7 @@ impl EventKind {
             Self::Compacted => "compacted",
             Self::ContextAttached => "context_attached",
             Self::SubAgent => "sub_agent",
+            Self::UserSteer => "user_steer",
             Self::Unknown => "unknown",
         }
     }
@@ -242,6 +250,7 @@ impl EventKind {
             "compacted" => Some(Self::Compacted),
             "context_attached" => Some(Self::ContextAttached),
             "sub_agent" => Some(Self::SubAgent),
+            "user_steer" => Some(Self::UserSteer),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }

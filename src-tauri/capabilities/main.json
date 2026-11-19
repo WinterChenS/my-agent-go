@@ -27,6 +27,7 @@
     "allow-session-open",
     "allow-session-send",
     "allow-session-abort",
+    "allow-session-steer",
     "allow-session-rename",
     "allow-session-pin",
     "allow-session-archive",

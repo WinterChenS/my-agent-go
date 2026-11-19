@@ -178,6 +178,35 @@ pub struct RailTurn {
     pub calls: usize,
 }
 
+/// One delegated child agent, folded from its `sub_agent` observations.
+///
+/// This is the pane's copy of what the transcript used to render inline: the
+/// parent's window shows a single status row, and the child's own reasoning,
+/// tool calls and answer live here until the reader asks for them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RailSubAgent {
+    /// Runtime-level id (`call_1#0` for pi: one delegation can spawn several).
+    pub id: String,
+    pub name: String,
+    pub task: String,
+    pub model: String,
+    /// `pending`, `running`, `waiting`, `completed`, `failed`, `interrupted`.
+    pub status: String,
+    /// Position inside a chain, when the runtime reports one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<i64>,
+    /// 1-based turn that delegated it, and its run — what a click goes back to.
+    pub turn: i64,
+    pub run_id: String,
+    /// Ordered content: `{kind:"text"|"tool"|"tool_result", …}`.
+    pub steps: Vec<serde_json::Value>,
+    pub result: String,
+    pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<serde_json::Value>,
+}
+
 /// The four panes in one read.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +217,8 @@ pub struct RailView {
     pub sources: Vec<RailSource>,
     /// Files, folders and skills the user attached, per turn.
     pub references: Vec<RailReference>,
+    /// Delegated child agents, one row per agent (not per event).
+    pub subagents: Vec<RailSubAgent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<RailUsage>,
     pub browser: RailBrowser,
@@ -244,6 +275,7 @@ pub fn build(
 
     let sources = collect_sources(messages, &turn_for);
     let references = collect_references(messages, &turn_for);
+    let subagents = collect_subagents(events, &turn_for);
     let usage = collect_usage(events);
     let browser = browser_for(&artifacts);
 
@@ -259,11 +291,180 @@ pub fn build(
         artifacts,
         sources,
         references,
+        subagents,
         usage,
         browser,
         outside_paths,
         empty,
     }
+}
+
+/// Fold every `sub_agent` row into one entry per agent.
+///
+/// The rows arrive as observations, not as state: a status change, a text
+/// delta, a tool call and a snapshot are separate events with the same
+/// `agentId`. The pane wants the agent, so this replays the same merge the live
+/// card does — text appends within a channel, a snapshot replaces, a tool result
+/// closes the most recent call that has none.
+fn collect_subagents(events: &[RunEvent], turn_for: &dyn Fn(&str) -> i64) -> Vec<RailSubAgent> {
+    let mut out: Vec<RailSubAgent> = Vec::new();
+    let mut index: BTreeMap<String, usize> = BTreeMap::new();
+
+    for event in events {
+        if event.kind != EventKind::SubAgent {
+            continue;
+        }
+        let payload = &event.payload;
+        let Some(agent_id) = payload
+            .get("agentId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        let key = format!("{}|{agent_id}", event.run_id);
+        let position = match index.get(&key) {
+            Some(position) => *position,
+            None => {
+                out.push(RailSubAgent {
+                    id: agent_id.to_string(),
+                    turn: turn_for(&event.run_id),
+                    run_id: event.run_id.clone(),
+                    ..RailSubAgent::default()
+                });
+                index.insert(key, out.len() - 1);
+                out.len() - 1
+            }
+        };
+        let agent = &mut out[position];
+
+        let read = |name: &str| {
+            payload
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        for (field, slot) in [
+            ("name", &mut agent.name),
+            ("task", &mut agent.task),
+            ("model", &mut agent.model),
+            ("result", &mut agent.result),
+            ("error", &mut agent.error),
+            ("status", &mut agent.status),
+        ] {
+            let value = read(field);
+            if !value.is_empty() {
+                *slot = value;
+            }
+        }
+        if let Some(step) = payload.get("step").and_then(serde_json::Value::as_i64) {
+            agent.step = Some(step);
+        }
+        if let Some(usage) = payload.get("usage").filter(|value| !value.is_null()) {
+            agent.usage = Some(usage.clone());
+        }
+
+        let channel = if read("channel") == "thinking" {
+            "thinking"
+        } else {
+            "answer"
+        };
+        match read("phase").as_str() {
+            "text" => {
+                let text = read("text");
+                if text.is_empty() {
+                    continue;
+                }
+                // `final` is the runtime re-sending the finished message after
+                // its deltas: replace that channel's tail instead of printing
+                // the answer twice.
+                if payload.get("final") == Some(&serde_json::Value::Bool(true)) {
+                    let same_channel = |step: &serde_json::Value| {
+                        step.get("kind").and_then(serde_json::Value::as_str) == Some("text")
+                            && step
+                                .get("channel")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("answer")
+                                == channel
+                    };
+                    if let Some(step) = agent.steps.iter_mut().rev().find(|step| same_channel(step))
+                    {
+                        step["text"] = serde_json::Value::String(text);
+                    }
+                    continue;
+                }
+                let append = agent.steps.last_mut().filter(|step| {
+                    step.get("kind").and_then(serde_json::Value::as_str) == Some("text")
+                        && step
+                            .get("channel")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("answer")
+                            == channel
+                });
+                match append {
+                    Some(step) => {
+                        let joined = format!(
+                            "{}{}",
+                            step.get("text")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or(""),
+                            text
+                        );
+                        step["text"] = serde_json::Value::String(joined);
+                    }
+                    None => agent.steps.push(
+                        serde_json::json!({ "kind": "text", "text": text, "channel": channel }),
+                    ),
+                }
+            }
+            "tool" => {
+                let tool = payload
+                    .get("tool")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                agent.steps.push(serde_json::json!({
+                    "kind": "tool",
+                    "name": tool.get("name").and_then(serde_json::Value::as_str).unwrap_or("tool"),
+                    "args": tool.get("args").cloned().unwrap_or(serde_json::Value::Null),
+                    "ok": serde_json::Value::Null,
+                    "output": "",
+                }));
+            }
+            "tool_result" => {
+                let tool = payload
+                    .get("tool")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let name = tool
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("tool");
+                let open = agent.steps.iter_mut().rev().find(|step| {
+                    step.get("kind").and_then(serde_json::Value::as_str) == Some("tool")
+                        && step.get("ok").is_some_and(serde_json::Value::is_null)
+                        && step.get("name").and_then(serde_json::Value::as_str) == Some(name)
+                });
+                if let Some(step) = open {
+                    step["ok"] = tool
+                        .get("ok")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Bool(false));
+                    step["output"] = tool
+                        .get("output")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::Value::String(String::new()));
+                }
+            }
+            "snapshot" => {
+                if let Some(steps) = payload.get("steps").and_then(serde_json::Value::as_array) {
+                    agent.steps = steps.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The attachments of every user turn, first attachment first.
@@ -340,10 +541,10 @@ fn collect_references(
 
 /// The chip's name for an attachment, else the last path segment.
 fn display_name(entry: &serde_json::Value, path: &str) -> String {
-    if let Some(label) = entry.get("label").and_then(serde_json::Value::as_str) {
-        if !label.trim().is_empty() {
-            return label.to_string();
-        }
+    if let Some(label) = entry.get("label").and_then(serde_json::Value::as_str)
+        && !label.trim().is_empty()
+    {
+        return label.to_string();
     }
     let trimmed = path.trim_end_matches(['/', '\\']);
     trimmed
@@ -833,9 +1034,83 @@ mod tests {
         RunEvent::new("s", run_id, seq, kind, payload)
     }
 
+    /// The pane lists agents, not observations: a child that starts, streams a
+    /// snapshot and finishes is one row, and a second child is a second row.
     #[test]
-    fn a_written_file_is_listed_with_its_turn() {
-        let root = project("written");
+    fn delegated_agents_are_folded_into_one_row_each() {
+        let root = project("subagents");
+        let runs = vec![run("s:r1", RunStatus::Completed)];
+        let events = vec![
+            event(
+                "s:r1",
+                1,
+                EventKind::SubAgent,
+                serde_json::json!({
+                    "agentId": "call_1#0", "name": "scout", "task": "count files",
+                    "model": "auto/fast", "status": "running", "phase": "started"
+                }),
+            ),
+            event(
+                "s:r1",
+                2,
+                EventKind::SubAgent,
+                serde_json::json!({
+                    "agentId": "call_1#1", "name": "reviewer", "task": "read the diff",
+                    "status": "running", "phase": "started"
+                }),
+            ),
+            event(
+                "s:r1",
+                3,
+                EventKind::SubAgent,
+                serde_json::json!({
+                    "agentId": "call_1#0", "status": "running", "phase": "snapshot",
+                    "steps": [
+                        { "kind": "text", "text": "counting" },
+                        { "kind": "tool", "name": "bash", "args": { "command": "ls" } },
+                        { "kind": "tool_result", "name": "bash", "ok": true, "output": "42" }
+                    ]
+                }),
+            ),
+            event(
+                "s:r1",
+                4,
+                EventKind::SubAgent,
+                serde_json::json!({
+                    "agentId": "call_1#0", "status": "completed", "phase": "completed",
+                    "result": "42 files"
+                }),
+            ),
+            event(
+                "s:r1",
+                5,
+                EventKind::SubAgent,
+                serde_json::json!({
+                    "agentId": "call_1#1", "status": "failed", "phase": "failed",
+                    "error": "model quota exhausted"
+                }),
+            ),
+        ];
+        let view = build(&root.to_string_lossy(), &[], &runs, &events);
+        assert_eq!(view.subagents.len(), 2, "{:?}", view.subagents);
+        let scout = &view.subagents[0];
+        assert_eq!(scout.id, "call_1#0");
+        assert_eq!(scout.name, "scout");
+        assert_eq!(scout.model, "auto/fast");
+        assert_eq!(scout.status, "completed");
+        assert_eq!(scout.result, "42 files");
+        assert_eq!(scout.turn, 1);
+        assert_eq!(scout.run_id, "s:r1");
+        assert_eq!(scout.steps.len(), 3, "{:?}", scout.steps);
+        assert_eq!(scout.steps[1]["name"], "bash");
+        assert_eq!(scout.steps[2]["output"], "42");
+        let reviewer = &view.subagents[1];
+        assert_eq!(reviewer.status, "failed");
+        assert_eq!(reviewer.error, "model quota exhausted");
+    }
+
+    #[test]
+    fn a_written_file_is_listed_with_its_turn() {        let root = project("written");
         std::fs::write(root.join("out/report.md"), "hello").expect("write");
         let runs = vec![run("s:r1", RunStatus::Completed)];
         let events = vec![

@@ -193,6 +193,17 @@ pub trait SessionAdapter: Send + Sync {
     fn abort(&self, _opened: &OpenedSession) -> Result<()> {
         Ok(())
     }
+
+    /// Hand a message to a run that is already streaming.
+    ///
+    /// A steer is not a second turn: the runtime keeps working and picks the
+    /// text up at its next step. `Ok(false)` means there was no live run to
+    /// hand it to — either the adapter has no such channel or the turn already
+    /// ended — so the caller can put the text back in front of the user instead
+    /// of pretending it was delivered.
+    fn steer(&self, _opened: &OpenedSession, _text: &str) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// Adapter registry. Duplicate or empty ids are refused at registration time so

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::Condvar;
 
-use crate::adapter::{AdapterEvent, Cancel, Registry, Turn};
+use crate::adapter::{AdapterEvent, Cancel, Registry, SessionAdapter, Turn};
 use crate::clock::{now_rfc3339, unix_millis};
 use crate::context::{self, Prepared, Step};
 use crate::error::{Error, Result};
@@ -274,12 +274,71 @@ impl Cancels {
     }
 }
 
+/// Live turns, reachable without the service lock.
+///
+/// `send` holds `&mut self` for the whole turn — minutes — so a steer routed
+/// through the service could never arrive while the user needs it. The host
+/// keeps a clone of this registry, exactly like [`Cancels`], and writes into the
+/// adapter's own pipe from another thread.
+/// What one live turn needs in order to accept a steer: the adapter that owns
+/// the pipe, and the session it opened.
+type SteerTarget = (Arc<dyn SessionAdapter>, OpenedSession);
+
+#[derive(Clone, Default)]
+pub struct Steers {
+    inner: Arc<Mutex<BTreeMap<String, SteerTarget>>>,
+}
+
+impl Steers {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&self, session_id: &str, adapter: Arc<dyn SessionAdapter>, opened: &OpenedSession) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.insert(session_id.to_string(), (adapter, opened.clone()));
+        }
+    }
+
+    /// Hand `text` to the run that is streaming. `Ok(false)` means nothing was
+    /// running, or the runtime has no channel for it.
+    pub fn steer(&self, session_id: &str, text: &str) -> Result<bool> {
+        // Cloned out before the call: writing to a pipe is IO, and holding the
+        // registry lock across it would make a second steer wait on the first.
+        let target = match self.inner.lock() {
+            Ok(inner) => inner.get(session_id).cloned(),
+            Err(_) => None,
+        };
+
+        let Some((adapter, opened)) = target else {
+            return Ok(false);
+        };
+        adapter.steer(&opened, text)
+    }
+
+    pub fn forget(&self, session_id: &str) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.remove(session_id);
+        }
+    }
+
+    #[must_use]
+    pub fn is_live(&self, session_id: &str) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.contains_key(session_id))
+            .unwrap_or(false)
+    }
+}
+
 /// The session facade the host commands call.
 pub struct SessionService {
     store: Store,
     registry: Registry,
     context: SessionContext,
     cancels: Cancels,
+    steers: Steers,
     approvals: Approvals,
     /// Roots a `skill` reference must live under. Empty means "no skills can be
     /// attached", which is the honest default: the crate does not know where the
@@ -297,6 +356,7 @@ impl SessionService {
             registry,
             context,
             cancels: Cancels::new(),
+            steers: Steers::new(),
             approvals: Approvals::new(),
             skill_roots: Vec::new(),
             approval_timeout: std::time::Duration::from_secs(120),
@@ -355,6 +415,11 @@ impl SessionService {
     #[must_use]
     pub fn cancels(&self) -> Cancels {
         self.cancels.clone()
+    }
+
+    /// Steer handles; clone this before sending on another thread.
+    pub fn steers(&self) -> Steers {
+        self.steers.clone()
     }
 
     /// Mark runs left "running" by a previous process as failed.
@@ -677,6 +742,11 @@ impl SessionService {
             project_trust: plan.project_trust,
         };
 
+        // Registered before the first byte is read, so the page can steer the
+        // run from the moment it starts.
+        self.steers
+            .register(session_id, adapter.clone(), &opened);
+
         let mut event_count = 0usize;
         let mut deltas = String::new();
         // Set once the adapter returned. Anything the runtime managed to emit
@@ -697,6 +767,23 @@ impl SessionService {
                 return;
             }
             event_count += 1;
+            // A steer is part of the record, not a transient instruction: the
+            // reader reopening this conversation must see what was said while
+            // the turn was still running. It is written before the event so the
+            // two rows keep the order they happened in.
+            if event.kind == crate::model::EventKind::UserSteer
+                && let Some(text) = event.payload.get("text").and_then(|value| value.as_str())
+                && !text.trim().is_empty()
+            {
+                let _ = self.store.append_message(
+                    session_id,
+                    Some(&run_id),
+                    Role::User,
+                    text,
+                    &now_rfc3339(),
+                    Some(&serde_json::json!({ "steer": true })),
+                );
+            }
             if event.kind == crate::model::EventKind::TextDelta
                 && let Some(delta) = event.payload.get("delta").and_then(|value| value.as_str())
             {
@@ -715,6 +802,10 @@ impl SessionService {
         };
         let outcome = adapter.send_turn(&self.context, &opened, &turn, &cancel, &mut sink);
         closed.store(true, Ordering::SeqCst);
+        // Nothing can be steered after the turn ended; the next send registers
+        // again. Keeping the entry would let a stray steer write into a pipe
+        // nobody is reading.
+        self.steers.forget(session_id);
         let ended_at = now_rfc3339();
 
         let (status, text, error, minted) = match outcome {

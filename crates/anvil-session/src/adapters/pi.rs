@@ -1,22 +1,27 @@
-//! Pi adapter (`pi --mode json`).
+//! Pi adapter (`pi --mode rpc`).
 //!
 //! Facts this implementation depends on, all measured on this machine:
 //!
-//! * `--mode json` prints one JSON object per line: `session`, `agent_start`,
-//!   `turn_start`, `message_start`, `message_update`
-//!   (`assistantMessageEvent`: `text_start` / `text_delta` / `text_end`),
-//!   `message_end`, `turn_end`, `agent_end`, `agent_settled`;
-//! * **stdin must be closed immediately**. With a pipe or a console attached,
-//!   `pi -p` blocks forever, even for a model that does not exist. The child is
-//!   spawned with `Stdio::null()` and a test guards it;
-//! * `--session-id <id>` reuses the current directory's session with that id and
-//!   creates it otherwise, so a follow-up turn needs no long-lived process;
-//! * `--session-dir` keeps session files under the D:-only state directory.
+//! * `--mode rpc` is long-lived: it reads one JSON command per line on stdin
+//!   and writes responses plus session events on stdout. This is the only pi
+//!   interface that can take a message *while* a turn is streaming, which is
+//!   what the composer's "send now" needs;
+//! * a prompt is a command (`{"type":"prompt","message":…}`), not an argument.
+//!   `@path` expansion still happens inside the message, so attachments keep
+//!   working and no image bytes are decoded here;
+//! * `{"type":"steer","message":…}` queues text into the running turn; pi
+//!   answers `queue_update` and then folds the text into its next step;
+//! * the run is over at `agent_settled`, not at `agent_end`: retries, overflow
+//!   recovery and steering can each start another low-level run after
+//!   `agent_end`. Waiting for process exit while keeping stdin open would hang;
+//! * closing stdin is the orderly shutdown. Give it a moment to exit, then kill
+//!   whatever is left.
 
-use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::process::{ChildStdin, Command, Stdio};
+use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -30,6 +35,20 @@ use crate::subagent::{SubAgentReport, SubAgentStatus};
 
 /// Adapter id, matching the catalog.
 pub const ID: &str = "pi";
+
+/// One line of input for the run loop: runtime output, or a steer this build
+/// injected and must therefore record itself.
+enum Feed {
+    Line(String),
+    Steer(String),
+}
+
+/// A turn that is still streaming: the pipe into pi and the loop's feed.
+struct LiveRun {
+    stdin: ChildStdin,
+    feed: mpsc::Sender<Feed>,
+}
+
 
 /// Pick the directory that holds this conversation's pi transcript.
 ///
@@ -103,12 +122,18 @@ fn tool_flags(tools: &[String]) -> Vec<String> {
 /// Pi adapter.
 pub struct PiAdapter {
     executable: Option<PathBuf>,
+    /// The pipe into each session's live RPC process, so a steer can reach the
+    /// turn that is streaming right now. Keyed by the runtime's session id.
+    live: Mutex<HashMap<String, LiveRun>>,
 }
 
 impl PiAdapter {
     #[must_use]
     pub fn new(executable: Option<PathBuf>) -> Self {
-        Self { executable }
+        Self {
+            executable,
+            live: Mutex::new(HashMap::new()),
+        }
     }
 
     fn executable(&self) -> Result<&PathBuf> {
@@ -123,8 +148,6 @@ impl PiAdapter {
         opened: &OpenedSession,
         allow_tools: bool,
         tools: &[String],
-        prompt: &str,
-        images: &[PathBuf],
     ) -> Result<Command> {
         let executable = self.executable()?;
         // One directory per conversation. When the conversation is not bound to
@@ -141,21 +164,23 @@ impl PiAdapter {
 
         let mut command = super::command_for(executable);
         command
-            .arg("-p")
-            .arg(prompt)
             .arg("--mode")
-            .arg("json")
+            .arg("rpc")
             .arg("--session-id")
             .arg(&opened.native_id)
             .arg("--session-dir")
             .arg(&session_dir)
-            .arg("--model")
-            .arg(&opened.model)
-            // See the module docs: a live stdin makes pi wait forever.
+            // An empty model means "whatever pi is configured with": passing
+            // `--model ""` would fail the run before any work starts.
             .current_dir(&opened.cwd)
-            .stdin(Stdio::null())
+            // RPC mode reads commands from stdin until it is closed. Unlike
+            // print mode, an open pipe here is the protocol, not a hang.
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if !opened.model.trim().is_empty() {
+            command.arg("--model").arg(&opened.model);
+        }
         if !allow_tools {
             command.arg("--no-tools");
         } else if !tools.is_empty() {
@@ -204,19 +229,27 @@ impl PiAdapter {
                 command.arg("--skill").arg(skill);
             }
         }
-        // Attachments. `pi [options] [--] [@files...] [messages...]` turns each
-        // `@path` into prompt content by itself: an image becomes an image
-        // content block the model can look at, a text file is inlined. Reading
-        // everything here and pasting it into the prompt is what made a PNG
-        // unreachable. `--` ends option parsing, so a path is never read as one.
-        if !images.is_empty() {
-            command.arg("--");
-            for image in images {
-                command.arg(format!("@{}", image.display()));
-            }
-        }
         Ok(command)
     }
+}
+
+/// The `prompt` command, with the turn's attachments.
+///
+/// pi expands `@path` inside the message exactly as it did on the command line
+/// (`@file` *arguments* are rejected in RPC mode, which is why they travel
+/// here). A path with spaces is quoted; without the quotes pi splits it and
+/// reads a file that does not exist.
+fn prompt_command(id: &str, prompt: &str, images: &[PathBuf]) -> Value {
+    let mut message = prompt.to_string();
+    for image in images {
+        let path = image.display().to_string();
+        if path.contains(' ') {
+            message.push_str(&format!(" @\"{path}\""));
+        } else {
+            message.push_str(&format!(" @{path}"));
+        }
+    }
+    serde_json::json!({ "id": id, "type": "prompt", "message": message })
 }
 
 impl SessionAdapter for PiAdapter {
@@ -315,32 +348,67 @@ impl SessionAdapter for PiAdapter {
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
         let mut child = self
-            .command(
-                context,
-                opened,
-                opened.allow_tools,
-                &opened.tools,
-                turn.prompt,
-                turn.images,
-            )?
+            .command(context, opened, opened.allow_tools, &opened.tools)?
             .spawn()
             .map_err(|error| Error::Failed(format!("spawn pi: {error}")))?;
 
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Io("pi stdin was not piped".into()))?;
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| Error::Io("pi stdout was not piped".into()))?;
-        let (sender, receiver) = mpsc::channel::<String>();
+        // stderr is diagnostics, never protocol data. Draining it keeps a
+        // chatty runtime from filling the pipe and blocking mid-turn; the tail
+        // is the only place an early exit explains itself ("not signed in").
+        let diagnostics = std::sync::Arc::new(Mutex::new(String::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let diagnostics = diagnostics.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stderr)
+                    .lines()
+                    .map_while(std::result::Result::ok)
+                {
+                    if let Ok(mut text) = diagnostics.lock() {
+                        text.push_str(&line);
+                        text.push('\n');
+                        // Only the tail is worth keeping; a long debug stream
+                        // must not grow without bound.
+                        if text.len() > 8_192 {
+                            let cut = text.len() - 8_192;
+                            let keep = text.split_off(cut);
+                            *text = keep;
+                        }
+                    }
+                }
+            });
+        }
+
+        let (sender, receiver) = mpsc::channel::<Feed>();
+        let lines = sender.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout)
                 .lines()
                 .map_while(std::result::Result::ok)
             {
-                if sender.send(line).is_err() {
+                if lines.send(Feed::Line(line)).is_err() {
                     break;
                 }
             }
         });
+
+        // The prompt is a command now. It goes out before the first read so a
+        // fast completion cannot land before the loop is listening.
+        let prompt = prompt_command("turn-1", turn.prompt, turn.images);
+        if let Err(error) = write_command(&mut stdin, &prompt) {
+            super::kill_tree(&mut child);
+            return Err(Error::Failed(format!("pi refused the prompt: {error}")));
+        }
+        // Register the pipe *after* the prompt: a steer that arrives while the
+        // process is starting finds the run as soon as it is listening.
+        self.register_live(&opened.native_id, stdin, sender);
 
         // No deadline by default. A turn ends when pi finishes, fails, or the
         // user stops it; `run_timeout` is only set by tests and the report
@@ -350,16 +418,25 @@ impl SessionAdapter for PiAdapter {
         // far longer than any fixed budget, and that is work, not a hang.
         let deadline = context.run_timeout.map(|budget| Instant::now() + budget);
         let mut deltas = String::new();
-        let mut final_text: Option<String> = None;
+        // One entry per `turn_end`. A steered run produces several: the work
+        // before the steer, then the work after it. Every message counts as the
+        // run's answer, so they are joined rather than overwritten.
+        let mut turns_text: Vec<String> = Vec::new();
+        // A steered run speaks in several turns: the answer before the steer and
+        // the one after it. Only then is the run's text their sum; an ordinary
+        // multi-step run ends with the one message that is its answer.
+        let mut steered = false;
         let mut usage: Option<Value> = None;
         let mut failure: Option<String> = None;
         // Pi retries a rejected provider call itself: the child stays alive, no
         // token arrives, and the only record of the reason is `auto_retry_start`.
         // Keep that message for the failure text when the run ends.
         let mut retry_error: Option<String> = None;
+        let mut settled = false;
 
-        loop {
+        while !settled {
             if cancel.is_cancelled() {
+                self.forget_live(&opened.native_id);
                 super::kill_tree(&mut child);
                 sink(AdapterEvent::new(
                     EventKind::Aborted,
@@ -370,6 +447,7 @@ impl SessionAdapter for PiAdapter {
             if let Some(deadline) = deadline
                 && Instant::now() >= deadline
             {
+                self.forget_live(&opened.native_id);
                 super::kill_tree(&mut child);
                 return Err(Error::Timeout(format!(
                     "pi did not finish within {:?}",
@@ -377,10 +455,23 @@ impl SessionAdapter for PiAdapter {
                 )));
             }
             match receiver.recv_timeout(Duration::from_millis(100)) {
-                Ok(line) => {
+                Ok(Feed::Steer(text)) => {
+                    steered = true;
+                    // pi keeps the text in its own queue; recording it here is
+                    // what puts the row in this run's ledger at the moment it
+                    // was injected instead of after the answer.
+                    sink(AdapterEvent::new(
+                        EventKind::UserSteer,
+                        serde_json::json!({ "text": text }),
+                    ));
+                }
+                Ok(Feed::Line(line)) => {
                     let Some(value) = parse_line(&line) else {
                         continue;
                     };
+                    if value.get("type").and_then(Value::as_str) == Some("agent_settled") {
+                        settled = true;
+                    }
                     // Pi echoes the session it opened. If it is not the one we
                     // asked for, the user's next turn would land somewhere else,
                     // so this is an error rather than a curiosity.
@@ -421,8 +512,9 @@ impl SessionAdapter for PiAdapter {
                                 .or_else(|| Some(event.payload.to_string()));
                         }
                         if let Some(found) = event.payload.get("finalText").and_then(Value::as_str)
+                            && !found.trim().is_empty()
                         {
-                            final_text = Some(found.to_string());
+                            turns_text.push(found.to_string());
                         }
                         if let Some(found) = event.payload.get("usage")
                             && !found.is_null()
@@ -437,10 +529,26 @@ impl SessionAdapter for PiAdapter {
             }
         }
 
-        let status = child
-            .wait()
-            .map_err(|error| Error::Io(format!("wait for pi: {error}")))?;
-        let text = final_text.unwrap_or_else(|| deltas.clone());
+        // Orderly shutdown: closing the pipe and giving pi a moment to flush its
+        // session file. `forget_live` drops the only handle to stdin, which is
+        // the EOF pi treats as "shut down"; a runtime that ignores it is killed
+        // rather than blocking the turn forever.
+        self.forget_live(&opened.native_id);
+        let status = wait_briefly(&mut child);
+        let text = if turns_text.is_empty() {
+            deltas.clone()
+        } else if steered {
+            turns_text.join("\n\n")
+        } else {
+            turns_text
+                .last()
+                .cloned()
+                .unwrap_or_else(|| deltas.clone())
+        };
+        let stderr_tail = diagnostics
+            .lock()
+            .map(|text| text.trim().to_string())
+            .unwrap_or_default();
 
         if let Some(failure) = failure {
             return Ok(RunOutcome {
@@ -457,11 +565,13 @@ impl SessionAdapter for PiAdapter {
                 text,
                 // The exit code alone says nothing actionable; the provider's own
                 // message is what the page can show.
-                error: Some(
-                    retry_error
-                        .clone()
-                        .unwrap_or_else(|| format!("pi exited with {status}")),
-                ),
+                error: Some(retry_error.clone().unwrap_or_else(|| {
+                    if stderr_tail.is_empty() {
+                        format!("pi exited with {status}")
+                    } else {
+                        last_line(&stderr_tail)
+                    }
+                })),
                 usage,
                 native_id: None,
             });
@@ -474,6 +584,104 @@ impl SessionAdapter for PiAdapter {
             native_id: None,
         })
     }
+
+    fn steer(&self, opened: &OpenedSession, text: &str) -> Result<bool> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(false);
+        }
+        let mut live = match self.live.lock() {
+            Ok(live) => live,
+            // A poisoned map still holds the pipes that are open. Refusing to
+            // steer because some other thread panicked helps nobody.
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(run) = live.get_mut(&opened.native_id) else {
+            return Ok(false);
+        };
+        let command = serde_json::json!({
+            "id": format!("steer-{}", crate::clock::unix_millis()),
+            "type": "steer",
+            "message": text,
+        });
+        write_command(&mut run.stdin, &command)
+            .map_err(|error| Error::Failed(format!("steer pi: {error}")))?;
+        // The runtime's own stream will show this text on its next step; the
+        // feed carries it now so the ledger can place it in time.
+        let _ = run.feed.send(Feed::Steer(text.to_string()));
+        Ok(true)
+    }
+}
+
+impl PiAdapter {
+    fn register_live(&self, native_id: &str, stdin: ChildStdin, feed: mpsc::Sender<Feed>) {
+        let mut live = match self.live.lock() {
+            Ok(live) => live,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        live.insert(native_id.to_string(), LiveRun { stdin, feed });
+    }
+
+    fn forget_live(&self, native_id: &str) {
+        let mut live = match self.live.lock() {
+            Ok(live) => live,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        live.remove(native_id);
+    }
+}
+
+/// One JSON command, one line, flushed.
+fn write_command(stdin: &mut ChildStdin, command: &Value) -> std::io::Result<()> {
+    stdin.write_all(command.to_string().as_bytes())?;
+    stdin.write_all(b"\n")?;
+    stdin.flush()
+}
+
+/// Wait for an orderly exit, then insist.
+///
+/// pi disposes its runtime and writes the session file after stdin closes; that
+/// is quick but not instant. A process that is still alive after five seconds
+/// is not shutting down, and blocking the turn on it would look like a hang.
+fn wait_briefly(child: &mut std::process::Child) -> std::process::ExitStatus {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                super::kill_tree(child);
+                return child.wait().unwrap_or_else(|_| synthetic_exit());
+            }
+            Err(_) => return synthetic_exit(),
+        }
+    }
+}
+
+/// An exit status for the case where the process API itself failed.
+fn synthetic_exit() -> std::process::ExitStatus {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(1)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(1)
+    }
+}
+
+/// The last non-empty line of a diagnostics tail: that is the message that
+/// explains the exit, not the stack above it.
+fn last_line(text: &str) -> String {
+    text.lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim().to_string())
+        .unwrap_or_else(|| "pi exited without a message".to_string())
 }
 
 fn parse_line(line: &str) -> Option<Value> {
@@ -1135,15 +1343,6 @@ mod tests {
     /// unit test over `Command`'s argv is the narrowest proof that it is not
     /// lost between the catalog and the child process.
     fn argv(persona: OpenedSession, allow_tools: bool, tools: &[String]) -> Vec<String> {
-        argv_with_images(persona, allow_tools, tools, &[])
-    }
-
-    fn argv_with_images(
-        persona: OpenedSession,
-        allow_tools: bool,
-        tools: &[String],
-        images: &[PathBuf],
-    ) -> Vec<String> {
         let dir = std::env::temp_dir().join(format!("anvil-pi-argv-{}", std::process::id()));
         let adapter = PiAdapter::new(Some(PathBuf::from("D:/tools/pi/pi.exe")));
         let context = SessionContext {
@@ -1151,7 +1350,7 @@ mod tests {
             run_timeout: Some(Duration::from_secs(60)),
         };
         let command = adapter
-            .command(&context, &persona, allow_tools, tools, "hello", images)
+            .command(&context, &persona, allow_tools, tools)
             .expect("build command");
         let args = command
             .get_args()
@@ -1159,6 +1358,22 @@ mod tests {
             .collect();
         let _ = std::fs::remove_dir_all(&dir);
         args
+    }
+
+    /// The interface this adapter speaks: a live stdin, not a one-shot prompt.
+    #[test]
+    fn the_command_is_the_long_lived_rpc_interface_not_print_mode() {
+        let args = argv(OpenedSession::default(), true, &[]);
+        let mode = args
+            .iter()
+            .position(|arg| arg == "--mode")
+            .and_then(|index| args.get(index + 1))
+            .cloned();
+        assert_eq!(mode.as_deref(), Some("rpc"), "{args:?}");
+        assert!(
+            !args.iter().any(|arg| arg == "-p" || arg == "--print"),
+            "RPC mode must not also be a one-shot run: {args:?}"
+        );
     }
 
     #[test]
@@ -1338,33 +1553,30 @@ mod tests {
 
     /// A picture only reaches the model through pi's own `@path` channel: pi
     /// turns it into an image content block, which pasting UTF-8 text never can.
+    /// RPC mode rejects `@file` *arguments*, so the path travels inside the
+    /// prompt command, and a path with a space is quoted or pi splits it.
     #[test]
-    fn images_travel_as_at_path_arguments_after_the_option_separator() {
+    fn images_travel_inside_the_prompt_command() {
         let images = vec![
             PathBuf::from(r"D:\Downloads\陈思成.png"),
             PathBuf::from(r"D:\Downloads\second shot.jpg"),
         ];
-        let args = argv_with_images(OpenedSession::default(), true, &[], &images);
-        let separator = args
-            .iter()
-            .position(|arg| arg == "--")
-            .expect("attachments need `--` so a path is never read as a flag");
-        assert_eq!(
-            args[separator + 1..].to_vec(),
-            vec![
-                r"@D:\Downloads\陈思成.png".to_string(),
-                r"@D:\Downloads\second shot.jpg".to_string(),
-            ],
-            "every image becomes one `@path` positional, in the order it was added"
+        let command = prompt_command("turn-1", "look at these", &images);
+        assert_eq!(command["type"], "prompt");
+        let message = command["message"].as_str().unwrap_or("");
+        assert!(
+            message.starts_with("look at these @D:\\Downloads\\陈思成.png "),
+            "{message}"
         );
-        // `--` must be the last option: only files follow it.
-        assert_eq!(separator, args.len() - 3);
+        assert!(
+            message.ends_with("@\"D:\\Downloads\\second shot.jpg\""),
+            "a path with a space must be quoted or pi splits it: {message}"
+        );
     }
 
     #[test]
-    fn a_text_only_turn_gets_no_attachment_arguments() {
-        let args = argv(OpenedSession::default(), true, &[]);
-        assert!(!args.iter().any(|arg| arg == "--"), "{args:?}");
-        assert!(!args.iter().any(|arg| arg.starts_with('@')), "{args:?}");
+    fn a_text_only_turn_carries_no_attachment() {
+        let command = prompt_command("turn-1", "hello", &[]);
+        assert_eq!(command["message"], "hello");
     }
 }

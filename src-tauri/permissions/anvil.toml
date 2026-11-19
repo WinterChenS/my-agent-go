@@ -115,6 +115,11 @@ description = "Allows asking the in-flight run to stop."
 commands.allow = ["session_abort"]
 
 [[permission]]
+identifier = "allow-session-steer"
+description = "Allows writing a message into the turn that is streaming."
+commands.allow = ["session_steer"]
+
+[[permission]]
 identifier = "allow-session-rename"
 description = "Allows renaming a session."
 commands.allow = ["session_rename"]

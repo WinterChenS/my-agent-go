@@ -23,6 +23,7 @@ use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
 use anvil_session::rail::RailView;
 use anvil_session::{
     ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, Message,
+    Steers,
     ProjectSummary, RunEvent, SessionContext, SessionDetail, SessionInput, SessionPage,
     SessionQuery, SessionService, SessionSpec, SessionSummary, Store,
 };
@@ -40,6 +41,7 @@ pub struct SessionState {
     writer: Mutex<Option<SessionService>>,
     reader: Mutex<Option<Store>>,
     cancels: Mutex<Option<Cancels>>,
+    steers: Mutex<Option<Steers>>,
     approvals: Mutex<Option<Approvals>>,
     init_error: Mutex<Option<String>>,
     /// Set once the connections exist. Reads and the cancel flag check this
@@ -60,6 +62,7 @@ impl SessionState {
             writer: Mutex::new(None),
             reader: Mutex::new(None),
             cancels: Mutex::new(None),
+            steers: Mutex::new(None),
             approvals: Mutex::new(None),
             init_error: Mutex::new(None),
             ready: AtomicBool::new(false),
@@ -143,12 +146,16 @@ impl SessionState {
             eprintln!("anvil: session: {recovered} interrupted run(s) marked failed");
         }
         let cancels = service.cancels();
+        let steers = service.steers();
         let approvals = service.approvals();
         if let Ok(mut slot) = self.reader.lock() {
             *slot = Some(reader);
         }
         if let Ok(mut slot) = self.cancels.lock() {
             *slot = Some(cancels);
+        }
+        if let Ok(mut slot) = self.steers.lock() {
+            *slot = Some(steers);
         }
         if let Ok(mut slot) = self.approvals.lock() {
             *slot = Some(approvals);
@@ -262,6 +269,24 @@ impl SessionState {
             .as_ref()
             .ok_or_else(|| "session: approvals are not initialised".to_string())?
             .resolve(session_id, approval_id, decision)
+            .map_err(|error| error.to_wire().to_string())
+    }
+
+    /// Write a message into the turn that is streaming right now.
+    ///
+    /// Deliberately outside the writer lock for the same reason as `abort`: the
+    /// run holds that lock for its whole duration, so a steer queued behind it
+    /// would arrive after the answer it was meant to change.
+    fn steer(&self, session_id: &str, text: &str) -> Result<bool, String> {
+        self.ensure()?;
+        let guard = self
+            .steers
+            .lock()
+            .map_err(|_| "session: steer lock poisoned".to_string())?;
+        guard
+            .as_ref()
+            .ok_or_else(|| "session: steers are not initialised".to_string())?
+            .steer(session_id, text)
             .map_err(|error| error.to_wire().to_string())
     }
 
@@ -665,6 +690,20 @@ pub async fn session_abort(
     session_id: String,
 ) -> Result<bool, String> {
     state.abort(&session_id)
+}
+
+/// Write a message into the turn that is streaming right now.
+///
+/// Answers `true` when the runtime accepted it. `false` means there was nothing
+/// live to steer — the turn ended between the click and the write — and the page
+/// puts the text back in the queue instead of losing it.
+#[tauri::command]
+pub async fn session_steer(
+    state: State<'_, SessionState>,
+    session_id: String,
+    text: String,
+) -> Result<bool, String> {
+    state.steer(&session_id, &text)
 }
 
 /// Rename a session.
