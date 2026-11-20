@@ -27,6 +27,8 @@ export type SessionEventKind =
   | 'context_attached'
   | 'sub_agent'
   | 'user_steer'
+  | 'extension_ui'
+  | 'extension_ui_resolved'
   | 'unknown'
 
 export interface SessionSummary {
@@ -491,6 +493,46 @@ export function sessionContext(sessionId: string): Promise<ContextUsage | null> 
 
 export function steerTurn(sessionId: string, text: string): Promise<boolean> {
   return hostCall<boolean>('session_steer', { sessionId, text })
+}
+
+/** A question the runtime asked on its own, waiting for an answer. */
+export interface UiRequest {
+  id: string
+  sessionId?: string
+  runId?: string
+  /** `select`, `confirm`, `input`, `editor`, or a fire-and-forget method. */
+  method: string
+  title: string
+  message: string
+  options: string[]
+  placeholder: string
+  prefill: string
+  notifyType: string
+  timeoutMs?: number
+  createdAt: string
+}
+
+/** The user's answer to a runtime question. */
+export interface UiAnswer {
+  value?: string
+  confirmed?: boolean
+  cancelled?: boolean
+  /** The runtime was trusted to answer for itself; nobody was asked. */
+  auto?: boolean
+}
+
+/**
+ * Answer a question the runtime asked on its own.
+ *
+ * The runtime is blocked until the answer arrives, so this must not wait for
+ * the run to finish.
+ */
+export function answerExtensionUi(
+  sessionId: string,
+  requestId: string,
+  answer: UiAnswer,
+): Promise<void> {
+  return hostCall<void>('session_extension_ui', { sessionId, requestId, answer })
 }
 
 export function renameSession(sessionId: string, title: string): Promise<void> {

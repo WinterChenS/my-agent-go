@@ -37,6 +37,7 @@
     "allow-session-fork",
     "allow-session-compact",
     "allow-session-approve",
+    "allow-session-extension-ui",
     "allow-session-context-list",
     "allow-session-rail",
     "allow-session-export",

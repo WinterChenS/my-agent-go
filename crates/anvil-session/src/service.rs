@@ -19,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::model::{
     ApprovalDecision, ApprovalRequest, CompactReport, EventKind, Message, OpenedSession,
     ProjectSummary, Role, Run, RunEvent, RunStatus, SessionContext, SessionDetail, SessionInput,
-    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary,
+    SessionPage, SessionQuery, SessionSpec, SessionStatus, SessionSummary, UiAnswer, UiRequest,
 };
 use crate::store::{NewSession, Store};
 
@@ -760,6 +760,7 @@ impl SessionService {
             append_system_prompt: persona.append_prompt,
             skills: persona.skills,
             project_trust: plan.project_trust,
+            permission: plan.level.to_string(),
         };
 
         // Registered before the first byte is read, so the page can steer the
@@ -778,7 +779,7 @@ impl SessionService {
         // user pressed it must not keep streaming into the bubble.
         let stopwatch = cancel.clone();
         let mut late = 0usize;
-        let mut sink = |event: AdapterEvent| {
+        let mut sink = |mut event: AdapterEvent| {
             if closed.load(Ordering::SeqCst) {
                 return;
             }
@@ -808,6 +809,16 @@ impl SessionService {
                 && let Some(delta) = event.payload.get("delta").and_then(|value| value.as_str())
             {
                 deltas.push_str(delta);
+            }
+            // A question the runtime is blocked on. The runtime does not know
+            // which conversation it belongs to, so the session is stamped in
+            // here: the answer has to be checked against it, or a stale card
+            // could answer a question in another conversation.
+            if event.kind == crate::model::EventKind::ExtensionUi
+                && let Some(id) = event.payload.get("id").and_then(|value| value.as_str())
+            {
+                crate::ui::extension_uis().stamp(id, session_id);
+                event.payload["sessionId"] = serde_json::Value::String(session_id.to_string());
             }
             // Ledger writes are cheap (WAL) and keep the UI live; an error here
             // cannot be reported through the sink, so it is retried on flush.
@@ -932,6 +943,33 @@ impl SessionService {
         decision: ApprovalDecision,
     ) -> Result<()> {
         self.approvals.resolve(session_id, approval_id, decision)
+    }
+
+    /// Answer a question the runtime is blocked on.
+    ///
+    /// The runtime asked through its own channel (pi's extension UI), so the
+    /// answer has to go back the same way: waking the runtime is enough, it
+    /// writes the answer into its own process. `session_id` must own the
+    /// question, so a stale card cannot answer a question raised in another
+    /// conversation.
+    ///
+    /// Deliberately takes `&self` and touches no ledger: the run that is
+    /// waiting for the answer holds the writer lock for the whole turn, and an
+    /// answer that queued behind it could never arrive.
+    pub fn answer_extension_ui(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        answer: UiAnswer,
+    ) -> Result<()> {
+        crate::ui::extension_uis()
+            .resolve(session_id, request_id, answer)
+            .map_err(Error::Rejected)
+    }
+
+    /// The questions one session is waiting on.
+    pub fn pending_extension_uis(&self, session_id: &str) -> Result<Vec<UiRequest>> {
+        Ok(crate::ui::extension_uis().pending(Some(session_id)))
     }
 
     /// The right rail, aggregated from this session's own ledger.

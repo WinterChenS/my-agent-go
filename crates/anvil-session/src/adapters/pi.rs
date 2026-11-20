@@ -30,6 +30,7 @@ use crate::adapter::{AdapterEvent, Cancel, ContextUsage, RunOutcome, SessionAdap
 use crate::error::{Error, Result};
 use crate::model::{
     EventKind, OpenedSession, RunStatus, SessionCapabilities, SessionContext, SessionSpec,
+    UiAnswer, UiRequest,
 };
 use crate::subagent::{SubAgentReport, SubAgentStatus};
 
@@ -125,6 +126,8 @@ pub struct PiAdapter {
     /// The pipe into each session's live RPC process, so a steer can reach the
     /// turn that is streaming right now. Keyed by the runtime's session id.
     live: Mutex<HashMap<String, LiveRun>>,
+    /// Questions this runtime is waiting on, answered from the page.
+    uis: crate::ui::ExtensionUis,
 }
 
 impl PiAdapter {
@@ -133,6 +136,7 @@ impl PiAdapter {
         Self {
             executable,
             live: Mutex::new(HashMap::new()),
+            uis: crate::ui::extension_uis(),
         }
     }
 
@@ -311,6 +315,7 @@ impl SessionAdapter for PiAdapter {
             }
         }
         Ok(OpenedSession {
+            permission: String::new(),
             runtime_id: ID.to_string(),
             native_id,
             model: spec.model.clone(),
@@ -497,6 +502,45 @@ impl SessionAdapter for PiAdapter {
                     {
                         retry_error = Some(message.to_string());
                     }
+                    // An extension asked the user something. pi blocks until the
+                    // answer is written back, so the request has to reach the
+                    // page and the answer has to come back the same way.
+                    if value.get("type").and_then(Value::as_str) == Some("extension_ui_request") {
+                        let request = ui_request(&value);
+                        let request_id = request.id.clone();
+                        let expects_answer = request.expects_answer();
+                        let timeout = request
+                            .timeout_ms
+                            .map(Duration::from_millis)
+                            .map(|budget| budget + Duration::from_secs(2));
+                        sink(AdapterEvent::new(
+                            EventKind::ExtensionUi,
+                            serde_json::to_value(&request).unwrap_or(serde_json::Value::Null),
+                        ));
+                        if expects_answer {
+                            // "Full control" means the user already said they
+                            // trust this workspace, so a question the runtime
+                            // asks on its own is answered for them: the turn
+                            // must not stop on a card the user did not expect.
+                            let automatic = automatic_answer(&request, &opened.permission);
+                            let (answer, auto) = match automatic {
+                                Some(answer) => (answer, true),
+                                None => (self.uis.ask(request, timeout, cancel), false),
+                            };
+                            let _ = self.answer_ui(&opened.native_id, &request_id, &answer);
+                            sink(AdapterEvent::new(
+                                EventKind::ExtensionUiResolved,
+                                serde_json::json!({
+                                    "id": request_id,
+                                    "cancelled": answer.cancelled,
+                                    "confirmed": answer.confirmed,
+                                    "value": answer.value,
+                                    "auto": auto,
+                                }),
+                            ));
+                        }
+                        continue;
+                    }
                     for event in translate(&value) {
                         if event.kind == EventKind::TextDelta
                             && let Some(delta) = event.payload.get("delta").and_then(Value::as_str)
@@ -676,6 +720,40 @@ impl SessionAdapter for PiAdapter {
         Ok(found)
     }
 
+    fn extension_uis(&self) -> Option<crate::ui::ExtensionUis> {
+        Some(self.uis.clone())
+    }
+
+    /// Answer the question pi is blocked on.
+    ///
+    /// pi's extension UI is a request/response sub-protocol: the runtime waits
+    /// for an `extension_ui_response` on stdin before it can go on. The answer
+    /// is written to the same live pipe a steer uses.
+    fn answer_ui(&self, native_id: &str, request_id: &str, answer: &UiAnswer) -> Result<()> {
+        let mut payload = serde_json::json!({
+            "type": "extension_ui_response",
+            "id": request_id,
+        });
+        if answer.cancelled {
+            payload["cancelled"] = Value::Bool(true);
+        } else if let Some(confirmed) = answer.confirmed {
+            payload["confirmed"] = Value::Bool(confirmed);
+        } else if let Some(value) = &answer.value {
+            payload["value"] = Value::String(value.clone());
+        }
+        let mut live = match self.live.lock() {
+            Ok(live) => live,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(run) = live.get_mut(native_id) else {
+            return Err(Error::Failed(format!(
+                "no live pi session for {native_id} to answer"
+            )));
+        };
+        write_command(&mut run.stdin, &payload)
+            .map_err(|error| Error::Failed(format!("answer pi: {error}")))
+    }
+
     fn steer(&self, opened: &OpenedSession, text: &str) -> Result<bool> {
         let text = text.trim();
         if text.is_empty() {
@@ -781,6 +859,72 @@ fn parse_line(line: &str) -> Option<Value> {
         return None;
     }
     serde_json::from_str(trimmed).ok()
+}
+
+/// The answer a fully trusted workspace gives for itself.
+///
+/// "Full control" means the user already said they trust this folder, so a
+/// question the runtime asks on its own must not stop the turn on a card the
+/// user did not expect: a `confirm` is yes, a `select` takes its first
+/// choice, and a free-text question takes what it was given.
+fn automatic_answer(request: &UiRequest, permission: &str) -> Option<UiAnswer> {
+    if !permission.trim().eq_ignore_ascii_case("full") {
+        return None;
+    }
+    match request.method.as_str() {
+        "confirm" => Some(UiAnswer {
+            confirmed: Some(true),
+            ..UiAnswer::default()
+        }),
+        "select" => request.options.first().map(|choice| UiAnswer {
+            value: Some(choice.clone()),
+            ..UiAnswer::default()
+        }),
+        "input" | "editor" => Some(UiAnswer {
+            value: Some(request.prefill.clone()),
+            ..UiAnswer::default()
+        }),
+        _ => None,
+    }
+}
+
+/// Read an extension's question out of pi's `extension_ui_request`.
+///
+/// The runtime names the method and carries the pieces that method needs:
+/// `select` brings options, `confirm` brings a message, `input` brings a
+/// placeholder, `editor` brings a prefill.
+fn ui_request(value: &Value) -> UiRequest {
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let options = value
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    UiRequest {
+        id: text("id"),
+        session_id: String::new(),
+        run_id: String::new(),
+        method: text("method"),
+        title: text("title"),
+        message: text("message"),
+        options,
+        placeholder: text("placeholder"),
+        prefill: text("prefill"),
+        notify_type: text("notifyType"),
+        timeout_ms: value.get("timeout").and_then(Value::as_u64),
+        created_at: crate::clock::now_rfc3339(),
+    }
 }
 
 /// Map one pi JSON event onto the ledger vocabulary.
@@ -891,6 +1035,30 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
         }
         "agent_start" | "turn_start" | "message_start" | "message_end" | "agent_end"
         | "agent_settled" => {}
+        // The receipt of an RPC command. It is protocol bookkeeping, not
+        // something the reader said or did, so it stays out of the transcript.
+        // A failed command is the exception: its reason is the only place the
+        // problem shows up.
+        "response" => {
+            if value.get("success").and_then(Value::as_bool) == Some(false) {
+                events.push(AdapterEvent::new(
+                    EventKind::Error,
+                    serde_json::json!({
+                        "message": format!(
+                            "pi refused the {} command: {}",
+                            value.get("command").and_then(Value::as_str).unwrap_or("unknown"),
+                            value.get("error").and_then(Value::as_str).unwrap_or("no reason given"),
+                        ),
+                    }),
+                ));
+            }
+        }
+        // An extension asked the user something. The run is blocked on the
+        // answer, so the question is a first-class event, not an odd shape.
+        "extension_ui_request" => events.push(AdapterEvent::new(
+            EventKind::ExtensionUi,
+            serde_json::to_value(&ui_request(value)).unwrap_or(Value::Null),
+        )),
         // Pi retries a failed provider call on its own. The message is the only
         // place the upstream reason appears, so it is recorded rather than
         // collapsed into an opaque `Unknown`.
@@ -1331,6 +1499,122 @@ mod tests {
         assert_eq!(events[0].payload["type"], "brand_new_event");
     }
 
+    /// A question the runtime asked has to reach the page: the run is blocked
+    /// on the answer, so dropping it would hang the turn forever.
+    #[test]
+    fn an_extension_question_becomes_its_own_event() {        let value = serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-1",
+            "method": "confirm",
+            "title": "Clear session?",
+            "message": "All messages will be lost.",
+            "timeout": 5000,
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::ExtensionUi);
+        assert_eq!(events[0].payload["id"], "uuid-1");
+        assert_eq!(events[0].payload["method"], "confirm");
+        assert_eq!(events[0].payload["title"], "Clear session?");
+        assert_eq!(events[0].payload["message"], "All messages will be lost.");
+        assert_eq!(events[0].payload["timeoutMs"], 5000);
+    }
+
+    /// A `select` carries its options; they are the whole question.
+    #[test]
+    fn a_select_carries_its_options() {
+        let value = serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-2",
+            "method": "select",
+            "title": "Allow dangerous command?",
+            "options": ["Allow", "Block"],
+        });
+        let events = translate(&value);
+        assert_eq!(events[0].kind, EventKind::ExtensionUi);
+        assert_eq!(events[0].payload["options"][0], "Allow");
+        assert_eq!(events[0].payload["options"][1], "Block");
+    }
+
+    /// A fully trusted workspace answers for itself: the turn must not stop
+    /// on a card the user did not expect.
+    #[test]
+    fn a_trusted_workspace_answers_the_question_by_itself() {
+        let confirm = UiRequest {
+            id: "q1".to_string(),
+            method: "confirm".to_string(),
+            ..UiRequest::default()
+        };
+        let answer = automatic_answer(&confirm, "full").expect("an answer");
+        assert_eq!(answer.confirmed, Some(true));
+        assert!(!answer.cancelled);
+
+        let select = UiRequest {
+            id: "q2".to_string(),
+            method: "select".to_string(),
+            options: vec!["允许".to_string(), "拒绝".to_string()],
+            ..UiRequest::default()
+        };
+        assert_eq!(
+            automatic_answer(&select, "full").and_then(|a| a.value),
+            Some("允许".to_string())
+        );
+
+        let editor = UiRequest {
+            id: "q3".to_string(),
+            method: "editor".to_string(),
+            prefill: "原来的文字".to_string(),
+            ..UiRequest::default()
+        };
+        assert_eq!(
+            automatic_answer(&editor, "full").and_then(|a| a.value),
+            Some("原来的文字".to_string())
+        );
+    }
+
+    /// Every other level keeps asking: the user has not said they trust this
+    /// workspace.
+    #[test]
+    fn an_untrusted_workspace_still_asks() {
+        let confirm = UiRequest {
+            id: "q1".to_string(),
+            method: "confirm".to_string(),
+            ..UiRequest::default()
+        };
+        for level in ["readonly", "medium", "high", ""] {
+            assert!(
+                automatic_answer(&confirm, level).is_none(),
+                "{level} must not answer for the user"
+            );
+        }
+    }
+
+    /// The receipt of an RPC command is protocol bookkeeping. It must not
+    /// show up in the transcript, but a refused command is worth seeing.
+    #[test]
+    fn a_command_receipt_is_not_a_transcript_event() {        let ok = translate(&serde_json::json!({
+            "type": "response",
+            "id": "ctx-1",
+            "command": "get_session_stats",
+            "success": true,
+            "data": { "contextUsage": { "tokens": 10, "contextWindow": 100 } },
+        }));
+        assert!(ok.is_empty(), "a receipt must not become a ledger event");
+
+        let refused = translate(&serde_json::json!({
+            "type": "response",
+            "command": "prompt",
+            "success": false,
+            "error": "model is not enabled",
+        }));
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].kind, EventKind::Error);
+        assert!(refused[0].payload["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("model is not enabled"));
+    }
+
     /// A parallel delegation has to become N cards, not one: the extension
     /// takes `{tasks:[…]}` and runs every entry in its own process.
     #[test]
@@ -1594,6 +1878,7 @@ mod tests {
     #[test]
     fn persona_flags_reach_the_runtime() {
         let opened = OpenedSession {
+            permission: String::new(),
             runtime_id: ID.to_string(),
             native_id: "s1".into(),
             model: "auto/fast".into(),

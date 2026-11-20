@@ -213,6 +213,28 @@ pub trait SessionAdapter: Send + Sync {
         Ok(None)
     }
 
+    /// The registry of questions this runtime is waiting on.
+    ///
+    /// A runtime that can ask the user something holds a registry so the page
+    /// can answer through another command while the run is blocked. Runtimes
+    /// with no such channel return `None`.
+    fn extension_uis(&self) -> Option<crate::ui::ExtensionUis> {
+        None
+    }
+
+    /// Hand the user's answer to a question the runtime is waiting on.
+    ///
+    /// `native_id` is the runtime's own session id: the answer travels back
+    /// through the same live pipe the run reads from.
+    fn answer_ui(
+        &self,
+        _native_id: &str,
+        _request_id: &str,
+        _answer: &crate::model::UiAnswer,
+    ) -> Result<()> {
+        Err(Error::Failed("this runtime cannot ask the user anything".into()))
+    }
+
     /// Stop a run started by `send`. Default: rely on `Cancel`.
     fn abort(&self, _opened: &OpenedSession) -> Result<()> {
         Ok(())

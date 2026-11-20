@@ -54,7 +54,10 @@ import {
   type PiImage,
   type SessionEvent,
   type ThinkingLevel,
+  type UiAnswer,
+  type UiRequest,
 } from '../../chat/client'
+import { ExtensionUiCard } from './ExtensionUiCard'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { imageSrc } from '../../chat/image'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
@@ -355,11 +358,13 @@ export function TurnPartsList({
   live = false,
   sources = 0,
   onCite,
+  onAnswerUi,
 }: {
   parts: TurnPart[]
   live?: boolean
   sources?: number
   onCite?: () => void
+  onAnswerUi?: (request: UiRequest, answer: UiAnswer) => void
 }) {
   const { t } = useI18n()
   if (parts.length === 0) return null
@@ -389,6 +394,17 @@ export function TurnPartsList({
               <span>{t('chat.subagent.steerLabel')}</span>
               <p>{part.text}</p>
             </div>
+          )
+        }
+        if (part.kind === 'extension_ui') {
+          // The runtime is blocked on this answer; the card is how it gets one.
+          return (
+            <ExtensionUiCard
+              key={part.key}
+              request={part.request}
+              answer={part.answer}
+              onAnswer={onAnswerUi}
+            />
           )
         }
         // The answer is a part like any other: when the runtime reasons or runs
@@ -628,6 +644,16 @@ export default function ChatPage() {
     setRailOpen(true)
     setRailTab('sources')
   }, [])
+
+  // A question the runtime asked on its own. The run is blocked until the
+  // answer is back, so it travels straight to the host instead of queueing
+  // behind the turn that is waiting for it.
+  const answerUi = useCallback(
+    (request: UiRequest, answer: UiAnswer) => {
+      void live.answerUi(request, answer)
+    },
+    [live],
+  )
 
   // One export, with the overwrite confirm the store requires: the host refuses
   // to replace a file until the person says so, and the dialog stays open with
@@ -1230,6 +1256,7 @@ export default function ChatPage() {
                           parts={partsWithAnswer[message.runId]}
                           sources={live.rail?.sources.length ?? 0}
                           onCite={showSource}
+                          onAnswerUi={answerUi}
                         />
                       ) : null}
                       {/* The parts already carry the answer when the ledger has
@@ -1267,6 +1294,7 @@ export default function ChatPage() {
                   agentLabel={speakerName}
                   sources={live.rail?.sources.length ?? 0}
                   onCite={showSource}
+                  onAnswerUi={answerUi}
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
                 />
@@ -3044,6 +3072,7 @@ function LiveTurnTimeline({
   agentLabel,
   sources,
   onCite,
+  onAnswerUi,
   onApprove,
   onRetry,
 }: {
@@ -3058,6 +3087,7 @@ function LiveTurnTimeline({
   agentLabel: string
   sources: number
   onCite: () => void
+  onAnswerUi?: (request: UiRequest, answer: UiAnswer) => void
   onApprove: (decision: ApprovalDecision) => void
   onRetry: () => void
 }) {
@@ -3150,6 +3180,7 @@ function LiveTurnTimeline({
               live
               sources={sources}
               onCite={onCite}
+              onAnswerUi={onAnswerUi}
             />
           ) : null}
           {/* Nothing written yet, or the runtime is between steps: keep the

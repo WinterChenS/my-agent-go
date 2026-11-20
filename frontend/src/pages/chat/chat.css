@@ -1537,6 +1537,119 @@ button.chat-badge:hover {
   white-space: pre;
 }
 
+/* A question the runtime asked on its own. It blocks the run until it is
+   answered, so it reads as a decision, not as a note. */
+.chat-ui-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--border));
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-ui-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
+  background: var(--accent-soft);
+}
+
+.chat-ui-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.chat-ui-kicker {
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  font-weight: 560;
+  letter-spacing: 0.02em;
+}
+
+.chat-ui-answered {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-ui-title {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) 0;
+  color: var(--fg);
+  font-size: var(--text-base);
+  font-weight: 560;
+  line-height: 1.5;
+}
+
+.chat-ui-body {
+  margin: var(--space-2) 0 0;
+  padding: 0 var(--space-5);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  line-height: 1.65;
+}
+
+.chat-ui-actions,
+.chat-ui-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.chat-ui-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.chat-ui-input {
+  flex: 1;
+  min-height: 34px;
+  resize: vertical;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+}
+
+.chat-ui-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* A fire-and-forget notice: the runtime wanted to say something, not to be
+   answered. */
+.chat-ui-card.is-note {
+  border-color: var(--border);
+}
+
+.chat-ui-card.is-note .chat-ui-head {
+  border-bottom-color: var(--border);
+  background: var(--surface-2);
+}
+
+.chat-ui-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+}
+
 .chat-confirm-foot {
   display: flex;
   align-items: center;

@@ -27,6 +27,7 @@ pub mod rail;
 pub mod service;
 pub mod store;
 pub mod subagent;
+pub mod ui;
 
 pub use adapter::{ContextUsage, Registry, SessionAdapter};
 pub use adapters::default_registry;

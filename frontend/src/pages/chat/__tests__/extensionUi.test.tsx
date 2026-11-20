@@ -1,0 +1,227 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it } from 'vitest'
+import { AppRoutes } from '../../../App'
+import type { TauriInternals } from '../../../host/tauri'
+import type { SessionEvent } from '../../../chat/client'
+
+afterEach(() => cleanup())
+
+interface HostCall {
+  command: string
+  args: Record<string, unknown>
+}
+
+/**
+ * A live host whose runtime asks the user a question and then waits for the
+ * answer, exactly like pi's extension UI does.
+ */
+function installHost(options: { method?: string; resolved?: boolean; auto?: boolean } = {}) {
+  const method = options.method ?? 'confirm'
+  const calls: HostCall[] = []
+  const events: SessionEvent[] = [
+    {
+      sessionId: 'pi-1',
+      runId: 'pi-1:r1',
+      seq: 1,
+      kind: 'turn_started',
+      at: '2026-11-13T00:00:00Z',
+      payload: { prompt: 'hello' },
+    },
+    {
+      sessionId: 'pi-1',
+      runId: 'pi-1:r1',
+      seq: 2,
+      kind: 'extension_ui',
+      at: '2026-11-13T00:00:01Z',
+      payload: {
+        id: 'uuid-1',
+        sessionId: 'pi-1',
+        method,
+        title: '允许这个操作吗',
+        message: '它会修改工作区',
+        options: method === 'select' ? ['允许', '拒绝'] : [],
+      },
+    },
+  ]
+  if (options.resolved || options.auto) {
+    events.push({
+      sessionId: 'pi-1',
+      runId: 'pi-1:r1',
+      seq: 3,
+      kind: 'extension_ui_resolved',
+      at: '2026-11-13T00:00:02Z',
+      payload: { id: 'uuid-1', confirmed: true, auto: options.auto === true },
+    })
+  }
+  const internals = {
+    invoke: async (command: string, args?: Record<string, unknown>) => {
+      calls.push({ command, args: args ?? {} })
+      if (command === 'catalog_snapshot' || command === 'catalog_refresh') {
+        return {
+          agents: [
+            {
+              id: 'default',
+              slug: 'default',
+              name: 'Default Agent',
+              runtimeId: 'pi',
+              modelId: 'auto/gpt-5',
+              isDefault: true,
+              updatedAt: '2026-11-13T00:00:00Z',
+            },
+          ],
+          runtimes: [
+            {
+              id: 'pi:1',
+              runtimeId: 'pi',
+              displayName: 'Pi Agent',
+              version: '1.5.0',
+              installPath: 'C://pi.CMD',
+              installSource: 'path',
+              configPath: null,
+              status: 'available',
+              capabilities: {
+                models: 'supported',
+                tools: 'supported',
+                images: 'unsupported',
+                subagents: 'unsupported',
+              },
+              installed: true,
+              detail: '',
+            },
+          ],
+          models: [
+            {
+              runtimeId: 'pi',
+              modelId: 'auto/gpt-5',
+              displayName: 'GPT 5',
+              origin: 'runtime',
+              protocol: 'openai',
+              endpoint: null,
+              verified: true,
+              verifiedAt: '2026-11-13T00:00:00Z',
+              isDefault: true,
+              enabled: true,
+              updatedAt: '2026-11-13T00:00:00Z',
+              hasCredential: true,
+            },
+          ],
+          catalogVersion: 2,
+          scanning: false,
+        }
+      }
+      if (command === 'session_list') return { sessions: [], total: 0 }
+      if (command === 'session_projects') return []
+      if (command === 'workspace_defaults') {
+        return { defaultWorkspace: 'C://Users//A//Anvil', projectsRoot: 'C://Users//A//Anvil//Projects' }
+      }
+      if (command === 'workspace_ensure') return 'C://Users//A//Anvil'
+      if (command === 'pi_subagent_status') {
+        return { installed: false, canInstall: false, extensionDir: '', detail: '' }
+      }
+      if (command === 'session_open') {
+        return {
+          id: 'pi-1',
+          runtimeId: 'pi',
+          title: 'host test',
+          status: 'idle',
+          nativeId: 'native-1',
+          model: 'auto/gpt-5',
+          projectPath: 'D:\\project',
+          pinned: false,
+          archived: false,
+          messageCount: 0,
+          parentId: '',
+          branchAt: 0,
+          createdAt: '2026-11-13T00:00:00Z',
+          updatedAt: '2026-11-13T00:00:00Z',
+          preview: '',
+        }
+      }
+      if (command === 'session_events') return events
+      if (command === 'session_send') {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return { runId: 'pi-1:r1', status: 'completed', eventCount: events.length }
+      }
+      if (command === 'session_extension_ui') return null
+      return null
+    },
+    listen: async () => () => undefined,
+  }
+  Object.defineProperty(window, '__TAURI_INTERNALS__', {
+    configurable: true,
+    value: internals as unknown as TauriInternals,
+  })
+  return { calls }
+}
+
+async function mountAndSend() {
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <AppRoutes />
+    </MemoryRouter>,
+  )
+  const composer = await screen.findByTestId('chat-composer')
+  await waitFor(() => expect(composer).not.toBeDisabled())
+  await userEvent.type(composer, 'hello')
+  await userEvent.click(screen.getByTestId('chat-send'))
+}
+
+describe('a question the runtime asked', () => {
+  it('shows the question as a card instead of dropping it', async () => {
+    installHost()
+    await mountAndSend()
+    const card = await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
+    expect(card.getAttribute('data-method')).toBe('confirm')
+    expect(card).toHaveTextContent('允许这个操作吗')
+    expect(card).toHaveTextContent('它会修改工作区')
+    expect(screen.getByTestId('chat-extension-allow')).toBeInTheDocument()
+  })
+
+  it('sends the answer back to the runtime', async () => {
+    const host = installHost()
+    await mountAndSend()
+    await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
+    await userEvent.click(screen.getByTestId('chat-extension-allow'))
+    await waitFor(() => {
+      const call = host.calls.find((entry) => entry.command === 'session_extension_ui')
+      expect(call).toBeDefined()
+      expect(call?.args.sessionId).toBe('pi-1')
+      expect(call?.args.requestId).toBe('uuid-1')
+      expect(call?.args.answer).toEqual({ confirmed: true })
+    })
+  })
+
+  it('offers the choices of a select', async () => {
+    const host = installHost({ method: 'select' })
+    await mountAndSend()
+    const card = await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
+    expect(card.getAttribute('data-method')).toBe('select')
+    const options = screen.getAllByTestId('chat-extension-option')
+    expect(options).toHaveLength(2)
+    await userEvent.click(options[1])
+    await waitFor(() => {
+      const call = host.calls.find((entry) => entry.command === 'session_extension_ui')
+      expect(call?.args.answer).toEqual({ value: '拒绝' })
+    })
+  })
+
+  it('shows the answer once the runtime got it', async () => {
+    installHost({ resolved: true })
+    await mountAndSend()
+    const card = await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
+    await waitFor(() => expect(card).toHaveTextContent('已允许'))
+    // Answered questions are not asked twice.
+    expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
+  })
+
+  it('says so when the trusted workspace answered on its own', async () => {
+    installHost({ auto: true })
+    await mountAndSend()
+    const card = await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
+    await waitFor(() => expect(card).toHaveTextContent('已自动回答'))
+    // Nobody was asked, so there is nothing to click.
+    expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
+  })
+})

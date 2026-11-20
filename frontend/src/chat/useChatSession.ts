@@ -21,6 +21,7 @@ import { onCatalogChanged } from '../catalog/notify'
 import { isTauriHost } from '../host/tauri'
 import {
   abortTurn,
+  answerExtensionUi,
   approveRequest,
   archiveSession,
   compactSession,
@@ -57,6 +58,8 @@ import {
   type SessionRun,
   type SessionSummary,
   type ThinkingLevel,
+  type UiAnswer,
+  type UiRequest,
 } from './client'
 
 /** How often the running turn re-reads the ledger. */
@@ -184,6 +187,8 @@ export interface ChatSessionView {
   steer: (text: string) => Promise<boolean>
   /** Answer the pending approval card. */
   approve: (decision: ApprovalDecision) => Promise<boolean>
+  /** Answer a question the runtime asked on its own; the run continues after. */
+  answerUi: (request: UiRequest, answer: UiAnswer) => Promise<boolean>
   /** Files and directories the composer may reference in this project. */
   mention: (query: string) => Promise<ContextEntry[]>
   /** Write the conversation out; `overwrite` is the caller's explicit yes. */
@@ -281,6 +286,8 @@ export type TurnPart =
   | { kind: 'agent'; key: string; agent: LiveSubAgent }
   /** A message the reader injected while this turn was already running. */
   | { kind: 'steer'; key: string; text: string }
+  /** A question the runtime asked on its own, and the answer it got. */
+  | { kind: 'extension_ui'; key: string; request: UiRequest; answer: UiAnswer | null }
   | { kind: 'text'; key: string; text: string }
 
 /** A child agent before any of its own events have arrived. */
@@ -569,6 +576,38 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
       applySubAgentEvent(part.agent, event.payload)
       continue
     }
+    if (event.kind === 'extension_ui') {
+      // The runtime asked something only the user can answer. It is a block of
+      // the transcript in its own right: the run is blocked until it is
+      // answered, so the question belongs where it was asked.
+      flushReasoning()
+      flushAnswer()
+      const request = uiRequestOf(event.payload)
+      if (request.id === '') continue
+      parts.push({
+        kind: 'extension_ui',
+        key: `${event.runId}:ui:${request.id}`,
+        request,
+        answer: null,
+      })
+      continue
+    }
+    if (event.kind === 'extension_ui_resolved') {
+      const id = typeof event.payload.id === 'string' ? event.payload.id : ''
+      if (id === '') continue
+      const open = parts.find(
+        (candidate): candidate is Extract<TurnPart, { kind: 'extension_ui' }> =>
+          candidate.kind === 'extension_ui' && candidate.request.id === id,
+      )
+      if (!open) continue
+      open.answer = {
+        value: typeof event.payload.value === 'string' ? event.payload.value : undefined,
+        confirmed: typeof event.payload.confirmed === 'boolean' ? event.payload.confirmed : undefined,
+        cancelled: event.payload.cancelled === true,
+        auto: event.payload.auto === true,
+      }
+      continue
+    }
     if (event.kind === 'unknown' && event.payload.type === 'auto_retry') {
       // pi auto-retries a failed provider call. The abandoned attempt already
       // streamed its text (and reasoning) into these accumulators; the retry
@@ -587,6 +626,27 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
   flushReasoning()
   flushAnswer()
   return parts
+}
+
+/** Read the runtime's question out of the ledger payload. */
+function uiRequestOf(payload: Record<string, unknown>): UiRequest {
+  const text = (key: string) => (typeof payload[key] === 'string' ? (payload[key] as string) : '')
+  return {
+    id: text('id'),
+    sessionId: text('sessionId') || undefined,
+    runId: text('runId') || undefined,
+    method: text('method'),
+    title: text('title'),
+    message: text('message'),
+    options: Array.isArray(payload.options)
+      ? payload.options.filter((item): item is string => typeof item === 'string')
+      : [],
+    placeholder: text('placeholder'),
+    prefill: text('prefill'),
+    notifyType: text('notifyType'),
+    timeoutMs: typeof payload.timeoutMs === 'number' ? payload.timeoutMs : undefined,
+    createdAt: text('createdAt'),
+  }
 }
 
 /** Whether every character of `needle` appears in `haystack` in order. */
@@ -1361,6 +1421,27 @@ export function useChatSession({
     [current],
   )
 
+  /**
+   * Answer a question the runtime asked on its own.
+   *
+   * The runtime is blocked while it waits, so the answer goes straight back
+   * through the host instead of queueing behind the running turn.
+   */
+  const answerUi = useCallback(
+    async (request: UiRequest, answer: UiAnswer) => {
+      const sessionId = request.sessionId || current?.session.id
+      if (!sessionId || !request.id) return false
+      try {
+        await answerExtensionUi(sessionId, request.id, answer)
+        return true
+      } catch (cause) {
+        if (mounted.current) setError(describeSessionError(cause))
+        return false
+      }
+    },
+    [current],
+  )
+
   const abort = useCallback(async () => {
     const sessionId = current?.session.id
     if (!sessionId) return false
@@ -1466,6 +1547,7 @@ export function useChatSession({
     send,
     steer,
     approve,
+    answerUi,
     mention,
     exportSession,
     abort,

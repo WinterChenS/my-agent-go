@@ -143,6 +143,7 @@ impl SessionAdapter for CodexAdapter {
         // identifier is minted by the first run instead (see `RunOutcome`).
         self.executable()?;
         Ok(OpenedSession {
+            permission: String::new(),
             runtime_id: ID.to_string(),
             native_id: spec.native_id.clone().unwrap_or_default(),
             model: spec.model.clone(),

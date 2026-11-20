@@ -202,6 +202,13 @@ pub enum EventKind {
     /// the transcript can place it where it happened instead of appending it
     /// after the answer.
     UserSteer,
+    /// The runtime asked the user something only the user can answer.
+    ///
+    /// The runtime blocks until the answer is sent back, so the request has to
+    /// reach the page; dropping it leaves the turn waiting forever.
+    ExtensionUi,
+    /// The user answered (or dismissed) a runtime question.
+    ExtensionUiResolved,
     /// A runtime event this build does not model yet; kept, never dropped.
     Unknown,
 }
@@ -227,6 +234,8 @@ impl EventKind {
             Self::ContextAttached => "context_attached",
             Self::SubAgent => "sub_agent",
             Self::UserSteer => "user_steer",
+            Self::ExtensionUi => "extension_ui",
+            Self::ExtensionUiResolved => "extension_ui_resolved",
             Self::Unknown => "unknown",
         }
     }
@@ -251,6 +260,8 @@ impl EventKind {
             "context_attached" => Some(Self::ContextAttached),
             "sub_agent" => Some(Self::SubAgent),
             "user_steer" => Some(Self::UserSteer),
+            "extension_ui" => Some(Self::ExtensionUi),
+            "extension_ui_resolved" => Some(Self::ExtensionUiResolved),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }
@@ -524,6 +535,13 @@ pub struct PermissionPlan {
     pub project_trust: Option<bool>,
     /// Skip the approval card for a path outside the project.
     pub trusts_workspace: bool,
+    /// The level the plan was made from: `readonly`, `medium`, `high` or
+    /// `full`.
+    ///
+    /// The runtime needs the level itself, not only what it implies: a
+    /// question the runtime asks on its own is answered without the user only
+    /// in `full`, where the user already said they trust this workspace.
+    pub level: &'static str,
 }
 
 impl Default for PermissionPlan {
@@ -534,6 +552,7 @@ impl Default for PermissionPlan {
             read_only: false,
             project_trust: Some(false),
             trusts_workspace: false,
+            level: "medium",
         }
     }
 }
@@ -545,17 +564,20 @@ pub fn permission_plan(permission: Option<&str>) -> PermissionPlan {
     match asked.map(str::to_ascii_lowercase).as_deref() {
         Some("readonly") => PermissionPlan {
             read_only: true,
+            level: "readonly",
             ..PermissionPlan::default()
         },
         Some("high") => PermissionPlan {
             read_only: false,
             project_trust: Some(true),
             trusts_workspace: false,
+            level: "high",
         },
         Some("full") => PermissionPlan {
             read_only: false,
             project_trust: Some(true),
             trusts_workspace: true,
+            level: "full",
         },
         // `medium` and anything this build does not know.
         _ => PermissionPlan::default(),
@@ -691,6 +713,94 @@ pub struct ApprovalRequest {
     pub created_at: String,
 }
 
+/// A question the runtime cannot answer on its own.
+///
+/// Runtimes that run headless still have to ask the human something: pi's
+/// extensions reach for `ctx.ui`, which in RPC mode arrives here as an
+/// `extension_ui_request`. The runtime blocks until the answer comes back, so
+/// a request that is dropped leaves the turn waiting forever.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiRequest {
+    /// The runtime's own id for this question; the answer must carry it back.
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub run_id: String,
+    /// `select`, `confirm`, `input`, `editor`, or one of the fire-and-forget
+    /// methods (`notify`, `setStatus`, `setWidget`, `setTitle`).
+    #[serde(default)]
+    pub method: String,
+    #[serde(default)]
+    pub title: String,
+    /// The body of a `confirm` or `notify`.
+    #[serde(default)]
+    pub message: String,
+    /// The choices of a `select`.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// The hint of an `input`.
+    #[serde(default)]
+    pub placeholder: String,
+    /// The starting text of an `editor`.
+    #[serde(default)]
+    pub prefill: String,
+    /// `info`, `warning` or `error` for a `notify`.
+    #[serde(default)]
+    pub notify_type: String,
+    /// How long the runtime waits before it moves on without an answer.
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+impl UiRequest {
+    /// Whether the runtime waits for an answer before it can continue.
+    ///
+    /// The fire-and-forget methods only want to be shown; answering them would
+    /// be noise.
+    #[must_use]
+    pub fn expects_answer(&self) -> bool {
+        matches!(
+            self.method.as_str(),
+            "select" | "confirm" | "input" | "editor"
+        )
+    }
+}
+
+/// The user's answer to a [`UiRequest`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiAnswer {
+    /// The chosen option or the typed text.
+    #[serde(default)]
+    pub value: Option<String>,
+    /// The yes/no answer of a `confirm`.
+    #[serde(default)]
+    pub confirmed: Option<bool>,
+    /// The question was dismissed without an answer.
+    ///
+    /// Defaulted, because the page sends only the part the question asked
+    /// for: a `confirm` carries a yes/no, and a `select` carries a value.
+    #[serde(default)]
+    pub cancelled: bool,
+}
+
+impl UiAnswer {
+    /// The answer a dismissed question gets: the runtime treats it as "no".
+    #[must_use]
+    pub fn cancelled() -> Self {
+        Self {
+            value: None,
+            confirmed: Some(false),
+            cancelled: true,
+        }
+    }
+}
+
 /// One entry in the composer's `@` list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -783,6 +893,14 @@ pub struct OpenedSession {
     /// non-interactive run is "skip", because there is nobody to ask.
     #[serde(default)]
     pub project_trust: Option<bool>,
+    /// The permission level this turn runs under: `readonly`, `medium`,
+    /// `high` or `full`.
+    ///
+    /// A runtime that can ask the user something needs the level, not only the
+    /// flags it implies: in `full` the user already said they trust this
+    /// workspace, so such a question is answered for them.
+    #[serde(default)]
+    pub permission: String,
 }
 
 /// Where an adapter may write, and whether a run has a deadline.

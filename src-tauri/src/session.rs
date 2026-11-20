@@ -612,6 +612,24 @@ pub async fn session_approve(
     state.resolve_approval(&session_id, &approval_id, decision)
 }
 
+/// Answer a question the runtime asked on its own.
+///
+/// A runtime that runs headless still has to ask the human something: pi's
+/// extensions reach for `ctx.ui`, which in RPC mode blocks the run until the
+/// answer is written back. The answer therefore travels through the shared
+/// registry rather than the service: the run that is waiting for it holds the
+/// writer lock for the whole turn, and an answer that queued behind it could
+/// never arrive.
+#[tauri::command]
+pub async fn session_extension_ui(
+    session_id: String,
+    request_id: String,
+    answer: anvil_session::model::UiAnswer,
+) -> Result<(), String> {
+    anvil_session::ui::extension_uis()
+        .resolve(&session_id, &request_id, answer)
+}
+
 /// Entries for the composer's `@` list, confined to the session's project.
 #[tauri::command]
 pub async fn session_context_list(

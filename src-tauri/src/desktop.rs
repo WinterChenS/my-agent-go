@@ -95,6 +95,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_fork,
             crate::session::session_compact,
             crate::session::session_approve,
+            crate::session::session_extension_ui,
             crate::session::session_context_list,
             crate::session::session_rail,
             crate::session::session_export,

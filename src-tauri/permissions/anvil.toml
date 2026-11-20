@@ -160,6 +160,11 @@ description = "Allows answering one approval card raised by a waiting run."
 commands.allow = ["session_approve"]
 
 [[permission]]
+identifier = "allow-session-extension-ui"
+description = "Allows answering one question the runtime asked on its own."
+commands.allow = ["session_extension_ui"]
+
+[[permission]]
 identifier = "allow-session-context-list"
 description = "Allows listing files and directories for the composer's @ references, confined to the project."
 commands.allow = ["session_context_list"]
