@@ -827,6 +827,20 @@ export default function ChatPage() {
     setQueue((previous) => previous.filter((entry) => entry.id !== id))
   }
 
+  // Dragging a queued row moves it in the send order; the head goes out first
+  // when the turn ends, so this is how the reader chooses what goes next.
+  const moveQueued = (from: string, to: string) => {
+    setQueue((previous) => {
+      const start = previous.findIndex((entry) => entry.id === from)
+      const target = previous.findIndex((entry) => entry.id === to)
+      if (start < 0 || target < 0 || start === target) return previous
+      const next = [...previous]
+      const [moved] = next.splice(start, 1)
+      next.splice(target, 0, moved)
+      return next
+    })
+  }
+
   // A queue is a promise about the *next* turn: when this one ends, the head
   // goes out. Refs rather than dependencies so the effect fires on the running
   // flag alone instead of on every keystroke that re-creates a callback.
@@ -1317,6 +1331,7 @@ export default function ChatPage() {
                   onSteer={steerQueued}
                   onEdit={editQueued}
                   onDrop={dropQueued}
+                  onMove={moveQueued}
                 />
               )
             }
@@ -1667,61 +1682,87 @@ scope docs/**                               允许
  * reader is writing, and the queue is what they already wrote. Sending one into
  * the live run is a deliberate click — pi folds it in at its next step.
  */
-function QueuedMessages({
+export function QueuedMessages({
   items,
   running,
   onSteer,
   onEdit,
   onDrop,
+  onMove,
 }: {
   items: QueuedTurn[]
   running: boolean
   onSteer: (id: string) => void
   onEdit: (id: string) => void
   onDrop: (id: string) => void
+  /** Reorder by dragging: `from` lands where `to` was. */
+  onMove: (from: string, to: string) => void
 }) {
   const { t } = useI18n()
+  const [dragging, setDragging] = useState<string | null>(null)
   if (items.length === 0) return null
   return (
     <div className="chat-queue" data-testid="chat-queue">
-      <div className="chat-queue-head">
-        <Icon name="clock" size={12} />
-        <b>{t('chat.queue.title', { count: items.length })}</b>
-        <span>{t('chat.queue.hint')}</span>
-      </div>
-      <ul className="chat-queue-list">
+      <ul className="chat-queue-list" title={t('chat.queue.hint')}>
         {items.map((item) => (
-          <li key={item.id} className="chat-queue-item" data-testid="chat-queue-item">
+          <li
+            key={item.id}
+            className={`chat-queue-item${dragging === item.id ? ' is-dragging' : ''}`}
+            data-testid="chat-queue-item"
+            draggable
+            onDragStart={(event) => {
+              setDragging(item.id)
+              event.dataTransfer.effectAllowed = 'move'
+              // A drag needs a payload before the browser will start it.
+              event.dataTransfer.setData('text/plain', item.id)
+            }}
+            onDragOver={(event) => {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              const from = event.dataTransfer.getData('text/plain') || dragging
+              if (from && from !== item.id) onMove(from, item.id)
+              setDragging(null)
+            }}
+            onDragEnd={() => setDragging(null)}
+          >
+            <span className="chat-queue-grip" aria-hidden="true">
+              <Icon name="grip" size={13} />
+            </span>
             <p title={item.text}>{item.text}</p>
             <div className="chat-queue-actions">
               <button
                 type="button"
-                className="chat-btn chat-btn-sm"
+                className="chat-queue-btn"
                 data-testid="chat-queue-steer"
                 disabled={!running}
-                title={t('chat.queue.steer')}
+                aria-label={t('chat.queue.steer')}
+                title={running ? t('chat.queue.steer') : t('chat.queue.steerFailed')}
                 onClick={() => onSteer(item.id)}
               >
-                <Icon name="send" size={11} />
-                {t('chat.queue.steer')}
+                <Icon name="send" size={12} />
               </button>
               <button
                 type="button"
-                className="chat-btn chat-btn-sm"
+                className="chat-queue-btn"
                 data-testid="chat-queue-edit"
+                aria-label={t('chat.queue.edit')}
+                title={t('chat.queue.edit')}
                 onClick={() => onEdit(item.id)}
               >
-                {t('chat.queue.edit')}
+                <Icon name="pen" size={12} />
               </button>
               <button
                 type="button"
-                className="chat-iconbtn"
+                className="chat-queue-btn"
                 data-testid="chat-queue-drop"
                 aria-label={t('chat.queue.remove')}
                 title={t('chat.queue.remove')}
                 onClick={() => onDrop(item.id)}
               >
-                <Icon name="x" size={11} />
+                <Icon name="trash" size={12} />
               </button>
             </div>
           </li>

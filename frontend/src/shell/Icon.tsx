@@ -84,6 +84,22 @@ const ICONS: Record<string, ReactNode> = {
   x: <path d="M6 6l12 12M18 6L6 18" />,
   check: <path d="M5 12l4 4L19 6" />,
   trash: <><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5" /></>,
+  grip: (
+    <>
+      <circle cx="9" cy="6" r="1.15" />
+      <circle cx="15" cy="6" r="1.15" />
+      <circle cx="9" cy="12" r="1.15" />
+      <circle cx="15" cy="12" r="1.15" />
+      <circle cx="9" cy="18" r="1.15" />
+      <circle cx="15" cy="18" r="1.15" />
+    </>
+  ),
+  pen: (
+    <>
+      <path d="M4.5 19.5l3.7-.8L19.2 7.7a2.1 2.1 0 0 0-3-3L5.3 15.8z" />
+      <path d="M14.6 6.3l3 3" />
+    </>
+  ),
   archive: <><rect x="3.5" y="4.5" width="17" height="4" rx="1" /><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10M10 12.5h4" /></>,
   branch: <><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="7" r="2" /><path d="M6 7v10M8 12h4a6 6 0 0 0 6-6" /></>,
   external: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" /></>,
