@@ -595,16 +595,23 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
     if (event.kind === 'extension_ui_resolved') {
       const id = typeof event.payload.id === 'string' ? event.payload.id : ''
       if (id === '') continue
-      const open = parts.find(
-        (candidate): candidate is Extract<TurnPart, { kind: 'extension_ui' }> =>
-          candidate.kind === 'extension_ui' && candidate.request.id === id,
+      const index = parts.findIndex(
+        (candidate) => candidate.kind === 'extension_ui' && candidate.request.id === id,
       )
-      if (!open) continue
+      if (index < 0) continue
+      // A trusted workspace answers such a question for the user, so there is
+      // nothing here to decide: leaving the question in the transcript would
+      // show a card with no question and no buttons, which only reads as noise.
+      // Both events stay in the ledger for audit; this is presentation only.
+      if (event.payload.auto === true) {
+        parts.splice(index, 1)
+        continue
+      }
+      const open = parts[index] as Extract<TurnPart, { kind: 'extension_ui' }>
       open.answer = {
         value: typeof event.payload.value === 'string' ? event.payload.value : undefined,
         confirmed: typeof event.payload.confirmed === 'boolean' ? event.payload.confirmed : undefined,
         cancelled: event.payload.cancelled === true,
-        auto: event.payload.auto === true,
       }
       continue
     }

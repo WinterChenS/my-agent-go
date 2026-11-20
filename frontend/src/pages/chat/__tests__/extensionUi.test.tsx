@@ -55,6 +55,16 @@ function installHost(options: { method?: string; resolved?: boolean; auto?: bool
       payload: { id: 'uuid-1', confirmed: true, auto: options.auto === true },
     })
   }
+  // An answer, so the transcript has a settled message to look at: "nothing
+  // was rendered" is impossible to check while the turn is still empty.
+  events.push({
+    sessionId: 'pi-1',
+    runId: 'pi-1:r1',
+    seq: 4,
+    kind: 'text_delta',
+    at: '2026-11-13T00:00:03Z',
+    payload: { delta: '好的' },
+  })
   const internals = {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       calls.push({ command, args: args ?? {} })
@@ -216,12 +226,25 @@ describe('a question the runtime asked', () => {
     expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
   })
 
-  it('says so when the trusted workspace answered on its own', async () => {
+  it('leaves nothing behind when the trusted workspace answered on its own', async () => {
     installHost({ auto: true })
     await mountAndSend()
-    const card = await screen.findByTestId('chat-extension-ui', {}, { timeout: 3000 })
-    await waitFor(() => expect(card).toHaveTextContent('已自动回答'))
-    // Nobody was asked, so there is nothing to click.
+    // Wait for the turn to settle: "nothing was shown" only means something
+    // once the whole transcript is there.
+    await screen.findByText('好的', {}, { timeout: 3000 })
+    // Nobody was asked, so there is no question to show — not even a card
+    // saying it was answered.
+    expect(screen.queryByTestId('chat-extension-ui')).toBeNull()
+    expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
+  })
+
+  it('tells a notice apart from a question', async () => {
+    installHost({ method: 'notify' })
+    await mountAndSend()
+    const note = await screen.findByTestId('chat-extension-note', {}, { timeout: 3000 })
+    expect(note).toHaveTextContent('它会修改工作区')
+    // A notice is one quiet line: no card frame, and nothing to answer.
+    expect(screen.queryByTestId('chat-extension-ui')).toBeNull()
     expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
   })
 })

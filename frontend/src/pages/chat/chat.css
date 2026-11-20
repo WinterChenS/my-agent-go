@@ -1632,22 +1632,31 @@ button.chat-badge:hover {
 }
 
 /* A fire-and-forget notice: the runtime wanted to say something, not to be
-   answered. */
-.chat-ui-card.is-note {
-  border-color: var(--border);
-}
-
-.chat-ui-card.is-note .chat-ui-head {
-  border-bottom-color: var(--border);
-  background: var(--surface-2);
-}
-
+   answered. One quiet line — a card would read as a decision the reader owes
+   an answer to, and a stack of them buried the conversation. */
 .chat-ui-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   margin: 0;
-  padding: var(--space-3) var(--space-5) var(--space-4);
+  padding: 1px 0 1px var(--space-3);
+  border-left: 2px solid color-mix(in oklab, var(--accent) 26%, transparent);
   color: var(--fg-2);
-  font-size: var(--text-xs-plus);
+  font-size: var(--text-xs);
   line-height: 1.6;
+}
+
+.chat-ui-note-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-top: 3px;
+  color: color-mix(in oklab, var(--accent) 62%, var(--muted));
+}
+
+.chat-ui-note-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat-confirm-foot {

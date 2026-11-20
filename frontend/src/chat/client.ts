@@ -517,8 +517,6 @@ export interface UiAnswer {
   value?: string
   confirmed?: boolean
   cancelled?: boolean
-  /** The runtime was trusted to answer for itself; nobody was asked. */
-  auto?: boolean
 }
 
 /**
