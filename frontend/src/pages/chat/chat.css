@@ -2126,9 +2126,9 @@ button.chat-badge:hover {
 }
 
 /* "Full control · trust workspace" is the one mode that stops asking, so the
-   control carrying it stops looking like every other setting. Both the icon and
-   the select text take the danger colour, on a faint danger tint, in either
-   theme: --danger is the palette's own readable red on each background. */
+   trigger carrying it stops looking like every other setting. Only this trigger
+   (and the full row inside the menu) takes the danger colour, on a faint tint;
+   --danger is the palette's own readable red on each background. */
 .chat-ctl.is-danger {
   border-color: color-mix(in oklab, var(--danger) 32%, transparent);
   background: var(--danger-soft);
@@ -2141,70 +2141,127 @@ button.chat-badge:hover {
   color: var(--danger);
 }
 
-.chat-ctl.is-danger select,
-.chat-ctl.is-danger select option {
-  color: var(--danger);
+/* The toolbar pickers are DOM listboxes now, not native selects: WebView2
+   paints the latter with the OS palette, which no theme can reach. The trigger
+   keeps the .chat-ctl silhouette; only its value truncates. */
+.chat-menu-trigger {
+  gap: var(--space-2);
 }
-
-/* The trusted label is the longest one in the picker and it is the one that
-   must not be misread; give it the room the other three modes do not need. */
-.chat-ctl.is-danger select {
-  max-width: 176px;
-}
-
-.chat-ctl.is-danger select option:checked {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.chat-ctl select {
+.chat-menu-value {
   max-width: 132px;
   overflow: hidden;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: var(--text-xs-plus);
   text-overflow: ellipsis;
-  cursor: pointer;
+  white-space: nowrap;
 }
-
-/* WebView2 paints the native dropdown popup with the system palette. Without
-   explicit option colours (and a matching color-scheme) the model picker stays
-   white on white text in dark mode even though the page itself is themed. */
-.chat-ctl select option {
+.chat-menu-trigger.is-open {
+  border-color: var(--border-strong);
   background: var(--surface-2);
   color: var(--fg);
 }
+.chat-menu-trigger svg:last-child {
+  opacity: 0.7;
+  transition: transform 0.14s ease;
+}
+.chat-menu-trigger.is-open svg:last-child {
+  transform: rotate(180deg);
+}
 
-.chat-ctl select option:checked,
-.chat-ctl select option:hover {
+/* Fixed against the viewport: the composer sits at the bottom, so the menu
+   opens upward and must not be clipped by any scroll container above it. */
+.chat-menu-pop {
+  position: fixed;
+  z-index: 420;
+  max-height: min(380px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg), 0 18px 48px color-mix(in oklab, var(--fg) 12%, transparent);
+  animation: chat-menu-in 0.12s ease-out;
+}
+@keyframes chat-menu-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+.chat-menu-group + .chat-menu-group {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.chat-menu-group-label {
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.chat-menu-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 32px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+  text-align: left;
+  cursor: pointer;
+}
+.chat-menu-option-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-menu-option-label {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-menu-option-detail {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-menu-option > svg {
+  flex: none;
+  color: var(--accent);
+}
+.chat-menu-option:hover,
+.chat-menu-option:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.chat-menu-option.is-selected {
   background: var(--accent-soft);
   color: var(--fg);
 }
-
-/* The group headings ("Agent" / "模型") are optgroup labels. Without their own
-   colours WebView2 paints them with the system palette — a pale strip with
-   grey text — even though the options below are themed. */
-.chat-ctl select optgroup {
-  background: var(--surface-2);
-  color: var(--fg);
-  font-style: normal;
+/* Only the trust-workspace row is a warning. The other three modes never turn
+   red, and choosing one does not tint the rest of the menu. */
+.chat-menu-option.is-danger,
+.chat-menu-option.is-danger .chat-menu-option-detail {
+  color: var(--danger);
 }
-
-[data-theme='dark'] .chat-ctl select,
-[data-theme='dark'] .chat-ctl select option,
-[data-theme='dark'] .chat-ctl select optgroup {
-  color-scheme: dark;
+.chat-menu-option.is-danger:hover,
+.chat-menu-option.is-danger:focus-visible,
+.chat-menu-option.is-danger.is-selected {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
-
-[data-theme='light'] .chat-ctl select,
-[data-theme='light'] .chat-ctl select option,
-[data-theme='light'] .chat-ctl select optgroup {
-  color-scheme: light;
-}
-
-.chat-ctl select:disabled {
+.chat-menu-option:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -3821,7 +3878,7 @@ button.chat-badge:hover {
     padding: var(--space-2) var(--space-3) var(--space-3);
   }
 
-  .chat-ctl select {
+  .chat-menu-value {
     max-width: 80px;
   }
 

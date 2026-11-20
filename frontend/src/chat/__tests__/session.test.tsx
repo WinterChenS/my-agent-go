@@ -20,6 +20,17 @@ function event(seq: number, kind: SessionEvent['kind'], payload: Record<string, 
   return { sessionId: 'pi-1', runId: 'pi-1:r1', seq, kind, at: '2026-11-13T00:00:00Z', payload }
 }
 
+/** Open a composer listbox and click the option carrying this value. */
+async function pickMenu(triggerId: string, menuId: string, value: string) {
+  await userEvent.click(screen.getByTestId(triggerId))
+  const menu = await screen.findByTestId(menuId)
+  const option = within(menu)
+    .getAllByRole('option')
+    .find((row) => row.getAttribute('data-value') === value)
+  if (!option) throw new Error(`no option "${value}" in ${menuId}`)
+  await userEvent.click(option)
+}
+
 describe('session wire helpers', () => {
   it('merges only text deltas and keeps the order of the batch', () => {
     const batch = [
@@ -383,7 +394,13 @@ describe('chat live session', () => {
 
     const picker = () => screen.getByTestId('chat-model-select')
     await waitFor(() => expect(picker()).not.toBeDisabled())
-    expect(picker()).not.toHaveTextContent('auto/glm-5.3-flash')
+    const openPicker = async () => {
+      await userEvent.click(picker())
+      return screen.findByTestId('chat-model-menu')
+    }
+    let menu = await openPicker()
+    expect(menu).not.toHaveTextContent('auto/glm-5.3-flash')
+    await userEvent.keyboard('{Escape}')
 
     const sync = screen.getByTestId('chat-models-sync')
     expect(sync).toHaveAccessibleName('同步模型列表')
@@ -391,7 +408,10 @@ describe('chat live session', () => {
 
     await waitFor(() => expect(host.calls).toContain('catalog_refresh'))
     // The picker is rebuilt from the rescan, not from the startup snapshot.
-    await waitFor(() => expect(picker()).toHaveTextContent('auto/glm-5.3-flash'))
+    await waitFor(async () => {
+      menu = await openPicker()
+      expect(menu).toHaveTextContent('auto/glm-5.3-flash')
+    })
   })
 
   it('offers only enabled models, grouped with the agents that bind them', async () => {
@@ -404,15 +424,17 @@ describe('chat live session', () => {
 
     const picker = () => screen.getByTestId('chat-model-select')
     await waitFor(() => expect(picker()).not.toBeDisabled())
+    await userEvent.click(picker())
+    const menu = await screen.findByTestId('chat-model-menu')
 
     // The default agent is derived from the default model, so it is always
     // there and always first.
-    expect(picker()).toHaveTextContent('默认 Agent')
-    expect(picker()).toHaveTextContent('pi · auto/gpt-5.6-sol')
+    expect(menu).toHaveTextContent('默认 Agent')
+    expect(menu).toHaveTextContent('pi · auto/gpt-5.6-sol')
 
     // A model the user never turned on stays out of the picker: discovery
     // reports the machine, not the choice.
-    expect(picker()).not.toHaveTextContent('auto/still-off')
+    expect(menu).not.toHaveTextContent('auto/still-off')
   })
 
   it('sends a real turn through the host and renders the stored reply', async () => {
@@ -1141,31 +1163,38 @@ describe('chat context and approvals', () => {
         <AppRoutes />
       </MemoryRouter>,
     )
-    const select = screen.getByTestId('chat-permission-select')
-    await waitFor(() => expect(select).not.toBeDisabled())
+    const trigger = screen.getByTestId('chat-permission-select')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
     // "Medium" is the safe default; "full" is the trust-workspace answer the
     // user picks so a path outside the project stops raising a card.
-    expect(select).toHaveValue('medium')
-    expect(select.closest('.chat-ctl')?.className).not.toContain('is-danger')
+    expect(trigger).toHaveAttribute('data-value', 'medium')
+    expect(trigger.className).not.toContain('is-danger')
 
-    // Picking it raises the warning instead of switching.
-    await userEvent.selectOptions(select, 'full')
+    // Only the full row is red — the other three modes stay neutral.
+    await userEvent.click(trigger)
+    const menu = await screen.findByTestId('chat-permission-menu')
+    const rows = within(menu).getAllByRole('option')
+    expect(rows.filter((row) => row.className.includes('is-danger')).map((row) => row.dataset.value)).toEqual(['full'])
+    await userEvent.keyboard('{Escape}')
+
+    // Picking full raises the warning instead of switching.
+    await pickMenu('chat-permission-select', 'chat-permission-menu', 'full')
     const points = await screen.findByTestId('chat-trust-points')
     expect(points).toHaveTextContent('读取工作区之外的路径不再逐次询问')
-    expect(select).toHaveValue('medium')
+    expect(trigger).toHaveAttribute('data-value', 'medium')
     expect(window.localStorage.getItem('anvil.chat.permission')).not.toBe('full')
 
     // Declining leaves the picker where it was.
     await userEvent.click(screen.getByTestId('chat-trust-cancel'))
     await waitFor(() => expect(screen.queryByTestId('chat-trust-points')).toBeNull())
-    expect(select).toHaveValue('medium')
+    expect(trigger).toHaveAttribute('data-value', 'medium')
 
-    // Confirming switches, and the control turns red from then on.
-    await userEvent.selectOptions(select, 'full')
+    // Confirming switches, and only the trigger turns red from then on.
+    await pickMenu('chat-permission-select', 'chat-permission-menu', 'full')
     await userEvent.click(await screen.findByTestId('chat-trust-confirm'))
-    await waitFor(() => expect(select).toHaveValue('full'))
+    await waitFor(() => expect(trigger).toHaveAttribute('data-value', 'full'))
     expect(window.localStorage.getItem('anvil.chat.permission')).toBe('full')
-    expect(select.closest('.chat-ctl')?.className).toContain('is-danger')
+    expect(trigger.className).toContain('is-danger')
 
     await sendOnce('run it')
     await waitFor(() =>
@@ -1181,13 +1210,16 @@ describe('chat context and approvals', () => {
         <AppRoutes />
       </MemoryRouter>,
     )
-    const select = screen.getByTestId('chat-thinking-select')
-    await waitFor(() => expect(select).not.toBeDisabled())
-    expect(select).toHaveValue('medium')
+    const trigger = screen.getByTestId('chat-thinking-select')
+    await waitFor(() => expect(trigger).not.toBeDisabled())
+    expect(trigger).toHaveAttribute('data-value', 'medium')
     // The picker shows the runtime's own flag values: a translated label would
     // hide what `--thinking` was actually told.
-    expect(within(select).getByRole('option', { name: 'Extra high' })).toHaveValue('xhigh')
-    await userEvent.selectOptions(select, 'xhigh')
+    await userEvent.click(trigger)
+    const menu = await screen.findByTestId('chat-thinking-menu')
+    const xhigh = within(menu).getAllByRole('option').find((row) => row.dataset.value === 'xhigh')
+    expect(xhigh).toHaveTextContent('Extra high')
+    await userEvent.click(xhigh!)
     expect(window.localStorage.getItem('anvil.chat.thinking')).toBe('xhigh')
 
     await sendOnce('run it')

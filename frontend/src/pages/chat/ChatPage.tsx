@@ -1855,6 +1855,211 @@ export function QueuedMessages({
   )
 }
 
+type MenuOption = {
+  value: string
+  label: string
+  detail?: string
+  /** Only this row is the red "完全访问" warning — never the whole menu. */
+  danger?: boolean
+  disabled?: boolean
+}
+type MenuGroup = { label?: string; options: MenuOption[] }
+
+/**
+ * The composer's selects were native <select> elements. WebView2 paints their
+ * popup with the OS palette (white strips in dark mode), so they could never
+ * match the theme; tinting the danger one red also tinted every option. This is
+ * a DOM listbox: themed in both modes, keyboard-driven, and only the one
+ * dangerous row — plus its trigger once chosen — wears red.
+ */
+function ComposerMenu({
+  testId,
+  menuTestId,
+  label,
+  tip,
+  icon,
+  value,
+  groups,
+  disabled,
+  danger,
+  onPick,
+  width = 320,
+}: {
+  testId: string
+  menuTestId: string
+  label: string
+  tip?: string
+  icon: string
+  value: string
+  groups: MenuGroup[]
+  disabled?: boolean
+  danger?: boolean
+  onPick: (value: string) => void
+  width?: number
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
+  const [active, setActive] = useState(0)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+
+  const options = groups.flatMap((group) => group.options)
+  const currentLabel = options.find((option) => option.value === value)?.label ?? value
+
+  const place = () => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setPos({
+      left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8)),
+      bottom: window.innerHeight - rect.top + 8,
+    })
+  }
+  const show = () => {
+    if (disabled) return
+    place()
+    setActive(Math.max(0, options.findIndex((option) => option.value === value)))
+    setOpen(true)
+  }
+  const hide = (focus = false) => {
+    setOpen(false)
+    if (focus) triggerRef.current?.focus()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onOutside = (event: Event) => {
+      const node = event.target as Node | null
+      if (!node) return
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+      if (triggerRef.current && (triggerRef.current.contains(node) || path.includes(triggerRef.current))) return
+      if (popRef.current && (popRef.current.contains(node) || path.includes(popRef.current))) return
+      setOpen(false)
+    }
+    const onMove = () => place()
+    document.addEventListener('pointerdown', onOutside, true)
+    document.addEventListener('mousedown', onOutside, true)
+    window.addEventListener('resize', onMove)
+    window.addEventListener('scroll', onMove, true)
+    return () => {
+      document.removeEventListener('pointerdown', onOutside, true)
+      document.removeEventListener('mousedown', onOutside, true)
+      window.removeEventListener('resize', onMove)
+      window.removeEventListener('scroll', onMove, true)
+    }
+  }, [open, width])
+
+  // Roving focus: exactly one row is tabbable, and it follows the arrow keys.
+  useEffect(() => {
+    if (!open) return
+    popRef.current?.querySelectorAll<HTMLElement>('[data-menu-option]')[active]?.focus()
+  }, [open, active])
+
+  const pick = (option: MenuOption) => {
+    if (option.disabled) return
+    hide()
+    onPick(option.value)
+  }
+  const onTriggerKey = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (!open) show()
+    } else if (event.key === 'Escape' && open) {
+      event.preventDefault()
+      hide()
+    }
+  }
+  const onMenuKey = (event: KeyboardEvent) => {
+    const enabled = options.map((option, index) => ({ option, index })).filter((row) => !row.option.disabled)
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      const at = enabled.findIndex((row) => row.index === active)
+      const next = enabled[(at + direction + enabled.length) % enabled.length]
+      if (next) setActive(next.index)
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      const next = event.key === 'Home' ? enabled[0] : enabled[enabled.length - 1]
+      if (next) setActive(next.index)
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (options[active]) pick(options[active])
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      hide(true)
+    } else if (event.key === 'Tab') {
+      hide()
+    }
+  }
+
+  let index = -1
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`chat-ctl chat-menu-trigger${danger ? ' is-danger' : ''}${open ? ' is-open' : ''}`}
+        data-testid={testId}
+        data-value={value}
+        aria-label={label}
+        title={tip ?? label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => (open ? hide() : show())}
+        onKeyDown={onTriggerKey}
+      >
+        <Icon name={icon} size={13} />
+        <span className="chat-menu-value">{currentLabel}</span>
+        <Icon name="chevDown" size={11} />
+      </button>
+      {open && pos ? (
+        <div
+          ref={popRef}
+          className="chat-menu-pop"
+          data-testid={menuTestId}
+          role="listbox"
+          aria-label={label}
+          style={{ left: pos.left, bottom: pos.bottom, width }}
+          onKeyDown={onMenuKey}
+        >
+          {groups.map((group, groupIndex) => (
+            <div className="chat-menu-group" key={groupIndex}>
+              {group.label ? <div className="chat-menu-group-label">{group.label}</div> : null}
+              {group.options.map((option) => {
+                index += 1
+                const row = index
+                const selected = option.value === value
+                return (
+                  <button
+                    key={`${option.value}:${row}`}
+                    type="button"
+                    role="option"
+                    data-menu-option
+                    data-testid={`${menuTestId}-option`}
+                    data-value={option.value}
+                    aria-selected={selected}
+                    disabled={option.disabled}
+                    className={`chat-menu-option${selected ? ' is-selected' : ''}${option.danger ? ' is-danger' : ''}`}
+                    tabIndex={row === active ? 0 : -1}
+                    onMouseEnter={() => setActive(row)}
+                    onClick={() => pick(option)}
+                  >
+                    <span className="chat-menu-option-main">
+                      <span className="chat-menu-option-label">{option.label}</span>
+                      {option.detail ? <span className="chat-menu-option-detail">{option.detail}</span> : null}
+                    </span>
+                    {selected ? <Icon name="check" size={13} /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function Composer({
   sample,
   live,
@@ -2300,6 +2505,90 @@ function Composer({
   const shown = enabled ? text : ''
   const selectedModel = live?.model ? modelKey(live.model) : ''
 
+  // The model list is the same one the native select grouped: saved agents that
+  // bind an enabled model first, then every enabled model. `agent:` values keep
+  // the persona binding the picker used to carry.
+  const usableAgents = live
+    ? live.agents.filter((agent) =>
+        live.models.some(
+          (choice) => choice.runtimeId === agent.runtimeId && choice.modelId === agent.modelId,
+        ),
+      )
+    : []
+  const modelGroups: MenuGroup[] = sample
+    ? [{ options: [{ value: sampleChat.model, label: sampleChat.model }] }]
+    : live && live.models.length > 0
+      ? [
+          ...(usableAgents.length > 0
+            ? [
+                {
+                  label: t('chat.composer.agents'),
+                  options: usableAgents.map((agent) => ({
+                    value: `agent:${agent.id}`,
+                    label: agent.isDefault ? t('chat.composer.defaultAgent') : agent.name,
+                    detail: `${agent.runtimeId} · ${agent.modelId}`,
+                  })),
+                },
+              ]
+            : []),
+          {
+            label: t('chat.composer.models'),
+            options: live.models.map((choice) => ({
+              value: modelKey(choice),
+              label: `${choice.runtimeId} · ${choice.modelId}`,
+              detail: choice.displayName,
+            })),
+          },
+        ]
+      : [
+          {
+            options: [
+              {
+                value: '',
+                label: live ? t('chat.live.noModel') : t('chat.composer.normalPlaceholder'),
+                disabled: true,
+              },
+            ],
+          },
+        ]
+  const modelValue = sample
+    ? sampleChat.model
+    : pickedAgent
+      ? `agent:${pickedAgent}`
+      : selectedModel
+  const pickModel = (value: string) => {
+    if (value.startsWith('agent:')) {
+      const agent = live?.agents.find((item) => item.id === value.slice(6))
+      const choice = agent
+        ? live?.models.find(
+            (item) => item.runtimeId === agent.runtimeId && item.modelId === agent.modelId,
+          )
+        : undefined
+      if (!agent || !choice) return
+      setPickedAgent(agent.id)
+      live?.onModel(choice)
+      return
+    }
+    setPickedAgent('')
+    const choice = live?.models.find((item) => modelKey(item) === value)
+    if (choice) live?.onModel(choice)
+  }
+
+  const thinkingGroups: MenuGroup[] = [
+    { options: THINKING_LEVELS.map((level) => ({ value: level, label: THINKING_LABELS[level] })) },
+  ]
+  const thinkingValue = sample ? sampleChat.thinkingLevel : thinking
+  const permissionGroups: MenuGroup[] = [
+    {
+      options: [
+        { value: 'readonly', label: t('chat.composer.permission.readonly') },
+        { value: 'medium', label: t('chat.composer.permission.medium') },
+        { value: 'high', label: t('chat.composer.permission.high') },
+        { value: 'full', label: t('chat.composer.permission.full'), danger: true },
+      ],
+    },
+  ]
+
   return (
     <div className="chat-composer-wrap">
       {showWorkspace || projectAside ? (
@@ -2528,87 +2817,16 @@ function Composer({
           >
             <Icon name="plus" size={14} />
           </button>
-          <label className="chat-ctl" title={t('chat.composer.model')}>
-            <Icon name="sparkle" size={13} />
-            <select
-              aria-label={t('chat.composer.model')}
-              data-testid="chat-model-select"
-              disabled={!enabled}
-              value={sample ? undefined : pickedAgent ? `agent:${pickedAgent}` : selectedModel}
-              onChange={(event) => {
-                const value = event.target.value
-                if (value.startsWith('agent:')) {
-                  const agent = live?.agents.find((item) => item.id === value.slice(6))
-                  const choice = agent
-                    ? live?.models.find(
-                        (item) =>
-                          item.runtimeId === agent.runtimeId && item.modelId === agent.modelId,
-                      )
-                    : undefined
-                  // An agent whose model is not enabled cannot be run: leave the
-                  // picker where it was rather than show a pair that would fail.
-                  if (!agent || !choice) return
-                  setPickedAgent(agent.id)
-                  live?.onModel(choice)
-                  return
-                }
-                setPickedAgent('')
-                const choice = live?.models.find((item) => modelKey(item) === value)
-                if (choice) live?.onModel(choice)
-              }}
-            >
-              {sample ? (
-                <option>{sampleChat.model}</option>
-              ) : live && live.models.length > 0 ? (
-                <>
-                  {/* An agent is a saved runtime+model pair; a model is the
-                      pair chosen on the spot. Both end in the same place. */}
-                  {live.agents.some((agent) =>
-                    live.models.some(
-                      (choice) =>
-                        choice.runtimeId === agent.runtimeId && choice.modelId === agent.modelId,
-                    ),
-                  ) ? (
-                    <optgroup label={t('chat.composer.agents')}>
-                      {live.agents
-                        .filter((agent) =>
-                          live.models.some(
-                            (choice) =>
-                              choice.runtimeId === agent.runtimeId &&
-                              choice.modelId === agent.modelId,
-                          ),
-                        )
-                        .map((agent) => (
-                        <option
-                          key={agent.id}
-                          value={`agent:${agent.id}`}
-                          title={`${agent.runtimeId} · ${agent.modelId}`}
-                        >
-                          {agent.isDefault ? t('chat.composer.defaultAgent') : agent.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-                  <optgroup label={t('chat.composer.models')}>
-                    {live.models.map((choice) => (
-                      // The id is what the runtime is actually asked for, so it
-                      // is what the composer shows; the display name is the
-                      // tooltip.
-                      <option
-                        key={modelKey(choice)}
-                        value={modelKey(choice)}
-                        title={choice.displayName}
-                      >
-                        {choice.runtimeId} · {choice.modelId}
-                      </option>
-                    ))}
-                  </optgroup>
-                </>
-              ) : (
-                <option>{live ? t('chat.live.noModel') : t('chat.composer.normalPlaceholder')}</option>
-              )}
-            </select>
-          </label>
+          <ComposerMenu
+            testId="chat-model-select"
+            menuTestId="chat-model-menu"
+            label={t('chat.composer.model')}
+            icon="sparkle"
+            value={modelValue}
+            groups={modelGroups}
+            disabled={!enabled}
+            onPick={pickModel}
+          />
           {live ? (
             <SyncButton
               label={t('chat.live.syncModels')}
@@ -2617,52 +2835,40 @@ function Composer({
               testId="chat-models-sync"
             />
           ) : null}
-          <label className="chat-ctl" title="Thinking">
-            <Icon name="brain" size={13} />
-            <select
-              aria-label="Thinking effort"
-              data-testid="chat-thinking-select"
-              disabled={!enabled}
-              value={sample ? sampleChat.thinkingLevel : thinking}
-              onChange={(event) => setThinking(event.target.value as ThinkingLevel)}
-            >
-              {THINKING_LEVELS.map((level) => (
-                <option key={level} value={level}>
-                  {THINKING_LABELS[level]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ComposerMenu
+            testId="chat-thinking-select"
+            menuTestId="chat-thinking-menu"
+            label="Thinking effort"
+            icon="brain"
+            value={thinkingValue}
+            groups={thinkingGroups}
+            disabled={!enabled}
+            width={180}
+            onPick={(value) => setThinking(value as ThinkingLevel)}
+          />
           {/* A trusted workspace is the one mode that stops asking, so it is
-              also the one mode that reads as a warning: red control, and the
-              switch only happens after the reader confirms in a dialog. The
-              select is controlled by `permission`, so declining simply leaves
-              the old value in place. */}
-          <label
-            className={`chat-ctl${permission === 'full' ? ' is-danger' : ''}`}
-            title={t('chat.composer.permission.hint')}
-          >
-            <Icon name="shield" size={13} />
-            <select
-              aria-label={t('chat.composer.permission')}
-              data-testid="chat-permission-select"
-              disabled={!enabled}
-              value={permission}
-              onChange={(event) => {
-                const next = event.target.value as PermissionMode
-                if (next === 'full' && permission !== 'full') {
-                  onTrust()
-                  return
-                }
-                setPermission(next)
-              }}
-            >
-              <option value="readonly">{t('chat.composer.permission.readonly')}</option>
-              <option value="medium">{t('chat.composer.permission.medium')}</option>
-              <option value="high">{t('chat.composer.permission.high')}</option>
-              <option value="full">{t('chat.composer.permission.full')}</option>
-            </select>
-          </label>
+              also the one mode that reads as a warning: red trigger once chosen,
+              and the switch only happens after the reader confirms in a dialog.
+              Only the "full" option is red — the other three stay neutral. */}
+          <ComposerMenu
+            testId="chat-permission-select"
+            menuTestId="chat-permission-menu"
+            label={t('chat.composer.permission')}
+            tip={t('chat.composer.permission.hint')}
+            icon="shield"
+            value={permission}
+            groups={permissionGroups}
+            disabled={!enabled}
+            danger={permission === 'full'}
+            width={220}
+            onPick={(next) => {
+              if (next === 'full' && permission !== 'full') {
+                onTrust()
+                return
+              }
+              setPermission(next as PermissionMode)
+            }}
+          />
           {contextAside}
           <div className="chat-composer-actions">
             <button
