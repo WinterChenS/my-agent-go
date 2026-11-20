@@ -237,3 +237,27 @@ commands.allow = ["pi_subagent_install"]
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
 permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install"]
+[[permission]]
+identifier = "allow-browser-open"
+description = "Allows opening a page in the right pane's browser."
+commands.allow = ["browser_open"]
+
+[[permission]]
+identifier = "allow-browser-bounds"
+description = "Allows placing the native browser view over the pane's content."
+commands.allow = ["browser_bounds"]
+
+[[permission]]
+identifier = "allow-browser-close"
+description = "Allows closing the pane's browser."
+commands.allow = ["browser_close"]
+
+[[permission]]
+identifier = "allow-browser-status"
+description = "Allows asking whether the pane's browser holds a page."
+commands.allow = ["browser_status"]
+
+[[permission]]
+identifier = "allow-browser-action"
+description = "Allows the pane's toolbar to navigate back, forward or reload."
+commands.allow = ["browser_action"]

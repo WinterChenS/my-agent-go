@@ -26,6 +26,8 @@
 pub mod assets;
 pub mod catalog;
 pub mod commands;
+pub mod browser;
+pub mod bridge;
 pub mod desktop;
 pub mod extensions;
 pub mod host;
@@ -71,6 +73,11 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_context",
     "session_rename",
     "file_preview",
+    "browser_open",
+    "browser_bounds",
+    "browser_close",
+    "browser_status",
+    "browser_action",
     "session_pin",
     "session_archive",
     "session_delete",

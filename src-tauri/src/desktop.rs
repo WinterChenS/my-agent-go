@@ -89,6 +89,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_context,
             crate::session::session_rename,
             crate::session::file_preview,
+            crate::browser::browser_open,
+            crate::browser::browser_bounds,
+            crate::browser::browser_close,
+            crate::browser::browser_status,
+            crate::browser::browser_action,
             crate::session::session_pin,
             crate::session::session_archive,
             crate::session::session_delete,
@@ -112,6 +117,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .setup(|app| {
             create_main_window(app)?;
+            // The right pane's browser: one child webview, plus the loopback
+            // bridge a runtime's shell commands use to drive it.
+            let browser = std::sync::Arc::new(crate::browser::Browser::new());
+            app.manage(crate::browser::BrowserHandle(browser.clone()));
+            match crate::bridge::start(app.handle().clone(), browser) {
+                Ok(port) => app
+                    .state::<HostState>()
+                    .config
+                    .log
+                    .info(&format!("browser bridge listening on 127.0.0.1:{port}")),
+                Err(error) => app
+                    .state::<HostState>()
+                    .config
+                    .log
+                    .info(&format!("browser bridge unavailable: {error}")),
+            }
             start_system_theme_poller(app.handle().clone());
             Ok(())
         })

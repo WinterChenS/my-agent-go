@@ -587,3 +587,21 @@ export function mergeDeltaText(events: SessionEvent[], previous: string): string
 export function latestSeq(events: SessionEvent[], fallback: number): number {
   return events.reduce((highest, event) => (event.seq > highest ? event.seq : highest), fallback)
 }
+
+/** Open a page in the right pane's browser (a real webview, not a frame). */
+export function browserOpen(url: string): Promise<void> {
+  return hostCall<void>('browser_open', { url })
+}
+
+/** Place the native view over the pane's content rect; zero parks it. */
+export function browserBounds(bounds: { x: number; y: number; w: number; h: number }): Promise<void> {
+  return hostCall<void>('browser_bounds', bounds)
+}
+
+export function browserClose(): Promise<void> {
+  return hostCall<void>('browser_close')
+}
+
+export function browserAction(method: 'back' | 'forward' | 'reload'): Promise<void> {
+  return hostCall<void>('browser_action', { method })
+}

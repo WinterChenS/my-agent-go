@@ -45,6 +45,10 @@ import {
 } from './SubAgents'
 import {
   describeSessionError,
+  browserAction,
+  browserClose,
+  browserBounds,
+  browserOpen,
   loadSessionEvents,
   THINKING_LEVELS,
   type ApprovalDecision,
@@ -516,6 +520,10 @@ export default function ChatPage() {
   const [focusedRun, setFocusedRun] = useState<string | null>(null)
   // The file the reader asked to look at; one overlay serves both entry points.
   const [previewPath, setPreviewPath] = useState<string | null>(null)
+  // The address the right pane's browser holds. The page lives in a native
+  // webview the host places over the pane, so the app only remembers where it
+  // is and asks for it.
+  const [browserUrl, setBrowserUrl] = useState('')
   /**
    * The ring that marks the turn the rail jumped to.
    *
@@ -1514,10 +1522,41 @@ export default function ChatPage() {
             }}
           />
         ) : null}
-        <ChatRail sample={sample} live={{ view: live.rail, running: live.running, onTurn: jumpToTurn, onPreview: setPreviewPath }} open={railOpen} tab={railTab} onTab={setRailTab} onClose={() => {
-          setRailOpen(false)
-          railToggle.current?.focus()
-        }} onNotice={showNotice} />
+        <ChatRail
+          sample={sample}
+          live={{
+            view: live.rail,
+            running: live.running,
+            onTurn: jumpToTurn,
+            onPreview: setPreviewPath,
+            browser: {
+              url: browserUrl,
+              open: (url) => {
+                setBrowserUrl(url)
+                void browserOpen(url).catch((cause: unknown) =>
+                  showNotice(cause instanceof Error ? cause.message : String(cause)),
+                )
+              },
+              close: () => {
+                setBrowserUrl('')
+                void browserClose().catch(() => undefined)
+              },
+              action: (method) => void browserAction(method).catch(() => undefined),
+              // A placement hint, not something the reader asked for: a host
+              // that cannot place it (no desktop, a closed window) must not
+              // raise into the page.
+              bounds: (rect) => void browserBounds(rect).catch(() => undefined),
+            },
+          }}
+          open={railOpen}
+          tab={railTab}
+          onTab={setRailTab}
+          onNotice={showNotice}
+          onClose={() => {
+            setRailOpen(false)
+            railToggle.current?.focus()
+          }}
+        />
         {sample ? null : (
           <SubAgentDrawer
             agent={activeAgent}

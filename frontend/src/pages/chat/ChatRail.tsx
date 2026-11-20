@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { RailExec, RailView } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
@@ -19,6 +20,14 @@ export interface RailLive {
   running: boolean
   /** Show one written file in place instead of leaving the pane. */
   onPreview?: (path: string) => void
+  /** The embedded browser: a real webview the app places over the pane. */
+  browser?: {
+    open: (url: string) => void
+    close: () => void
+    action: (method: 'back' | 'forward' | 'reload') => void
+    bounds: (rect: { x: number; y: number; w: number; h: number }) => void
+    url: string
+  }
   /**
    * Send the reader back to the turn a row came from.
    *
@@ -93,7 +102,7 @@ export default function ChatRail({
       </div>
 
       <div className="chat-rail-body">
-        {!sample && !view ? (
+        {!sample && !view && tab !== 'browser' ? (
           <div className="chat-rail-empty" data-testid="chat-rail-pending">
             <Icon name="panel" size={20} />
             {/* A turn in flight has data on the way; saying "no data" then is a
@@ -120,9 +129,14 @@ export default function ChatRail({
           </div>
         ) : null}
 
-        {!sample && view && tab === 'browser' ? (
-          <div role="tabpanel" id="chat-rail-pane-browser" aria-labelledby="chat-rail-tab-browser" className="chat-rail-pane">
-            <LiveBrowser view={view} />
+        {!sample && tab === 'browser' ? (
+          <div
+            role="tabpanel"
+            id="chat-rail-pane-browser"
+            aria-labelledby="chat-rail-tab-browser"
+            className="chat-rail-pane is-browser"
+          >
+            <LiveBrowser view={view} browser={live?.browser} />
           </div>
         ) : null}
 
@@ -527,43 +541,141 @@ function referenceBadge(reference: { kind: string; label: string }): string {
   return (ext || 'file').slice(0, 4).toUpperCase()
 }
 
-/** Browser: a local page in a frame with no permissions, or the reason there
- *  is none. It never shows a page this build did not read from the project. */
-function LiveBrowser({ view }: { view: RailView }) {
+/** Browser: a real webview, or the local page this build read from the project.
+ *
+ *  A frame cannot show most of the web — a site may refuse to be embedded — so
+ *  a typed address opens the native view instead. The view is placed by the
+ *  host over `chat-browser-view`, which is why this component reports its rect
+ *  whenever it moves: the pane is DOM, the page on top of it is WebView2. */
+function LiveBrowser({
+  view,
+  browser,
+}: {
+  /** Null when no conversation is open: the browser still works, it just has
+   *  no page the project produced to show. */
+  view: RailView | null
+  browser?: RailLive['browser']
+}) {
   const { t } = useI18n()
-  const page = view.browser.page
-  if (view.browser.state !== 'local' || !page) {
-    return (
-      <div className="chat-rail-empty" data-testid="chat-rail-browser-unavailable">
-        <Icon name="globe" size={20} />
-        <p>{t('chat.rail.browser.unavailable')}</p>
-        {view.browser.reason ? <small className="mono">{view.browser.reason}</small> : null}
-      </div>
-    )
+  const viewRef = useRef<HTMLDivElement>(null)
+  const [draft, setDraft] = useState(browser?.url ?? '')
+  const [showLocal, setShowLocal] = useState(true)
+
+  useEffect(() => {
+    setDraft(browser?.url ?? '')
+    if (browser?.url) setShowLocal(false)
+  }, [browser?.url])
+
+  // Report the pane's rect: on resize, on scroll (the sidebar scrolls under it)
+  // and when the tab changes. A closed pane reports a zero size, which parks the
+  // native view off-screen without losing the page.
+  useEffect(() => {
+    // Scroll fires this many times a second; only a changed rect is worth an
+    // IPC round trip.
+    let last = ''
+    const report = () => {
+      if (!browser) return
+      const box = viewRef.current?.getBoundingClientRect()
+      const rect =
+        !box || box.width < 2 || box.height < 2
+          ? { x: 0, y: 0, w: 0, h: 0 }
+          : {
+              x: Math.round(box.left),
+              y: Math.round(box.top),
+              w: Math.round(box.width),
+              h: Math.round(box.height),
+            }
+      const key = `${rect.x}:${rect.y}:${rect.w}:${rect.h}`
+      if (key === last) return
+      last = key
+      browser.bounds(rect)
+    }
+    report()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(report) : null
+    if (observer && viewRef.current) observer.observe(viewRef.current)
+    window.addEventListener('resize', report)
+    window.addEventListener('scroll', report, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', report)
+      window.removeEventListener('scroll', report, true)
+      browser?.bounds({ x: 0, y: 0, w: 0, h: 0 })
+    }
+  }, [browser])
+
+  const openUrl = (raw: string) => {
+    const url = raw.trim()
+    if (!url || !browser) return
+    setShowLocal(false)
+    browser.open(url)
   }
+
+  const page = view?.browser.page
+  const localReady = view?.browser.state === 'local' && page && showLocal
+
   return (
     <div className="chat-browser" data-testid="chat-rail-browser">
-      <div className="chat-browser-chrome">
-        <span className="chat-browser-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="chat-browser-url">
-          <Icon name="file" size={10} />
-          {page.relative}
-        </span>
-      </div>
-      <iframe
-        className="chat-browser-frame"
-        data-testid="chat-rail-browser-frame"
-        title={page.relative}
-        sandbox={page.sandbox}
-        srcDoc={page.html}
-      />
-      <div className="chat-browser-actions">
-        <span className="chat-browser-note">{t('chat.rail.browser.sandboxed')}</span>
-        <span className="mono chat-browser-rendered">{size(page.bytes)}</span>
+      <form
+        className="chat-browser-bar"
+        onSubmit={(event) => {
+          event.preventDefault()
+          openUrl(draft)
+        }}
+      >
+        {(['back', 'forward'] as const).map((step) => (
+          <button
+            key={step}
+            type="button"
+            className="chat-iconbtn"
+            aria-label={t(step === 'back' ? 'chat.rail.browser.back' : 'chat.rail.browser.forward')}
+            data-testid={`chat-browser-${step}`}
+            onClick={() => browser?.action(step)}
+          >
+            <Icon name={step === 'back' ? 'arrowLeft' : 'chevron'} size={13} />
+          </button>
+        ))}
+        <button
+          type="button"
+          className="chat-iconbtn"
+          aria-label={t('chat.rail.browser.reload')}
+          data-testid="chat-browser-reload"
+          onClick={() => browser?.action('reload')}
+        >
+          <Icon name="refresh" size={13} />
+        </button>
+        <input
+          className="chat-browser-input"
+          data-testid="chat-browser-url"
+          value={draft}
+          placeholder={t('chat.rail.browser.placeholder')}
+          aria-label={t('chat.rail.browser.placeholder')}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </form>
+
+      <div className="chat-browser-view" ref={viewRef} data-testid="chat-browser-view">
+        {localReady ? (
+          <>
+            <iframe
+              className="chat-browser-frame"
+              data-testid="chat-rail-browser-frame"
+              title={page.relative}
+              sandbox={page.sandbox}
+              srcDoc={page.html}
+            />
+            <div className="chat-browser-actions">
+              <span className="chat-browser-note">{t('chat.rail.browser.sandboxed')}</span>
+              <span className="mono chat-browser-rendered">{size(page.bytes)}</span>
+            </div>
+          </>
+        ) : null}
+        {browser?.url ? null : (
+          <div className="chat-rail-empty" data-testid="chat-rail-browser-unavailable">
+            <Icon name="globe" size={20} />
+            <p>{t('chat.rail.browser.unavailable')}</p>
+            {view?.browser.reason ? <small className="mono">{view.browser.reason}</small> : null}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -4935,3 +4935,68 @@ button.chat-badge:hover {
   border-color: var(--border);
   color: var(--fg-2);
 }
+
+/* The browser pane's own toolbar. The page itself is a native view the host
+   places over `.chat-browser-view`, so this element only has to hold the rect:
+   it must not scroll or clip, or the view would drift off it. */
+.chat-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.chat-browser-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.chat-browser-bar .chat-iconbtn {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.chat-browser-input {
+  min-width: 0;
+  flex: 1;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: var(--text-2xs);
+}
+
+.chat-browser-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-browser-view {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The browser panel fills the rail instead of sitting at its content height:
+   the native view is placed over this box, and a zero-height box would park it
+   off-screen. */
+.chat-rail-pane.is-browser {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
