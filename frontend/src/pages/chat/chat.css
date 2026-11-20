@@ -1686,26 +1686,89 @@ button.chat-badge:hover {
   background: var(--bg);
 }
 
-/* A 20px glyph in the composer toolbar. The numbers moved into `title`, so
-   there is no text node to size or space — hover reveals the detail. */
+/* A 20px glyph in the composer toolbar. The numbers live in a themed hover card
+   (below), not in an OS tooltip, so they read in both themes. */
+.chat-context-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
 .chat-context {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
-  flex: none;
   border-radius: var(--r-sm);
   color: var(--muted);
   cursor: help;
 }
-
-.chat-context:hover {
+.chat-context:hover,
+.chat-context:focus-visible {
+  outline: none;
   background: var(--surface-2);
+  color: var(--fg);
 }
-
 .chat-context svg {
   flex: none;
+}
+.chat-context-card {
+  position: absolute;
+  z-index: 430;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  display: flex;
+  width: max-content;
+  max-width: 280px;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg), 0 18px 48px color-mix(in oklab, var(--fg) 12%, transparent);
+  animation: chat-menu-in 0.12s ease-out;
+}
+.chat-context-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent);
+}
+.chat-context-card-head b {
+  color: var(--fg);
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chat-context-card-row {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.chat-context-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+.chat-context-compact:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.chat-context-compact:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-composer-project-row {
@@ -1906,67 +1969,145 @@ button.chat-badge:hover {
   color: var(--fg);
 }
 
-.chat-mention-list {
+/* The @ / / picker and the + drawer share the toolbar menu's visual language:
+   rounded panel, layered shadow, a titled head, tinted icon tiles and a clean
+   active row. Both open upward from the composer and scroll on their own. */
+.chat-mention-list,
+.chat-attachment-drawer {
   position: absolute;
   z-index: 40;
   left: var(--space-3);
   bottom: 42px;
-  width: 240px;
-  /* The picker now lists every catalog skill (63+ here). Cap its height so a
-     long list scrolls inside the popover instead of covering the whole chat. */
-  max-height: 320px;
-  overflow-y: auto;
-  /* Reaching the end of the skill list must not start scrolling the thread. */
-  overscroll-behavior: contain;
-  padding: var(--space-1);
   border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 18px 48px color-mix(in oklab, var(--fg) 12%, transparent);
+  animation: chat-menu-in 0.12s ease-out;
+  overflow: hidden;
+}
+.chat-mention-list {
+  width: 300px;
+  max-width: 82vw;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.chat-attachment-drawer {
+  width: 264px;
 }
 
+/* Shared head: a tinted lead icon, a title, and an optional keyboard hint. */
+.chat-pick-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 38px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--accent);
+}
+.chat-pick-head b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-pick-hint {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.chat-pick-group-label {
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A coloured tile per row kind makes files / folders / skills scannable. */
+.chat-pick-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--fg-2);
+}
+.chat-pick-icon.is-skill {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.chat-pick-icon.is-dir {
+  background: color-mix(in oklab, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+/* @ / / result rows. */
+.chat-pick-items {
+  padding: var(--space-1);
+}
 .chat-mention-list button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   width: 100%;
+  min-height: 40px;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: var(--r-xs);
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg-2);
-  font-size: var(--text-base);
+  font-size: var(--text-xs-plus);
   text-align: left;
   cursor: pointer;
 }
-
 .chat-mention-list button:hover,
 .chat-mention-list button.is-active {
   background: var(--surface-2);
   color: var(--fg);
 }
-
-/* The keyboard cursor must stay visible: this outline reads at both themes. */
+/* The keyboard cursor keeps an accent edge on top of the hover tint. */
 .chat-mention-list button.is-active {
   box-shadow: inset 2px 0 0 var(--accent);
 }
-
-/* A `@` picker row pairs the relative path with what kind of thing it is. */
-.chat-mention-list button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+.chat-mention-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
 .chat-mention-list button small {
+  flex: none;
+  max-width: 46%;
+  overflow: hidden;
   color: var(--muted);
   font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
 .chat-mention-empty {
   display: block;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-5) var(--space-4);
   color: var(--muted);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs-plus);
+  text-align: center;
 }
 
 /* Context chips carried by one user turn. */
@@ -2009,21 +2150,8 @@ button.chat-badge:hover {
   margin: var(--space-2) 0;
 }
 
-.chat-attachment-drawer {
-  position: absolute;
-  z-index: 40;
-  left: var(--space-3);
-  bottom: 42px;
-  width: 230px;
-  padding: var(--space-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-lg);
-}
-
 .chat-attachment-group {
-  padding: var(--space-1) 0;
+  padding: 0 var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -2034,34 +2162,47 @@ button.chat-badge:hover {
 .chat-attachment-group button {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   width: 100%;
+  min-height: 42px;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: var(--r-xs);
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg-2);
   text-align: left;
   cursor: pointer;
 }
 
+.chat-attachment-group button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
 .chat-attachment-group button:disabled {
-  color: var(--muted);
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.chat-attachment-group button > span:last-child {
+  min-width: 0;
 }
 
 .chat-attachment-group b,
 .chat-attachment-group small {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-attachment-group b {
-  font-size: var(--text-2xs);
-  font-weight: 570;
+  font-size: var(--text-xs-plus);
+  font-weight: 600;
 }
 
 .chat-attachment-group small {
-  margin-top: 1px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: var(--text-2xs);
 }
@@ -2802,9 +2943,14 @@ button.chat-badge:hover {
 }
 
 .chat-history-scroll {
+  /* Fill the space the head/search leave and scroll *inside* the sidebar.
+     Without flex:1 the list grew past the window and the wheel did nothing. */
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 2px;
+  overscroll-behavior: contain;
+  padding-right: var(--space-2);
+  scrollbar-width: thin;
 }
 
 .chat-history-label {

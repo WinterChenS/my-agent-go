@@ -934,6 +934,22 @@ export default function ChatPage() {
     void history.compact(id, COMPACT_KEEP_LAST).then(() => setNotice(t('chat.live.compacted')))
   }
 
+  // The context ring compacts the *open* session, not a history row. It is
+  // offered only when pi is idle and there is a ledger to compress; while a
+  // turn runs the ring stays a read-only gauge.
+  const [compactingContext, setCompactingContext] = useState(false)
+  const compactLiveContext = () => {
+    if (!liveSession || live.running || compactingContext) return
+    setCompactingContext(true)
+    void live
+      .compact(liveSession.id, COMPACT_KEEP_LAST)
+      .then(() => {
+        setNotice(t('chat.live.compacted'))
+        return live.refreshContext(liveSession.id)
+      })
+      .finally(() => setCompactingContext(false))
+  }
+
   const openDialog = (kind: ChatDialogKind, trigger: HTMLElement) => {
     dialogTrigger.current = trigger
     setDialog(kind)
@@ -1352,6 +1368,9 @@ export default function ChatPage() {
                 windowSize={contextWindow}
                 used={contextUsed}
                 percent={live.context?.percent ?? null}
+                canCompact={Boolean(liveSession) && !live.running}
+                compacting={compactingContext}
+                onCompact={compactLiveContext}
               />
             }
           />
@@ -1709,51 +1728,88 @@ export function parseWindowSize(label: string | undefined): number {
 }
 
 /** How full the model's context window is; the number comes from pi when the
- * session has one, otherwise from the model's advertised window. */
+ * session has one, otherwise from the model's advertised window. Hovering opens
+ * a themed card with the numbers, and — when idle on a real session — a compact
+ * action. While a turn runs the ring is read-only. */
 export function ContextRing({
   windowSize,
   used,
   percent,
+  canCompact = false,
+  compacting = false,
+  onCompact,
 }: {
   windowSize: number
   used: number | null
   percent: number | null
+  /** Only an idle, real session can be compacted. */
+  canCompact?: boolean
+  compacting?: boolean
+  onCompact?: () => void
 }) {
   const { t } = useI18n()
+  const [open, setOpen] = useState(false)
   const ratio = percent ?? (used !== null && windowSize > 0 ? (used * 100) / windowSize : 0)
   const shown = Math.max(0, Math.min(100, ratio))
   const circumference = 2 * Math.PI * 13
   const label = windowSize > 0 ? (windowSize >= 1_000_000 ? `${windowSize / 1_000_000}M` : `${Math.round(windowSize / 1_000)}K`) : '—'
-  // Everything the ring used to print lives in the tooltip now: the field is
-  // only a 20px glyph in the toolbar, and hovering explains what it measures.
   const detail =
     used === null
       ? t('chat.context.modelOnly', { window: label })
       : t('chat.context.used', { used: used.toLocaleString(), window: label })
   const tooltip = `${t('chat.context.label', { window: label, percent: Math.round(shown) })} · ${detail}`
   return (
-    <span
-      className="chat-context"
-      data-testid="chat-context"
-      data-percent={shown.toFixed(1)}
-      title={tooltip}
-      aria-label={tooltip}
-      role="img"
-    >
-      <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
-        <circle cx="16" cy="16" r="13" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
-        <circle
-          cx="16"
-          cy="16"
-          r="13"
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={`${(shown / 100) * circumference} ${circumference}`}
-          transform="rotate(-90 16 16)"
-        />
-      </svg>
+    <span className="chat-context-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <span
+        className="chat-context"
+        data-testid="chat-context"
+        data-percent={shown.toFixed(1)}
+        title={tooltip}
+        aria-label={tooltip}
+        role="img"
+        tabIndex={0}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="13" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
+          <circle
+            cx="16"
+            cy="16"
+            r="13"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={`${(shown / 100) * circumference} ${circumference}`}
+            transform="rotate(-90 16 16)"
+          />
+        </svg>
+      </span>
+      {open ? (
+        <span className="chat-context-card" role="tooltip" data-testid="chat-context-card">
+          <span className="chat-context-card-head">
+            <Icon name="sparkle" size={12} />
+            <b>{t('chat.context.label', { window: label, percent: Math.round(shown) })}</b>
+          </span>
+          <span className="chat-context-card-row">{detail}</span>
+          {canCompact ? (
+            <button
+              type="button"
+              className="chat-context-compact"
+              data-testid="chat-context-compact"
+              disabled={compacting}
+              onClick={() => {
+                onCompact?.()
+                setOpen(false)
+              }}
+            >
+              <Icon name="file" size={12} />
+              {compacting ? '…' : t('chat.context.compact')}
+            </button>
+          ) : null}
+        </span>
+      ) : null}
     </span>
   )
 }
@@ -2702,6 +2758,15 @@ function Composer({
             }
             onWheel={(event) => event.stopPropagation()}
           >
+            <div className="chat-pick-head">
+              <Icon name={mentionMode === 'slash' ? 'puzzle' : 'sparkle'} size={13} />
+              <b>
+                {mentionMode === 'slash'
+                  ? t('chat.composer.skillPicker')
+                  : t('chat.composer.mention')}
+              </b>
+              <span className="chat-pick-hint">{t('chat.composer.pickerHint')}</span>
+            </div>
             {mentionHits.length === 0 ? (
               <span className="chat-mention-empty" data-testid="chat-mention-empty">
                 {mentionMode === 'slash'
@@ -2709,23 +2774,28 @@ function Composer({
                   : t('chat.composer.mentionEmpty')}
               </span>
             ) : (
-              mentionHits.map((hit, index) => (
-                <button
-                  key={hit.id}
-                  id={`chat-mention-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={index === mentionIndex}
-                  className={index === mentionIndex ? 'is-active' : undefined}
-                  data-testid="chat-mention-entry"
-                  data-mention-kind={hit.kind}
-                  onMouseEnter={() => setMentionIndex(index)}
-                  onClick={() => acceptHit(hit)}
-                >
-                  <span className="chat-mention-name">{hit.name}</span>
-                  <small>{hit.detail}</small>
-                </button>
-              ))
+              <div className="chat-pick-items">
+                {mentionHits.map((hit, index) => (
+                  <button
+                    key={hit.id}
+                    id={`chat-mention-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === mentionIndex}
+                    className={index === mentionIndex ? 'is-active' : undefined}
+                    data-testid="chat-mention-entry"
+                    data-mention-kind={hit.kind}
+                    onMouseEnter={() => setMentionIndex(index)}
+                    onClick={() => acceptHit(hit)}
+                  >
+                    <span className={`chat-pick-icon is-${hit.kind}`}>
+                      <Icon name={hit.kind === 'skill' ? 'puzzle' : hit.kind === 'dir' ? 'folder' : 'file'} size={13} />
+                    </span>
+                    <span className="chat-mention-name">{hit.name}</span>
+                    <small>{hit.detail}</small>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         ) : null}
@@ -2756,7 +2826,12 @@ function Composer({
             aria-label={t('chat.composer.addContext')}
             data-testid="chat-attachment-drawer"
           >
+            <div className="chat-pick-head">
+              <Icon name="plus" size={13} />
+              <b>{t('chat.composer.addContext')}</b>
+            </div>
             <div className="chat-attachment-group">
+              <div className="chat-pick-group-label">{t('chat.composer.attachLocal')}</div>
               <button
                 type="button"
                 role="menuitem"
@@ -2765,7 +2840,7 @@ function Composer({
                 title={sample ? t('chat.action.unavailable') : t('chat.composer.chooseFilesDesc')}
                 onClick={() => void addFilesFromPicker()}
               >
-                <Icon name="file" size={14} />
+                <span className="chat-pick-icon is-file"><Icon name="file" size={14} /></span>
                 <span>
                   <b>{t('chat.composer.chooseFiles')}</b>
                   <small>{t('chat.composer.chooseFilesDesc')}</small>
@@ -2779,7 +2854,7 @@ function Composer({
                 title={sample ? t('chat.action.unavailable') : t('chat.composer.chooseDirDesc')}
                 onClick={() => void addDirFromPicker()}
               >
-                <Icon name="folder" size={14} />
+                <span className="chat-pick-icon is-dir"><Icon name="folder" size={14} /></span>
                 <span>
                   <b>{t('chat.composer.chooseDir')}</b>
                   <small>{t('chat.composer.chooseDirDesc')}</small>
@@ -2787,6 +2862,7 @@ function Composer({
               </button>
             </div>
             <div className="chat-attachment-group">
+              <div className="chat-pick-group-label">{t('chat.composer.skill')}</div>
               <button
                 type="button"
                 role="menuitem"
@@ -2795,7 +2871,7 @@ function Composer({
                 title={sample ? t('chat.action.unavailable') : t('chat.composer.skillDesc')}
                 onClick={addSkill}
               >
-                <Icon name="puzzle" size={14} />
+                <span className="chat-pick-icon is-skill"><Icon name="puzzle" size={14} /></span>
                 <span>
                   <b>{t('chat.composer.skill')}</b>
                   <small>{t('chat.composer.skillDesc')}</small>

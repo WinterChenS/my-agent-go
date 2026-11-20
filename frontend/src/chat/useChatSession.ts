@@ -200,6 +200,8 @@ export interface ChatSessionView {
   fork: (sessionId: string) => Promise<string | null>
   /** Fold all but the last `keepLast` messages into one summary row. */
   compact: (sessionId: string, keepLast: number) => Promise<void>
+  /** Re-read pi's context estimate after an external change (e.g. compaction). */
+  refreshContext: (sessionId: string) => Promise<void>
 }
 
 function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
@@ -1459,5 +1461,6 @@ export function useChatSession({
     remove,
     fork,
     compact,
+    refreshContext,
   }
 }

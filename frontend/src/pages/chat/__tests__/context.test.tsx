@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../../../i18n/LanguageProvider'
 import type { LanguageEnvironment } from '../../../i18n/language'
 import { ContextRing, parseWindowSize } from '../ChatPage'
@@ -55,5 +55,44 @@ describe('the context window indicator', () => {
     const ring = screen.getByTestId('chat-context')
     expect(ring.title).toContain('1M')
     expect(ring.getAttribute('data-percent')).toBe('10.0')
+  })
+
+  it('opens a themed card on hover with the numbers, not an OS tooltip', () => {
+    wrap(<ContextRing windowSize={400_000} used={100_000} percent={25} />)
+    expect(screen.queryByTestId('chat-context-card')).toBeNull()
+    fireEvent.mouseEnter(screen.getByTestId('chat-context').parentElement!)
+    const card = screen.getByTestId('chat-context-card')
+    expect(card.getAttribute('role')).toBe('tooltip')
+    expect(card.textContent).toContain('400K')
+    expect(card.textContent).toContain('25%')
+    expect(card.textContent).toContain('100,000')
+    fireEvent.mouseLeave(screen.getByTestId('chat-context').parentElement!)
+    expect(screen.queryByTestId('chat-context-card')).toBeNull()
+  })
+
+  it('offers compaction only when idle, and calls back on click', () => {
+    const onCompact = vi.fn()
+    // Running (canCompact=false): a gauge only, no action in the card.
+    const running = wrap(<ContextRing windowSize={400_000} used={100_000} percent={25} />)
+    fireEvent.mouseEnter(screen.getByTestId('chat-context').parentElement!)
+    expect(screen.queryByTestId('chat-context-compact')).toBeNull()
+    running.unmount()
+
+    wrap(
+      <ContextRing
+        windowSize={400_000}
+        used={100_000}
+        percent={25}
+        canCompact
+        onCompact={onCompact}
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('chat-context').parentElement!)
+    const button = screen.getByTestId('chat-context-compact')
+    expect(button.textContent).toContain('压缩上下文')
+    fireEvent.click(button)
+    expect(onCompact).toHaveBeenCalledTimes(1)
+    // The card closes after the action so it cannot be clicked twice.
+    expect(screen.queryByTestId('chat-context-compact')).toBeNull()
   })
 })
