@@ -324,9 +324,14 @@ pub fn resolve_frontend_dist(
     }
     if let Some(cwd) = cwd {
         candidates.push(cwd.join("frontend").join("dist"));
+        // A bundle unpacked without its `dist` level. It is only accepted when
+        // `index.html` really sits there, so a stray folder cannot shadow a
+        // real bundle — and a mispackaged zip stops being a silent no-window.
+        candidates.push(cwd.join("frontend"));
     }
     if let Some(exe_dir) = exe_dir {
         candidates.push(exe_dir.join("frontend").join("dist"));
+        candidates.push(exe_dir.join("frontend"));
         candidates.push(exe_dir.join("dist"));
     }
     for candidate in &candidates {
@@ -350,4 +355,40 @@ pub fn resolve_frontend_dist(
 #[must_use]
 pub fn preferences_path(data_dir: &Path) -> PathBuf {
     data_dir.join(crate::prefs::PREFERENCES_FILE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bundle(dir: &Path) {
+        std::fs::create_dir_all(dir).expect("dir");
+        std::fs::write(dir.join("index.html"), "<!doctype html>").expect("index");
+    }
+
+    /// A zip unpacked one level too shallow (`frontend/index.html`, no `dist`)
+    /// used to abort preflight before any window, which the user sees as
+    /// "it will not start" with nothing on screen. The bundle is accepted from
+    /// either layout as long as `index.html` is really there.
+    #[test]
+    fn a_bundle_without_the_dist_level_still_starts() {
+        let root = std::env::temp_dir().join(format!("anvil-host-shallow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        bundle(&root.join("frontend"));
+        let env = |_: &str| None;
+
+        let resolved =
+            resolve_frontend_dist(&env, Some(root.as_path()), None).expect("shallow bundle");
+        assert_eq!(
+            resolved,
+            root.join("frontend").canonicalize().expect("canonical")
+        );
+
+        let exe = resolve_frontend_dist(&env, None, Some(root.as_path())).expect("exe dir");
+        assert_eq!(
+            exe,
+            root.join("frontend").canonicalize().expect("canonical")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
