@@ -1043,19 +1043,24 @@ export function useChatSession({
       try {
         const detail = await loadSession(sessionId)
         if (mounted.current) {
+          // Same batch as `send`: the ledger with its assistant message and the
+          // end of streaming must land together, never two frames apart.
           setCurrent(detail)
+          setRunning(false)
+          setTurnStartedAt(null)
+          setTurnFailure(failure)
         }
       } catch {
         // Keep the streamed view; the next open re-reads it.
+        if (mounted.current) {
+          setRunning(false)
+          setTurnStartedAt(null)
+          setTurnFailure(failure)
+        }
       }
       await reloadSessions().catch(() => undefined)
       await refreshRail(sessionId)
       void refreshContext(sessionId)
-      if (mounted.current) {
-        setRunning(false)
-        setTurnStartedAt(null)
-        setTurnFailure(failure)
-      }
     },
     [reloadSessions, refreshRail],
   )
@@ -1267,19 +1272,26 @@ export function useChatSession({
       try {
         const detail = await loadSession(sessionId)
         if (mounted.current) {
+          // Land the finished ledger and the end of the streaming state in the
+          // same batch. Clearing `running` only after the IPC reads below left
+          // a frame where both the stored answer and the streaming bubble were
+          // visible — the same run drawn twice.
           setCurrent(detail)
+          setRunning(false)
+          setTurnStartedAt(null)
+          setTurnFailure(outcome)
         }
       } catch {
         // Keep the optimistic view; the next refresh will retry.
+        if (mounted.current) {
+          setRunning(false)
+          setTurnStartedAt(null)
+          setTurnFailure(outcome)
+        }
       }
       await reloadSessions().catch(() => undefined)
       await refreshRail(sessionId)
       await refreshContext(sessionId)
-      if (mounted.current) {
-        setRunning(false)
-        setTurnStartedAt(null)
-        setTurnFailure(outcome)
-      }
       if (failure) setError(failure)
       return failure
     },

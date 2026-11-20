@@ -681,6 +681,20 @@ export default function ChatPage() {
   const liveMessages = (live.current?.messages ?? []).filter(
     (message) => !(message.meta as { steer?: boolean } | undefined)?.steer,
   )
+  // The stored ledger and the streaming timeline are two different render
+  // paths. When a turn ends the host writes its assistant message before the
+  // front-end clears `running`; without this guard both paths draw the *same*
+  // run (one "settled", one "正在生成") for the whole await window. Own the
+  // running run exclusively in the streaming bubble, exactly like a steer.
+  // A steer may add a second run to the same stream, so every run id in the
+  // live events counts as "being streamed".
+  const streamingRunIds = live.running
+    ? new Set(live.turnEvents.map((event) => event.runId).filter((id): id is string => Boolean(id)))
+    : new Set<string>()
+  const visibleMessages = liveMessages.filter(
+    (message) =>
+      !(message.role === 'assistant' && message.runId && streamingRunIds.has(message.runId)),
+  )
   // The runtime the next turn will run on. pi delegates only through its
   // `subagent` extension, so this is also the condition for the install notice.
   const activeRuntime = liveSession?.runtimeId ?? live.model?.runtimeId ?? ''
@@ -1094,7 +1108,9 @@ export default function ChatPage() {
         </div>
       ) : null}
       {notice ? (
-        <div className="chat-notice" data-testid="chat-notice" role="status">
+        // Kept as a screen-reader-only status: the yellow banner used to stay
+        // on screen forever after one action. Announce it, but do not paint it.
+        <div className="chat-notice is-muted" data-testid="chat-notice" role="status">
           {notice}
         </div>
       ) : null}
@@ -1154,7 +1170,7 @@ export default function ChatPage() {
               </div>
             ) : liveSession ? (
               <div className="chat-thread-inner" data-testid="chat-message-list" aria-label={liveSession.title}>
-                {liveMessages.map((message) =>
+                {visibleMessages.map((message) =>
                   message.role === 'user' ? (
                     <article
                       className={`chat-msg chat-msg-user${focusedRun === message.runId ? ' is-focused' : ''}`}
@@ -1191,7 +1207,6 @@ export default function ChatPage() {
                       <div className="chat-agent-head">
                         <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
                         <span className="chat-agent-name">{liveSession.runtimeId}</span>
-                        <span className="chat-agent-model">{liveSession.model}</span>
                       </div>
                       {message.runId && partsWithAnswer[message.runId]?.length ? (
                         <TurnPartsList
@@ -1233,7 +1248,6 @@ export default function ChatPage() {
                   startedAt={live.turnStartedAt}
                   failure={live.turnFailure}
                   runtimeId={liveSession.runtimeId}
-                  model={liveSession.model}
                   sources={live.rail?.sources.length ?? 0}
                   onCite={showSource}
                   onApprove={(decision) => void live.approve(decision)}
@@ -1544,7 +1558,6 @@ function MessageView({
       <div className="chat-agent-head">
         <span className="chat-agent-badge">{message.agent.slice(0, 1)}</span>
         <span className="chat-agent-name">{message.agent}</span>
-        <span className="chat-agent-model">{message.model}</span>
         {message.badge === 'generating' ? (
           <span className="chat-badge">
             <i className="chat-dot" aria-hidden="true" />
@@ -2962,6 +2975,11 @@ function Composer({
               className="chat-send"
               data-testid="chat-send"
               aria-label={t('chat.composer.send')}
+              title={
+                sendShortcut === 'enter'
+                  ? t('chat.composer.sendTip.enter')
+                  : t('chat.composer.sendTip.ctrlEnter')
+              }
               disabled={!enabled || !text.trim()}
             >
               <Icon name="send" size={14} />
@@ -2969,17 +2987,6 @@ function Composer({
           </div>
         </div>
       </form>
-      <div className="chat-composer-foot">
-        <span>{sample ? t('chat.composer.pending') : live ? t('chat.live.hint') : t('chat.composer.normalHint')}</span>
-        <span className="chat-kbdset">
-          <span className="kbd">{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}</span>
-          <span className="kbd">↵</span> {t('chat.composer.sendHint')}
-        </span>
-        <span className="chat-kbdset">
-          <span className="kbd">⇧</span>
-          <span className="kbd">↵</span> {t('chat.composer.newlineHint')}
-        </span>
-      </div>
       <span className="sr-only">{language}</span>
     </div>
   )
@@ -3024,7 +3031,6 @@ function LiveTurnTimeline({
   startedAt,
   failure,
   runtimeId,
-  model,
   sources,
   onCite,
   onApprove,
@@ -3038,7 +3044,6 @@ function LiveTurnTimeline({
   startedAt: number | null
   failure: TurnFailure | null
   runtimeId: string
-  model: string
   sources: number
   onCite: () => void
   onApprove: (decision: ApprovalDecision) => void
@@ -3120,7 +3125,6 @@ function LiveTurnTimeline({
           <div className="chat-agent-head">
             <span className="chat-agent-badge">{runtimeId.slice(0, 1)}</span>
             <span className="chat-agent-name">{runtimeId}</span>
-            <span className="chat-agent-model">{model}</span>
             <span className="chat-badge">
               <i className="chat-dot" aria-hidden="true" />
               {t('chat.live.generating')}

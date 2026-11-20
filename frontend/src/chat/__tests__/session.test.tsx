@@ -597,6 +597,10 @@ describe('coming back to the conversation', () => {
     // stopped after the prompt.
     const bubble = await screen.findByTestId('chat-message-streaming')
     expect(bubble).toHaveTextContent('正在生成')
+    // The fixture's ledger already carries this run's assistant message while
+    // the run is still marked running. The streaming bubble owns that run —
+    // there must be no second, "settled" copy of it beside the generating one.
+    expect(screen.queryByTestId('chat-message-agent')).toBeNull()
     // Resume, not restart: the reasoning and the tool call this turn already
     // produced are rebuilt from the ledger, in their original order.
     expect(bubble).toHaveTextContent('先看目录')

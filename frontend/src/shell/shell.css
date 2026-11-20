@@ -241,6 +241,28 @@
   border-top: 1px solid var(--border);
 }
 
+/* Parking the local-runtime / local-workspace cards: keep them in the DOM for
+   the shell contract, but stop painting them (and stop them stealing height
+   from the conversation history). The build marker stays as it was. */
+.sidebar-foot.is-collapsed {
+  padding-top: 0;
+  border-top: 0;
+}
+.sidebar-foot.is-collapsed .runtime-mini,
+.sidebar-foot.is-collapsed .user-chip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  /* The cards carry their own padding; without clearing it the hidden box
+     still measures the padding and shows up as a 16px sliver. */
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .runtime-mini,
 .user-chip {
   display: flex;

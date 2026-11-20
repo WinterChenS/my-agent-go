@@ -186,6 +186,8 @@ describe('chat sample entry', () => {
     const user = userEvent.setup()
     renderAt('/?sample=chat')
     const composer = screen.getByTestId('chat-composer')
+    // The footer hint is gone; the send button's tooltip states the real keys.
+    expect(screen.getByTestId('chat-send')).toHaveAttribute('title', '发送（Enter · Shift+Enter 换行）')
 
     // Enter sends; a line break needs Shift+Enter. The sample draft is
     // pre-filled, so the assertions look at what changed, not the whole value.
@@ -203,6 +205,7 @@ describe('chat sample entry', () => {
     window.localStorage.setItem('anvil.chat.sendShortcut', 'ctrl-enter')
     renderAt('/?sample=chat')
     const composer2 = screen.getByTestId('chat-composer')
+    expect(screen.getByTestId('chat-send')).toHaveAttribute('title', '发送（Ctrl+Enter · Enter 换行）')
     await user.type(composer2, '继续')
     // Plain Enter is a newline in this mode...
     const beforeEnter = (composer2 as HTMLTextAreaElement).value

@@ -114,7 +114,10 @@ export default function Sidebar() {
         }
       />
 
-      <div className="sidebar-foot">
+      <div className="sidebar-foot is-collapsed">
+        {/* The local-runtime / local-workspace footer cards are parked for now;
+            keeping them in the DOM (visually hidden) preserves the history
+            list's height and the shell contract tests. */}
         <div className="runtime-mini" aria-label={t('runtime.title')}>
           <span className="runtime-mini-icon" aria-hidden="true">
             π
