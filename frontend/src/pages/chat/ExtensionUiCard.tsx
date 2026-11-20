@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Icon from '../../shell/Icon'
 import { useI18n } from '../../i18n/LanguageProvider'
+import { isNoticeMethod } from '../../chat/useChatSession'
 import type { UiAnswer, UiRequest } from '../../chat/client'
 
 /**
@@ -32,7 +33,7 @@ export function ExtensionUiCard({
   // The fire-and-forget methods only want to be shown; they have no answer. A
   // card would claim the same weight as a question the reader must answer, so
   // they are one quiet line instead.
-  if (request.method === 'notify' || request.method === 'setStatus' || request.method === 'setWidget' || request.method === 'setTitle' || request.method === 'set_editor_text') {
+  if (isNoticeMethod(request.method)) {
     return (
       <p
         className="chat-ui-note"

@@ -477,7 +477,15 @@ function applySubAgentEvent(agent: LiveSubAgent, payload: Record<string, unknown
  * is not one part per token. `tool_result` pairs with the most recent call that
  * has none yet, because adapters emit the two without a shared key.
  */
-export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart[] {
+export function buildTurnParts(
+  events: SessionEvent[],
+  runId?: string,
+  shownNotices?: Set<string>,
+): TurnPart[] {
+  // A standing notice is printed once per conversation, so the caller passes
+  // what earlier turns already showed. On its own, one call still folds a
+  // notice the runtime repeated inside a single turn.
+  const shown = shownNotices ?? new Set<string>()
   const parts: TurnPart[] = []
   let reasoning = ''
   let reasoningKey = ''
@@ -584,6 +592,15 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
       flushAnswer()
       const request = uiRequestOf(event.payload)
       if (request.id === '') continue
+      // A notice stands until it is fixed, and the runtime repeats it every
+      // turn: an MCP server that still needs signing in, for instance. Printing
+      // it above every answer buries the answer, so it is shown once per
+      // conversation and skipped after that.
+      if (isNoticeMethod(request.method)) {
+        const key = noticeKeyOf(request.method, event.payload)
+        if (shown.has(key)) continue
+        shown.add(key)
+      }
       parts.push({
         kind: 'extension_ui',
         key: `${event.runId}:ui:${request.id}`,
@@ -654,6 +671,48 @@ function uiRequestOf(payload: Record<string, unknown>): UiRequest {
     timeoutMs: typeof payload.timeoutMs === 'number' ? payload.timeoutMs : undefined,
     createdAt: text('createdAt'),
   }
+}
+
+/**
+ * The runtime's fire-and-forget methods.
+ *
+ * They say something; nobody answers. A question (`confirm`, `select`, `input`,
+ * `editor`) is the opposite: the run is blocked on it and it is never a repeat.
+ */
+const NOTICE_METHODS = new Set(['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text'])
+
+/** Whether a request is a notice rather than a question. */
+export function isNoticeMethod(method: string): boolean {
+  return NOTICE_METHODS.has(method)
+}
+
+/**
+ * What makes two notices the same line.
+ *
+ * The runtime sends a standing notice again every turn, with a fresh id: the
+ * id says "this is a new message", the text says "nothing changed". Sameness is
+ * the text.
+ */
+function noticeKeyOf(method: string, payload: Record<string, unknown>): string {
+  const text = (key: string) => (typeof payload[key] === 'string' ? (payload[key] as string) : '')
+  return `${method}\u0000${text('message') || text('title')}`
+}
+
+/**
+ * The notices a transcript has already printed.
+ *
+ * A live button builds its own parts from the turn in flight, which knows
+ * nothing about the turns above it; this is what lets it skip a line the
+ * settled transcript already showed.
+ */
+export function printedNotices(events: SessionEvent[]): Set<string> {
+  const keys = new Set<string>()
+  for (const event of events) {
+    if (event.kind !== 'extension_ui') continue
+    const method = typeof event.payload.method === 'string' ? event.payload.method : ''
+    if (isNoticeMethod(method)) keys.add(noticeKeyOf(method, event.payload))
+  }
+  return keys
 }
 
 /** Whether every character of `needle` appears in `haystack` in order. */

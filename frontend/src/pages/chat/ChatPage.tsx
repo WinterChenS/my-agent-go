@@ -14,6 +14,7 @@ import {
 import { Link } from 'react-router-dom'
 import {
   buildTurnParts,
+  printedNotices,
   useChatSession,
   withStoredAnswer,
   type AgentChoice,
@@ -200,13 +201,16 @@ function groupByRun(events: SessionEvent[]): Record<string, SessionEvent[]> {
 }
 
 /** Slice a ledger into per-run parts, keeping ledger order inside each run. */
-function partsByRun(events: SessionEvent[]): Record<string, TurnPart[]> {
+function partsByRun(events: SessionEvent[], shown: Set<string> = new Set()): Record<string, TurnPart[]> {
   // One pass to group, one short build per run: the ledger interleaves runs,
   // and re-scanning all of it for every run turned a settled session with many
   // turns into an O(runs x events) walk on each reload.
+  //
+  // `shown` is carried across the runs on purpose: a notice the runtime repeats
+  // every turn prints once, in the turn that first carried it.
   const result: Record<string, TurnPart[]> = {}
   for (const [run, runEvents] of Object.entries(groupByRun(events))) {
-    result[run] = buildTurnParts(runEvents, run)
+    result[run] = buildTurnParts(runEvents, run, shown)
   }
   return result
 }
@@ -225,7 +229,7 @@ function useRunDetail(
   sessionId: string | undefined,
   running: boolean,
   turnEvents: SessionEvent[],
-): { parts: Record<string, TurnPart[]>; usage: Record<string, TurnUsage> } {
+): { parts: Record<string, TurnPart[]>; usage: Record<string, TurnUsage>; shownNotices: Set<string> } {
   const [ledger, setLedger] = useState<SessionEvent[]>([])
   useEffect(() => {
     // Read the ledger even while a turn is running. Skipping it meant that
@@ -248,7 +252,20 @@ function useRunDetail(
   }, [sessionId, running])
 
   const stored = useMemo(() => partsByRun(ledger), [ledger])
-  const live = useMemo(() => partsByRun(turnEvents), [turnEvents])
+  // What the turns above have already shown. The run in flight is left out on
+  // purpose: its own notice must print while it streams, not only once it
+  // settles. Skipping it here also keeps the live turn from printing a line the
+  // settled transcript already carries.
+  const shownNotices = useMemo(() => {
+    const inFlight = turnEvents[0]?.runId
+    return printedNotices(
+      inFlight ? ledger.filter((event) => event.runId !== inFlight) : ledger,
+    )
+  }, [ledger, turnEvents])
+  const live = useMemo(
+    () => partsByRun(turnEvents, new Set(shownNotices)),
+    [turnEvents, shownNotices],
+  )
   const parts = useMemo(() => {
     const merged: Record<string, TurnPart[]> = { ...stored }
     for (const [run, runParts] of Object.entries(live)) {
@@ -277,7 +294,7 @@ function useRunDetail(
     return result
   }, [ledger, turnEvents])
 
-  return { parts, usage }
+  return { parts, usage, shownNotices }
 }
 
 /**
@@ -774,7 +791,7 @@ export default function ChatPage() {
       })
       .finally(() => setSubagentBusy(false))
   }
-  const { parts: partsForRun, usage: usageByRun } = useRunDetail(
+  const { parts: partsForRun, usage: usageByRun, shownNotices } = useRunDetail(
     liveSession?.id,
     live.running,
     live.turnEvents,
@@ -792,8 +809,12 @@ export default function ChatPage() {
     return merged
   }, [partsForRun, liveMessages])
   // The turn in flight: its events are already only this turn's, so one flat
-  // pass gives the thinking/tool stack the transcript should show.
-  const liveParts = useMemo(() => buildTurnParts(live.turnEvents), [live.turnEvents])
+  // pass gives the thinking/tool stack the transcript should show. Notices the
+  // settled turns above already printed are skipped here too.
+  const liveParts = useMemo(
+    () => buildTurnParts(live.turnEvents, undefined, new Set(shownNotices)),
+    [live.turnEvents, shownNotices],
+  )
 
   // Which agents this conversation has delegated to. The rail holds the stored
   // list; the live turn is fresher for one that is still talking, so the two are
