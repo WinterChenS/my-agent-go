@@ -604,66 +604,6 @@ button.chat-badge:hover {
 
 /* delegated agents */
 
-.chat-subagent {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface);
-}
-
-.chat-subagent[data-status='failed'] {
-  border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
-}
-
-.chat-subagent-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  width: 100%;
-  min-height: 38px;
-  padding: var(--space-4) var(--space-6);
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font-size: var(--text-base);
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-subagent-row:hover {
-  background: var(--surface-2);
-}
-
-.chat-subagent-icon {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border-radius: var(--r-xs);
-  background: var(--surface-3);
-  color: var(--fg-2);
-}
-
-.chat-subagent-name {
-  flex: none;
-  font-size: var(--text-xs-plus);
-  font-weight: 600;
-}
-
-.chat-subagent-step,
-.chat-subagent-model,
-.chat-subagent-count {
-  flex: none;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-}
-
-.chat-subagent-count {
-  margin-left: auto;
-}
-
 .chat-subagent.is-open .chat-tool-caret {
   transform: rotate(90deg);
 }
@@ -692,22 +632,24 @@ button.chat-badge:hover {
 }
 
 .chat-subagent-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin: 0;
+  padding: var(--space-5) 0;
   color: var(--muted);
   font-size: var(--text-xs-plus);
 }
 
-.chat-subagent-text {
-  color: var(--fg-2);
-  font-size: var(--text-xs-plus);
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.chat-subagent-text.is-thinking {
-  color: var(--muted);
-  font-style: italic;
+/* A child that has been announced but has not produced a message yet: pi's
+   extension reports per completed step, so this can last tens of seconds. */
+.chat-subagent-pulse {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: chat-pulse 1.4s ease-in-out infinite;
 }
 
 .chat-subagent-label {
@@ -718,52 +660,151 @@ button.chat-badge:hover {
   font-style: normal;
 }
 
+/* The brief: what the parent asked this child to do, rendered as markdown. */
+.chat-subagent-brief {
+  flex: none;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid color-mix(in oklab, var(--accent) 22%, var(--border));
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--accent) 5%, var(--surface));
+}
+
+.chat-subagent-brief .chat-prose {
+  font-size: var(--text-xs-plus);
+}
+
+/* The child's own answer: prose, not a preformatted blob. */
+.chat-subagent-text {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
+/* Reasoning folds away like the parent's: it is context, not the answer. */
+.chat-subagent-think {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.chat-subagent-think summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-subagent-think summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-subagent-think-size {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+
+.chat-subagent-think[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-subagent-think .chat-prose {
+  padding: var(--space-4) var(--space-5);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
+/* One tool call: what ran, then what it printed. */
 .chat-subagent-tool {
-  padding-left: var(--space-4);
-  border-left: 2px solid var(--border-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
 }
 
-.chat-subagent-tool[data-ok='failed'] {
-  border-left-color: var(--danger);
+.chat-subagent-tool[data-ok='false'] {
+  border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
 }
 
-.chat-subagent-tool-name {
+.chat-subagent-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-tool-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.chat-subagent-tool.is-ok .chat-subagent-tool-dot {
+  background: var(--success, var(--accent));
+}
+
+.chat-subagent-tool.is-failed .chat-subagent-tool-dot {
+  background: var(--danger);
+}
+
+.chat-subagent-tool.is-pending .chat-subagent-tool-dot {
+  background: var(--accent);
+  animation: chat-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-subagent-tool-head b {
+  flex: none;
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
+  font-weight: 500;
 }
 
-.chat-subagent-tool code {
-  display: block;
-  margin-top: 2px;
+.chat-subagent-tool-head code {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  white-space: pre-wrap;
-  word-break: break-all;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-subagent-tool pre {
   max-height: 220px;
-  margin: var(--space-2) 0 0;
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-4);
   overflow: auto;
+  border-top: 1px solid var(--border);
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-subagent-error {
   margin: 0;
-  padding: var(--space-4) var(--space-6);
-  border-top: 1px solid var(--border);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid color-mix(in oklab, var(--danger) 30%, var(--border));
+  border-radius: var(--r-md);
   color: var(--danger);
   font-size: var(--text-xs-plus);
 }
 
 .chat-subagent-result {
-  padding: var(--space-5) var(--space-6);
-  border-top: 1px solid var(--border);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
   font-size: var(--text-xs-plus);
 }
 
@@ -972,48 +1013,6 @@ button.chat-badge:hover {
   animation: chat-pulse 1.4s ease-in-out infinite;
 }
 
-/* The row in the transcript: a pointer to the panel, not the panel itself. */
-.chat-subagent-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  width: 100%;
-  min-height: 34px;
-  margin: var(--space-3) 0;
-  padding: var(--space-3) var(--space-5);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--fg);
-  font-size: var(--text-base);
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-subagent-row:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-2);
-}
-
-.chat-subagent-row[data-status='failed'] {
-  border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
-}
-
-.chat-subagent-open {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: var(--text-2xs);
-  white-space: nowrap;
-}
-
-.chat-subagent-row:hover .chat-subagent-open {
-  color: var(--fg-2);
-}
-
-.chat-subagent-row .chat-tool-caret {
-  transform: rotate(-90deg);
-}
-
 /* The floating panel: one agent's own transcript, over the conversation. */
 .chat-subagent-drawer {
   position: fixed;
@@ -1064,22 +1063,6 @@ button.chat-badge:hover {
   font-size: var(--text-2xs);
 }
 
-.chat-subagent-drawer-task {
-  flex: none;
-  margin: 0;
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border);
-  color: var(--fg-2);
-  font-size: var(--text-xs-plus);
-  line-height: 1.6;
-}
-
-.chat-subagent-drawer-task span {
-  margin-right: var(--space-3);
-  color: var(--muted);
-  font-size: var(--text-2xs);
-}
-
 .chat-subagent-drawer-body {
   display: flex;
   flex-direction: column;
@@ -1089,14 +1072,6 @@ button.chat-badge:hover {
   overflow-y: auto;
   padding: var(--space-5) var(--space-6);
   background: var(--surface-2);
-}
-
-.chat-subagent-drawer-body .chat-subagent-text,
-.chat-subagent-drawer-body .chat-subagent-tool,
-.chat-subagent-drawer-body .chat-subagent-result {
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface);
 }
 
 /* A message the reader sent into a running turn. */
@@ -1124,6 +1099,139 @@ button.chat-badge:hover {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* A conversation that does not exist yet: no transcript, so the field moves to
+   the middle and the directory it will run in says hello. */
+.chat-thread-col.is-blank {
+  justify-content: center;
+  padding-bottom: 5vh;
+}
+
+/* There is nothing to scroll, and an empty scroll area would still take the
+   whole column and push the field back to the bottom. */
+.chat-thread-col.is-blank .chat-thread {
+  display: none;
+}
+
+.chat-thread-col.is-blank .chat-composer-wrap {
+  padding-top: 0;
+}
+
+.chat-welcome {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto var(--space-5);
+  padding: 0 var(--space-12);
+}
+
+.chat-welcome-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.chat-welcome-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chat-welcome-head h2 {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.chat-welcome-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--text-xs-plus);
+  line-height: 1.6;
+}
+
+.chat-workspace {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.chat-workspace-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-2);
+  font-size: var(--text-xs-plus);
+}
+
+.chat-workspace-head b {
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-workspace-path {
+  margin: var(--space-2) 0 var(--space-4);
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-workspace-recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.chat-workspace-recent > span {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-workspace-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
 }
 
 /* queued messages: one card per message, stacked above the composer */

@@ -1,12 +1,12 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { LanguageProvider } from '../../../i18n/LanguageProvider'
 import type { LanguageEnvironment } from '../../../i18n/language'
 import type { RailSubAgent, SessionEvent } from '../../../chat/client'
 import { buildTurnParts, type LiveSubAgent } from '../../../chat/useChatSession'
-import { SubAgentButton, SubAgentDrawer, SubAgentRow, mergeSubAgents, subAgentFromLive } from '../SubAgents'
+import { SubAgentButton, SubAgentDrawer, mergeSubAgents, subAgentFromLive } from '../SubAgents'
+import { TurnPartsList } from '../ChatPage'
 
 afterEach(() => cleanup())
 
@@ -199,41 +199,82 @@ describe('sub-agent surfaces', () => {
     usage: null,
   }
 
-  it('keeps the transcript out of the main window: the row is a pointer', () => {
-    const onOpen = vi.fn()
-    render(wrap(<SubAgentRow agent={subAgentFromLive(agent)} onOpen={onOpen} />))
-    const row = screen.getByTestId('chat-subagent-row')
-    expect(row.getAttribute('data-status')).toBe('running')
-    expect(within(row).getByText('scout')).toBeInTheDocument()
-    expect(within(row).getByText('gpt-6-astra')).toBeInTheDocument()
-    expect(within(row).getByText('运行中')).toBeInTheDocument()
-    // The child's own words live in the panel, not here.
-    expect(within(row).queryByText('there are 42 files')).toBeNull()
-    expect(within(row).queryByText('counting files')).toBeNull()
+  it('says nothing in the transcript: a delegation is not the parent talking', () => {
+    const { container } = render(
+      wrap(
+        <TurnPartsList
+          parts={[
+            { kind: 'text', key: 'a', text: 'before the hand-off' },
+            { kind: 'agent', key: 'b', agent },
+            { kind: 'text', key: 'c', text: 'after the hand-off' },
+          ]}
+        />,
+      ),
+    )
+    expect(screen.getByText('before the hand-off')).toBeInTheDocument()
+    expect(screen.getByText('after the hand-off')).toBeInTheDocument()
+    // No row, no card, no child words — the panel is the only place they live.
+    expect(container.textContent).not.toContain('counting files')
+    expect(container.textContent).not.toContain('there are 42 files')
+    expect(container.querySelector('[data-testid="chat-subagent-row"]')).toBeNull()
   })
 
-  it('opens the panel for the agent the reader clicked', async () => {
-    const onOpen = vi.fn()
-    render(wrap(<SubAgentRow agent={subAgentFromLive(agent)} onOpen={onOpen} />))
-    await userEvent.click(screen.getByTestId('chat-subagent-row'))
-    expect(onOpen).toHaveBeenCalledWith('child-1')
+  it('shows the brief as markdown, not as raw text', () => {
+    render(
+      wrap(
+        <SubAgentDrawer
+          agent={subAgentFromLive({ ...agent, task: 'Fix **bugs** in `mailer.py`' })}
+          onClose={() => undefined}
+          onArchive={() => undefined}
+        />,
+      ),
+    )
+    const brief = screen.getByTestId('chat-subagent-brief')
+    expect(within(brief).getByText('bugs').tagName).toBe('STRONG')
+    expect(within(brief).getByText('mailer.py').tagName).toBe('CODE')
   })
 
-  it('shows the child transcript in the floating panel, tools and reasoning included', () => {
-    render(wrap(<SubAgentDrawer agent={subAgentFromLive(agent)} onClose={() => undefined} onArchive={() => undefined} />))
+  it('folds the child reasoning away and keeps the answer as prose', () => {
+    render(
+      wrap(<SubAgentDrawer agent={subAgentFromLive(agent)} onClose={() => undefined} onArchive={() => undefined} />),
+    )
     const panel = screen.getByTestId('chat-subagent-drawer')
-    expect(within(panel).getByText('count the rust files')).toBeInTheDocument()
+    // Reasoning is a disclosure, closed by default; the answer is not.
+    const think = panel.querySelector('details.chat-subagent-think')
+    expect(think).not.toBeNull()
+    expect(think?.textContent).toContain('counting files')
     expect(within(panel).getByText('there are 42 files')).toBeInTheDocument()
+  })
+
+  it('shows what a tool ran and what it printed', () => {
+    render(
+      wrap(<SubAgentDrawer agent={subAgentFromLive(agent)} onClose={() => undefined} onArchive={() => undefined} />),
+    )
+    const panel = screen.getByTestId('chat-subagent-drawer')
     expect(within(panel).getByText('bash')).toBeInTheDocument()
+    // The command is shown as a command, not as `{"command":"ls"}`.
+    expect(within(panel).getByText('ls')).toBeInTheDocument()
     expect(within(panel).getByText('42')).toBeInTheDocument()
-    expect(within(panel).getByText('思考')).toBeInTheDocument()
+  })
+
+  it('says the child has not started rather than showing an empty panel', () => {
+    render(
+      wrap(
+        <SubAgentDrawer
+          agent={subAgentFromLive({ ...agent, steps: [] })}
+          onClose={() => undefined}
+          onArchive={() => undefined}
+        />,
+      ),
+    )
+    expect(screen.getByTestId('chat-subagent-waiting').textContent).toContain('等待它开始工作')
   })
 
   it('shows the failure reason instead of pretending it finished', () => {
     render(
       wrap(
         <SubAgentDrawer
-          agent={subAgentFromLive({ ...agent, status: 'failed', error: 'model quota exhausted' })}
+          agent={subAgentFromLive({ ...agent, steps: [], status: 'failed', error: 'model quota exhausted' })}
           onClose={() => undefined}
           onArchive={() => undefined}
         />,
@@ -244,11 +285,11 @@ describe('sub-agent surfaces', () => {
     expect(within(panel).getByText('model quota exhausted')).toBeInTheDocument()
   })
 
-  it('renders the final answer once it exists', () => {
+  it('falls back to the final answer when no transcript arrived', () => {
     render(
       wrap(
         <SubAgentDrawer
-          agent={subAgentFromLive({ ...agent, status: 'completed', result: '42 files under src' })}
+          agent={subAgentFromLive({ ...agent, steps: [], status: 'completed', result: '42 files under src' })}
           onClose={() => undefined}
           onArchive={() => undefined}
         />,

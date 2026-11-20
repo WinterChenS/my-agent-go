@@ -1021,6 +1021,35 @@ fn messages_to_steps(messages: Option<&Value>) -> Value {
         let mut pending = String::new();
         for part in parts {
             match part.get("type").and_then(Value::as_str).unwrap_or("") {
+                // Reasoning is part of what the child did, not an internal
+                // detail of the parent's: the panel shows it above the answer
+                // the same way the main transcript does. pi writes it as
+                // `{type:"thinking", thinking:"…"}`, and there is no `text`
+                // field to fall back on.
+                "thinking" | "reasoning" => {
+                    let thinking = part
+                        .get("thinking")
+                        .or_else(|| part.get("reasoning"))
+                        .or_else(|| part.get("text"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    if thinking.trim().is_empty() {
+                        continue;
+                    }
+                    if !pending.trim().is_empty() {
+                        let text = clip(&pending, budget.min(STEP_TEXT_CHARS));
+                        budget = budget.saturating_sub(text.chars().count());
+                        steps.push(serde_json::json!({ "kind": "text", "text": text }));
+                        pending.clear();
+                    }
+                    let text = clip(thinking, budget.min(STEP_TEXT_CHARS));
+                    budget = budget.saturating_sub(text.chars().count());
+                    steps.push(serde_json::json!({
+                        "kind": "text",
+                        "text": text,
+                        "channel": "thinking",
+                    }));
+                }
                 "text" => {
                     if let Some(text) = part.get("text").and_then(Value::as_str) {
                         pending.push_str(text);
@@ -1217,6 +1246,7 @@ mod tests {
                         "messages": [
                             { "role": "user", "content": [{ "type": "text", "text": "count files" }] },
                             { "role": "assistant", "content": [
+                                { "type": "thinking", "thinking": "I should count with ls" },
                                 { "type": "text", "text": "counting" },
                                 { "type": "toolCall", "id": "t1", "name": "bash",
                                   "arguments": { "command": "ls | wc -l" } }
@@ -1240,11 +1270,15 @@ mod tests {
             .iter()
             .map(|step| step["kind"].as_str().unwrap_or(""))
             .collect();
-        assert_eq!(kinds, vec!["text", "tool", "tool_result", "text"]);
-        assert_eq!(steps[0]["text"], "counting");
-        assert_eq!(steps[1]["name"], "bash");
-        assert_eq!(steps[2]["output"], "42");
-        assert_eq!(steps[3]["text"], "42 files");
+        assert_eq!(kinds, vec!["text", "text", "tool", "tool_result", "text"]);
+        // Reasoning first, marked as such: the panel renders it above the
+        // answer instead of blending the two into one paragraph.
+        assert_eq!(steps[0]["channel"], "thinking");
+        assert_eq!(steps[0]["text"], "I should count with ls");
+        assert_eq!(steps[1]["text"], "counting");
+        assert_eq!(steps[2]["name"], "bash");
+        assert_eq!(steps[3]["output"], "42");
+        assert_eq!(steps[4]["text"], "42 files");
         // The parent's own prompt is not the child's work.
         assert!(steps.iter().all(|step| step["text"] != "count files"));
     }

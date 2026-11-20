@@ -1,15 +1,16 @@
 // Sub-agents, as the parent window shows them.
 //
-// The transcript used to render a child's whole reasoning, tool calls and
-// answer inline. A parent that delegates to three children then buries its own
-// answer under three transcripts nobody asked to read. The rule now is:
+// A delegation is not something the parent said. Printing the child's reasoning,
+// tool calls and answer inside the reply made one turn read as if it had
+// stopped mid-sentence and started again — and with three children it buried
+// the answer entirely. The rule now is:
 //
 // * the composer row carries one control with the counts — running, failed;
-// * the transcript keeps one slim row per child, so the reader can see *that*
-//   a delegation happened and where;
-// * the child's own words live in a floating panel on the right, opened for the
-//   agent the reader picked and closed without touching the conversation.
+// * the transcript says nothing at all about the child;
+// * the child's own transcript lives in a floating panel on the right, shaped
+//   like the main conversation: task, reasoning, tool calls, answer.
 
+import { useEffect, useRef } from 'react'
 import type { RailSubAgent, RailSubAgentStep } from '../../chat/client'
 import type { LiveSubAgent } from '../../chat/useChatSession'
 import type { MessageKey } from '../../i18n/catalogue'
@@ -256,51 +257,40 @@ export function SubAgentList({
   )
 }
 
-/** One slim row in the transcript: the delegation is visible, the words are not. */
-export function SubAgentRow({
-  agent,
-  onOpen,
-}: {
-  agent: SubAgentView
-  onOpen: (id: string) => void
-}) {
-  const { t } = useI18n()
-  const live = isRunningStatus(agent.status)
-  const tone =
-    agent.status === 'failed'
-      ? ' chat-tone-danger'
-      : agent.status === 'completed'
-        ? ' chat-tone-success'
-        : live
-          ? ' chat-tone-warn'
-          : ''
-  const tools = agent.steps.filter((step) => step.kind === 'tool').length
+/** One tool call in the child's transcript. */
+function ToolStep({ step }: { step: RailSubAgentStep }) {
+  const raw = typeof step.args === 'string' ? step.args : step.args == null ? '' : JSON.stringify(step.args)
+  // `bash` is the common case and its arguments already are a command line:
+  // showing `{"command":"ls -la"}` instead of `ls -la` is noise.
+  const command = (() => {
+    if (!raw.trim().startsWith('{')) return ''
+    try {
+      const parsed = JSON.parse(raw) as { command?: unknown }
+      return typeof parsed.command === 'string' ? parsed.command : ''
+    } catch {
+      return ''
+    }
+  })()
+  const summary = command || raw.replace(/\s+/g, ' ').slice(0, 160)
+  const output =
+    typeof step.output === 'string'
+      ? step.output
+      : step.output == null
+        ? ''
+        : JSON.stringify(step.output, null, 2)
+  const tone = step.ok === true ? ' is-ok' : step.ok === false ? ' is-failed' : ' is-pending'
   return (
-    <button
-      type="button"
-      className="chat-subagent-row"
-      data-testid="chat-subagent-row"
-      data-agent={agent.id}
-      data-status={agent.status}
-      onClick={() => onOpen(agent.id)}
+    <div
+      className={`chat-subagent-tool${tone}`}
+      data-ok={step.ok === null || step.ok === undefined ? 'pending' : String(step.ok)}
     >
-      <span className="chat-subagent-icon">
-        <Icon name="layers" size={12} />
-      </span>
-      <span className="chat-subagent-name">{agent.name || t('chat.subagent.unnamed')}</span>
-      {agent.step !== null ? (
-        <span className="chat-subagent-step">{t('chat.subagent.step', { step: agent.step })}</span>
-      ) : null}
-      {agent.model ? <span className="chat-subagent-model">{agent.model}</span> : null}
-      <span className={`chat-badge${tone}`}>
-        {t(`chat.subagent.status.${agent.status}` as MessageKey)}
-      </span>
-      {tools > 0 ? <span className="chat-subagent-count">{t('chat.subagent.tools', { count: tools })}</span> : null}
-      <span className="chat-subagent-open">{t('chat.subagent.row.open')}</span>
-      <span className="chat-tool-caret" aria-hidden="true">
-        <Icon name="chevDown" size={10} />
-      </span>
-    </button>
+      <div className="chat-subagent-tool-head">
+        <span className="chat-subagent-tool-dot" aria-hidden="true" />
+        <b>{step.name || 'tool'}</b>
+        {summary ? <code title={summary}>{summary}</code> : null}
+      </div>
+      {output ? <pre>{output}</pre> : null}
+    </div>
   )
 }
 
@@ -315,13 +305,26 @@ export function SubAgentDrawer({
   onArchive: (id: string) => void
 }) {
   const { t } = useI18n()
+  const body = useRef<HTMLDivElement | null>(null)
+  const steps = agent?.steps.length ?? 0
+
+  // A running child keeps appending; without this the reader stays parked at
+  // the top of a transcript that has moved on.
+  useEffect(() => {
+    const node = body.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+  }, [steps, agent?.id])
+
   if (!agent) return null
   const live = isRunningStatus(agent.status)
+  const tools = agent.steps.filter((step) => step.kind === 'tool').length
   return (
     <aside
       className="chat-subagent-drawer"
       data-testid="chat-subagent-drawer"
       data-agent={agent.id}
+      data-status={agent.status}
       aria-label={agent.name || t('chat.subagent.unnamed')}
     >
       <header className="chat-subagent-drawer-head">
@@ -332,6 +335,7 @@ export function SubAgentDrawer({
             {t(`chat.subagent.status.${agent.status}` as MessageKey)}
             {agent.turn > 0 ? ` · ${t('chat.subagent.panel.turn', { turn: agent.turn })}` : ''}
             {agent.model ? ` · ${agent.model}` : ''}
+            {tools > 0 ? ` · ${t('chat.subagent.tools', { count: tools })}` : ''}
           </small>
         </div>
         <button
@@ -354,47 +358,68 @@ export function SubAgentDrawer({
           <Icon name="x" size={13} />
         </button>
       </header>
-      {agent.task ? (
-        <p className="chat-subagent-drawer-task">
-          <span>{t('chat.subagent.task')}</span>
-          {agent.task}
-        </p>
-      ) : null}
-      <div className="chat-subagent-drawer-body">
+
+      <div className="chat-subagent-drawer-body" ref={body} data-testid="chat-subagent-drawer-body">
+        {agent.task ? (
+          <section className="chat-subagent-brief" data-testid="chat-subagent-brief">
+            <span className="chat-subagent-label">{t('chat.subagent.task')}</span>
+            <div className="chat-prose chat-markdown">
+              <Markdown text={agent.task} sources={0} onCite={() => undefined} />
+            </div>
+          </section>
+        ) : null}
+
         {agent.steps.length === 0 ? (
-          <p className="chat-subagent-empty">{t('chat.subagent.empty')}</p>
+          <p className="chat-subagent-empty" data-testid="chat-subagent-waiting">
+            {live ? (
+              <>
+                <span className="chat-subagent-pulse" aria-hidden="true" />
+                {t('chat.subagent.empty')}
+              </>
+            ) : (
+              t('chat.subagent.emptyDone')
+            )}
+          </p>
         ) : (
           agent.steps.map((step, index) =>
             step.kind === 'text' ? (
-              <div
-                className={`chat-subagent-text${step.channel === 'thinking' ? ' is-thinking' : ''}`}
-                key={`${agent.id}-step-${index}`}
-              >
-                {step.channel === 'thinking' ? (
-                  <span className="chat-subagent-label">{t('chat.subagent.thinking')}</span>
-                ) : null}
-                {step.text}
-              </div>
+              step.channel === 'thinking' ? (
+                <details className="chat-subagent-think" key={`${agent.id}-step-${index}`}>
+                  <summary>
+                    <Icon name="brain" size={11} />
+                    {t('chat.subagent.thinking')}
+                    <span className="chat-subagent-think-size">
+                      {t('chat.live.thinking', { count: (step.text ?? '').length })}
+                    </span>
+                  </summary>
+                  <div className="chat-prose chat-markdown">
+                    <Markdown text={step.text ?? ''} sources={0} onCite={() => undefined} />
+                  </div>
+                </details>
+              ) : (
+                <div
+                  className="chat-prose chat-markdown chat-subagent-text"
+                  key={`${agent.id}-step-${index}`}
+                >
+                  <Markdown text={step.text ?? ''} sources={0} onCite={() => undefined} />
+                </div>
+              )
             ) : (
-              <div
-                className="chat-subagent-tool"
-                key={`${agent.id}-step-${index}`}
-                data-ok={step.ok === null || step.ok === undefined ? 'pending' : String(step.ok)}
-              >
-                <span className="chat-subagent-tool-name">{step.name}</span>
-                {step.args ? <code>{typeof step.args === 'string' ? step.args : JSON.stringify(step.args)}</code> : null}
-                {step.output ? (
-                  <pre>{typeof step.output === 'string' ? step.output : JSON.stringify(step.output)}</pre>
-                ) : null}
-              </div>
+              <ToolStep key={`${agent.id}-step-${index}`} step={step} />
             ),
           )
         )}
+
         {agent.error ? <p className="chat-subagent-error">{agent.error}</p> : null}
-        {agent.result && !agent.error ? (
+        {/* The steps already end with the child's last message; printing the
+            final result again would show the same paragraph twice. It is the
+            only content when the transcript never arrived. */}
+        {agent.result && !agent.error && agent.steps.length === 0 ? (
           <div className="chat-subagent-result">
             <span className="chat-subagent-label">{t('chat.subagent.result')}</span>
-            <Markdown text={agent.result} sources={0} onCite={() => undefined} />
+            <div className="chat-prose chat-markdown">
+              <Markdown text={agent.result} sources={0} onCite={() => undefined} />
+            </div>
           </div>
         ) : null}
       </div>

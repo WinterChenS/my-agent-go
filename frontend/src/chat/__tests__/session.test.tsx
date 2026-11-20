@@ -428,7 +428,7 @@ describe('chat live session', () => {
     // The model already on the machine is offered, and the page does not
     // pretend to have a conversation before one exists.
     expect(screen.getByTestId('chat-model-select')).toHaveTextContent('auto/gpt-5.6-sol')
-    expect(screen.getByTestId('chat-empty')).toHaveTextContent('还没有会话')
+    expect(screen.getByTestId('chat-welcome')).toHaveTextContent('从哪个目录开始')
 
     await userEvent.type(composer, 'Reply with exactly: ok')
     await userEvent.click(screen.getByTestId('chat-send'))
@@ -463,7 +463,7 @@ describe('chat live session', () => {
     // came back filled with the previous transcript.
     await userEvent.click(screen.getByTestId('chat-history-new'))
 
-    await waitFor(() => expect(screen.getByTestId('chat-empty')).toHaveTextContent('还没有会话'))
+    await waitFor(() => expect(screen.getByTestId('chat-welcome')).toHaveTextContent('从哪个目录开始'))
     expect(screen.queryByTestId('chat-message-agent')).toBeNull()
     expect(screen.queryByTestId('chat-message-user')).toBeNull()
   })
@@ -556,7 +556,7 @@ describe('coming back to the conversation', () => {
     await waitFor(() => expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }))
     // The stored transcript is on screen again, not the empty state.
     expect(await screen.findByTestId('chat-message-agent')).toHaveTextContent('ok')
-    expect(screen.queryByTestId('chat-empty')).toBeNull()
+    expect(screen.queryByTestId('chat-welcome')).toBeNull()
   })
 
   it('follows a run that is still going instead of showing a stopped turn', async () => {
@@ -628,13 +628,13 @@ describe('the shell sidebar', () => {
     await waitFor(() =>
       expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }),
     )
-    await waitFor(() => expect(screen.queryByTestId('chat-empty')).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId('chat-welcome')).toBeNull())
 
     // The nav entry means "start a conversation". Clicking it used to reopen the
     // last session, which looked like a dead button when that session was
     // already on screen; resuming belongs to the history list.
     await user.click(screen.getByRole('link', { name: '对话' }))
-    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('chat-welcome')).toBeInTheDocument())
   })
 
   it('opens a conversation from another page', async () => {

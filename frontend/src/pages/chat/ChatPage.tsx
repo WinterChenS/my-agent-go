@@ -40,9 +40,7 @@ import {
   SubAgentButton,
   SubAgentDrawer,
   SubAgentList,
-  SubAgentRow,
   mergeSubAgents,
-  subAgentFromLive,
 } from './SubAgents'
 import {
   describeSessionError,
@@ -53,6 +51,7 @@ import {
   type ContextEntry,
   type ContextRef,
   type PermissionMode,
+  type ProjectSummary,
   type SessionEvent,
   type ThinkingLevel,
 } from '../../chat/client'
@@ -350,19 +349,16 @@ function UsageLine({ usage }: { usage: TurnUsage }) {
   )
 }
 
-function TurnPartsList({
+export function TurnPartsList({
   parts,
   live = false,
   sources = 0,
   onCite,
-  onOpenAgent,
 }: {
   parts: TurnPart[]
   live?: boolean
   sources?: number
   onCite?: () => void
-  /** Open the floating panel for one delegated agent. */
-  onOpenAgent?: (id: string) => void
 }) {
   const { t } = useI18n()
   if (parts.length === 0) return null
@@ -379,15 +375,12 @@ function TurnPartsList({
           return <LiveToolCard key={part.key} tool={part.tool} />
         }
         if (part.kind === 'agent') {
-          // The child's own words are not printed in this window any more: one
-          // row says that a delegation happened, and the panel holds the rest.
-          return (
-            <SubAgentRow
-              key={part.key}
-              agent={subAgentFromLive(part.agent)}
-              onOpen={onOpenAgent ?? (() => undefined)}
-            />
-          )
+          // Nothing in the transcript. A delegation is the parent's own work,
+          // but the child's words are not the parent's answer: printing even
+          // one row here made a reply read as if it had stopped mid-sentence
+          // and started again. The composer's control and its panel carry the
+          // whole story.
+          return null
         }
         if (part.kind === 'steer') {
           return (
@@ -663,6 +656,11 @@ export default function ChatPage() {
   // The composer waits for the model list: a chat with no model can only fail.
   const liveReady = !sample && live.status === 'ready' && live.models.length > 0
   const liveSession = live.current?.session ?? null
+  // A conversation that does not exist yet. Nothing has been said, so there is
+  // no transcript to scroll: the page becomes a welcome screen — where it will
+  // run, then the field — instead of a large empty column with a field pinned
+  // to the bottom.
+  const blankPage = liveReady && liveSession === null
   // A steer is stored as a user message *and* as an event of the running turn.
   // The event is what the transcript renders (it sits between the steps it
   // interrupted); printing the message as well would show it twice.
@@ -1072,7 +1070,7 @@ export default function ChatPage() {
       ) : null}
 
       <div className={`chat-layout${railOpen ? ' rail-open' : ''}`} data-testid="chat-layout">
-        <div className="chat-thread-col">
+        <div className={`chat-thread-col${blankPage ? ' is-blank' : ''}`}>
           <div className="chat-thread" data-testid="chat-thread">
             {sample ? (
               <div className="chat-thread-inner" data-testid="chat-message-list" aria-label={sampleChat.title}>
@@ -1170,7 +1168,6 @@ export default function ChatPage() {
                           parts={partsWithAnswer[message.runId]}
                           sources={live.rail?.sources.length ?? 0}
                           onCite={showSource}
-                          onOpenAgent={openSubAgent}
                         />
                       ) : null}
                       {/* The parts already carry the answer when the ledger has
@@ -1211,10 +1208,9 @@ export default function ChatPage() {
                   onCite={showSource}
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
-                  onOpenAgent={openSubAgent}
                 />
               </div>
-            ) : (
+            ) : blankPage ? null : (
               <div className="chat-empty" data-testid="chat-empty" role="status">
                 <span className="chat-empty-icon">
                   <Icon name="message" size={22} />
@@ -1254,6 +1250,27 @@ export default function ChatPage() {
                 {subagentBusy ? t('chat.subagent.installing') : t('chat.subagent.install')}
               </button>
             </div>
+          ) : null}
+
+          {blankPage ? (
+            <WorkspaceWelcome
+              path={workspace.path}
+              defaultPath={workspace.defaultPath}
+              isDefault={workspace.isDefault}
+              recent={live.projects}
+              onBrowse={() => {
+                void workspace.browse().catch(() => undefined)
+              }}
+              onReset={() => {
+                void workspace.reset().catch(() => undefined)
+              }}
+              onChoose={(path) => {
+                void workspace.choose(path).then(
+                  () => undefined,
+                  (error: unknown) => showNotice(describeSessionError(error)),
+                )
+              }}
+            />
           ) : null}
 
           <Composer
@@ -1672,6 +1689,101 @@ scope docs/**                               允许
         </button>
       </div>
     </section>
+  )
+}
+
+/**
+ * The blank page: where this conversation will run, then the field.
+ *
+ * A new conversation has nothing to show, and a transcript column with a field
+ * pinned to its bottom looks like a conversation that lost its messages. This
+ * fills that space with the one decision that actually comes before the first
+ * prompt — the directory — and disappears the moment the turn starts.
+ */
+export function WorkspaceWelcome({
+  path,
+  defaultPath,
+  isDefault,
+  recent,
+  onBrowse,
+  onReset,
+  onChoose,
+}: {
+  path: string | null
+  defaultPath: string | null
+  isDefault: boolean
+  recent: ProjectSummary[] | null
+  onBrowse: () => void
+  onReset: () => void
+  onChoose: (path: string) => void
+}) {
+  const { t } = useI18n()
+  const shown = path ?? defaultPath ?? ''
+  const name = isDefault ? t('workspace.defaultName') : basename(shown) || shown
+  // The current directory is not offered as a shortcut to itself.
+  // The host answers `null` before the project list has ever been read.
+  const others = (recent ?? []).filter((project) => project.path !== shown).slice(0, 5)
+  return (
+    <div className="chat-welcome" data-testid="chat-welcome">
+      <div className="chat-welcome-head">
+        <span className="chat-welcome-mark">
+          <Icon name="sparkle" size={16} />
+        </span>
+        <div>
+          <h2>{t('chat.welcome.title')}</h2>
+          <p>{t('chat.welcome.body')}</p>
+        </div>
+      </div>
+
+      <section className="chat-workspace" data-testid="chat-workspace">
+        <div className="chat-workspace-head">
+          <Icon name="folder" size={12} />
+          <b>{name}</b>
+        </div>
+        <p className="chat-workspace-path" title={shown}>
+          {shown}
+        </p>
+        <div className="chat-workspace-actions">
+          <button
+            type="button"
+            className="chat-btn chat-btn-sm"
+            data-testid="chat-workspace-browse"
+            onClick={onBrowse}
+          >
+            <Icon name="folder" size={11} />
+            {t('chat.welcome.browse')}
+          </button>
+          {!isDefault ? (
+            <button
+              type="button"
+              className="chat-btn chat-btn-sm"
+              data-testid="chat-workspace-reset"
+              onClick={onReset}
+            >
+              {t('chat.welcome.reset')}
+            </button>
+          ) : null}
+        </div>
+        {others.length > 0 ? (
+          <div className="chat-workspace-recent">
+            <span>{t('chat.welcome.recent')}</span>
+            {others.map((project) => (
+              <button
+                key={project.path}
+                type="button"
+                className="chat-workspace-chip"
+                data-testid="chat-workspace-recent"
+                title={project.path}
+                onClick={() => onChoose(project.path)}
+              >
+                <Icon name="folder" size={10} />
+                {project.name || basename(project.path)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    </div>
   )
 }
 
@@ -2663,7 +2775,6 @@ function LiveTurnTimeline({
   onCite,
   onApprove,
   onRetry,
-  onOpenAgent,
 }: {
   showTimeline: boolean
   events: SessionEvent[]
@@ -2678,7 +2789,6 @@ function LiveTurnTimeline({
   onCite: () => void
   onApprove: (decision: ApprovalDecision) => void
   onRetry: () => void
-  onOpenAgent: (id: string) => void
 }) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(0)
@@ -2768,7 +2878,6 @@ function LiveTurnTimeline({
               live
               sources={sources}
               onCite={onCite}
-              onOpenAgent={onOpenAgent}
             />
           ) : null}
           {/* Nothing written yet, or the runtime is between steps: keep the

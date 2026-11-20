@@ -302,7 +302,11 @@ function toSubAgentSteps(raw: unknown): SubAgentStep[] {
     const item = entry as Record<string, unknown>
     if (item.kind === 'text') {
       const text = asText(item.text)
-      if (text !== '') steps.push({ kind: 'text', text, channel: 'answer' })
+      if (text === '') continue
+      // The host marks a child's reasoning with `channel: "thinking"`; dropping
+      // it would print reasoning and answer as one paragraph.
+      const channel = item.channel === 'thinking' ? 'thinking' : 'answer'
+      steps.push({ kind: 'text', text, channel })
       continue
     }
     if (item.kind === 'tool') {
