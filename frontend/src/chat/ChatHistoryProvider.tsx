@@ -30,6 +30,7 @@ import {
   type SessionSummary,
 } from './client'
 import { isTauriHost } from '../host/tauri'
+import { useI18n } from '../i18n/LanguageProvider'
 import { useChatSample } from '../pages/chat/sampleData'
 
 export interface ChatHistory {
@@ -40,6 +41,20 @@ export interface ChatHistory {
   /** True once the first read finished, so the panel can tell empty from loading. */
   ready: boolean
   error: string | null
+  /**
+   * One line about the last action: what it did, or why it could not.
+   *
+   * Every row action used to end in silence — a request that failed, a menu
+   * that closed, nothing on screen. The panel now always has an answer to
+   * "did that work?".
+   */
+  notice: string | null
+  /** Whether the notice reports a success or a refusal. */
+  noticeTone: 'ok' | 'error'
+  dismissNotice: () => void
+  /** Archived sessions are hidden unless the panel asks for them. */
+  showArchived: boolean
+  setShowArchived: (next: boolean) => void
   refresh: () => Promise<void>
   /** Record which session the chat page moved to (no navigation). */
   setActive: (id: string | null) => void
@@ -95,12 +110,16 @@ function writeActive(id: string | null) {
 export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const sample = useChatSample()
+  const { t } = useI18n()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => readActive())
   const [newSeq, setNewSeq] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [noticeTone, setNoticeTone] = useState<'ok' | 'error'>('ok')
+  const [showArchived, setShowArchived] = useState(false)
   const mounted = useRef(true)
   const activeRef = useRef<string | null>(null)
 
@@ -110,6 +129,15 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       mounted.current = false
     }
   }, [])
+
+  // A confirmation is an answer, not a banner: it goes away on its own.
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  const dismissNotice = useCallback(() => setNotice(null), [])
 
   const setActive = useCallback((id: string | null) => {
     activeRef.current = id
@@ -123,8 +151,10 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       return
     }
     try {
+      // `includeArchived` is what makes the archive action reversible: the rows
+      // come back when the panel asks for them.
       const [page, index] = await Promise.all([
-        listSessions({ limit: HISTORY_LIMIT }),
+        listSessions({ limit: HISTORY_LIMIT, includeArchived: showArchived }),
         listProjects(),
       ])
       if (!mounted.current) return
@@ -148,7 +178,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     } finally {
       if (mounted.current) setReady(true)
     }
-  }, [sample, setActive])
+  }, [sample, setActive, showArchived])
 
   useEffect(() => {
     void refresh()
@@ -167,63 +197,92 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     [navigate, setActive],
   )
 
+  /**
+   * Run one row action and say what happened.
+   *
+   * Failures used to disappear: `finally` refreshed the list and the rejected
+   * promise went nowhere, so a refused rename looked exactly like a menu that
+   * did nothing. The list is refreshed either way, and the reason is put on
+   * screen.
+   */
   const run = useCallback(
-    async (action: () => Promise<unknown>) => {
+    async <T,>(action: () => Promise<T>, done: string | ((value: T) => string)) => {
       try {
-        await action()
+        const value = await action()
+        if (mounted.current) {
+          setNoticeTone('ok')
+          setNotice(typeof done === 'function' ? done(value) : done)
+        }
+      } catch (cause) {
+        const reason = cause instanceof Error ? cause.message : String(cause)
+        if (mounted.current) {
+          setNoticeTone('error')
+          setNotice(t('chat.history.failed', { reason }))
+        }
       } finally {
         await refresh()
       }
     },
-    [refresh],
+    [refresh, t],
   )
 
   const rename = useCallback(
-    (id: string, title: string) => run(() => renameSession(id, title)),
-    [run],
+    (id: string, title: string) =>
+      run(() => renameSession(id, title), t('chat.history.renamed')),
+    [run, t],
   )
 
   const setPinned = useCallback(
-    (id: string, pinned: boolean) => run(() => pinSession(id, pinned)),
-    [run],
+    (id: string, pinned: boolean) =>
+      run(() => pinSession(id, pinned), pinned ? t('chat.history.pinned') : t('chat.history.unpinned')),
+    [run, t],
   )
 
   const setArchived = useCallback(
     (id: string, archived: boolean) =>
-      run(async () => {
-        await archiveSession(id, archived)
-        if (archived && activeRef.current === id) setActive(null)
-      }),
-    [run, setActive],
+      run(
+        async () => {
+          await archiveSession(id, archived)
+          if (archived && activeRef.current === id) setActive(null)
+        },
+        archived ? t('chat.history.archived') : t('chat.history.unarchived'),
+      ),
+    [run, setActive, t],
   )
 
   const remove = useCallback(
     (id: string) =>
-      run(async () => {
-        await deleteSession(id)
-        if (activeRef.current === id) setActive(null)
-      }),
-    [run, setActive],
+      run(
+        async () => {
+          await deleteSession(id)
+          if (activeRef.current === id) setActive(null)
+        },
+        t('chat.history.deleted'),
+      ),
+    [run, setActive, t],
   )
 
   const fork = useCallback(
     async (id: string) => {
-      try {
+      let created: string | null = null
+      await run(async () => {
         const branch = await forkSession(id)
-        await refresh()
+        created = branch.id
         open(branch.id)
-        return branch.id
-      } catch (cause) {
-        if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause))
-        return null
-      }
+      }, t('chat.history.forked'))
+      return created
     },
-    [open, refresh],
+    [open, run, t],
   )
 
   const compact = useCallback(
-    (id: string, keepLast: number) => run(() => compactSession(id, keepLast)),
-    [run],
+    (id: string, keepLast: number) =>
+      run(
+        () => compactSession(id, keepLast),
+        (report) =>
+          t('chat.history.compacted', { folded: report.collapsed, kept: report.kept }),
+      ),
+    [run, t],
   )
 
   const value = useMemo<ChatHistory>(
@@ -234,6 +293,11 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       newSeq,
       ready,
       error,
+      notice,
+      noticeTone,
+      dismissNotice,
+      showArchived,
+      setShowArchived,
       refresh,
       setActive,
       startNew,
@@ -252,6 +316,11 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       newSeq,
       ready,
       error,
+      notice,
+      noticeTone,
+      dismissNotice,
+      showArchived,
+      setShowArchived,
       refresh,
       setActive,
       startNew,
@@ -286,6 +355,11 @@ const EMPTY_HISTORY: ChatHistory = {
   newSeq: 0,
   ready: true,
   error: null,
+  notice: null,
+  noticeTone: 'ok',
+  dismissNotice: () => undefined,
+  showArchived: false,
+  setShowArchived: () => undefined,
   refresh: async () => undefined,
   setActive: () => undefined,
   startNew: () => undefined,

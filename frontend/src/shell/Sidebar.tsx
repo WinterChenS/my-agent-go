@@ -9,8 +9,14 @@ import { PRIMARY_ROUTES } from './routes'
 import ToolsMenu from './ToolsMenu'
 import { SHELL_SAMPLE_FIXTURE, useShellSample } from './sampleNavigation'
 
-/** Messages kept verbatim when a session is compacted from the sidebar. */
-const COMPACT_KEEP_LAST = 4
+/**
+ * Messages kept verbatim when a session is compacted from the sidebar.
+ *
+ * The last exchange, not the last four: most conversations here are short, and
+ * `keep_last = 4` on a four-message session is "nothing to compact" — the action
+ * looked broken because there was nothing for it to do.
+ */
+const COMPACT_KEEP_LAST = 2
 
 export default function Sidebar() {
   const { t } = useI18n()
@@ -110,6 +116,10 @@ export default function Sidebar() {
                 onDelete: (id) => void history.remove(id),
                 onFork: (id) => void history.fork(id),
                 onCompact: (id) => void history.compact(id, COMPACT_KEEP_LAST),
+                onUnarchive: (id) => void history.setArchived(id, false),
+                notice: history.notice,
+                showArchived: history.showArchived,
+                onToggleArchived: () => history.setShowArchived(!history.showArchived),
               }
         }
       />

@@ -128,7 +128,8 @@ export interface QueuedTurn {
 }
 
 /** How many trailing messages a compaction leaves verbatim. */
-const COMPACT_KEEP_LAST = 6
+// The last exchange and the answer in progress; everything older is folded.
+const COMPACT_KEEP_LAST = 2
 
 /** Persisted trust level for the composer's permission picker. */
 const PERMISSION_KEY = 'anvil.chat.permission'
@@ -1512,6 +1513,10 @@ export default function ChatPage() {
                       onDelete: deleteHistorySession,
                       onFork: forkHistorySession,
                       onCompact: compactHistorySession,
+                      onUnarchive: (id) => void history.setArchived(id, false),
+                      notice: history.notice,
+                      showArchived: history.showArchived,
+                      onToggleArchived: () => history.setShowArchived(!history.showArchived),
                     }
               }
               variant="drawer"

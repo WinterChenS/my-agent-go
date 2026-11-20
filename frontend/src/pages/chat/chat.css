@@ -3068,14 +3068,66 @@ button.chat-badge:hover {
   font-size: var(--text-2xs);
 }
 
+/* The answer to "did that work?". A confirmation is quiet; a refusal is not:
+   the reader asked for something and needs to know it did not happen. */
 .chat-history-notice {
   margin: 0 var(--space-2) var(--space-2);
   padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
   border-radius: var(--r-xs);
-  background: var(--warn-soft);
+  background: var(--surface-2);
   color: var(--fg-2);
   font-size: var(--text-2xs);
   line-height: 1.4;
+}
+
+.chat-history-notice.is-error {
+  border-color: color-mix(in oklab, var(--warn) 40%, var(--border));
+  background: var(--warn-soft);
+}
+
+/* Archiving hides a conversation, so the panel always offers the way back —
+   quietly, because it is not part of the everyday list. */
+.chat-history-archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-history-archived-toggle:hover {
+  color: var(--fg-2);
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+}
+
+.chat-history-archived-toggle.is-on {
+  border-style: solid;
+  background: var(--surface-2);
+  color: var(--fg-2);
+}
+
+.chat-history-chip {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+/* Pinning only reorders the list, which is invisible when the row is already
+   near the top: the row says so instead. */
+.chat-history-chip.is-pin {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .chat-history-scroll {

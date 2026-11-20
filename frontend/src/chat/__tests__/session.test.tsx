@@ -772,7 +772,10 @@ describe('chat history grouping', () => {
     await userEvent.click(within(row as HTMLElement).getByLabelText('会话操作'))
     await userEvent.click(within(screen.getByTestId('chat-history-action-menu')).getByText('压缩上下文'))
     await waitFor(() => expect(host.calls).toContain('session_compact'))
-    expect(host.args('session_compact')).toMatchObject({ sessionId: 'pi-a', keepLast: 6 })
+    // The last exchange stays verbatim. It used to be six, which on a short
+    // conversation is "nothing to compact" — the action did nothing and said
+    // nothing, so it read as broken.
+    expect(host.args('session_compact')).toMatchObject({ sessionId: 'pi-a', keepLast: 2 })
   })
 })
 

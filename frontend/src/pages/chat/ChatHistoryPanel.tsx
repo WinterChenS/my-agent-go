@@ -11,11 +11,13 @@ type Session = {
   meta: string
   state?: 'pending'
   pinned?: boolean
+  /** Archived rows are only listed when the panel asks for them. */
+  archived?: boolean
   /** Directory the session ran in; the history panel groups rows by it. */
   projectPath?: string
 }
 
-type HistoryAction = 'pin' | 'rename' | 'archive' | 'fork' | 'compact' | 'delete'
+type HistoryAction = 'pin' | 'rename' | 'archive' | 'unarchive' | 'fork' | 'compact' | 'delete'
 
 /** The real ledger, when the desktop host is connected. */
 export interface LiveHistory {
@@ -31,6 +33,14 @@ export interface LiveHistory {
   onDelete: (id: string) => void
   onFork: (id: string) => void
   onCompact: (id: string) => void
+  /** Bring one archived conversation back into the default list. */
+  onUnarchive?: (id: string) => void
+  /** What the last action did, or why it could not. */
+  notice?: string | null
+  noticeTone?: 'ok' | 'error'
+  /** Whether archived rows are in `sessions`. */
+  showArchived?: boolean
+  onToggleArchived?: () => void
 }
 
 export default function ChatHistoryPanel({
@@ -93,6 +103,7 @@ export default function ChatHistoryPanel({
         count: session.messageCount,
       }),
       pinned: session.pinned,
+      archived: session.archived,
       projectPath: session.projectPath,
     }))
 
@@ -129,6 +140,9 @@ export default function ChatHistoryPanel({
     }))
   }, [live?.projects, t, visibleLive, workspace.defaultPath])
 
+  // Two sources: the sample panel keeps its own line, the live panel gets one
+  // from the last action. Either way the reader gets an answer to "did it work".
+  const banner = live?.notice ?? notice
   const noResults = normalized
     ? visibleProjects.length === 0 && visiblePersonal.length === 0 && visibleLive.length === 0
     : !sample && visibleLive.length === 0
@@ -163,6 +177,7 @@ export default function ChatHistoryPanel({
     }
     if (action === 'pin') live.onPin(session.id)
     if (action === 'archive') live.onArchive(session.id)
+    if (action === 'unarchive') live.onUnarchive?.(session.id)
     if (action === 'fork') live.onFork(session.id)
     if (action === 'compact') live.onCompact(session.id)
   }
@@ -219,9 +234,26 @@ export default function ChatHistoryPanel({
           aria-label={t('chat.history.search')}
         />
       </label>
-      {notice ? (
-        <p className="chat-history-notice" data-testid="chat-history-notice" role="status">
-          {notice}
+      {live?.onToggleArchived ? (
+        // Archiving is only usable if there is a way back: this is it.
+        <button
+          type="button"
+          className={`chat-history-archived-toggle${live.showArchived ? ' is-on' : ''}`}
+          data-testid="chat-history-archived-toggle"
+          aria-pressed={live.showArchived === true}
+          onClick={() => live.onToggleArchived?.()}
+        >
+          <Icon name="archive" size={10} />
+          <span>{live.showArchived ? t('chat.history.hideArchived') : t('chat.history.showArchived')}</span>
+        </button>
+      ) : null}
+      {banner ? (
+        <p
+          className={`chat-history-notice${live?.noticeTone === 'error' ? ' is-error' : ''}`}
+          data-testid="chat-history-notice"
+          role="status"
+        >
+          {banner}
         </p>
       ) : null}
       <div className="chat-history-scroll">
@@ -465,12 +497,23 @@ function SessionRow({
             <span className="chat-history-title">{session.title}</span>
             <span className="chat-history-meta">
               {session.state === 'pending' ? <i aria-hidden="true" /> : null}
+              {session.pinned ? (
+                <span className="chat-history-chip is-pin" data-testid="chat-history-pin-chip">
+                  {t('chat.history.pinnedBadge')}
+                </span>
+              ) : null}
+              {session.archived ? (
+                <span className="chat-history-chip" data-testid="chat-history-archived-chip">
+                  {t('chat.history.archivedBadge')}
+                </span>
+              ) : null}
               {session.meta}
             </span>
           </span>
         </button>
       )}
-      <button
+      {onAction ? (
+        <button
         ref={triggerRef}
         type="button"
         className="chat-history-actions-trigger"
@@ -495,7 +538,8 @@ function SessionRow({
         }}
       >
         <Icon name="more" size={11} />
-      </button>
+        </button>
+      ) : null}
       {menuOpen ? (
         <div
               ref={menuRef}
@@ -506,7 +550,10 @@ function SessionRow({
               data-session-id={session.id}
               style={{ top: anchor.top, left: anchor.left }}
             >
-              {(['pin', 'rename', 'archive', 'fork', 'compact', 'delete'] as const).map((action) => (
+              {(session.archived
+                ? (['pin', 'rename', 'unarchive', 'fork', 'compact', 'delete'] as const)
+                : (['pin', 'rename', 'archive', 'fork', 'compact', 'delete'] as const)
+              ).map((action) => (
                 <button
                   key={action}
                   type="button"
@@ -527,7 +574,7 @@ function SessionRow({
                         ? 'pin'
                         : action === 'delete'
                           ? 'trash'
-                          : action === 'archive'
+                          : action === 'archive' || action === 'unarchive'
                             ? 'archive'
                             : action === 'fork'
                               ? 'branch'
