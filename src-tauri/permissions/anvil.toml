@@ -120,6 +120,11 @@ description = "Allows writing a message into the turn that is streaming."
 commands.allow = ["session_steer"]
 
 [[permission]]
+identifier = "allow-session-context"
+description = "Allows reading a session's context-window occupancy."
+commands.allow = ["session_context"]
+
+[[permission]]
 identifier = "allow-session-rename"
 description = "Allows renaming a session."
 commands.allow = ["session_rename"]

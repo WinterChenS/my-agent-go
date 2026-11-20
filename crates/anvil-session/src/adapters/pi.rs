@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::adapter::{AdapterEvent, Cancel, RunOutcome, SessionAdapter, Turn};
+use crate::adapter::{AdapterEvent, Cancel, ContextUsage, RunOutcome, SessionAdapter, Turn};
 use crate::error::{Error, Result};
 use crate::model::{
     EventKind, OpenedSession, RunStatus, SessionCapabilities, SessionContext, SessionSpec,
@@ -585,6 +585,97 @@ impl SessionAdapter for PiAdapter {
         })
     }
 
+    /// Ask pi for the session's own context estimate.
+    ///
+    /// `get_session_stats` is a read-only RPC command: a short-lived child opens
+    /// the same session file, answers once and exits on stdin EOF. That keeps
+    /// the number real (the runtime's own compaction estimate) without keeping
+    /// another long-running process around just to draw a ring.
+    fn context_usage(
+        &self,
+        context: &SessionContext,
+        opened: &OpenedSession,
+    ) -> Result<Option<ContextUsage>> {
+        if opened.native_id.trim().is_empty() {
+            return Ok(None);
+        }
+        let mut child = self
+            .command(context, opened, opened.allow_tools, &opened.tools)?
+            .spawn()
+            .map_err(|error| Error::Failed(format!("spawn pi for stats: {error}")))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Io("pi stats stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Io("pi stats stdout was not piped".into()))?;
+        let (sender, receiver) = mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        write_command(
+            &mut stdin,
+            &serde_json::json!({ "id": "ctx-1", "type": "get_session_stats" }),
+        )
+        .map_err(|error| Error::Failed(format!("ask pi for stats: {error}")))?;
+        drop(stdin);
+
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut found: Option<ContextUsage> = None;
+        while Instant::now() < deadline {
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(line) => {
+                    let Some(value) = parse_line(&line) else { continue };
+                    if value.get("type").and_then(Value::as_str) != Some("response")
+                        || value.get("command").and_then(Value::as_str) != Some("get_session_stats")
+                    {
+                        continue;
+                    }
+                    if value.get("success").and_then(Value::as_bool) != Some(true) {
+                        break;
+                    }
+                    let Some(usage) = value.pointer("/data/contextUsage") else {
+                        break;
+                    };
+                    let window = usage
+                        .get("contextWindow")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    if window == 0 {
+                        break;
+                    }
+                    found = Some(ContextUsage {
+                        tokens: usage.get("tokens").and_then(Value::as_u64),
+                        context_window: window,
+                        percent: usage
+                            .get("percent")
+                            .and_then(Value::as_f64)
+                            .or_else(|| {
+                                usage
+                                    .get("tokens")
+                                    .and_then(Value::as_u64)
+                                    .map(|tokens| tokens as f64 * 100.0 / window as f64)
+                            }),
+                    });
+                    break;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        if found.is_none() {
+            super::kill_tree(&mut child);
+        }
+        let _ = wait_briefly(&mut child);
+        Ok(found)
+    }
+
     fn steer(&self, opened: &OpenedSession, text: &str) -> Result<bool> {
         let text = text.trim();
         if text.is_empty() {
@@ -781,13 +872,21 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
             if is_subagent_tool(tool) {
                 events.extend(subagent_finished(value));
             } else {
-                events.push(AdapterEvent::new(
-                    EventKind::ToolResult,
-                    serde_json::json!({
-                        "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
-                        "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
-                    }),
-                ));
+                // Keep the tool's output and pictures on the *result* event:
+                // that is where the turn produced them, so the page can draw
+                // an image between the two messages that surround the call.
+                let (text, images) = content_parts(value.get("result").and_then(|r| r.get("content")));
+                let mut payload = serde_json::json!({
+                    "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
+                    "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
+                });
+                if !text.is_empty() {
+                    payload["output"] = Value::String(text);
+                }
+                if !images.is_empty() {
+                    payload["images"] = Value::Array(images);
+                }
+                events.push(AdapterEvent::new(EventKind::ToolResult, payload));
             }
         }
         "agent_start" | "turn_start" | "message_start" | "message_end" | "agent_end"
@@ -999,10 +1098,8 @@ fn messages_to_steps(messages: Option<&Value>) -> Value {
                 .get("isError")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let output = clip(
-                &content_text(message.get("content")),
-                budget.min(STEP_TEXT_CHARS),
-            );
+            let (raw, images) = content_parts(message.get("content"));
+            let output = clip(&raw, budget.min(STEP_TEXT_CHARS));
             budget = budget.saturating_sub(output.chars().count());
             steps.push(serde_json::json!({
                 "kind": "tool_result",
@@ -1010,6 +1107,11 @@ fn messages_to_steps(messages: Option<&Value>) -> Value {
                 "ok": ok,
                 "output": output,
             }));
+            // A child's picture belongs in its own transcript at the moment
+            // the tool produced it, just like the parent's timeline.
+            for image in images {
+                steps.push(serde_json::json!({ "kind": "image", "image": image }));
+            }
             continue;
         }
         if role != "assistant" {
@@ -1093,6 +1195,51 @@ fn content_text(content: Option<&Value>) -> String {
         }
     }
     text
+}
+
+/// Split a pi message's content into text and pictures.
+///
+/// An image from a tool result reaches us base64-encoded in the message itself
+/// (there is no file to link to). It stays on the event that carried it so the
+/// reader sees it where the tool ran, not as a detached attachment. A very
+/// large payload is stated instead of silently pushing megabytes into the
+/// ledger and every CDP frame.
+const MAX_IMAGE_BYTES: usize = 2 * 1024 * 1024;
+
+fn content_parts(content: Option<&Value>) -> (String, Vec<Value>) {
+    let Some(parts) = content.and_then(Value::as_array) else {
+        return (String::new(), Vec::new());
+    };
+    let mut text = String::new();
+    let mut images: Vec<Value> = Vec::new();
+    for part in parts {
+        match part.get("type").and_then(Value::as_str).unwrap_or("") {
+            "text" => {
+                if let Some(found) = part.get("text").and_then(Value::as_str) {
+                    text.push_str(found);
+                }
+            }
+            "image" => {
+                let data = part.get("data").and_then(Value::as_str).unwrap_or("");
+                if data.is_empty() {
+                    continue;
+                }
+                if data.len() > MAX_IMAGE_BYTES {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str("(图片过大，未写入对话记录)");
+                    continue;
+                }
+                images.push(serde_json::json!({
+                    "data": data,
+                    "mimeType": part.get("mimeType").and_then(Value::as_str).unwrap_or("image/png"),
+                }));
+            }
+            _ => {}
+        }
+    }
+    (text, images)
 }
 
 fn last_assistant_text(messages: Option<&Value>) -> String {
@@ -1281,6 +1428,40 @@ mod tests {
         assert_eq!(steps[4]["text"], "42 files");
         // The parent's own prompt is not the child's work.
         assert!(steps.iter().all(|step| step["text"] != "count files"));
+    }
+
+    /// A picture from a tool result stays on the result event, with the text
+    /// around it, so the page can draw it where the tool ran.
+    #[test]
+    fn a_tool_result_keeps_its_output_and_images() {
+        let value = serde_json::json!({
+            "type": "tool_execution_end",
+            "toolCallId": "call_9",
+            "toolName": "bash",
+            "isError": false,
+            "result": { "content": [
+                { "type": "text", "text": "wrote chart.png" },
+                { "type": "image", "data": "aGVsbG8=", "mimeType": "image/png" }
+            ] }
+        });
+        let events = translate(&value);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::ToolResult);
+        assert_eq!(events[0].payload["output"], "wrote chart.png");
+        let images = events[0].payload["images"].as_array().expect("images");
+        assert_eq!(images[0]["mimeType"], "image/png");
+        assert_eq!(images[0]["data"], "aGVsbG8=");
+    }
+
+    /// Oversized pictures are reported, not written into every event row.
+    #[test]
+    fn an_oversized_image_is_reported_instead_of_stored() {
+        let huge = "x".repeat(MAX_IMAGE_BYTES + 1);
+        let (text, images) = content_parts(Some(&serde_json::json!([
+            { "type": "image", "data": huge, "mimeType": "image/png" }
+        ])));
+        assert!(images.is_empty());
+        assert!(text.contains("图片过大"));
     }
 
     #[test]

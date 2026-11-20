@@ -673,6 +673,79 @@ button.chat-badge:hover {
   font-size: var(--text-xs-plus);
 }
 
+.chat-subagent-oneway {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+}
+
+.chat-subagent-oneway svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.chat-subagent-oneway span {
+  flex: 1;
+}
+
+.chat-subagent-return {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+/* A picture a tool produced: shown where the tool ran, with the surrounding
+   steps kept in order. */
+.chat-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.chat-tool-images figure,
+.chat-subagent-image {
+  max-width: 100%;
+  margin: 0;
+}
+
+.chat-tool-images img,
+.chat-subagent-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  object-fit: contain;
+}
+
+.chat-tool-images figcaption,
+.chat-subagent-image figcaption {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-subagent-image {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
 /* The child's own answer: prose, not a preformatted blob. */
 .chat-subagent-text {
   padding: var(--space-4) var(--space-5);
@@ -1727,6 +1800,21 @@ button.chat-badge:hover {
   flex: none;
   padding: var(--space-5) var(--space-12) var(--space-7);
   background: var(--bg);
+}
+
+.chat-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.chat-context svg {
+  flex: none;
 }
 
 .chat-composer-project-row {

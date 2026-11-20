@@ -51,11 +51,13 @@ import {
   type ContextEntry,
   type ContextRef,
   type PermissionMode,
+  type PiImage,
   type ProjectSummary,
   type SessionEvent,
   type ThinkingLevel,
 } from '../../chat/client'
 import ChatHistoryPanel from './ChatHistoryPanel'
+import { imageSrc } from '../../chat/image'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
 import { pickWorkspace, pickWorkspaceFiles } from '../../workspace/client'
 import ChatRail, { type RailTab } from './ChatRail'
@@ -661,6 +663,19 @@ export default function ChatPage() {
   // run, then the field — instead of a large empty column with a field pinned
   // to the bottom.
   const blankPage = liveReady && liveSession === null
+  // The ring follows the model the next turn will use, including an agent
+  // choice (an agent is a model plus its settings). pi's own number, when a
+  // session has one, supplies the occupancy.
+  const pickedModel = pickedAgent
+    ? live.agents.find((agent) => agent.id === pickedAgent)
+    : undefined
+  // Models do not carry a window label; saved agents do. The runtime's own
+  // number wins once a session has been measured, but a blank page still needs
+  // to say what window the next turn will have.
+  const windowAgent =
+    pickedModel ?? (pickedAgent ? undefined : live.agents.find((agent) => agent.isDefault))
+  const contextWindow = live.context?.contextWindow || parseWindowSize(windowAgent?.contextWindow)
+  const contextUsed = live.context?.tokens ?? null
   // A steer is stored as a user message *and* as an event of the running turn.
   // The event is what the transcript renders (it sits between the steps it
   // interrupted); printing the message as well would show it twice.
@@ -1353,6 +1368,13 @@ export default function ChatPage() {
               )
             }
             draftRequest={draftRequest}
+            contextAside={
+              <ContextRing
+                windowSize={contextWindow}
+                used={contextUsed}
+                percent={live.context?.percent ?? null}
+              />
+            }
           />
         </div>
 
@@ -1377,6 +1399,10 @@ export default function ChatPage() {
             agent={activeAgent}
             onClose={() => setSubAgentActive(null)}
             onArchive={archiveSubAgent}
+            onReturn={(runId, turn) => {
+              setSubAgentActive(null)
+              jumpToTurn(runId, turn)
+            }}
           />
         )}
       </div>
@@ -1692,6 +1718,63 @@ scope docs/**                               允许
   )
 }
 
+/** `400K`, `1M`, `128000` → tokens. An unparseable label is not a number. */
+export function parseWindowSize(label: string | undefined): number {
+  if (!label) return 0
+  const match = /^\s*([\d.]+)\s*([kKmM]?)\s*$/.exec(label)
+  if (!match) return 0
+  const value = Number(match[1])
+  if (!Number.isFinite(value) || value <= 0) return 0
+  const scale = match[2].toLowerCase() === 'k' ? 1_000 : match[2].toLowerCase() === 'm' ? 1_000_000 : 1
+  return Math.round(value * scale)
+}
+
+/** How full the model's context window is; the number comes from pi when the
+ * session has one, otherwise from the model's advertised window. */
+export function ContextRing({
+  windowSize,
+  used,
+  percent,
+}: {
+  windowSize: number
+  used: number | null
+  percent: number | null
+}) {
+  const { t } = useI18n()
+  const ratio = percent ?? (used !== null && windowSize > 0 ? (used * 100) / windowSize : 0)
+  const shown = Math.max(0, Math.min(100, ratio))
+  const circumference = 2 * Math.PI * 13
+  const label = windowSize > 0 ? (windowSize >= 1_000_000 ? `${windowSize / 1_000_000}M` : `${Math.round(windowSize / 1_000)}K`) : '—'
+  return (
+    <div
+      className="chat-context"
+      data-testid="chat-context"
+      data-percent={shown.toFixed(1)}
+      title={
+        used === null
+          ? t('chat.context.modelOnly', { window: label })
+          : t('chat.context.used', { used: used.toLocaleString(), window: label })
+      }
+    >
+      <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
+        <circle
+          cx="16"
+          cy="16"
+          r="13"
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={`${(shown / 100) * circumference} ${circumference}`}
+          transform="rotate(-90 16 16)"
+        />
+      </svg>
+      <span>{t('chat.context.label', { window: label, percent: Math.round(shown) })}</span>
+    </div>
+  )
+}
+
 /**
  * The blank page: where this conversation will run, then the field.
  *
@@ -1910,6 +1993,7 @@ function Composer({
   projectAside,
   queueAside,
   draftRequest,
+  contextAside,
 }: {
   sample: boolean
   live: LiveComposer | null
@@ -1945,6 +2029,8 @@ function Composer({
   queueAside?: ReactNode
   /** A queued message handed back for editing; the id makes each handoff fire once. */
   draftRequest?: { id: number; text: string } | null
+  /** Context-window occupancy, below the field. */
+  contextAside?: ReactNode
 }) {
   const { t } = useI18n()
   const enabled = sample || live !== null
@@ -2716,6 +2802,7 @@ function Composer({
         </div>
       </form>
       <div className="chat-composer-foot">
+        {contextAside}
         <span>{sample ? t('chat.composer.pending') : live ? t('chat.live.hint') : t('chat.composer.normalHint')}</span>
         <span className="chat-kbdset">
           <span className="kbd">{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}</span>
@@ -2932,7 +3019,11 @@ function LiveTurnTimeline({
 }
 
 /** One tool call of the live turn, collapsed until the user opens it. */
-function LiveToolCard({ tool }: { tool: { name: string; args: string; ok: boolean | null; output: string } }) {
+function LiveToolCard({
+  tool,
+}: {
+  tool: { id?: string; name: string; args: string; ok: boolean | null; output: string; images?: PiImage[] }
+}) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const status = tool.ok === null ? 'pending' : tool.ok ? 'ok' : 'failed'
@@ -2955,6 +3046,18 @@ function LiveToolCard({ tool }: { tool: { name: string; args: string; ok: boolea
           <Icon name="chevDown" size={10} />
         </span>
       </button>
+      {/* Pictures are the tool's answer, not debug detail: show them in place
+          even while the text output is folded away. */}
+      {tool.images && tool.images.length > 0 ? (
+        <div className="chat-tool-images" data-testid="chat-tool-images">
+          {tool.images.map((image, index) => (
+            <figure key={`${tool.id}-image-${index}`}>
+              <img src={imageSrc(image)} alt={t('chat.tool.imageAlt')} />
+              <figcaption>{t('chat.tool.imageCaption', { tool: tool.name })}</figcaption>
+            </figure>
+          ))}
+        </div>
+      ) : null}
       {open ? <pre className="chat-tool-body">{tool.output || tool.args}</pre> : null}
     </section>
   )

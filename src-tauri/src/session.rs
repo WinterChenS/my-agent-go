@@ -22,8 +22,8 @@ use std::sync::{Mutex, MutexGuard};
 use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
 use anvil_session::rail::RailView;
 use anvil_session::{
-    ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, Message,
-    Steers,
+    ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, ContextUsage,
+    Message, Steers,
     ProjectSummary, RunEvent, SessionContext, SessionDetail, SessionInput, SessionPage,
     SessionQuery, SessionService, SessionSpec, SessionSummary, Store,
 };
@@ -270,6 +270,15 @@ impl SessionState {
             .ok_or_else(|| "session: approvals are not initialised".to_string())?
             .resolve(session_id, approval_id, decision)
             .map_err(|error| error.to_wire().to_string())
+    }
+
+    /// The runtime's own context-window estimate for one session.
+    fn context_usage(&self, session_id: &str) -> Result<Option<ContextUsage>, String> {
+        self.with_writer(|service| {
+            service
+                .context_usage(session_id)
+                .map_err(|error| error.to_wire().to_string())
+        })
     }
 
     /// Write a message into the turn that is streaming right now.
@@ -704,6 +713,15 @@ pub async fn session_steer(
     text: String,
 ) -> Result<bool, String> {
     state.steer(&session_id, &text)
+}
+
+/// How full this session's context window is, according to pi itself.
+#[tauri::command]
+pub async fn session_context(
+    state: State<'_, SessionState>,
+    session_id: String,
+) -> Result<Option<ContextUsage>, String> {
+    state.context_usage(&session_id)
 }
 
 /// Rename a session.

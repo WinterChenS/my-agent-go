@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::Condvar;
 
-use crate::adapter::{AdapterEvent, Cancel, Registry, SessionAdapter, Turn};
+use crate::adapter::{AdapterEvent, Cancel, ContextUsage, Registry, SessionAdapter, Turn};
 use crate::clock::{now_rfc3339, unix_millis};
 use crate::context::{self, Prepared, Step};
 use crate::error::{Error, Result};
@@ -415,6 +415,26 @@ impl SessionService {
     #[must_use]
     pub fn cancels(&self) -> Cancels {
         self.cancels.clone()
+    }
+
+    /// The runtime's own estimate of how full this session's context is.
+    ///
+    /// A blank conversation has no session file to measure, so the page uses
+    /// the model's advertised window instead; once a run has written its
+    /// transcript this returns the real number.
+    pub fn context_usage(&self, session_id: &str) -> Result<Option<ContextUsage>> {
+        let summary = self.store.session(session_id)?;
+        let adapter = self.registry.require(&summary.runtime_id)?;
+        let opened = OpenedSession {
+            runtime_id: summary.runtime_id,
+            native_id: summary.native_id,
+            model: summary.model,
+            cwd: summary.project_path,
+            allow_tools: summary.allow_tools,
+            tools: summary.tools,
+            ..OpenedSession::default()
+        };
+        adapter.context_usage(&self.context, &opened)
     }
 
     /// Steer handles; clone this before sending on another thread.

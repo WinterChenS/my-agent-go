@@ -40,10 +40,13 @@ import {
   renameSession,
   sendTurn,
   SessionUnavailable,
+  sessionContext,
   steerTurn,
   type ApprovalDecision,
   type ApprovalRequest,
   type ContextEntry,
+  type ContextUsage,
+  type PiImage,
   type ContextRef,
   type ExportReport,
   type PermissionMode,
@@ -85,6 +88,8 @@ export interface AgentChoice {
   runtimeId: string
   modelId: string
   isDefault: boolean
+  /** Preset window label from the saved agent (`400K`, `1M`, …). */
+  contextWindow: string
 }
 
 /** One tool call and, when it finished, its result. */
@@ -94,12 +99,15 @@ export interface LiveTool {
   args: string
   ok: boolean | null
   output: string
+  /** Pictures the tool returned; drawn where the tool ran. */
+  images?: PiImage[]
 }
 
 /** One piece of a delegated agent's own transcript, in order. */
 export type SubAgentStep =
   | { kind: 'text'; text: string; channel: 'answer' | 'thinking' }
-  | { kind: 'tool'; name: string; args: string; ok: boolean | null; output: string }
+  | { kind: 'tool'; name: string; args: string; ok: boolean | null; output: string; images?: PiImage[] }
+  | { kind: 'image'; image: PiImage }
 
 export type SubAgentState =
   | 'pending'
@@ -154,6 +162,8 @@ export interface ChatSessionView {
   pending: ApprovalRequest | null
   /** The right rail's four panes, re-read after every turn. */
   rail: RailView | null
+  /** pi's own context-window estimate for the open session; null when unknown. */
+  context: ContextUsage | null
   running: boolean
   /** Why the last turn ended without a reply; null while running or clean. */
   turnFailure: TurnFailure | null
@@ -220,6 +230,7 @@ function toAgentChoices(agents: CatalogAgent[] | undefined): AgentChoice[] {
     runtimeId: agent.runtimeId,
     modelId: agent.modelId,
     isDefault: agent.isDefault,
+    contextWindow: agent.contextWindow,
   }))
 }
 
@@ -294,6 +305,16 @@ function stringifyValue(value: unknown): string {
 }
 
 /** Convert a snapshot's `steps` payload into the card's own vocabulary. */
+/** Pictures on a payload, validated before they reach an `<img src>`. */
+function imagesOf(item: Record<string, unknown>): PiImage[] {
+  const raw = item.images
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+    .map((entry) => ({ data: asText(entry.data), mimeType: asText(entry.mimeType) || 'image/png' }))
+    .filter((image) => image.data !== '')
+}
+
 function toSubAgentSteps(raw: unknown): SubAgentStep[] {
   if (!Array.isArray(raw)) return []
   const steps: SubAgentStep[] = []
@@ -316,7 +337,13 @@ function toSubAgentSteps(raw: unknown): SubAgentStep[] {
         args: stringifyValue(item.args),
         ok: null,
         output: '',
+        images: imagesOf(item),
       })
+      continue
+    }
+    if (item.kind === 'image') {
+      const image = item.image as PiImage | undefined
+      if (image?.data) steps.push({ kind: 'image', image })
       continue
     }
     if (item.kind === 'tool_result') {
@@ -327,6 +354,7 @@ function toSubAgentSteps(raw: unknown): SubAgentStep[] {
       if (open && open.kind === 'tool') {
         open.ok = item.ok === true
         open.output = stringifyValue(item.output)
+        open.images = imagesOf(item)
       } else {
         steps.push({
           kind: 'tool',
@@ -334,6 +362,7 @@ function toSubAgentSteps(raw: unknown): SubAgentStep[] {
           args: '',
           ok: item.ok === true,
           output: stringifyValue(item.output),
+          images: imagesOf(item),
         })
       }
     }
@@ -491,6 +520,7 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
           args: typeof args === 'string' ? args : JSON.stringify(args),
           ok: null,
           output: '',
+          images: [],
         },
       })
       continue
@@ -501,6 +531,8 @@ export function buildTurnParts(events: SessionEvent[], runId?: string): TurnPart
       open.tool.ok = event.payload.ok === true
       const output = event.payload.output ?? event.payload.text ?? ''
       open.tool.output = typeof output === 'string' ? output : JSON.stringify(output)
+      const images = imagesOf(event.payload as Record<string, unknown>)
+      if (images.length > 0) open.tool.images = images
       continue
     }
     if (event.kind === 'user_steer') {
@@ -683,6 +715,7 @@ export function useChatSession({
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
   const [rail, setRail] = useState<RailView | null>(null)
+  const [context, setContext] = useState<ContextUsage | null>(null)
   const [running, setRunning] = useState(false)
   const [turnFailure, setTurnFailure] = useState<TurnFailure | null>(null)
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
@@ -903,6 +936,17 @@ export function useChatSession({
     }
   }, [])
 
+  // The number is a property of the session, not of the draft: it changes when
+  // a turn lands or another conversation is opened, never while typing.
+  const refreshContext = useCallback(async (sessionId: string) => {
+    try {
+      const usage = await sessionContext(sessionId)
+      if (mounted.current) setContext(usage ?? null)
+    } catch {
+      if (mounted.current) setContext(null)
+    }
+  }, [])
+
   /**
    * Follow a run that is still going, after the page was left and came back.
    *
@@ -1004,6 +1048,7 @@ export function useChatSession({
       }
       await reloadSessions().catch(() => undefined)
       await refreshRail(sessionId)
+      void refreshContext(sessionId)
       if (mounted.current) {
         setRunning(false)
         setTurnStartedAt(null)
@@ -1036,14 +1081,16 @@ export function useChatSession({
         if (mounted.current) setError(describeSessionError(cause))
       }
       await refreshRail(sessionId)
+      await refreshContext(sessionId)
     },
-    [attach, refreshRail],
+    [attach, refreshRail, refreshContext],
   )
 
   const startNew = useCallback(() => {
     setCurrent(null)
     setTurnEvents([])
     setRail(null)
+    setContext(null)
     setError(null)
     setTurnFailure(null)
     setTurnStartedAt(null)
@@ -1225,6 +1272,7 @@ export function useChatSession({
       }
       await reloadSessions().catch(() => undefined)
       await refreshRail(sessionId)
+      await refreshContext(sessionId)
       if (mounted.current) {
         setRunning(false)
         setTurnStartedAt(null)
@@ -1233,7 +1281,7 @@ export function useChatSession({
       if (failure) setError(failure)
       return failure
     },
-    [current, model, reloadSessions, refreshRail],
+    [current, model, reloadSessions, refreshRail, refreshContext],
   )
 
   const retry = useCallback(() => sendRef.current(lastPrompt.current), [])
@@ -1302,6 +1350,7 @@ export function useChatSession({
     try {
       const stopped = await abortTurn(sessionId)
       await refreshRail(sessionId)
+      await refreshContext(sessionId)
       return stopped
     } catch (cause) {
       if (mounted.current) setError(describeSessionError(cause))
@@ -1390,6 +1439,7 @@ export function useChatSession({
     turnEvents,
     pending,
     rail,
+    context,
     running,
     turnFailure,
     turnStartedAt,

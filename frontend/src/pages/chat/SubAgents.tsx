@@ -13,6 +13,7 @@
 import { useEffect, useRef } from 'react'
 import type { RailSubAgent, RailSubAgentStep } from '../../chat/client'
 import type { LiveSubAgent } from '../../chat/useChatSession'
+import { imageSrc } from '../../chat/image'
 import type { MessageKey } from '../../i18n/catalogue'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
@@ -299,10 +300,13 @@ export function SubAgentDrawer({
   agent,
   onClose,
   onArchive,
+  onReturn,
 }: {
   agent: SubAgentView | null
   onClose: () => void
   onArchive: (id: string) => void
+  /** Go back to the parent turn that delegated this child. */
+  onReturn?: (runId: string, turn: number) => void
 }) {
   const { t } = useI18n()
   const body = useRef<HTMLDivElement | null>(null)
@@ -360,6 +364,20 @@ export function SubAgentDrawer({
       </header>
 
       <div className="chat-subagent-drawer-body" ref={body} data-testid="chat-subagent-drawer-body">
+        <p className="chat-subagent-oneway" data-testid="chat-subagent-oneway">
+          <Icon name="alert" size={11} />
+          <span>{t('chat.subagent.oneWay')}</span>
+          {agent.runId && agent.turn > 0 && onReturn ? (
+            <button
+              type="button"
+              className="chat-subagent-return"
+              data-testid="chat-subagent-return"
+              onClick={() => onReturn(agent.runId, agent.turn)}
+            >
+              {t('chat.subagent.return')}
+            </button>
+          ) : null}
+        </p>
         {agent.task ? (
           <section className="chat-subagent-brief" data-testid="chat-subagent-brief">
             <span className="chat-subagent-label">{t('chat.subagent.task')}</span>
@@ -382,7 +400,16 @@ export function SubAgentDrawer({
           </p>
         ) : (
           agent.steps.map((step, index) =>
-            step.kind === 'text' ? (
+            step.kind === 'image' && step.image ? (
+              <figure
+                className="chat-subagent-image"
+                key={`${agent.id}-step-${index}`}
+                data-testid="chat-subagent-image"
+              >
+                <img src={imageSrc(step.image)} alt={t('chat.tool.imageAlt')} />
+                <figcaption>{t('chat.tool.imageCaption', { tool: agent.name || 'agent' })}</figcaption>
+              </figure>
+            ) : step.kind === 'text' ? (
               step.channel === 'thinking' ? (
                 <details className="chat-subagent-think" key={`${agent.id}-step-${index}`}>
                   <summary>

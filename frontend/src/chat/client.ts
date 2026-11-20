@@ -180,14 +180,22 @@ export interface RailBrowser {
 
 /** Everything the four rail panes render, for one session. */
 /** One step of a child agent's own transcript. */
+/** A picture a runtime put in a message, base64 as delivered by pi. */
+export interface PiImage {
+  data: string
+  mimeType: string
+}
+
 export interface RailSubAgentStep {
-  kind: 'text' | 'tool' | 'tool_result' | string
+  kind: 'text' | 'tool' | 'tool_result' | 'image' | string
   text?: string
   channel?: 'answer' | 'thinking' | string
   name?: string
   args?: unknown
   ok?: boolean | null
   output?: unknown
+  /** Present when `kind === "image"`. */
+  image?: PiImage
 }
 
 /** A delegated child agent, folded by the host from its observations. */
@@ -468,6 +476,17 @@ export function abortTurn(sessionId: string): Promise<boolean> {
  * `false` means there was nothing live to steer, so the caller keeps the text
  * instead of losing it into a pipe nobody reads.
  */
+/** The runtime's own estimate of how full this session's context is. */
+export interface ContextUsage {
+  tokens: number | null
+  contextWindow: number
+  percent: number | null
+}
+
+export function sessionContext(sessionId: string): Promise<ContextUsage | null> {
+  return hostCall<ContextUsage | null>('session_context', { sessionId })
+}
+
 export function steerTurn(sessionId: string, text: string): Promise<boolean> {
   return hostCall<boolean>('session_steer', { sessionId, text })
 }

@@ -28,7 +28,7 @@ pub mod service;
 pub mod store;
 pub mod subagent;
 
-pub use adapter::{Registry, SessionAdapter};
+pub use adapter::{ContextUsage, Registry, SessionAdapter};
 pub use adapters::default_registry;
 pub use error::{Error, Result};
 pub use model::*;

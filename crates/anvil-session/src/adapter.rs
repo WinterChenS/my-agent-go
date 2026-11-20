@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::{Error, Result};
@@ -17,6 +18,19 @@ use crate::model::{
     AdapterFailure, EventKind, OpenedSession, RunStatus, SessionCapabilities, SessionContext,
     SessionSpec,
 };
+
+/// How full a runtime's context window is right now.
+///
+/// Window size comes from the runtime's model; used tokens come from the
+/// session itself. Both are optional: a runtime that reports neither simply
+/// leaves the indicator without a number rather than inventing one.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsage {
+    pub tokens: Option<u64>,
+    pub context_window: u64,
+    pub percent: Option<f64>,
+}
 
 /// One event as the adapter observed it, before the service assigns a `seq`.
 #[derive(Debug, Clone)]
@@ -187,6 +201,16 @@ pub trait SessionAdapter: Send + Sync {
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
         self.send(context, opened, turn.prompt, cancel, sink)
+    }
+
+    /// Read the current context-window occupancy of a session, if the runtime
+    /// can report it. Default: no data; the page must say so, not guess.
+    fn context_usage(
+        &self,
+        _context: &SessionContext,
+        _opened: &OpenedSession,
+    ) -> Result<Option<ContextUsage>> {
+        Ok(None)
     }
 
     /// Stop a run started by `send`. Default: rely on `Cancel`.
