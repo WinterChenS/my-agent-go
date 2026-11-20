@@ -37,6 +37,8 @@ export interface SessionSummary {
   nativeId: string
   model: string
   projectPath: string
+  /** Agent slug the session was opened with; empty when it runs a plain model. */
+  agentId?: string
   /** Session this one was branched from; empty for a session started anew. */
   parentId: string
   /** Message `seq` in the parent the branch was taken at; `0` without one. */

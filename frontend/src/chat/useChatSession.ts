@@ -85,6 +85,8 @@ export interface ModelChoice {
 export interface AgentChoice {
   id: string
   name: string
+  /** Stable identifier the user typed; this is what a session row remembers. */
+  slug: string
   runtimeId: string
   modelId: string
   isDefault: boolean
@@ -229,6 +231,7 @@ function toAgentChoices(agents: CatalogAgent[] | undefined): AgentChoice[] {
   return (agents ?? []).map((agent) => ({
     id: agent.id,
     name: agent.name,
+    slug: agent.slug,
     runtimeId: agent.runtimeId,
     modelId: agent.modelId,
     isDefault: agent.isDefault,

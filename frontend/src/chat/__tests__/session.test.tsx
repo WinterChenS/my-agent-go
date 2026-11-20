@@ -596,7 +596,9 @@ describe('coming back to the conversation', () => {
     // and shows it as still generating rather than as a conversation that
     // stopped after the prompt.
     const bubble = await screen.findByTestId('chat-message-streaming')
-    expect(bubble).toHaveTextContent('正在生成')
+    // The name no longer carries a "generating" badge beside it: the live
+    // bubble itself and the typing dots say the turn is still running.
+    expect(bubble.querySelector('.chat-agent-head')?.querySelector('.chat-badge')).toBeNull()
     // The fixture's ledger already carries this run's assistant message while
     // the run is still marked running. The streaming bubble owns that run —
     // there must be no second, "settled" copy of it beside the generating one.

@@ -662,6 +662,19 @@ export default function ChatPage() {
   // run, then the field — instead of a large empty column with a field pinned
   // to the bottom.
   const blankPage = liveReady && liveSession === null
+  // Who is speaking. A session opened with a saved agent answers under that
+  // agent's own name; a session running a plain model answers as the runtime
+  // ("pi"). The session row remembers the agent *slug* it was opened with, so a
+  // conversation resumed days later still shows the right name. The built-in
+  // default agent is derived from the default model and has no persona of its
+  // own, so it reads as "pi" like any other model choice.
+  const sessionAgent = useMemo(() => {
+    const slug = liveSession?.agentId
+    if (!slug) return null
+    const agent = live.agents.find((item) => item.slug === slug)
+    return agent && !agent.isDefault ? agent : null
+  }, [liveSession?.agentId, live.agents])
+  const speakerName = sessionAgent?.name || liveSession?.runtimeId || ''
   // The ring follows the model the next turn will use, including an agent
   // choice (an agent is a model plus its settings). pi's own number, when a
   // session has one, supplies the occupancy.
@@ -1022,7 +1035,7 @@ export default function ChatPage() {
                   {basename(liveSession.projectPath) || t('chat.live.localProject')}
                 </span>
                 <span className="sep">/</span>
-                <span>{liveSession.runtimeId}</span>
+                <span>{speakerName}</span>
                 <span className="sep">/</span>
                 <span className="mono">{liveSession.model}</span>
                 <span className="sep">/</span>
@@ -1205,8 +1218,12 @@ export default function ChatPage() {
                       key={message.id}
                     >
                       <div className="chat-agent-head">
-                        <span className="chat-agent-badge">{liveSession.runtimeId.slice(0, 1)}</span>
-                        <span className="chat-agent-name">{liveSession.runtimeId}</span>
+                        <span className="chat-agent-badge" data-testid="chat-speaker-badge">
+                          {speakerName.slice(0, 1)}
+                        </span>
+                        <span className="chat-agent-name" data-testid="chat-speaker-name">
+                          {speakerName}
+                        </span>
                       </div>
                       {message.runId && partsWithAnswer[message.runId]?.length ? (
                         <TurnPartsList
@@ -1247,7 +1264,7 @@ export default function ChatPage() {
                   running={live.running}
                   startedAt={live.turnStartedAt}
                   failure={live.turnFailure}
-                  runtimeId={liveSession.runtimeId}
+                  agentLabel={speakerName}
                   sources={live.rail?.sources.length ?? 0}
                   onCite={showSource}
                   onApprove={(decision) => void live.approve(decision)}
@@ -1558,12 +1575,6 @@ function MessageView({
       <div className="chat-agent-head">
         <span className="chat-agent-badge">{message.agent.slice(0, 1)}</span>
         <span className="chat-agent-name">{message.agent}</span>
-        {message.badge === 'generating' ? (
-          <span className="chat-badge">
-            <i className="chat-dot" aria-hidden="true" />
-            {t('chat.status.generating')}
-          </span>
-        ) : null}
         {message.badge === 'failed' ? <span className="chat-badge chat-tone-danger">{t('chat.tool.failed')}</span> : null}
       </div>
 
@@ -3030,7 +3041,7 @@ function LiveTurnTimeline({
   running,
   startedAt,
   failure,
-  runtimeId,
+  agentLabel,
   sources,
   onCite,
   onApprove,
@@ -3043,7 +3054,8 @@ function LiveTurnTimeline({
   running: boolean
   startedAt: number | null
   failure: TurnFailure | null
-  runtimeId: string
+  /** Who answers this turn: a saved agent's name, or the runtime ("pi"). */
+  agentLabel: string
   sources: number
   onCite: () => void
   onApprove: (decision: ApprovalDecision) => void
@@ -3123,12 +3135,14 @@ function LiveTurnTimeline({
       {running ? (
         <article className="chat-msg" data-testid="chat-message-streaming">
           <div className="chat-agent-head">
-            <span className="chat-agent-badge">{runtimeId.slice(0, 1)}</span>
-            <span className="chat-agent-name">{runtimeId}</span>
-            <span className="chat-badge">
-              <i className="chat-dot" aria-hidden="true" />
-              {t('chat.live.generating')}
+            <span className="chat-agent-badge" data-testid="chat-speaker-badge">
+              {agentLabel.slice(0, 1)}
             </span>
+            <span className="chat-agent-name" data-testid="chat-speaker-name">
+              {agentLabel}
+            </span>
+            {/* No "generating" badge next to the name: the typing dots under
+                the last block already say the turn is live. */}
           </div>
           {parts.length > 0 ? (
             <TurnPartsList
