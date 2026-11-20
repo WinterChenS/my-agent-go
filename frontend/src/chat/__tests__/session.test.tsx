@@ -428,7 +428,7 @@ describe('chat live session', () => {
     // The model already on the machine is offered, and the page does not
     // pretend to have a conversation before one exists.
     expect(screen.getByTestId('chat-model-select')).toHaveTextContent('auto/gpt-5.6-sol')
-    expect(screen.getByTestId('chat-welcome')).toHaveTextContent('从哪个目录开始')
+    expect(screen.getByTestId('chat-project-trigger')).toBeInTheDocument()
 
     await userEvent.type(composer, 'Reply with exactly: ok')
     await userEvent.click(screen.getByTestId('chat-send'))
@@ -463,7 +463,7 @@ describe('chat live session', () => {
     // came back filled with the previous transcript.
     await userEvent.click(screen.getByTestId('chat-history-new'))
 
-    await waitFor(() => expect(screen.getByTestId('chat-welcome')).toHaveTextContent('从哪个目录开始'))
+    await waitFor(() => expect(screen.getByTestId('chat-project-trigger')).toBeInTheDocument())
     expect(screen.queryByTestId('chat-message-agent')).toBeNull()
     expect(screen.queryByTestId('chat-message-user')).toBeNull()
   })
@@ -556,7 +556,9 @@ describe('coming back to the conversation', () => {
     await waitFor(() => expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }))
     // The stored transcript is on screen again, not the empty state.
     expect(await screen.findByTestId('chat-message-agent')).toHaveTextContent('ok')
-    expect(screen.queryByTestId('chat-welcome')).toBeNull()
+    // The workspace chip belongs to the blank page only: a real conversation
+    // hides it above the field.
+    expect(screen.queryByTestId('chat-project-trigger')).toBeNull()
   })
 
   it('follows a run that is still going instead of showing a stopped turn', async () => {
@@ -628,13 +630,13 @@ describe('the shell sidebar', () => {
     await waitFor(() =>
       expect(host.args('session_detail')).toMatchObject({ sessionId: 'pi-a' }),
     )
-    await waitFor(() => expect(screen.queryByTestId('chat-welcome')).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId('chat-project-trigger')).toBeNull())
 
     // The nav entry means "start a conversation". Clicking it used to reopen the
     // last session, which looked like a dead button when that session was
     // already on screen; resuming belongs to the history list.
     await user.click(screen.getByRole('link', { name: '对话' }))
-    await waitFor(() => expect(screen.getByTestId('chat-welcome')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('chat-project-trigger')).toBeInTheDocument())
   })
 
   it('opens a conversation from another page', async () => {
@@ -1355,8 +1357,9 @@ describe('chat context and approvals', () => {
     expect(composer).toHaveValue('@code-review ')
     expect(screen.queryByTestId('chat-attachments')).toBeNull()
     expect(screen.queryByTestId('chat-mention-entry')).toBeNull()
-    // The counter reads the draft, so the inline skill is still one reference.
-    expect(screen.getByText('上下文 1')).toBeInTheDocument()
+    // The skill is still one inline reference in the draft. Its count used to
+    // print in a "上下文 N" button; that button is now the context-window ring.
+    expect(document.querySelector('.chat-inline-skill')).not.toBeNull()
 
     // One Backspace from just after the block removes the name and its space.
     await userEvent.keyboard('{Backspace}')

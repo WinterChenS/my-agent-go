@@ -22,12 +22,16 @@ describe('the context window indicator', () => {
     expect(parseWindowSize(undefined)).toBe(0)
   })
 
-  it('draws the occupancy at the right arc and says the numbers', () => {
+  it('draws the occupancy at the right arc and hides the numbers in the tooltip', () => {
     wrap(<ContextRing windowSize={200_000} used={60_000} percent={30} />)
     const ring = screen.getByTestId('chat-context')
     expect(ring.getAttribute('data-percent')).toBe('30.0')
-    expect(ring.textContent).toContain('200K')
-    expect(ring.textContent).toContain('30%')
+    // A bare ring: the numbers are only on hover, never printed in the field.
+    expect(ring.textContent).toBe('')
+    expect(ring.title).toContain('200K')
+    expect(ring.title).toContain('30%')
+    expect(ring.title).toContain('60,000')
+    expect(ring.getAttribute('role')).toBe('img')
     const arc = ring.querySelectorAll('circle')[1]
     const dash = Number(String(arc.getAttribute('stroke-dasharray')).split(' ')[0])
     expect(dash).toBeCloseTo(2 * Math.PI * 13 * 0.3, 1)
@@ -42,14 +46,14 @@ describe('the context window indicator', () => {
 
   it('switches to the new model window when the caller passes one', () => {
     const { rerender } = wrap(<ContextRing windowSize={400_000} used={100_000} percent={25} />)
-    expect(screen.getByTestId('chat-context').textContent).toContain('400K')
+    expect(screen.getByTestId('chat-context').title).toContain('400K')
     rerender(
       <LanguageProvider environment={environment}>
         <ContextRing windowSize={1_000_000} used={100_000} percent={10} />
       </LanguageProvider>,
     )
     const ring = screen.getByTestId('chat-context')
-    expect(ring.textContent).toContain('1M')
+    expect(ring.title).toContain('1M')
     expect(ring.getAttribute('data-percent')).toBe('10.0')
   })
 })

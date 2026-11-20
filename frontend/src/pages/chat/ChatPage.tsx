@@ -52,7 +52,6 @@ import {
   type ContextRef,
   type PermissionMode,
   type PiImage,
-  type ProjectSummary,
   type SessionEvent,
   type ThinkingLevel,
 } from '../../chat/client'
@@ -1267,27 +1266,6 @@ export default function ChatPage() {
             </div>
           ) : null}
 
-          {blankPage ? (
-            <WorkspaceWelcome
-              path={workspace.path}
-              defaultPath={workspace.defaultPath}
-              isDefault={workspace.isDefault}
-              recent={live.projects}
-              onBrowse={() => {
-                void workspace.browse().catch(() => undefined)
-              }}
-              onReset={() => {
-                void workspace.reset().catch(() => undefined)
-              }}
-              onChoose={(path) => {
-                void workspace.choose(path).then(
-                  () => undefined,
-                  (error: unknown) => showNotice(describeSessionError(error)),
-                )
-              }}
-            />
-          ) : null}
-
           <Composer
             sample={sample}
             live={
@@ -1332,6 +1310,7 @@ export default function ChatPage() {
             workspaceLabel={
               workspace.isDefault ? t('workspace.defaultName') : workspace.name
             }
+            showWorkspace={sample || blankPage}
             onMention={liveReady ? live.mention : undefined}
             skills={catalog.snapshot?.skills ?? []}
             runtimeId={live.current?.session.runtimeId ?? live.model?.runtimeId ?? ''}
@@ -1745,18 +1724,23 @@ export function ContextRing({
   const shown = Math.max(0, Math.min(100, ratio))
   const circumference = 2 * Math.PI * 13
   const label = windowSize > 0 ? (windowSize >= 1_000_000 ? `${windowSize / 1_000_000}M` : `${Math.round(windowSize / 1_000)}K`) : '—'
+  // Everything the ring used to print lives in the tooltip now: the field is
+  // only a 20px glyph in the toolbar, and hovering explains what it measures.
+  const detail =
+    used === null
+      ? t('chat.context.modelOnly', { window: label })
+      : t('chat.context.used', { used: used.toLocaleString(), window: label })
+  const tooltip = `${t('chat.context.label', { window: label, percent: Math.round(shown) })} · ${detail}`
   return (
-    <div
+    <span
       className="chat-context"
       data-testid="chat-context"
       data-percent={shown.toFixed(1)}
-      title={
-        used === null
-          ? t('chat.context.modelOnly', { window: label })
-          : t('chat.context.used', { used: used.toLocaleString(), window: label })
-      }
+      title={tooltip}
+      aria-label={tooltip}
+      role="img"
     >
-      <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
         <circle cx="16" cy="16" r="13" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
         <circle
           cx="16"
@@ -1770,103 +1754,7 @@ export function ContextRing({
           transform="rotate(-90 16 16)"
         />
       </svg>
-      <span>{t('chat.context.label', { window: label, percent: Math.round(shown) })}</span>
-    </div>
-  )
-}
-
-/**
- * The blank page: where this conversation will run, then the field.
- *
- * A new conversation has nothing to show, and a transcript column with a field
- * pinned to its bottom looks like a conversation that lost its messages. This
- * fills that space with the one decision that actually comes before the first
- * prompt — the directory — and disappears the moment the turn starts.
- */
-export function WorkspaceWelcome({
-  path,
-  defaultPath,
-  isDefault,
-  recent,
-  onBrowse,
-  onReset,
-  onChoose,
-}: {
-  path: string | null
-  defaultPath: string | null
-  isDefault: boolean
-  recent: ProjectSummary[] | null
-  onBrowse: () => void
-  onReset: () => void
-  onChoose: (path: string) => void
-}) {
-  const { t } = useI18n()
-  const shown = path ?? defaultPath ?? ''
-  const name = isDefault ? t('workspace.defaultName') : basename(shown) || shown
-  // The current directory is not offered as a shortcut to itself.
-  // The host answers `null` before the project list has ever been read.
-  const others = (recent ?? []).filter((project) => project.path !== shown).slice(0, 5)
-  return (
-    <div className="chat-welcome" data-testid="chat-welcome">
-      <div className="chat-welcome-head">
-        <span className="chat-welcome-mark">
-          <Icon name="sparkle" size={16} />
-        </span>
-        <div>
-          <h2>{t('chat.welcome.title')}</h2>
-          <p>{t('chat.welcome.body')}</p>
-        </div>
-      </div>
-
-      <section className="chat-workspace" data-testid="chat-workspace">
-        <div className="chat-workspace-head">
-          <Icon name="folder" size={12} />
-          <b>{name}</b>
-        </div>
-        <p className="chat-workspace-path" title={shown}>
-          {shown}
-        </p>
-        <div className="chat-workspace-actions">
-          <button
-            type="button"
-            className="chat-btn chat-btn-sm"
-            data-testid="chat-workspace-browse"
-            onClick={onBrowse}
-          >
-            <Icon name="folder" size={11} />
-            {t('chat.welcome.browse')}
-          </button>
-          {!isDefault ? (
-            <button
-              type="button"
-              className="chat-btn chat-btn-sm"
-              data-testid="chat-workspace-reset"
-              onClick={onReset}
-            >
-              {t('chat.welcome.reset')}
-            </button>
-          ) : null}
-        </div>
-        {others.length > 0 ? (
-          <div className="chat-workspace-recent">
-            <span>{t('chat.welcome.recent')}</span>
-            {others.map((project) => (
-              <button
-                key={project.path}
-                type="button"
-                className="chat-workspace-chip"
-                data-testid="chat-workspace-recent"
-                title={project.path}
-                onClick={() => onChoose(project.path)}
-              >
-                <Icon name="folder" size={10} />
-                {project.name || basename(project.path)}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </section>
-    </div>
+    </span>
   )
 }
 
@@ -1987,6 +1875,7 @@ function Composer({
   onNotice,
   onProject,
   workspaceLabel,
+  showWorkspace,
   onMention,
   skills,
   runtimeId,
@@ -2018,6 +1907,8 @@ function Composer({
   onProject: (trigger: HTMLElement) => void
   /** Directory the next conversation runs in, shown on the project chip. */
   workspaceLabel: string
+  /** The workspace chip only belongs on the blank page; hide it once a turn starts. */
+  showWorkspace: boolean
   /** Ask the host which files this project offers for `@`. */
   onMention?: (query: string) => Promise<ContextEntry[]>
   /** Installed skills from the live catalog, filtered to this session's runtime. */
@@ -2407,32 +2298,30 @@ function Composer({
 
 
   const shown = enabled ? text : ''
-  // The counter reads the same two sources the turn will: file chips above the
-  // field and skills written into the draft. One skill mentioned twice is one
-  // reference, exactly like the dedupe the host receives.
-  const contextCount =
-    attachments.filter((attachment) => Boolean(attachment.path) && attachment.kind !== 'skill').length +
-    new Set(skillRanges(text, pathOf).map((range) => range.path)).size
   const selectedModel = live?.model ? modelKey(live.model) : ''
 
   return (
     <div className="chat-composer-wrap">
-      <div className="chat-composer-project-row">
-        <button
-          type="button"
-          className="chat-project-trigger"
-          data-testid="chat-project-trigger"
-          aria-haspopup="dialog"
-          disabled={!enabled}
-          title={enabled ? t('chat.composer.project.change') : t('chat.action.unavailable')}
-          onClick={(event) => onProject(event.currentTarget)}
-        >
-          <Icon name="folder" size={12} />
-          <span>{sample ? sampleChat.project : workspaceLabel || t('chat.composer.project.none')}</span>
-          <Icon name="chevDown" size={11} />
-        </button>
-        {projectAside}
-      </div>
+      {showWorkspace || projectAside ? (
+        <div className="chat-composer-project-row">
+          {showWorkspace ? (
+            <button
+              type="button"
+              className="chat-project-trigger"
+              data-testid="chat-project-trigger"
+              aria-haspopup="dialog"
+              disabled={!enabled}
+              title={enabled ? t('chat.composer.project.change') : t('chat.action.unavailable')}
+              onClick={(event) => onProject(event.currentTarget)}
+            >
+              <Icon name="folder" size={12} />
+              <span>{sample ? sampleChat.project : workspaceLabel || t('chat.composer.project.none')}</span>
+              <Icon name="chevDown" size={11} />
+            </button>
+          ) : null}
+          {projectAside}
+        </div>
+      ) : null}
       {queueAside}
       <form className="chat-composer" onSubmit={submit} aria-label={t('chat.composer.placeholder')}>
         <div className="chat-composer-field">
@@ -2774,10 +2663,7 @@ function Composer({
               <option value="full">{t('chat.composer.permission.full')}</option>
             </select>
           </label>
-          <button type="button" className="chat-ctl" disabled={!enabled} onClick={() => onNotice(t('chat.notice.attachment'))}>
-            <Icon name="paperclip" size={13} />
-            <span>{t('chat.composer.context', { count: contextCount })}</span>
-          </button>
+          {contextAside}
           <div className="chat-composer-actions">
             <button
               type="button"
@@ -2802,7 +2688,6 @@ function Composer({
         </div>
       </form>
       <div className="chat-composer-foot">
-        {contextAside}
         <span>{sample ? t('chat.composer.pending') : live ? t('chat.live.hint') : t('chat.composer.normalHint')}</span>
         <span className="chat-kbdset">
           <span className="kbd">{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}</span>
