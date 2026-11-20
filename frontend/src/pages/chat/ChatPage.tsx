@@ -59,6 +59,7 @@ import {
   type UiRequest,
 } from '../../chat/client'
 import { ExtensionUiCard } from './ExtensionUiCard'
+import { FilePreviewOverlay } from './FilePreviewOverlay'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { imageSrc } from '../../chat/image'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
@@ -171,6 +172,13 @@ function storedThinking(): ThinkingLevel {
 /** `runtime::model` is unique even when two runtimes publish the same id. */
 function modelKey(choice: ModelChoice): string {
   return `${choice.runtimeId}::${choice.modelId}`
+}
+
+/** A byte count as the reader thinks of it. */
+function prettySize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
 }
 
 function basename(path: string): string {
@@ -506,6 +514,17 @@ export default function ChatPage() {
   // The turn the rail sent the reader back to; highlighted briefly so the jump
   // is visible instead of leaving them to guess which bubble moved.
   const [focusedRun, setFocusedRun] = useState<string | null>(null)
+  // The file the reader asked to look at; one overlay serves both entry points.
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  /**
+   * The ring that marks the turn the rail jumped to.
+   *
+   * It needs a real run on both sides. Messages copied into a branch carry no
+   * run id, and `null === undefined` was true, so every message in a forked
+   * conversation was ringed at once — a page of boxes.
+   */
+  const focusRing = (runId: string | null | undefined) =>
+    focusedRun !== null && runId != null && focusedRun === runId ? ' is-focused' : ''
   const [dialog, setDialog] = useState<ChatDialogKind>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -812,6 +831,14 @@ export default function ChatPage() {
   // The turn in flight: its events are already only this turn's, so one flat
   // pass gives the thinking/tool stack the transcript should show. Notices the
   // settled turns above already printed are skipped here too.
+  // What each turn wrote, so the file list can sit under its own answer.
+  const filesByRun = useMemo(() => {
+    const map: Record<string, { path: string; relative: string; bytes: number }[]> = {}
+    for (const file of live.rail?.artifacts ?? []) {
+      ;(map[file.runId] ??= []).push({ path: file.path, relative: file.relative, bytes: file.bytes })
+    }
+    return map
+  }, [live.rail])
   const liveParts = useMemo(
     () => buildTurnParts(live.turnEvents, undefined, new Set(shownNotices)),
     [live.turnEvents, shownNotices],
@@ -1234,7 +1261,7 @@ export default function ChatPage() {
                 {visibleMessages.map((message) =>
                   message.role === 'user' ? (
                     <article
-                      className={`chat-msg chat-msg-user${focusedRun === message.runId ? ' is-focused' : ''}`}
+                      className={`chat-msg chat-msg-user${focusRing(message.runId)}`}
                       data-testid="chat-message-user"
                       data-run={message.runId}
                       key={message.id}
@@ -1260,7 +1287,7 @@ export default function ChatPage() {
                     </section>
                   ) : (
                     <article
-                      className={`chat-msg${focusedRun === message.runId ? ' is-focused' : ''}`}
+                      className={`chat-msg${focusRing(message.runId)}`}
                       data-testid="chat-message-agent"
                       data-run={message.runId}
                       key={message.id}
@@ -1297,6 +1324,24 @@ export default function ChatPage() {
                       {/* The count stays under the answer after the turn is
                           written; it used to exist only in the streaming bubble
                           and vanished the moment the reply landed. */}
+                      {message.runId && filesByRun[message.runId]?.length ? (
+                        <div className="chat-msg-files" data-testid="chat-message-files">
+                          {filesByRun[message.runId].map((file) => (
+                            <button
+                              key={file.path}
+                              type="button"
+                              className="chat-file-chip"
+                              data-testid="chat-message-file"
+                              title={file.path}
+                              onClick={() => setPreviewPath(file.path)}
+                            >
+                              <Icon name="file" size={11} />
+                              <span className="chat-file-chip-name">{file.relative}</span>
+                              <small>{prettySize(file.bytes)}</small>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       {message.runId && usageByRun[message.runId] ? (
                         <div className="chat-msg-meta">
                           <UsageLine usage={usageByRun[message.runId]} />
@@ -1469,7 +1514,7 @@ export default function ChatPage() {
             }}
           />
         ) : null}
-        <ChatRail sample={sample} live={{ view: live.rail, running: live.running, onTurn: jumpToTurn }} open={railOpen} tab={railTab} onTab={setRailTab} onClose={() => {
+        <ChatRail sample={sample} live={{ view: live.rail, running: live.running, onTurn: jumpToTurn, onPreview: setPreviewPath }} open={railOpen} tab={railTab} onTab={setRailTab} onClose={() => {
           setRailOpen(false)
           railToggle.current?.focus()
         }} onNotice={showNotice} />
@@ -1537,6 +1582,14 @@ export default function ChatPage() {
         onExport={liveSession ? runExport : undefined}
         onConfirmTrust={() => setPermission('full')}
       />
+
+      {previewPath && liveSession ? (
+        <FilePreviewOverlay
+          sessionId={liveSession.id}
+          path={previewPath}
+          onClose={() => setPreviewPath(null)}
+        />
+      ) : null}
     </section>
   )
 }

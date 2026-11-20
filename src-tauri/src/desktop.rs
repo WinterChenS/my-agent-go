@@ -88,6 +88,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_steer,
             crate::session::session_context,
             crate::session::session_rename,
+            crate::session::file_preview,
             crate::session::session_pin,
             crate::session::session_archive,
             crate::session::session_delete,

@@ -742,6 +742,20 @@ pub async fn session_context(
     state.context_usage(&session_id)
 }
 
+/// Read one file of a session's project for the preview pane.
+#[tauri::command]
+pub async fn file_preview(
+    state: State<'_, SessionState>,
+    session_id: String,
+    path: String,
+) -> Result<anvil_session::preview::FilePreview, String> {
+    state.with_writer(|service| {
+        service
+            .preview(&session_id, &path)
+            .map_err(|error| error.to_wire().to_string())
+    })
+}
+
 /// Rename a session.
 #[tauri::command]
 pub async fn session_rename(

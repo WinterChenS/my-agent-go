@@ -70,6 +70,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_steer",
     "session_context",
     "session_rename",
+    "file_preview",
     "session_pin",
     "session_archive",
     "session_delete",

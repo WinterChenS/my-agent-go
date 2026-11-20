@@ -461,6 +461,25 @@ export function loadRail(sessionId: string): Promise<RailView> {
   return hostCall<RailView>('session_rail', { sessionId })
 }
 
+/** One file read for the preview pane. */
+export interface FilePreview {
+  path: string
+  name: string
+  /** `image`, `markdown`, `html`, `table`, `word`, `pdf`, `text` or `binary`. */
+  kind: string
+  bytes: number
+  text?: string
+  /** A data URL: pictures, PDFs, spreadsheets and docx travel as bytes. */
+  data?: string
+  truncated: boolean
+  tooLarge: boolean
+}
+
+/** Read one file of the session's project. Outside the project is refused. */
+export function previewFile(sessionId: string, path: string): Promise<FilePreview> {
+  return hostCall<FilePreview>('file_preview', { sessionId, path })
+}
+
 /** Files and directories the composer may offer, confined to the project. */
 export function listContext(
   sessionId: string,

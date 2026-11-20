@@ -23,6 +23,7 @@ pub mod export;
 pub mod extensions;
 pub mod model;
 pub mod persona;
+pub mod preview;
 pub mod rail;
 pub mod service;
 pub mod store;

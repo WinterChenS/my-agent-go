@@ -607,6 +607,12 @@ fn walk_events(
                         outside += 1;
                         continue;
                     }
+                    // Scratch areas are where a turn keeps its working copies.
+                    // Listing them as outputs made a report look like it also
+                    // produced `node_modules/.cache/...` and `target/debug/...`.
+                    if is_scratch(root, &path) {
+                        continue;
+                    }
                     let key = path.to_string_lossy().to_lowercase();
                     if let Some(&index) = seen.get(&key) {
                         artifacts[index].touches += 1;
@@ -1364,4 +1370,34 @@ mod tests {
         );
         assert!(page.html.contains("hi"));
     }
+}
+
+/// Folders a turn writes through rather than into.
+///
+/// The output list is for what the reader would open; a compiler cache or a
+/// dependency folder is neither written by the turn nor worth a row.
+fn is_scratch(root: &Path, path: &Path) -> bool {
+    const SCRATCH: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".cache",
+        ".next",
+        ".nuxt",
+        ".turbo",
+        ".parcel-cache",
+        "tmp",
+        ".tmp",
+        "temp",
+    ];
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative.components().any(|part| {
+        let name = part.as_os_str().to_string_lossy().to_lowercase();
+        SCRATCH.contains(&name.as_str())
+    })
 }

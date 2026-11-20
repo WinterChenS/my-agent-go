@@ -130,6 +130,11 @@ description = "Allows renaming a session."
 commands.allow = ["session_rename"]
 
 [[permission]]
+identifier = "allow-file-preview"
+description = "Allows reading one file of the session's project for the preview pane."
+commands.allow = ["file_preview"]
+
+[[permission]]
 identifier = "allow-session-pin"
 description = "Allows pinning or unpinning a session in the history list."
 commands.allow = ["session_pin"]

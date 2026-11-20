@@ -3124,10 +3124,13 @@ button.chat-badge:hover {
 }
 
 /* Pinning only reorders the list, which is invisible when the row is already
-   near the top: the row says so instead. */
-.chat-history-chip.is-pin {
-  background: var(--accent-soft);
-  color: var(--accent);
+   near the top. A small pin ahead of the title says it without turning the row
+   into a coloured badge. */
+.chat-history-pin {
+  display: inline-flex;
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: color-mix(in oklab, var(--accent) 70%, var(--muted));
 }
 
 .chat-history-scroll {
@@ -4687,4 +4690,248 @@ button.chat-badge:hover {
   /* The UA monospace default would wrap differently from the mirror. */
   font-family: inherit;
   scrollbar-gutter: stable;
+}
+
+/* ---------- file preview ---------- */
+
+/* The file list under an answer: one line per output, not a card. A turn that
+   wrote four files should read as four rows, not four boxes. */
+.chat-msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chat-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+.chat-file-chip:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+  color: var(--fg);
+}
+
+.chat-file-chip small {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.chat-file-chip .chat-file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-backdrop {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background: var(--scrim);
+}
+
+.file-preview {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, calc(100vw - 48px));
+  height: min(78vh, 900px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.file-preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.file-preview-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.file-preview-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.file-preview-copy b {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-copy small {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.file-preview-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.file-preview-note {
+  margin: auto;
+  padding: var(--space-8);
+  color: var(--muted);
+  font-size: var(--text-xs-plus);
+  text-align: center;
+}
+
+.file-preview-note.is-error {
+  color: var(--warn);
+}
+
+.file-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  padding: var(--space-5);
+  object-fit: contain;
+}
+
+.file-preview-frame {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  border: 0;
+  background: var(--surface);
+}
+
+.file-preview-text {
+  margin: 0;
+  padding: var(--space-6);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs-plus);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.file-preview-prose {
+  padding: var(--space-7) var(--space-9);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.file-preview-prose img {
+  max-width: 100%;
+}
+
+.file-preview-foot {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.file-preview-table-wrap {
+  padding: var(--space-4);
+}
+
+.file-preview-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.file-preview-table {
+  border-collapse: collapse;
+  font-size: var(--text-2xs);
+}
+
+.file-preview-table td {
+  max-width: 320px;
+  overflow: hidden;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  color: var(--fg-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-table tr.is-head td {
+  background: var(--surface-2);
+  color: var(--fg);
+  font-weight: 560;
+}
+
+/* An artifact row: the file is the button, the jump is a small side action. */
+.chat-file-row.is-artifact {
+  padding: 0;
+  gap: 0;
+}
+
+.chat-file-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3) var(--space-4) var(--space-7);
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-file-open:hover {
+  background: var(--surface-2);
+}
+
+.chat-file-return {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-right: var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-file-return:hover {
+  border-color: var(--border);
+  color: var(--fg-2);
 }

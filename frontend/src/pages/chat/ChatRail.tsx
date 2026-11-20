@@ -17,6 +17,8 @@ export interface RailLive {
   view: RailView | null
   /** A turn is in flight: a call without a result is pending, not lost. */
   running: boolean
+  /** Show one written file in place instead of leaving the pane. */
+  onPreview?: (path: string) => void
   /**
    * Send the reader back to the turn a row came from.
    *
@@ -108,7 +110,7 @@ export default function ChatRail({
 
         {!sample && view && tab === 'artifacts' ? (
           <div role="tabpanel" id="chat-rail-pane-artifacts" aria-labelledby="chat-rail-tab-artifacts" className="chat-rail-pane">
-            <LiveArtifacts view={view} onTurn={live?.onTurn} />
+            <LiveArtifacts view={view} onTurn={live?.onTurn} onPreview={live?.onPreview} />
           </div>
         ) : null}
 
@@ -371,8 +373,17 @@ function ExecBadge({ status, running }: { status: RailExec['status']; running: b
   return <span className="chat-badge chat-tone-success">{t('chat.rail.exec.done')}</span>
 }
 
-/** Artifacts: real files, each one returning to the turn that wrote it. */
-function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: string, turn?: number) => void }) {
+/** Artifacts: real files. A click opens the file; the small button returns
+ *  to the turn that wrote it. */
+function LiveArtifacts({
+  view,
+  onTurn,
+  onPreview,
+}: {
+  view: RailView
+  onTurn?: (runId: string, turn?: number) => void
+  onPreview?: (path: string) => void
+}) {
   const { t } = useI18n()
   return (
     <>
@@ -385,25 +396,33 @@ function LiveArtifacts({ view, onTurn }: { view: RailView; onTurn?: (runId: stri
         </div>
       ) : (
         view.artifacts.map((artifact) => (
-          <button
-            key={artifact.path}
-            type="button"
-            className="chat-file-row"
-            data-testid="chat-rail-artifact"
-            data-turn={artifact.turn}
-            data-run={artifact.runId}
-            title={artifact.path}
-            onClick={() => onTurn?.(artifact.runId, artifact.turn)}
-          >
-            <span className="chat-file-ext">{(artifact.ext || 'file').slice(0, 4)}</span>
-            <span className="chat-file-main">
-              <span className="chat-file-name">{artifact.relative}</span>
-              <span className="chat-file-sub">
-                {t('chat.rail.artifacts.turn', { turn: artifact.turn })} · {size(artifact.bytes)}
+          <div key={artifact.path} className="chat-file-row is-artifact" data-testid="chat-rail-artifact" data-turn={artifact.turn} data-run={artifact.runId}>
+            <button
+              type="button"
+              className="chat-file-open"
+              title={artifact.path}
+              data-testid="chat-rail-artifact-open"
+              onClick={() => onPreview?.(artifact.path)}
+            >
+              <span className="chat-file-ext">{(artifact.ext || 'file').slice(0, 4)}</span>
+              <span className="chat-file-main">
+                <span className="chat-file-name">{artifact.relative}</span>
+                <span className="chat-file-sub">
+                  {t('chat.rail.artifacts.turn', { turn: artifact.turn })} · {size(artifact.bytes)}
+                </span>
               </span>
-            </span>
-            <span className="chat-badge chat-tone-success">{t('chat.rail.artifacts.saved')}</span>
-          </button>
+            </button>
+            <button
+              type="button"
+              className="chat-file-return"
+              data-testid="chat-rail-artifact-return"
+              title={t('chat.rail.artifacts.return')}
+              aria-label={t('chat.rail.artifacts.return')}
+              onClick={() => onTurn?.(artifact.runId, artifact.turn)}
+            >
+              <Icon name="branch" size={11} />
+            </button>
+          </div>
         ))
       )}
       <div className="chat-rail-foot">

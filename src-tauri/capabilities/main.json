@@ -30,6 +30,7 @@
     "allow-session-steer",
     "allow-session-context",
     "allow-session-rename",
+    "allow-file-preview",
     "allow-session-pin",
     "allow-session-archive",
     "allow-session-delete",

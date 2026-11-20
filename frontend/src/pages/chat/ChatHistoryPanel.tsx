@@ -494,14 +494,16 @@ function SessionRow({
             <Icon name="branch" size={10} />
           </span>
           <span className="chat-history-copy">
-            <span className="chat-history-title">{session.title}</span>
-            <span className="chat-history-meta">
-              {session.state === 'pending' ? <i aria-hidden="true" /> : null}
+            <span className="chat-history-title" data-pinned={session.pinned ? 'true' : undefined}>
               {session.pinned ? (
-                <span className="chat-history-chip is-pin" data-testid="chat-history-pin-chip">
-                  {t('chat.history.pinnedBadge')}
+                <span className="chat-history-pin" data-testid="chat-history-pin-chip" aria-hidden="true">
+                  <Icon name="pin" size={9} />
                 </span>
               ) : null}
+              {session.title}
+            </span>
+            <span className="chat-history-meta">
+              {session.state === 'pending' ? <i aria-hidden="true" /> : null}
               {session.archived ? (
                 <span className="chat-history-chip" data-testid="chat-history-archived-chip">
                   {t('chat.history.archivedBadge')}

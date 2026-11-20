@@ -994,6 +994,18 @@ impl SessionService {
     /// The root is chosen by the caller (the host), never by the transcript, and
     /// the file name is derived here: an export cannot be talked into writing
     /// somewhere else by a session whose title looks like a path.
+    /// Read one file of this session's project for the preview pane.
+    ///
+    /// Only files inside the project: the same boundary the artifact list is
+    /// confined to, so a preview cannot become a read of anything else.
+    pub fn preview(&self, session_id: &str, path: &str) -> Result<crate::preview::FilePreview> {
+        let session = self.store.session(session_id)?;
+        crate::preview::read(
+            std::path::Path::new(&session.project_path),
+            std::path::Path::new(path),
+        )
+    }
+
     pub fn export(
         &self,
         session_id: &str,

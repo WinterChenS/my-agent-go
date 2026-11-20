@@ -1839,11 +1839,17 @@ describe('chat rail', () => {
     expect(row).toHaveTextContent('第 1 轮')
     expect(row).toHaveAttribute('data-turn', '1')
 
-    // Clicking the row highlights the turn it came from: the artifact is
-    // traceable, not just listed.
+    // The file itself is the button: clicking it opens the preview in place.
+    // The small side button is the jump back to the turn that wrote it.
     const turn = document.querySelector('[data-testid="chat-message-agent"][data-run="pi-1:r1"]')
     expect(turn).not.toBeNull()
-    await userEvent.click(row)
+    await userEvent.click(within(row).getByTestId('chat-rail-artifact-open'))
+    await waitFor(() => expect(screen.getByTestId('file-preview')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('file-preview-close'))
+    await waitFor(() => expect(screen.queryByTestId('file-preview')).toBeNull())
+    // Re-query: the overlay's open/close re-rendered the rail, so the row
+    // element captured above belongs to the previous render.
+    await userEvent.click(within(screen.getByTestId('chat-rail-artifact')).getByTestId('chat-rail-artifact-return'))
     await waitFor(() => expect(turn).toHaveClass('is-focused'))
   })
 
