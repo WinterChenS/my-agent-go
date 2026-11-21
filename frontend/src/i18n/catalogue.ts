@@ -6,6 +6,20 @@ export const DEFAULT_LANGUAGE: Language = 'zh-CN'
 // 112fcae854b324d2e75fdf5c890083ef9c1d3d6e, extended with the R0-01/R0-02
 // shell/settings copy. Keep keys identical across catalogues.
 const chatZh = {
+  "app.context.cut": "剪切",
+  "app.context.copyMessage": "复制这条消息",
+  "app.context.sessionActions": "会话操作…",
+  "app.context.openSession": "打开这个会话",
+  "app.context.newChat": "新建对话",
+  "app.context.search": "全局搜索",
+  "app.context.copy": "复制",
+  "app.context.paste": "粘贴",
+  "app.context.selectAll": "全选",
+  "app.context.copyLink": "复制链接地址",
+  "app.context.copied": "已复制",
+  "app.context.cutDone": "已剪切",
+  "app.context.pasted": "已粘贴",
+  "app.context.failed": "操作失败：{message}",
   "chat.back": "返回工作台",
   "chat.normal.title": "尚未接入会话",
   "chat.normal.subtitle": "完成 G1/G2 后会在这里显示真实会话。",
@@ -420,6 +434,20 @@ const chatZh = {
 } as const
 
 const chatEn: Record<keyof typeof chatZh, string> = {
+  "app.context.cut": "Cut",
+  "app.context.copyMessage": "Copy this message",
+  "app.context.sessionActions": "Session actions…",
+  "app.context.openSession": "Open this session",
+  "app.context.newChat": "New chat",
+  "app.context.search": "Search everywhere",
+  "app.context.copy": "Copy",
+  "app.context.paste": "Paste",
+  "app.context.selectAll": "Select all",
+  "app.context.copyLink": "Copy link address",
+  "app.context.copied": "Copied",
+  "app.context.cutDone": "Cut",
+  "app.context.pasted": "Pasted",
+  "app.context.failed": "Action failed: {message}",
   "chat.back": "Back to dashboard",
   "chat.normal.title": "No chat connected",
   "chat.normal.subtitle": "Real chats will appear here after G1/G2.",

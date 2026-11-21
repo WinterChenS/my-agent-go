@@ -14,6 +14,7 @@ import { ThemeProvider } from './preferences/ThemeProvider'
 import OnboardingDialog from './onboarding/OnboardingDialog'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
+import AppContextMenu from './shell/AppContextMenu'
 import { SHELL_ROUTES, WORKBENCH_ROUTE } from './shell/routes'
 
 function FallbackPage() {
@@ -31,7 +32,10 @@ function RootPage() {
 function AppProviders({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
-      <LanguageProvider>{children}</LanguageProvider>
+      <LanguageProvider>
+        <AppContextMenu />
+        {children}
+      </LanguageProvider>
     </ThemeProvider>
   )
 }

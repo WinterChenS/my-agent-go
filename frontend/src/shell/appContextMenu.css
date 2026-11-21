@@ -1,0 +1,75 @@
+/* Anvil's own context menu. It lives above the page but below dialogs, and
+   uses the same surface/foreground tokens as every other panel so it follows
+   the light and dark themes without a second set of colours. */
+.app-context-menu {
+  position: fixed;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  min-width: 178px;
+  max-width: min(260px, 90vw);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+}
+
+.app-context-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.app-context-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.app-context-item:hover,
+.app-context-item:focus-visible {
+  background: var(--surface-2);
+  color: var(--fg);
+  outline: none;
+}
+
+.app-context-item:hover svg,
+.app-context-item:focus-visible svg {
+  color: var(--accent);
+}
+
+.app-context-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.app-context-toast {
+  position: fixed;
+  z-index: 9001;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
