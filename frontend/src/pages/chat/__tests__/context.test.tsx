@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../../../i18n/LanguageProvider'
 import type { LanguageEnvironment } from '../../../i18n/language'
@@ -58,6 +58,7 @@ describe('the context window indicator', () => {
   })
 
   it('opens a themed card on hover with the numbers, not an OS tooltip', () => {
+    vi.useFakeTimers()
     wrap(<ContextRing windowSize={400_000} used={100_000} percent={25} />)
     expect(screen.queryByTestId('chat-context-card')).toBeNull()
     fireEvent.mouseEnter(screen.getByTestId('chat-context').parentElement!)
@@ -67,7 +68,13 @@ describe('the context window indicator', () => {
     expect(card.textContent).toContain('25%')
     expect(card.textContent).toContain('100,000')
     fireEvent.mouseLeave(screen.getByTestId('chat-context').parentElement!)
+    // The card closes after a short grace period so the pointer can cross the
+    // gap between the ring and the card to reach its compact button.
+    act(() => {
+      vi.advanceTimersByTime(250)
+    })
     expect(screen.queryByTestId('chat-context-card')).toBeNull()
+    vi.useRealTimers()
   })
 
   it('offers compaction only when idle, and calls back on click', () => {
