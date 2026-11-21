@@ -589,6 +589,7 @@ export default function ChatPage() {
   // webview the host places over the pane, so the app only remembers where it
   // is and asks for it.
   const [browserUrl, setBrowserUrl] = useState('')
+  const noticeRef = useRef<((message: string) => void) | null>(null)
   /**
    * The ring that marks the turn the rail jumped to.
    *
@@ -706,6 +707,36 @@ export default function ChatPage() {
   }, [historyOpen])
 
   const showNotice = (message: string) => setNotice(message)
+  // The pane's controls are created once; the notice handler they call may be
+  // replaced by a later render, so they read it through a ref.
+  noticeRef.current = showNotice
+
+  // One object for the pane's whole life. It is the effect dependency that
+  // places the native view, so a new object per render would park the page
+  // off-screen and bring it back on every keystroke — the flicker.
+  const browserControl = useMemo(
+    () => ({
+      open: (url: string) => {
+        setBrowserUrl(url)
+        void browserOpen(url).catch((cause: unknown) =>
+          noticeRef.current?.(cause instanceof Error ? cause.message : String(cause)),
+        )
+      },
+      close: () => {
+        setBrowserUrl('')
+        void browserClose().catch(() => undefined)
+      },
+      action: (method: 'back' | 'forward' | 'reload') =>
+        void browserAction(method).catch(() => undefined),
+      // A placement hint, not something the reader asked for: a host that
+      // cannot place it (no desktop, a closed window) must not raise into the
+      // page.
+      bounds: (rect: { x: number; y: number; w: number; h: number }) =>
+        void browserBounds(rect).catch(() => undefined),
+    }),
+    [],
+  )
+
 
   // Jumping from a rail row to the turn it came from. The highlight is cleared
   // by a timer, so a second jump does not leave two rows lit.
@@ -1602,24 +1633,8 @@ export default function ChatPage() {
               previewPath && liveSession
                 ? { sessionId: liveSession.id, path: previewPath, onClose: closePreview }
                 : undefined,
-            browser: {
-              url: browserUrl,
-              open: (url) => {
-                setBrowserUrl(url)
-                void browserOpen(url).catch((cause: unknown) =>
-                  showNotice(cause instanceof Error ? cause.message : String(cause)),
-                )
-              },
-              close: () => {
-                setBrowserUrl('')
-                void browserClose().catch(() => undefined)
-              },
-              action: (method) => void browserAction(method).catch(() => undefined),
-              // A placement hint, not something the reader asked for: a host
-              // that cannot place it (no desktop, a closed window) must not
-              // raise into the page.
-              bounds: (rect) => void browserBounds(rect).catch(() => undefined),
-            },
+            browser: browserControl,
+            browserUrl,
           }}
           open={railOpen}
           tab={railTab}

@@ -52,6 +52,10 @@ pub struct Browser {
     port: AtomicU16,
     /// Where the pane sits, in logical pixels.
     bounds: Mutex<(f64, f64, f64, f64)>,
+    /// How many times the native view was actually moved. A number the pane can
+    /// be asked for, because "it keeps flickering" needs a count and not an
+    /// opinion.
+    placements: AtomicU64,
 }
 
 impl Browser {
@@ -62,6 +66,7 @@ impl Browser {
             next_id: AtomicU64::new(1),
             port: AtomicU16::new(0),
             bounds: Mutex::new((0.0, 0.0, 0.0, 0.0)),
+            placements: AtomicU64::new(0),
         }
     }
 
@@ -103,7 +108,16 @@ impl Browser {
     /// Move the pane. A closed pane is parked off-screen rather than destroyed:
     /// coming back should not reload the page the agent was in the middle of.
     pub fn set_bounds(&self, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-        *self.bounds.lock().map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
+        {
+            let mut bounds = self.bounds.lock().map_err(|_| "browser bounds".to_string())?;
+            if *bounds == (x, y, w, h) {
+                // Same place, same size. Placing a webview makes it lay itself
+                // out again, and a repeated placement is a visible flicker with
+                // nothing to show for it.
+                return Ok(());
+            }
+            *bounds = (x, y, w, h);
+        }
         let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
         let Some(webview) = slot.as_ref() else {
             return Ok(());
@@ -114,13 +128,16 @@ impl Browser {
         } else {
             (-20_000.0, -20_000.0, 1.0, 1.0)
         };
-        webview
-            .set_position(LogicalPosition::new(px, py))
-            .map_err(|error| format!("browser position: {error}"))?;
-        webview
-            .set_size(LogicalSize::new(pw, ph))
-            .map_err(|error| format!("browser size: {error}"))?;
-        Ok(())
+        // One call, not a move followed by a resize: the intermediate frame is
+        // a page drawn at the old size in the new place.
+        let moved = webview.set_bounds(tauri::Rect {
+            position: tauri::Position::Logical(LogicalPosition::new(px, py)),
+            size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
+        });
+        if moved.is_ok() {
+            self.placements.fetch_add(1, Ordering::Relaxed);
+        }
+        moved.map_err(|error| format!("browser bounds: {error}"))
     }
 
     pub fn close(&self) -> Result<(), String> {
@@ -129,6 +146,11 @@ impl Browser {
             webview.close().map_err(|error| format!("close browser: {error}"))?;
         }
         Ok(())
+    }
+
+    /// How many real placements the view has had since launch.
+    pub fn placements(&self) -> u64 {
+        self.placements.load(Ordering::Relaxed)
     }
 
     pub fn is_open(&self) -> bool {
@@ -254,7 +276,9 @@ fn parse_url(url: &str) -> Result<tauri::Url, String> {
 /// whoever called the bridge.
 fn page_runtime(port: u16) -> String {
     format!(
-        r#"
+        // `r##` because the page carries CSS colours like `fill="#ffffff"`, and
+        // `"#` would end a single-hash raw string in the middle of the script.
+        r##"
 (function () {{
   if (window.__anvilBrowser) return;
   var port = {port};
@@ -323,6 +347,93 @@ fn page_runtime(port: u16) -> String {
     }}
     return rows;
   }}
+  var actionRoot = null, actionArrow = null, actionPath = null, actionBubble = null, actionTimer = null;
+  function ensureActionUi() {{
+    if (actionRoot && document.documentElement.contains(actionRoot)) return;
+    actionRoot = document.createElement('div');
+    actionRoot.id = '__anvil_action';
+    actionRoot.setAttribute('data-anvil-ui', '1');
+    actionRoot.style.cssText = 'all:initial;position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;opacity:0;transition:opacity .12s ease';
+    actionArrow = document.createElement('div');
+    actionArrow.style.cssText = 'all:initial;position:absolute;left:0;top:0;width:20px;height:20px;transition:transform .34s cubic-bezier(.22,.7,.2,1)';
+    // A dark arrow with a light outline: it has to read on a white page and on
+    // a black one, and the outline is what buys that.
+    actionArrow.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.4 2.2 L3.4 15.6 L7.6 11.5 L10.6 17.7 L12.9 16.6 L10 10.6 L15.6 10.6 Z" fill="#141416" stroke="#ffffff" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+    actionPath = actionArrow.querySelector('path');
+    actionBubble = document.createElement('div');
+    // A capsule, not a card: one short line, read at a glance, then gone.
+    actionBubble.style.cssText = 'all:initial;position:absolute;left:0;top:0;max-width:300px;padding:5px 12px;border-radius:999px;background:rgba(22,22,24,.86);color:#ffffff;font:12.5px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 0 0 1px rgba(255,255,255,.14),0 3px 14px rgba(0,0,0,.45);transition:transform .34s cubic-bezier(.22,.7,.2,1)';
+    actionRoot.appendChild(actionArrow);
+    actionRoot.appendChild(actionBubble);
+    (document.body || document.documentElement).appendChild(actionRoot);
+  }}
+  function clip(text, limit) {{
+    var value = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    return value.length > limit ? value.slice(0, limit) + '…' : value;
+  }}
+  function shortOf(el) {{
+    var text = el.getAttribute('aria-label') || el.getAttribute('placeholder') || (el.tagName === 'INPUT' ? el.value : '') || el.innerText || '';
+    var clean = String(text).replace(/\s+/g, ' ').trim();
+    if (clean) return clip(clean, 16);
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return '输入框';
+    if (tag === 'a') return '链接';
+    if (tag === 'button') return '按钮';
+    return tag;
+  }}
+  // Is the surface under this point dark? The cursor has to read on both: a
+  // black arrow with a white rim on a light page, the inverse on a dark one.
+  function underIsDark(x, y) {{
+    var node = document.elementFromPoint(x, y);
+    while (node) {{
+      var bg = '';
+      try {{ bg = getComputedStyle(node).backgroundColor || ''; }} catch (error) {{ bg = ''; }}
+      var parts = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(bg);
+      if (parts) {{
+        var alpha = parts[4] === undefined ? 1 : Number(parts[4]);
+        if (alpha > 0.5) {{
+          var luminance = (0.2126 * Number(parts[1]) + 0.7152 * Number(parts[2]) + 0.0722 * Number(parts[3])) / 255;
+          return luminance < 0.5;
+        }}
+      }}
+      node = node.parentElement;
+    }}
+    return false;
+  }}
+  // Where the agent is about to act, said in one short line. It is drawn inside
+  // the page because that is the only layer above the native view: the app's own
+  // DOM sits underneath it.
+  function showAction(x, y, label) {{
+    ensureActionUi();
+    actionBubble.textContent = label;
+    var w = actionBubble.offsetWidth, h = actionBubble.offsetHeight;
+    // Beside the pointer, its middle a little below the tip — the shape the
+    // reference puts on screen.
+    var bx = x + 14, by = y + 8;
+    if (bx + w > window.innerWidth - 8) bx = x - w - 10;
+    if (by + h > window.innerHeight - 8) by = y - h - 6;
+    if (actionPath) {{
+      var dark = underIsDark(x, y);
+      actionPath.setAttribute('fill', dark ? '#ffffff' : '#141416');
+      actionPath.setAttribute('stroke', dark ? '#141416' : '#ffffff');
+    }}
+    actionRoot.style.opacity = '1';
+    actionArrow.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
+    actionBubble.style.transform = 'translate(' + Math.round(bx) + 'px,' + Math.round(by) + 'px)';
+    if (actionTimer) clearTimeout(actionTimer);
+    actionTimer = setTimeout(function () {{ if (actionRoot) actionRoot.style.opacity = '0'; }}, 2400);
+  }}
+  // Let the pointer arrive before the page reacts: long enough to read as a
+  // movement, short enough that a run of steps does not feel stuck.
+  function actLater(id, act) {{
+    return setTimeout(function () {{
+      var out;
+      try {{ out = {{ ok: true, value: act() }}; }}
+      catch (error) {{ out = {{ ok: false, value: String((error && error.message) || error) }}; }}
+      post({{ id: id, ok: out.ok, value: out.value }});
+    }}, 200);
+  }}
+
   window.__anvilBrowser = {{
     run: function (id, method, params) {{
       var out;
@@ -352,37 +463,35 @@ fn page_runtime(port: u16) -> String {
           var target = pick(params);
           if (!target) throw new Error('nothing matches ' + JSON.stringify(params));
           target.scrollIntoView({{ block: 'center' }});
-          target.click();
-          out.value = describe(target);
+          var box = target.getBoundingClientRect();
+          showAction(box.left + box.width / 2, box.top + box.height / 2, '点击「' + shortOf(target) + '」');
+          return actLater(id, function () {{ target.click(); return describe(target); }});
         }} else if (method === 'fill') {{
           var field = pick(params);
           if (!field) throw new Error('nothing matches ' + JSON.stringify(params));
           field.focus();
-          setValue(field, params.value == null ? '' : String(params.value));
-          out.value = describe(field);
+          var fieldBox = field.getBoundingClientRect();
+          var text = params.value == null ? '' : String(params.value);
+          showAction(fieldBox.left + fieldBox.width / 2, fieldBox.top + fieldBox.height / 2, '输入「' + clip(text, 20) + '」');
+          return actLater(id, function () {{ setValue(field, text); return describe(field); }});
         }} else if (method === 'press') {{
           var key = String(params.key || 'Enter');
-          var box = pick(params) || document.activeElement || document.body;
-          box.dispatchEvent(new KeyboardEvent('keydown', {{ key: key, bubbles: true }}));
-          box.dispatchEvent(new KeyboardEvent('keyup', {{ key: key, bubbles: true }}));
-          out.value = key;
+          var keyOn = pick(params) || document.activeElement || document.body;
+          var keyBox = keyOn && keyOn.getBoundingClientRect ? keyOn.getBoundingClientRect() : null;
+          showAction(
+            keyBox ? keyBox.left + keyBox.width / 2 : window.innerWidth / 2,
+            keyBox ? keyBox.top + keyBox.height / 2 : window.innerHeight / 2,
+            '按下 ' + key
+          );
+          return actLater(id, function () {{
+            keyOn.dispatchEvent(new KeyboardEvent('keydown', {{ key: key, bubbles: true }}));
+            keyOn.dispatchEvent(new KeyboardEvent('keyup', {{ key: key, bubbles: true }}));
+            return key;
+          }});
         }} else if (method === 'scroll') {{
           var dy = Number(params.dy || 600);
-          window.scrollBy(0, dy);
-          out.value = Math.round(window.scrollY);
-        }} else if (method === 'settle') {{
-          // A capture returns the last frame the compositor finished, and a
-          // page that is still loading has not finished one. Wait for the load,
-          // then for the paint that follows it.
-          var deadline = Date.now() + Math.min(Number(params.ms || 6000), 10000);
-          var quiet = Number(params.quiet == null ? 260 : params.quiet);
-          (function poll() {{
-            if (document.readyState !== 'complete' && Date.now() < deadline) return setTimeout(poll, 80);
-            setTimeout(function () {{
-              post({{ id: id, ok: true, value: {{ readyState: document.readyState }} }});
-            }}, quiet);
-          }})();
-          return;
+          showAction(window.innerWidth / 2, window.innerHeight / 2, (dy < 0 ? '向上滚动 ' : '向下滚动 ') + Math.abs(dy) + 'px');
+          return actLater(id, function () {{ window.scrollBy(0, dy); return Math.round(window.scrollY); }});
         }} else if (method === 'wait') {{
           var ms = Math.min(Number(params.ms || 500), 5000);
           return setTimeout(function () {{ post({{ id: id, ok: true, value: ms }}); }}, ms);
@@ -396,7 +505,7 @@ fn page_runtime(port: u16) -> String {
     }}
   }};
 }})();
-"#
+"##
     )
 }
 

@@ -36,14 +36,23 @@ export interface RailLive {
     path: string
     onClose: () => void
   }
-  /** The embedded browser: a real webview the app places over the pane. */
+  /**
+   * The embedded browser: a real webview the app places over the pane.
+   *
+   * The object must keep its identity across renders. It is a dependency of the
+   * effect that reports the pane's rect, and a fresh object on every render
+   * made that effect clean up (park the page off-screen) and re-report — which
+   * is exactly what "the page keeps flickering" looked like. The address lives
+   * beside it in {@link RailLive.browserUrl} because addresses do change.
+   */
   browser?: {
     open: (url: string) => void
     close: () => void
     action: (method: 'back' | 'forward' | 'reload') => void
     bounds: (rect: { x: number; y: number; w: number; h: number }) => void
-    url: string
   }
+  /** The address the pane holds, for the address bar. */
+  browserUrl?: string
   /**
    * Send the reader back to the turn a row came from.
    *
@@ -183,7 +192,7 @@ export default function ChatRail({
             aria-labelledby="chat-rail-tab-browser"
             className="chat-rail-pane is-browser"
           >
-            <LiveBrowser view={view} browser={live?.browser} />
+            <LiveBrowser view={view} browser={live?.browser} url={live?.browserUrl ?? ''} />
           </div>
         ) : null}
 
@@ -597,21 +606,23 @@ function referenceBadge(reference: { kind: string; label: string }): string {
 function LiveBrowser({
   view,
   browser,
+  url,
 }: {
   /** Null when no conversation is open: the browser still works, it just has
    *  no page the project produced to show. */
   view: RailView | null
   browser?: RailLive['browser']
+  url: string
 }) {
   const { t } = useI18n()
   const viewRef = useRef<HTMLDivElement>(null)
-  const [draft, setDraft] = useState(browser?.url ?? '')
+  const [draft, setDraft] = useState(url)
   const [showLocal, setShowLocal] = useState(true)
 
   useEffect(() => {
-    setDraft(browser?.url ?? '')
-    if (browser?.url) setShowLocal(false)
-  }, [browser?.url])
+    setDraft(url)
+    if (url) setShowLocal(false)
+  }, [url])
 
   // Report the pane's rect: on resize, on scroll (the sidebar scrolls under it)
   // and when the tab changes. A closed pane reports a zero size, which parks the
@@ -716,7 +727,7 @@ function LiveBrowser({
             </div>
           </>
         ) : null}
-        {browser?.url ? null : (
+        {url ? null : (
           <div className="chat-rail-empty" data-testid="chat-rail-browser-unavailable">
             <Icon name="globe" size={20} />
             <p>{t('chat.rail.browser.unavailable')}</p>

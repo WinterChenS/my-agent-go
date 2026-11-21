@@ -61,6 +61,9 @@ fn handle(mut stream: TcpStream, app: &AppHandle, browser: &Arc<Browser>) -> std
             "ok": true,
             "open": browser.is_open(),
             "port": browser.port(),
+            // How many times the native view has really been placed: the pane
+            // flickering is this number climbing.
+            "placements": browser.placements(),
         })
         .to_string(),
         ("POST", "/result") => {
