@@ -120,6 +120,12 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
             let url = params.get("url").and_then(Value::as_str).unwrap_or("about:blank");
             browser.open(app, url).map(|()| json!({ "url": url }))
         }
+        // The picture of the page: what the DOM cannot say — that the layout
+        // broke, that a banner covers the button, that the page is blank.
+        "screenshot" => {
+            let target = params.get("path").and_then(Value::as_str);
+            browser.capture(target)
+        }
         "back" | "forward" | "reload" => {
             let script = match method.as_str() {
                 "back" => "history.back()",
@@ -238,6 +244,7 @@ const RENDER_CLI: &str = r##"#!/usr/bin/env node
 //   node anvil-browser.mjs click '{"text":"Sign in"}'
 //   node anvil-browser.mjs fill '{"selector":"#q","value":"anvil"}'
 //   node anvil-browser.mjs snapshot
+//   node anvil-browser.mjs screenshot '{"path":"shot.png"}'
 //   node anvil-browser.mjs back            (also: forward, reload, scroll, wait)
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'

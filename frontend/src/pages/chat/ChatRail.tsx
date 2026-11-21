@@ -2,16 +2,26 @@ import { useEffect, useRef, useState } from 'react'
 import type { RailExec, RailView } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import Icon from '../../shell/Icon'
+import { FilePreviewPane } from './FilePreviewPane'
 import { sampleChat } from './sampleData'
 
-export type RailTab = 'browser' | 'artifacts' | 'sources' | 'exec'
+export type RailTab = 'browser' | 'artifacts' | 'sources' | 'exec' | 'file'
 
-const TABS: Array<{ id: RailTab; icon: string; key: 'chat.rail.browser' | 'chat.rail.artifacts' | 'chat.rail.sources' | 'chat.rail.exec' }> = [
+type TabEntry = {
+  id: RailTab
+  icon: string
+  key: 'chat.rail.browser' | 'chat.rail.artifacts' | 'chat.rail.sources' | 'chat.rail.exec' | 'chat.rail.preview'
+}
+
+const TABS: TabEntry[] = [
   { id: 'browser', icon: 'globe', key: 'chat.rail.browser' },
   { id: 'artifacts', icon: 'file', key: 'chat.rail.artifacts' },
   { id: 'sources', icon: 'link', key: 'chat.rail.sources' },
   { id: 'exec', icon: 'terminal', key: 'chat.rail.exec' },
 ]
+
+/** The tab a file opens into: it exists only while a file is open. */
+const PREVIEW_TAB: TabEntry = { id: 'file', icon: 'file', key: 'chat.rail.preview' }
 
 /** What the live rail needs from the page. */
 export interface RailLive {
@@ -20,6 +30,12 @@ export interface RailLive {
   running: boolean
   /** Show one written file in place instead of leaving the pane. */
   onPreview?: (path: string) => void
+  /** The file open in the pane, if any: it owns the 预览 tab. */
+  preview?: {
+    sessionId: string
+    path: string
+    onClose: () => void
+  }
   /** The embedded browser: a real webview the app places over the pane. */
   browser?: {
     open: (url: string) => void
@@ -46,6 +62,8 @@ export default function ChatRail({
   onTab,
   onClose,
   onNotice,
+  onResize,
+  width,
 }: {
   sample: boolean
   live?: RailLive
@@ -54,11 +72,16 @@ export default function ChatRail({
   onTab: (tab: RailTab) => void
   onClose: () => void
   onNotice: (message: string) => void
+  /** Drag on the left edge resizes the pane. */
+  onResize: (width: number) => void
+  /** Current width in pixels, owned by the page. */
+  width: number
 }) {
   const { t } = useI18n()
   const view = live?.view ?? null
+  const tabs = live?.preview ? [PREVIEW_TAB, ...TABS] : TABS
   const counts = sample
-    ? { browser: 0, artifacts: 3, sources: 4, exec: 0 }
+    ? { browser: 0, artifacts: 3, sources: 4, exec: 0, file: 0 }
     : {
         browser: view?.browser.state === 'local' ? 1 : 0,
         artifacts: view?.artifacts.length ?? 0,
@@ -66,6 +89,7 @@ export default function ChatRail({
         // URLs, so the number on the tab is what the pane lists.
         sources: (view?.references.length ?? 0) + (view?.sources.length ?? 0),
         exec: view?.exec.length ?? 0,
+        file: live?.preview ? 1 : 0,
       }
 
   return (
@@ -78,9 +102,17 @@ export default function ChatRail({
       <div className="chat-rail-handle" aria-hidden="true">
         <span />
       </div>
+      <RailResizer width={width} onResize={onResize} />
+
       <div className="chat-rail-head">
-        <div className="chat-rail-tabs" role="tablist" aria-label={t('chat.rail.label')}>
-          {TABS.map((entry) => (
+        <div
+          // Five tabs do not fit a 400px pane: the labels stay, the icons go,
+          // rather than clipping the last one in half.
+          className={`chat-rail-tabs${tabs.length > TABS.length ? ' is-crowded' : ''}`}
+          role="tablist"
+          aria-label={t('chat.rail.label')}
+        >
+          {tabs.map((entry) => (
             <button
               key={entry.id}
               type="button"
@@ -102,7 +134,7 @@ export default function ChatRail({
       </div>
 
       <div className="chat-rail-body">
-        {!sample && !view && tab !== 'browser' ? (
+        {!sample && !view && tab !== 'browser' && tab !== 'file' ? (
           <div className="chat-rail-empty" data-testid="chat-rail-pending">
             <Icon name="panel" size={20} />
             {/* A turn in flight has data on the way; saying "no data" then is a
@@ -126,6 +158,21 @@ export default function ChatRail({
         {!sample && view && tab === 'sources' ? (
           <div role="tabpanel" id="chat-rail-pane-sources" aria-labelledby="chat-rail-tab-sources" className="chat-rail-pane">
             <LiveSources view={view} onTurn={live?.onTurn} />
+          </div>
+        ) : null}
+
+        {!sample && live?.preview && tab === 'file' ? (
+          <div
+            role="tabpanel"
+            id="chat-rail-pane-file"
+            aria-labelledby="chat-rail-tab-file"
+            className="chat-rail-pane is-fill"
+          >
+            <FilePreviewPane
+              sessionId={live.preview.sessionId}
+              path={live.preview.path}
+              onClose={live.preview.onClose}
+            />
           </div>
         ) : null}
 
@@ -697,3 +744,69 @@ function compact(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
   return String(value)
 }
+
+/**
+ * The pane's left edge, as a handle.
+ *
+ * The rail holds reference material beside the conversation, and how much of
+ * the window that deserves depends on what is in it: a spreadsheet wants width,
+ * a list of files does not. Dragging reports the width to the page, which owns
+ * the grid; the pane never guesses its own width from the DOM.
+ */
+function RailResizer({ width, onResize }: { width: number; onResize: (width: number) => void }) {
+  const { t } = useI18n()
+  const drag = useRef<{ pointer: number; startX: number; startWidth: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const emit = (width: number) => {
+    // Wide enough for a spreadsheet, never wider than the conversation it is
+    // supposed to sit beside.
+    const max = Math.max(MIN_RAIL_WIDTH, Math.min(MAX_RAIL_WIDTH, Math.round(window.innerWidth * 0.7)))
+    onResize(Math.min(max, Math.max(MIN_RAIL_WIDTH, Math.round(width))))
+  }
+
+  return (
+    <div
+      className={`chat-rail-resizer${dragging ? ' is-dragging' : ''}`}
+      aria-valuenow={width}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t('chat.rail.resize')}
+      data-testid="chat-rail-resizer"
+      tabIndex={0}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        drag.current = { pointer: event.pointerId, startX: event.clientX, startWidth: width }
+        event.currentTarget.setPointerCapture(event.pointerId)
+        document.body.classList.add('is-resizing-rail')
+        setDragging(true)
+      }}
+      onPointerMove={(event) => {
+        const state = drag.current
+        if (!state || state.pointer !== event.pointerId) return
+        // Dragging left makes the pane wider, so the delta is subtracted.
+        emit(state.startWidth + (state.startX - event.clientX))
+      }}
+      onPointerUp={(event) => {
+        if (drag.current?.pointer !== event.pointerId) return
+        drag.current = null
+        document.body.classList.remove('is-resizing-rail')
+        setDragging(false)
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+        event.preventDefault()
+        emit(width + (event.key === 'ArrowLeft' ? KEY_STEP : -KEY_STEP))
+      }}
+    >
+      <span aria-hidden="true" />
+    </div>
+  )
+}
+
+/** Narrowest a spreadsheet still reads in. */
+const MIN_RAIL_WIDTH = 300
+const MAX_RAIL_WIDTH = 760
+/** One arrow-key press. */
+const KEY_STEP = 24

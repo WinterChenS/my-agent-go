@@ -18,6 +18,17 @@ path = "src/main.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[target.'cfg(windows)'.dependencies]
+# Screenshots of the browser pane: the WebView2 COM interface has to come from
+# the exact version Tauri links, or the types are not the same types.
+webview2-com = "0.39"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Memory",
+] }
+
 [dependencies]
 anvil-catalog = { path = "../crates/anvil-catalog" }
 anvil-paths = { path = "../crates/anvil-paths" }

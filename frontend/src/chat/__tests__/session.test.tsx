@@ -1844,9 +1844,16 @@ describe('chat rail', () => {
     const turn = document.querySelector('[data-testid="chat-message-agent"][data-run="pi-1:r1"]')
     expect(turn).not.toBeNull()
     await userEvent.click(within(row).getByTestId('chat-rail-artifact-open'))
-    await waitFor(() => expect(screen.getByTestId('file-preview')).toBeInTheDocument())
+    // The file opens as a tab of the pane, not as a dialog over the answer it
+    // belongs to: the reader keeps both on screen.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('chat-rail')).getByTestId('file-preview')).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('tab', { name: '预览' })).toHaveAttribute('aria-selected', 'true')
     await userEvent.click(screen.getByTestId('file-preview-close'))
     await waitFor(() => expect(screen.queryByTestId('file-preview')).toBeNull())
+    // Closing goes back to the list the file came from.
+    expect(screen.getByRole('tab', { name: '输出物 1' })).toHaveAttribute('aria-selected', 'true')
     // Re-query: the overlay's open/close re-rendered the rail, so the row
     // element captured above belongs to the previous render.
     await userEvent.click(within(screen.getByTestId('chat-rail-artifact')).getByTestId('chat-rail-artifact-return'))

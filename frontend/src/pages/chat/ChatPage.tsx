@@ -63,7 +63,6 @@ import {
   type UiRequest,
 } from '../../chat/client'
 import { ExtensionUiCard } from './ExtensionUiCard'
-import { FilePreviewOverlay } from './FilePreviewOverlay'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { imageSrc } from '../../chat/image'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
@@ -183,6 +182,28 @@ function prettySize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} B`
+}
+
+const RAIL_WIDTH_KEY = 'anvil.chat.railWidth'
+
+/** The pane remembers its width; it is a preference, not session state. */
+function readRailWidth(): number {
+  try {
+    const raw = window.localStorage.getItem(RAIL_WIDTH_KEY)
+    const value = raw ? Number(raw) : Number.NaN
+    if (Number.isFinite(value) && value >= 300 && value <= 900) return value
+  } catch {
+    /* a browser without storage is fine */
+  }
+  return 400
+}
+
+function writeRailWidth(width: number) {
+  try {
+    window.localStorage.setItem(RAIL_WIDTH_KEY, String(Math.round(width)))
+  } catch {
+    /* the width simply will not be remembered */
+  }
 }
 
 function basename(path: string): string {
@@ -518,8 +539,25 @@ export default function ChatPage() {
   // The turn the rail sent the reader back to; highlighted briefly so the jump
   // is visible instead of leaving them to guess which bubble moved.
   const [focusedRun, setFocusedRun] = useState<string | null>(null)
-  // The file the reader asked to look at; one overlay serves both entry points.
+  // The file the reader asked to look at. It opens in the right pane, not over
+  // the conversation: a dialog hid the answer the file was supposed to explain.
   const [previewPath, setPreviewPath] = useState<string | null>(null)
+  // How wide the right pane is. Reference material wants width; a file list
+  // does not, and the reader is the one who knows which is on screen.
+  const [railWidth, setRailWidthState] = useState(() => readRailWidth())
+  const setRailWidth = (width: number) => {
+    setRailWidthState(width)
+    writeRailWidth(width)
+  }
+  const openPreview = (path: string) => {
+    setPreviewPath(path)
+    setRailOpen(true)
+    setRailTab('file')
+  }
+  const closePreview = () => {
+    setPreviewPath(null)
+    setRailTab('artifacts')
+  }
   // The address the right pane's browser holds. The page lives in a native
   // webview the host places over the pane, so the app only remembers where it
   // is and asks for it.
@@ -1211,7 +1249,11 @@ export default function ChatPage() {
         </div>
       ) : null}
 
-      <div className={`chat-layout${railOpen ? ' rail-open' : ''}`} data-testid="chat-layout">
+      <div
+        className={`chat-layout${railOpen ? ' rail-open' : ''}`}
+        data-testid="chat-layout"
+        style={{ '--rail-w': `${railWidth}px` } as React.CSSProperties}
+      >
         <div className={`chat-thread-col${blankPage ? ' is-blank' : ''}`}>
           <div className="chat-thread" data-testid="chat-thread">
             {sample ? (
@@ -1341,7 +1383,7 @@ export default function ChatPage() {
                               className="chat-file-chip"
                               data-testid="chat-message-file"
                               title={file.path}
-                              onClick={() => setPreviewPath(file.path)}
+                              onClick={() => openPreview(file.path)}
                             >
                               <Icon name="file" size={11} />
                               <span className="chat-file-chip-name">{file.relative}</span>
@@ -1528,7 +1570,11 @@ export default function ChatPage() {
             view: live.rail,
             running: live.running,
             onTurn: jumpToTurn,
-            onPreview: setPreviewPath,
+            onPreview: openPreview,
+            preview:
+              previewPath && liveSession
+                ? { sessionId: liveSession.id, path: previewPath, onClose: closePreview }
+                : undefined,
             browser: {
               url: browserUrl,
               open: (url) => {
@@ -1552,8 +1598,12 @@ export default function ChatPage() {
           tab={railTab}
           onTab={setRailTab}
           onNotice={showNotice}
+          onResize={setRailWidth}
+          width={railWidth}
           onClose={() => {
             setRailOpen(false)
+            setRailTab('browser')
+            closePreview()
             railToggle.current?.focus()
           }}
         />
@@ -1622,13 +1672,6 @@ export default function ChatPage() {
         onConfirmTrust={() => setPermission('full')}
       />
 
-      {previewPath && liveSession ? (
-        <FilePreviewOverlay
-          sessionId={liveSession.id}
-          path={previewPath}
-          onClose={() => setPreviewPath(null)}
-        />
-      ) : null}
     </section>
   )
 }

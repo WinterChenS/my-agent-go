@@ -15,6 +15,10 @@
 //!
 //! `webview.eval` has no return value, which is why the answer travels back
 //! through the bridge rather than as a function result.
+//!
+//! Reading the page is only half of looking at it: `capture` asks WebView2 to
+//! rasterise what is on screen, because a broken layout and a hidden button are
+//! invisible to a DOM query.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicU16, Ordering};
@@ -126,6 +130,44 @@ impl Browser {
             .lock()
             .map(|slot| slot.is_some())
             .unwrap_or(false)
+    }
+
+    /// A PNG of what the page looks like right now.
+    ///
+    /// Reading the DOM tells a caller what the page *says*; it cannot tell it
+    /// whether the page actually rendered, whether a dialog is covering the
+    /// button, or whether the layout broke. This is the other half.
+    ///
+    /// The picture goes to a file because that is what a caller can pass on:
+    /// a tool result, an attachment, a preview. `target` is honoured when given
+    /// (a relative path resolves against the working directory); otherwise the
+    /// shot lands in the system temp folder, which every reader can reach.
+    pub fn capture(&self, target: Option<&str>) -> Result<Value, String> {
+        let webview = {
+            let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+            slot.as_ref()
+                .cloned()
+                .ok_or_else(|| "the browser pane is not open".to_string())?
+        };
+        // Let the page finish before looking at it: a shot taken mid-load is a
+        // half-painted picture, which is worse than no picture because it looks
+        // like an answer. A page that cannot answer still gets captured.
+        let _ = self.call("settle", &Value::Null);
+        let bytes = platform::capture_png(&webview)?;
+        let path = shot_path(target);
+        if let Some(dir) = path.parent()
+            && !dir.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(dir).map_err(|error| format!("screenshot: {error}"))?;
+        }
+        std::fs::write(&path, &bytes).map_err(|error| format!("screenshot: {error}"))?;
+        let (width, height) = png_size(&bytes);
+        Ok(serde_json::json!({
+            "path": path.display().to_string(),
+            "bytes": bytes.len(),
+            "width": width,
+            "height": height,
+        }))
     }
 
     /// Run a script in the page without waiting for an answer.
@@ -322,6 +364,19 @@ fn page_runtime(port: u16) -> String {
           var dy = Number(params.dy || 600);
           window.scrollBy(0, dy);
           out.value = Math.round(window.scrollY);
+        }} else if (method === 'settle') {{
+          // A capture returns the last frame the compositor finished, and a
+          // page that is still loading has not finished one. Wait for the load,
+          // then for the paint that follows it.
+          var deadline = Date.now() + Math.min(Number(params.ms || 6000), 10000);
+          var quiet = Number(params.quiet == null ? 260 : params.quiet);
+          (function poll() {{
+            if (document.readyState !== 'complete' && Date.now() < deadline) return setTimeout(poll, 80);
+            setTimeout(function () {{
+              post({{ id: id, ok: true, value: {{ readyState: document.readyState }} }});
+            }}, quiet);
+          }})();
+          return;
         }} else if (method === 'wait') {{
           var ms = Math.min(Number(params.ms || 500), 5000);
           return setTimeout(function () {{ post({{ id: id, ok: true, value: ms }}); }}, ms);
@@ -401,4 +456,127 @@ pub async fn browser_action(
         other => return Err(format!("unknown browser action: {other}")),
     };
     browser.run_script(script)
+}
+
+/// Where a screenshot goes when the caller did not say.
+fn shot_path(target: Option<&str>) -> std::path::PathBuf {
+    match target.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(raw) => std::path::PathBuf::from(raw),
+        None => {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|gap| gap.as_millis())
+                .unwrap_or(0);
+            std::env::temp_dir()
+                .join("anvil-shots")
+                .join(format!("shot-{stamp}.png"))
+        }
+    }
+}
+
+/// The pixel size out of a PNG header, so the caller knows what it got.
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return (0, 0);
+    }
+    let read = |at: usize| {
+        u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    (read(16), read(20))
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use tauri::webview::Webview;
+    use webview2_com::Microsoft::Web::WebView2::Win32 as wv2;
+    use webview2_com::CapturePreviewCompletedHandler;
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::Com::StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream};
+    use windows::Win32::System::Com::IStream;
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+
+    /// Ask WebView2 to rasterise the page, and wait for the pixels.
+    ///
+    /// The wait happens here, on a worker thread, and not inside the UI
+    /// closure: the completion handler is delivered by the UI message loop, so
+    /// blocking that loop would be waiting for a callback that cannot run.
+    pub fn capture_png(webview: &Webview<tauri::Wry>) -> Result<Vec<u8>, String> {
+        let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+        let reporter = tx.clone();
+        webview
+            .with_webview(move |platform| {
+                if let Err(error) = begin(&platform.controller(), reporter.clone()) {
+                    let _ = reporter.send(Err(error));
+                }
+            })
+            .map_err(|error| format!("screenshot: {error}"))?;
+        match rx.recv_timeout(Duration::from_secs(20)) {
+            Ok(outcome) => outcome,
+            Err(_) => Err("the page did not produce a screenshot in time".to_string()),
+        }
+    }
+
+    fn begin(
+        controller: &wv2::ICoreWebView2Controller,
+        tx: mpsc::Sender<Result<Vec<u8>, String>>,
+    ) -> Result<(), String> {
+        // A memory-backed stream: no temp file, and the handler can read it the
+        // moment the capture finishes.
+        let (webview, stream): (wv2::ICoreWebView2, IStream) = unsafe {
+            let webview = controller
+                .CoreWebView2()
+                .map_err(|error| format!("screenshot: {error}"))?;
+            let stream = CreateStreamOnHGlobal(HGLOBAL(std::ptr::null_mut()), true)
+                .map_err(|error| format!("screenshot: {error}"))?;
+            (webview, stream)
+        };
+        let sink = stream.clone();
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |result| {
+            let outcome = match result {
+                Ok(()) => read(&sink),
+                Err(error) => Err(format!("screenshot: {error}")),
+            };
+            let _ = tx.send(outcome);
+            Ok(())
+        }));
+        unsafe {
+            webview
+                .CapturePreview(
+                    wv2::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &handler,
+                )
+                .map_err(|error| format!("screenshot: {error}"))
+        }
+    }
+
+    fn read(stream: &IStream) -> Result<Vec<u8>, String> {
+        unsafe {
+            let memory =
+                GetHGlobalFromStream(stream).map_err(|error| format!("screenshot: {error}"))?;
+            let size = GlobalSize(memory);
+            if size == 0 {
+                return Err("the page produced an empty image".to_string());
+            }
+            let start = GlobalLock(memory) as *const u8;
+            if start.is_null() {
+                return Err("screenshot memory could not be read".to_string());
+            }
+            let bytes = std::slice::from_raw_parts(start, size).to_vec();
+            let _ = GlobalUnlock(memory);
+            Ok(bytes)
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod platform {
+    use tauri::webview::Webview;
+
+    pub fn capture_png(_webview: &Webview<tauri::Wry>) -> Result<Vec<u8>, String> {
+        Err("this build cannot capture the browser pane on this platform".to_string())
+    }
 }

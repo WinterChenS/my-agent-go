@@ -236,7 +236,9 @@ button.chat-badge:hover {
 }
 
 .chat-layout.rail-open {
-  grid-template-columns: minmax(0, 1fr) 400px;
+  /* The width is the reader's: the pane keeps a drag handle on its left edge
+     and the page writes its choice here. */
+  grid-template-columns: minmax(0, 1fr) var(--rail-w, 400px);
 }
 
 .chat-thread-col {
@@ -2598,6 +2600,7 @@ button.chat-badge:hover {
 /* ---------- rail ---------- */
 
 .chat-rail {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -2605,6 +2608,46 @@ button.chat-badge:hover {
   overflow: hidden;
   border-left: 1px solid var(--border);
   background: var(--surface);
+}
+
+/* The drag edge. It sits on the border rather than beside it, so the grip is
+   the line the reader already sees; the visible rule only appears on hover. */
+.chat-rail-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.chat-rail-resizer span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.chat-rail-resizer:hover span,
+.chat-rail-resizer.is-dragging span,
+.chat-rail-resizer:focus-visible span {
+  background: var(--accent);
+}
+
+.chat-rail-resizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging, the whole window follows one cursor and nothing selects. */
+body.is-resizing-rail,
+body.is-resizing-rail * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .chat-rail-handle {
@@ -2652,6 +2695,21 @@ button.chat-badge:hover {
 .chat-rail-tab:hover {
   background: var(--surface-2);
   color: var(--fg);
+}
+
+/* The preview tab makes five, and five does not fit: drop the glyphs and let
+   the words carry the tabs. */
+.chat-rail-tabs.is-crowded {
+  gap: 2px;
+}
+
+.chat-rail-tabs.is-crowded .chat-rail-tab {
+  gap: 0;
+  padding: 0 var(--space-3);
+}
+
+.chat-rail-tabs.is-crowded .chat-rail-tab svg {
+  display: none;
 }
 
 .chat-rail-tab.is-active {
@@ -4060,7 +4118,9 @@ button.chat-badge:hover {
 
 @media (max-width: 1180px) {
   .chat-layout.rail-open {
-    grid-template-columns: minmax(0, 1fr) 340px;
+    /* A narrower window gets a narrower default, but a width the reader chose
+       still wins — up to a share of the window that leaves the talk readable. */
+    grid-template-columns: minmax(0, 1fr) min(var(--rail-w, 340px), 44vw);
   }
 
   .chat-thread-inner {
@@ -4732,33 +4792,22 @@ button.chat-badge:hover {
   white-space: nowrap;
 }
 
-.file-preview-backdrop {
-  position: fixed;
-  z-index: 140;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: var(--space-8);
-  background: var(--scrim);
-}
-
+/* The pane, not a dialog: it fills the width it is given and scrolls inside. */
 .file-preview {
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
-  width: min(980px, calc(100vw - 48px));
-  height: min(78vh, 900px);
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-lg);
 }
 
 .file-preview-head {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -4990,10 +5039,10 @@ button.chat-badge:hover {
   overflow: hidden;
 }
 
-/* The browser panel fills the rail instead of sitting at its content height:
-   the native view is placed over this box, and a zero-height box would park it
-   off-screen. */
-.chat-rail-pane.is-browser {
+/* A pane that fills the rail: the browser (a native view is placed over this
+   box, and a zero-height box would park it off-screen) and the file preview. */
+.chat-rail-pane.is-browser,
+.chat-rail-pane.is-fill {
   display: flex;
   height: 100%;
   min-height: 0;

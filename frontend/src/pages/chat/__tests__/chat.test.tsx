@@ -291,6 +291,28 @@ describe('chat sample entry', () => {
     await waitFor(() => expect(document.activeElement).toBe(clarify))
   })
 
+  it('resizes the right pane from its edge and remembers the width', async () => {
+    const user = userEvent.setup()
+    window.localStorage.removeItem('anvil.chat.railWidth')
+    renderAt('/?sample=chat')
+    await user.click(screen.getByTestId('chat-rail-toggle'))
+
+    const layout = screen.getByTestId('chat-layout')
+    expect(layout.style.getPropertyValue('--rail-w')).toBe('400px')
+
+    // Drag is the usual way in; the arrow keys are the same gesture without a
+    // pointer, and the only one a keyboard can make.
+    const grip = screen.getByTestId('chat-rail-resizer')
+    grip.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(layout.style.getPropertyValue('--rail-w')).toBe('424px')
+
+    await user.keyboard('{ArrowRight}{ArrowRight}')
+    expect(layout.style.getPropertyValue('--rail-w')).toBe('376px')
+    // A width is a preference: it outlives the window it was set in.
+    expect(window.localStorage.getItem('anvil.chat.railWidth')).toBe('376')
+  })
+
   it('switches the four rail tabs and closes the panel with focus return', async () => {
     const user = userEvent.setup()
     renderAt('/?sample=chat')

@@ -5,16 +5,17 @@ import Icon from '../../shell/Icon'
 import { Markdown } from './Markdown'
 
 /**
- * One written file, shown in place.
+ * One written file, shown inside the right pane.
  *
  * The two entry points (the file list under an answer and the output list in
- * the right pane) open the same overlay, so a click always means "let me look
- * at this file" rather than "take me somewhere else".
+ * the pane) both fill this pane, so a click never covers the conversation it
+ * came from: a dialog took the whole window for a file the reader wanted to
+ * glance at next to the answer that produced it.
  *
  * Heavy parsers load on demand: a spreadsheet or a Word document pulls its
  * library when it is actually opened, not into the chat bundle.
  */
-export function FilePreviewOverlay({
+export function FilePreviewPane({
   sessionId,
   path,
   onClose,
@@ -54,12 +55,7 @@ export function FilePreviewOverlay({
   const name = preview?.name ?? path.split(/[\\/]/).pop() ?? path
 
   return (
-    <div
-      className="file-preview-backdrop"
-      data-testid="file-preview"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
-    >
-      <section className="file-preview" role="dialog" aria-modal="true" aria-label={name}>
+    <section className="file-preview" data-testid="file-preview" aria-label={name}>
         <header className="file-preview-head">
           <span className="file-preview-icon" aria-hidden="true">
             <Icon name="file" size={14} />
@@ -96,8 +92,7 @@ export function FilePreviewOverlay({
         {preview?.truncated ? (
           <footer className="file-preview-foot">{t('chat.preview.truncated')}</footer>
         ) : null}
-      </section>
-    </div>
+    </section>
   )
 }
 
