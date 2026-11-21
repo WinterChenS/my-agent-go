@@ -109,6 +109,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::session::session_export,
             crate::session::session_audit,
             crate::session::session_audit_export,
+            crate::workbench::workbench_overview,
             crate::session::agent_runs,
             crate::workspace::workspace_defaults,
             crate::workspace::workspace_ensure,

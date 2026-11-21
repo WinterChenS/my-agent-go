@@ -33,6 +33,9 @@ windows = { version = "0.62", features = [
 anvil-catalog = { path = "../crates/anvil-catalog" }
 anvil-paths = { path = "../crates/anvil-paths" }
 anvil-session = { path = "../crates/anvil-session" }
+# The workbench view reads ledger rows through `Store::raw()`. Same version as
+# the crates that own the schema, so the workspace links one SQLite.
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["unstable"] }

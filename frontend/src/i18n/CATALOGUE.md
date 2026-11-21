@@ -162,6 +162,38 @@ Source baseline: prototype `assets/studio.js` `I18N` at commit `112fcae854b324d2
 | `workbench.palette.hint.summon` | 呼出 | Summon |
 | `workbench.palette.hint.escape` | ESC | ESC |
 | `workbench.palette.unavailable` | 未接入：该操作将在后续任务开放 | Not connected: this action arrives in a later task |
+| `workbench.subtitle.live` | 近 7 天 {sessions} 个会话、{tools} 次工具调用，{active} 个会话进行中。数据来自本机会话账本。 | {sessions} sessions and {tools} tool calls in the last 7 days; {active} chats are running. All figures come from the local session ledger. |
+| `workbench.loading` | 正在读取本机会话账本… | Reading the local session ledger… |
+| `workbench.failed` | 工作台数据读取失败：{detail} | Could not read workbench data: {detail} |
+| `workbench.refreshing` | 正在更新统计范围… | Updating the range… |
+| `workbench.stats.sessionsDeltaLive` | 较上周同期 {delta} | {delta} vs the same days last week |
+| `workbench.stats.successRateLive` | 成功率 {rate}% | {rate}% success |
+| `workbench.stats.successRateMissing` | 工具未回报执行结果 | Tools did not report an outcome |
+| `workbench.stats.tokensSubLive` | 输入 {input} · 输出 {output} | Input {input} · output {output} |
+| `workbench.stats.tokensMissing` | 运行时未回报 Token 用量 | The runtime did not report token usage |
+| `workbench.stats.pendingSubLive` | 账本中未解决的审批请求 | Unresolved approval requests in the ledger |
+| `workbench.activity.cellBreakdown` | 完成回合 {runs} · 工具执行 {tools} | {runs} completed runs · {tools} tool results |
+| `workbench.activity.footLive` | 来自本机会话账本，只计已完成的回合与返回结果的工具调用 | From the local session ledger; completed runs and returned tool calls only |
+| `workbench.activity.emptyLive` | 账本中还没有完成的回合或工具调用 | No completed runs or tool results in the ledger yet |
+| `workbench.chats.meta` | {agent} · {time} · {turns} 轮 | {agent} · {time} · {turns} turns |
+| `workbench.chats.running` | 进行中 | Running |
+| `workbench.chats.untitled` | 未命名会话 | Untitled chat |
+| `workbench.chats.emptyLive` | 还没有会话，新建一个开始 | No chats yet — start a new one |
+| `workbench.artifacts.meta` | {session} · {size} · {time} | {session} · {size} · {time} |
+| `workbench.artifacts.subtitleLive` | 来自 {count} 个本地文件 | From {count} local files |
+| `workbench.artifacts.emptyLive` | 最近的会话还没有写出文件 | Recent chats have not written any files |
+| `workbench.agents.meta` | {model} · {skills} 个 Skill · {runs} 次运行 | {model} · {skills} skills · {runs} runs |
+| `workbench.agents.disabled` | 已停用 | Disabled |
+| `workbench.agents.emptyLive` | 尚未配置 Agent | No agents configured |
+| `workbench.schedules.unavailable` | 本机未接入定时任务调度器，暂无今日任务 | No scheduler is connected to this machine, so there are no tasks today |
+| `workbench.status.unavailable` | 未接入 | Not connected |
+| `workbench.status.runtimeValue` | {label} · {ready}/{total} 可用 | {label} · {ready}/{total} ready |
+| `workbench.status.noRuntime` | 未检测到已就绪的运行时 | No ready runtime detected |
+| `workbench.status.mcpValue` | {connected}/{total} 已连接 | {connected}/{total} connected |
+| `workbench.status.quotaUnavailable` | 未配置 | Not configured |
+| `workbench.status.localFile` | 本地文件 | Local file |
+| `workbench.sources.note` | 数据来源：会话账本、资源目录与项目文件；定时任务调度、连接器与配额服务在本版本未接入。 | Sources: the session ledger, the resource catalog and project files. A scheduler, connectors and a quota service are not available in this build. |
+| `workbench.sources.title` | 数据说明 | About this data |
 | `chat.back` | 返回工作台 | Back to dashboard |
 | `chat.normal.title` | 尚未接入会话 | No chat connected |
 | `chat.normal.subtitle` | 完成 G1/G2 后会在这里显示真实会话。 | Real chats will appear here after G1/G2. |

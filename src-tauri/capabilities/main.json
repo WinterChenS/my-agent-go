@@ -51,6 +51,7 @@
     "allow-session-export",
     "allow-session-audit",
     "allow-session-audit-export",
+    "allow-workbench-overview",
     "allow-agent-runs",
     "allow-workspace-defaults",
     "allow-workspace-ensure",

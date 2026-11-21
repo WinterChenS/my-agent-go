@@ -557,6 +557,17 @@ fn display_name(entry: &serde_json::Value, path: &str) -> String {
 
 /// Walk the event stream once, pairing calls with results and collecting the
 /// files the writing calls name.
+/// Files one session wrote, without the rest of the rail.
+///
+/// The workbench's "recent outputs" needs the same confinement and the same
+/// write-tool recognition as the right rail. Reusing `walk_events` here means
+/// a file cannot be an output on one page and be ignored on the other.
+#[must_use]
+pub fn artifact_files(project_path: &str, events: &[RunEvent]) -> Vec<RailArtifact> {
+    let mut calls = BTreeMap::new();
+    walk_events(project_path, events, &|_| 0, &mut calls).1
+}
+
 fn walk_events(
     project_path: &str,
     events: &[RunEvent],

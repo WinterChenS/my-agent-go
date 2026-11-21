@@ -76,6 +76,11 @@ impl SessionState {
         &self.database
     }
 
+    /// The persona catalog, read alongside the ledger by the workbench view.
+    pub fn catalog_database(&self) -> &Path {
+        &self.catalog_database
+    }
+
     /// Where exports land: beside the ledger, so both live on the data drive
     /// and both are covered by the same backup.
     fn export_dir(&self) -> PathBuf {
@@ -181,7 +186,7 @@ impl SessionState {
         action(service)
     }
 
-    fn with_reader<T>(
+    pub(crate) fn with_reader<T>(
         &self,
         action: impl FnOnce(&Store) -> Result<T, String>,
     ) -> Result<T, String> {

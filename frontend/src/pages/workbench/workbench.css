@@ -63,6 +63,18 @@
   font-size: var(--text-xs-plus);
 }
 
+.wb-notice-error {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.wb-refreshing {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -326,6 +338,43 @@
 
 /* activity */
 
+.wb-activity {
+  position: relative;
+}
+
+/* The prototype's hover tooltip. `var(--fg)` inverts with the theme, so the
+   capsule stays dark-on-light and light-on-dark without a hardcoded colour. */
+.wb-activity-tooltip {
+  position: absolute;
+  z-index: 6;
+  max-width: 280px;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--r-xs);
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.wb-activity-tooltip b {
+  display: block;
+  font-weight: 600;
+}
+
+.wb-activity-tooltip small {
+  display: block;
+  margin-top: 2px;
+  opacity: 0.72;
+}
+
+.wb-activity-cell:hover:not(.is-future),
+.wb-activity-cell:focus-visible {
+  border-color: var(--fg);
+  outline: none;
+}
+
 .wb-activity-summary {
   display: flex;
   justify-content: space-between;
@@ -571,6 +620,30 @@
   flex: none;
   border-radius: 50%;
   background: var(--success);
+}
+
+.wb-live-dot.is-off {
+  background: var(--muted);
+}
+
+/* Which parts of the page have a real source. Never let a "0" look measured
+   when the underlying service does not exist. */
+.wb-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-8);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+
+.wb-sources b {
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+  font-weight: 560;
 }
 
 .wb-hairline {

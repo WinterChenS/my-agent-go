@@ -39,6 +39,7 @@ pub mod runtimes;
 pub mod session;
 pub mod state;
 pub mod system_theme;
+pub mod workbench;
 pub mod workspace;
 
 /// Every app command the host registers, in ACL order.
@@ -93,6 +94,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_export",
     "session_audit",
     "session_audit_export",
+    "workbench_overview",
     "agent_runs",
     "workspace_defaults",
     "workspace_ensure",

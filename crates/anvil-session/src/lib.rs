@@ -8,7 +8,8 @@
 //! * `export` — HTML/Markdown/JSON transcripts, confined and atomic;
 //! * `adapter` — the `SessionAdapter` contract and its registry;
 //! * `adapters` — the two shipped adapters (Pi, Codex);
-//! * `service` — open/send/abort/resume orchestration on top of the registry.
+//! * `service` — open/send/abort/resume orchestration on top of the registry;
+//! * `workbench` — the home page's counts and activity grid, from the same rows.
 //!
 //! The ledger is append-only: a run writes events in `seq` order inside one
 //! transaction, and a session's message list is derived from those events, so a
@@ -30,6 +31,7 @@ pub mod service;
 pub mod store;
 pub mod subagent;
 pub mod ui;
+pub mod workbench;
 
 pub use adapter::{ContextUsage, Registry, SessionAdapter};
 pub use adapters::default_registry;

@@ -191,14 +191,16 @@ fn number(raw: &serde_json::Value, paths: &[&str]) -> Option<f64> {
     None
 }
 
-struct UsageNumbers {
-    input: u64,
-    output: u64,
-    cached: u64,
-    cost: f64,
+pub(crate) struct UsageNumbers {
+    pub(crate) input: u64,
+    pub(crate) output: u64,
+    pub(crate) cached: u64,
+    pub(crate) cost: f64,
 }
 
-fn usage_of(payload: &serde_json::Value) -> Option<UsageNumbers> {
+/// Shared with the workbench view so its token totals and the audit page agree
+/// on the shapes pi, Codex and OpenAI-compatible providers emit.
+pub(crate) fn usage_of(payload: &serde_json::Value) -> Option<UsageNumbers> {
     let raw = payload.get("usage").unwrap_or(payload);
     let base = number(
         raw,
@@ -278,7 +280,7 @@ fn usage_of(payload: &serde_json::Value) -> Option<UsageNumbers> {
 
 /// Whether a usage event is a running total for a whole thread. Those must not
 /// be summed with per-request reports.
-fn is_thread_snapshot(payload: &serde_json::Value) -> bool {
+pub(crate) fn is_thread_snapshot(payload: &serde_json::Value) -> bool {
     payload.get("scope").and_then(|v| v.as_str()) == Some("thread")
         || payload
             .get("usage")

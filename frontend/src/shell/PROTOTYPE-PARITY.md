@@ -66,10 +66,28 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 
 ## R0-04 workbench
 
-- Normal `/` is the real entry: stats show `0`, lists show empty states, and
-  「配置 Agent」「新建对话」「全部会话」「继续」「管理」「全部」 are disabled
-  with an explicit "not connected (G1/G2)" tooltip. No prototype fixture
-  numbers, names or identities are rendered.
+- Normal `/` is the real entry and now reads one host command,
+  `workbench_overview`. The four stats, the activity heatmap, continue-chats,
+  recent outputs, my agents and run status all come from committed ledger rows,
+  the persona catalog and the files sessions wrote inside their projects.
+  A day is busy only when a run completed or a tool returned; a missing token
+  counter is shown as "not reported", never as a measured zero. Dates are
+  bucketed on the host using the viewer's UTC offset.
+- Outside the desktop host (jsdom, plain browser) there is no ledger, so the
+  same page keeps the honest empty state: zeroed stats, "not connected" cards
+  and disabled actions with the "not connected (G1/G2)" tooltip. A read failure
+  shows an alert instead of falling back to fixtures. No prototype fixture
+  numbers, names or identities are rendered in either real state.
+- The heatmap keeps the prototype's 12/26/53-week select, month labels, level
+  legend and hover tooltip. Each range re-reads the ledger; the tooltip adds the
+  real split of completed runs and tool results for that day.
+- Three cards have no source in this build and say so explicitly: today's
+  schedules (no scheduler), connectors (no registry) and next quota reset (no
+  quota service). The status card carries a "data sources" note listing this
+  boundary. They are not filled with placeholder zeros.
+- Buttons navigate for real: configure/manage agents → `/agents`, new chat → a
+  cleared `/chat`, all chats → `/chat`, continue → that exact session id in
+  `/chat`, all outputs → `/library`, all schedules → `/schedules`.
 - The prototype-filled state is isolated at `/?sample=workbench` and the
   path alias `/__sample/workbench` (used by the native case; not in navigation).
   A visible sample banner marks it as design data, and its action buttons only
@@ -88,11 +106,11 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   ↑/↓ changes the highlighted option, ↵ opens, ESC closes, and the footer shows
   the key hints with no close button. Focus returns to the toolbar trigger after
   closing; Tab stays in the search field.
-- Page options navigate to their route. The five action options are not wired
-  yet (new chat → R0-05/G2, schedule → R0-10, MCP/runtime/token audit → later
-  settings tasks), so activating one keeps the palette open and shows the
-  localized 「未接入」 notice. It never navigates, mutates state, or reports a
-  fake success.
+- Page options navigate to their route. Since v64 the five action options open
+  real screens: new chat clears the active session, new schedule → `/schedules`,
+  add MCP → `/mcp`, manage runtime → `/settings#runtime`, token audit →
+  `/settings#observability`. Activating one closes the palette; nothing reports
+  a fake success.
 - All palette copy comes from `workbench.palette.*` in both catalogues; the
   zh/en key sets stay identical and `CATALOGUE.md` lists every key.
 - The 820×1180 spot check has the same Windows 1080 work-area clamp documented

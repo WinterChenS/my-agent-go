@@ -48,6 +48,7 @@ dependencies = [
  "anvil-catalog",
  "anvil-paths",
  "anvil-session",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",
