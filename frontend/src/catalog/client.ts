@@ -346,6 +346,31 @@ export function probeCatalogMcp(runtimeId: string, name: string): Promise<McpPro
   return hostCall<McpProbeResult>('catalog_probe_mcp', { runtimeId, name })
 }
 
+/** What the add-service form sends to the host. */
+export interface McpDraft {
+  runtimeId: string
+  name: string
+  transport: string
+  command: string | null
+  args: string[]
+  url: string | null
+  env: Array<[string, string]>
+}
+
+/** Write the declaration into the runtime's own config and rescan it. */
+export function addCatalogMcp(draft: McpDraft): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_add_mcp', { ...draft })
+}
+
+/** Try a declaration without saving it. */
+export function testCatalogMcp(draft: McpDraft): Promise<McpProbeResult> {
+  return hostCall<McpProbeResult>('catalog_test_mcp', {
+    transport: draft.transport,
+    command: draft.command,
+    args: draft.args,
+  })
+}
+
 /**
  * Host answers `catalog_snapshot` from disk and scans in the background, so
  * `loading` means "nothing read yet", never "waiting on a probe".

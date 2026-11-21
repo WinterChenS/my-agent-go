@@ -251,6 +251,206 @@ pub fn from_pi_json(runtime_id: &str, text: &str, source: &str) -> Result<Vec<Mc
     from_claude_json(runtime_id, text, source)
 }
 
+/// Where a runtime reads its own MCP declarations from.
+fn config_path(runtime_id: &str, home: &Path) -> Result<PathBuf> {
+    match runtime_id {
+        "pi" => Ok(home.join(".pi").join("agent").join("mcp.json")),
+        "claude" => Ok(home.join(".claude.json")),
+        "codex" => Ok(home.join(".codex").join("config.toml")),
+        "opencode" => Ok(home.join(".config").join("opencode").join("opencode.json")),
+        other => Err(Error::Rejected(format!("{other} does not support MCP declarations"))),
+    }
+}
+
+fn replace_file(path: &Path, text: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| Error::Io(format!("create {}: {error}", parent.display())))?;
+    }
+    let temp = path.with_extension("anvil-tmp");
+    std::fs::write(&temp, text)
+        .map_err(|error| Error::Io(format!("write {}: {error}", temp.display())))?;
+    std::fs::rename(&temp, path)
+        .map_err(|error| Error::Io(format!("replace {}: {error}", path.display())))?;
+    Ok(())
+}
+
+fn read_or_empty(path: &Path) -> Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(String::new()),
+        Ok(text) => Ok(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(Error::Io(format!("read {}: {error}", path.display()))),
+    }
+}
+
+/// Write one server declaration into the runtime's own config file, preserving
+/// every other entry. Secrets stay in that file; the catalog only ever imports
+/// their names.
+#[allow(clippy::too_many_arguments)]
+pub fn write_config(
+    runtime_id: &str,
+    home: &Path,
+    name: &str,
+    transport: &str,
+    command: Option<&str>,
+    args: &[String],
+    url: Option<&str>,
+    env: &[(String, String)],
+) -> Result<()> {
+    if name.trim().is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(Error::Rejected("server name may only use letters, digits, - and _".into()));
+    }
+    let remote = transport != "stdio";
+    if remote && url.map(|value| value.trim().is_empty()).unwrap_or(true) {
+        return Err(Error::Rejected("remote servers need a URL".into()));
+    }
+    if !remote && command.map(|value| value.trim().is_empty()).unwrap_or(true) {
+        return Err(Error::Rejected("stdio servers need a command".into()));
+    }
+    let path = config_path(runtime_id, home)?;
+    match runtime_id {
+        "codex" => {
+            let mut root: toml::Value = if read_or_empty(&path)?.trim().is_empty() {
+                toml::Value::Table(toml::map::Map::new())
+            } else {
+                toml::from_str(&read_or_empty(&path)?)
+                    .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?
+            };
+            let servers = root
+                .as_table_mut()
+                .ok_or_else(|| Error::Format("codex config.toml is not a table".into()))?
+                .entry("mcp_servers")
+                .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            let table = servers
+                .as_table_mut()
+                .ok_or_else(|| Error::Format("mcp_servers is not a table".into()))?;
+            let mut entry = toml::map::Map::new();
+            if remote {
+                entry.insert("url".into(), toml::Value::String(url.unwrap().to_string()));
+            } else {
+                entry.insert(
+                    "command".into(),
+                    toml::Value::String(command.unwrap().to_string()),
+                );
+                entry.insert(
+                    "args".into(),
+                    toml::Value::Array(args.iter().cloned().map(toml::Value::String).collect()),
+                );
+                if !env.is_empty() {
+                    let env_table: toml::map::Map<_, _> = env
+                        .iter()
+                        .map(|(key, value)| (key.clone(), toml::Value::String(value.clone())))
+                        .collect();
+                    entry.insert("env".into(), toml::Value::Table(env_table));
+                }
+            }
+            table.insert(name.to_string(), toml::Value::Table(entry));
+            replace_file(&path, &toml::to_string_pretty(&root)
+                .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?)
+        }
+        "opencode" => {
+            let mut root: serde_json::Value = if read_or_empty(&path)?.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(&read_or_empty(&path)?)
+                    .map_err(|error| Error::Format(format!("opencode.json: {error}")))?
+            };
+            let servers = root
+                .as_object_mut()
+                .ok_or_else(|| Error::Format("opencode.json is not an object".into()))?
+                .entry("mcp".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            let table = servers
+                .as_object_mut()
+                .ok_or_else(|| Error::Format("opencode mcp is not an object".into()))?;
+            let mut entry = serde_json::Map::new();
+            if remote {
+                entry.insert("type".into(), serde_json::json!("remote"));
+                entry.insert("url".into(), serde_json::json!(url.unwrap()));
+            } else {
+                entry.insert("type".into(), serde_json::json!("local"));
+                let mut command_line: Vec<String> = vec![command.unwrap().to_string()];
+                command_line.extend(args.iter().cloned());
+                entry.insert("command".into(), serde_json::json!(command_line));
+                if !env.is_empty() {
+                    let values: serde_json::Map<_, _> = env
+                        .iter()
+                        .map(|(key, value)| (key.clone(), serde_json::json!(value)))
+                        .collect();
+                    entry.insert("environment".into(), serde_json::Value::Object(values));
+                }
+            }
+            table.insert(name.to_string(), serde_json::Value::Object(entry));
+            replace_file(
+                &path,
+                &serde_json::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("opencode.json: {error}")))?,
+            )
+        }
+        _ => {
+            let mut root: serde_json::Value = if read_or_empty(&path)?.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(&read_or_empty(&path)?)
+                    .map_err(|error| Error::Format(format!("mcp config: {error}")))?
+            };
+            let servers = root
+                .as_object_mut()
+                .ok_or_else(|| Error::Format("mcp config is not an object".into()))?
+                .entry("mcpServers".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            let table = servers
+                .as_object_mut()
+                .ok_or_else(|| Error::Format("mcpServers is not an object".into()))?;
+            let mut entry = serde_json::Map::new();
+            if remote {
+                entry.insert("url".into(), serde_json::json!(url.unwrap()));
+            } else {
+                entry.insert("command".into(), serde_json::json!(command.unwrap()));
+                if !args.is_empty() {
+                    entry.insert("args".into(), serde_json::json!(args));
+                }
+                if !env.is_empty() {
+                    let values: serde_json::Map<_, _> = env
+                        .iter()
+                        .map(|(key, value)| (key.clone(), serde_json::json!(value)))
+                        .collect();
+                    entry.insert("env".into(), serde_json::Value::Object(values));
+                }
+            }
+            table.insert(name.to_string(), serde_json::Value::Object(entry));
+            replace_file(
+                &path,
+                &serde_json::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("mcp config: {error}")))?,
+            )
+        }
+    }
+}
+
+/// Probe a declaration the reader has typed but not saved yet.
+pub fn probe_draft(
+    transport: &str,
+    command: Option<&str>,
+    args: &[String],
+    timeout: Duration,
+) -> Result<Vec<String>> {
+    if transport != "stdio" {
+        return Err(Error::Rejected(
+            "remote MCP connections are not probed by this build".into(),
+        ));
+    }
+    let command = command
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| Error::Rejected("stdio servers need a command".into()))?;
+    probe_stdio(command, args, timeout)
+}
+
 /// Whether a declared command may be executed by an explicit probe.
 ///
 /// Anything that leaves the local filesystem, contains parent traversal, or does

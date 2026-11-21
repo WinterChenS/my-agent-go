@@ -21,6 +21,8 @@
     "allow-catalog-save-agent",
     "allow-catalog-delete-agent",
     "allow-catalog-probe-mcp",
+    "allow-catalog-add-mcp",
+    "allow-catalog-test-mcp",
     "allow-session-list",
     "allow-session-detail",
     "allow-session-events",

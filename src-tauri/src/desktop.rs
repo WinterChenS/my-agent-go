@@ -78,6 +78,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_save_agent,
             crate::catalog::catalog_delete_agent,
             crate::catalog::catalog_probe_mcp,
+            crate::catalog::catalog_add_mcp,
+            crate::catalog::catalog_test_mcp,
             crate::catalog::runtime_install,
             crate::session::session_list,
             crate::session::session_detail,

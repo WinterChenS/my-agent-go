@@ -15,7 +15,12 @@ import {
 } from './sampleData'
 import './mcp.css'
 import { useCatalog } from '../../catalog/useCatalog'
-import type { CatalogMcp } from '../../catalog/client'
+import {
+  probeCatalogMcp,
+  syncCatalogInventory,
+  type CatalogMcp,
+  type McpProbeResult,
+} from '../../catalog/client'
 import { CatalogMcpPanel, CatalogSummary } from '../../catalog/CatalogPanels'
 
 const STATUS_KEYS: Record<McpStatus, MessageKey> = {
@@ -51,6 +56,9 @@ export default function McpPage() {
   const [notice, setNotice] = useState('')
   const [dialog, setDialog] = useState(false)
   const dialogTrigger = useRef<HTMLElement | null>(null)
+  const [probeResults, setProbeResults] = useState<Record<string, McpProbeResult>>({})
+  const [logs, setLogs] = useState<Array<{ time: string; service: string; ok: boolean; detail: string }>>([])
+  const [probing, setProbing] = useState<string | null>(null)
 
   const query = search.trim().toLowerCase()
   // The catalog already holds the imported declarations; show them instead of
@@ -58,10 +66,16 @@ export default function McpPage() {
   const liveServers = catalog.snapshot?.mcp ?? []
   const liveReady = !sample && (catalog.status === 'ready' || catalog.status === 'loading') && catalog.snapshot !== null
   const liveServices = liveServers.filter((server) =>
-    !query ||
-    `${server.name} ${server.runtimeId} ${server.command ?? ''} ${server.url ?? ''}`.toLowerCase().includes(query),
+    (!query || `${server.name} ${server.runtimeId} ${server.command ?? ''} ${server.url ?? ''}`.toLowerCase().includes(query)) &&
+    (transport === 'all' || server.transport === transport) &&
+    (status === 'all' || server.state === status),
   )
-  const connected = liveServers.filter((server) => server.state === 'connected').length
+  const runtimeChoices = (catalog.snapshot?.runtimes ?? [])
+    .filter((runtime) => runtime.capabilities.mcp !== 'unsupported')
+    .map((runtime) => ({ id: runtime.runtimeId, label: runtime.displayName }))
+  const keyOf = (server: CatalogMcp) => `${server.runtimeId}:${server.name}`
+  const liveConnected = liveServers.filter((server) => server.state === 'connected').length
+  const liveTools = Object.values(probeResults).reduce((total, report) => total + (report.ok ? report.tools.length : 0), 0)
   const services = sample ? sampleServices.filter((service) => {
     const matchesSearch = !query || service.name.toLowerCase().includes(query) ||
       service.tools.some((tool) => tool.name.toLowerCase().includes(query))
@@ -75,6 +89,64 @@ export default function McpPage() {
     dialogTrigger.current = trigger
     setDialog(true)
   }
+  const probeOne = async (server: CatalogMcp) => {
+    const key = keyOf(server)
+    setProbing(key)
+    announce(t('mcp.notice.probing'))
+    try {
+      const report = await probeCatalogMcp(server.runtimeId, server.name)
+      setProbeResults((current) => ({ ...current, [key]: report }))
+      setLogs((current) => [
+        {
+          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          service: server.name,
+          ok: report.ok,
+          detail: report.detail || (report.ok ? `${report.tools.length} tools` : 'failed'),
+        },
+        ...current,
+      ].slice(0, 20))
+      announce(report.ok
+        ? t('mcp.form.testOk', { count: report.tools.length })
+        : t('mcp.form.testFailed', { message: report.detail || 'unknown error' }))
+      return report
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause)
+      setLogs((current) => [
+        { time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), service: server.name, ok: false, detail },
+        ...current,
+      ].slice(0, 20))
+      announce(t('mcp.form.testFailed', { message: detail }))
+      return null
+    } finally {
+      setProbing(null)
+    }
+  }
+  const reconnect = async (sampleKey: MessageKey = 'mcp.notice.reconnect', quiet = false) => {
+    if (sample) {
+      announce(t(sampleKey))
+      return
+    }
+    try {
+      const fresh = await syncCatalogInventory()
+      catalog.apply(fresh)
+      const servers = fresh.mcp ?? []
+      const reports = await Promise.all(servers.map((server) => probeCatalogMcp(server.runtimeId, server.name)))
+      const results: Record<string, McpProbeResult> = {}
+      const entries = servers.map((server, index) => ({
+        time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        service: server.name,
+        ok: reports[index].ok,
+        detail: reports[index].detail || (reports[index].ok ? `${reports[index].tools.length} tools` : 'failed'),
+      }))
+      servers.forEach((server, index) => { results[keyOf(server)] = reports[index] })
+      setProbeResults(results)
+      setLogs(entries.slice(0, 20))
+      if (!quiet) announce(t('mcp.notice.reconnected'))
+    } catch (cause) {
+      announce(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   const closeDialog = () => {
     setDialog(false)
     const trigger = dialogTrigger.current
@@ -90,11 +162,11 @@ export default function McpPage() {
           <p>{t('mcp.description')}</p>
         </div>
         <div className="mcp-head-actions">
-          <button type="button" className="mcp-btn" disabled={!sample} title={sample ? t('mcp.reconnect') : t('mcp.action.unavailable')} onClick={() => announce(t('mcp.notice.reconnect'))}>
+          <button type="button" className="mcp-btn" data-testid="mcp-reconnect" onClick={() => void reconnect()}>
             <Icon name="refresh" size={14} />
             {t('mcp.reconnect')}
           </button>
-          <button type="button" className="mcp-btn mcp-btn-primary" disabled={!sample} title={sample ? t('mcp.add') : t('mcp.action.unavailable')} onClick={(event) => openDialog(event.currentTarget)}>
+          <button type="button" className="mcp-btn mcp-btn-primary" disabled={!sample && runtimeChoices.length === 0} title={!sample && runtimeChoices.length === 0 ? t('mcp.action.unavailable') : t('mcp.add')} onClick={(event) => openDialog(event.currentTarget)}>
             <Icon name="plus" size={14} />
             {t('mcp.add')}
           </button>
@@ -117,7 +189,7 @@ export default function McpPage() {
         {sampleStats.map((stat) => (
           <div key={stat.key} className="mcp-stat" data-testid={`mcp-stat-${stat.key}`}>
             <span>{t(STAT_LABEL_KEYS[stat.key])}</span>
-            <b>{sample ? stat.value : liveReady ? (stat.key === 'connected' ? connected : '—') : stat.key === 'latency' ? '—' : '0'}</b>
+            <b>{sample ? stat.value : liveReady ? (stat.key === 'connected' ? liveConnected : stat.key === 'tools' ? liveTools : '—') : stat.key === 'latency' ? '—' : '0'}</b>
             <small>{sample ? t(stat.subKey as MessageKey) : t('mcp.stats.empty')}</small>
           </div>
         ))}
@@ -128,13 +200,13 @@ export default function McpPage() {
           <Icon name="search" size={12} />
           <input data-testid="mcp-search" type="search" value={search} disabled={!sample && !liveReady} placeholder={t('mcp.searchPlaceholder')} aria-label={t('mcp.searchPlaceholder')} onChange={(event) => setSearch(event.target.value)} />
         </label>
-        <select aria-label={t('mcp.filter.transportLabel')} value={transport} disabled={!sample} onChange={(event) => setTransport(event.target.value as typeof transport)}>
+        <select aria-label={t('mcp.filter.transportLabel')} value={transport} disabled={!sample && !liveReady} onChange={(event) => setTransport(event.target.value as typeof transport)}>
           <option value="all">{t('mcp.filter.transport')}</option>
           <option value="stdio">{t('mcp.transport.stdio')}</option>
           <option value="http">{t('mcp.transport.http')}</option>
           <option value="websocket">{t('mcp.transport.websocket')}</option>
         </select>
-        <select aria-label={t('mcp.filter.statusLabel')} value={status} disabled={!sample} onChange={(event) => setStatus(event.target.value as typeof status)}>
+        <select aria-label={t('mcp.filter.statusLabel')} value={status} disabled={!sample && !liveReady} onChange={(event) => setStatus(event.target.value as typeof status)}>
           <option value="all">{t('mcp.filter.status')}</option>
           <option value="connected">{t('mcp.status.connected')}</option>
           <option value="needsAuth">{t('mcp.status.needsAuth')}</option>
@@ -157,7 +229,13 @@ export default function McpPage() {
       ) : liveReady && liveServices.length > 0 ? (
         <div className="mcp-grid" data-testid="mcp-grid">
           {liveServices.map((server) => (
-            <LiveMcpCard key={`${server.runtimeId}:${server.name}`} server={server} />
+            <LiveMcpCard
+              key={keyOf(server)}
+              server={server}
+              report={probeResults[keyOf(server)]}
+              probing={probing === keyOf(server)}
+              onProbe={() => void probeOne(server)}
+            />
           ))}
         </div>
       ) : (
@@ -172,7 +250,7 @@ export default function McpPage() {
         <div className="mcp-logs-head">
           <h2>{t('mcp.logs.title')}</h2>
           <span>{sample ? t('mcp.logs.recent', { count: sampleLogs.length }) : ''}</span>
-          <button type="button" className="mcp-btn mcp-btn-sm" disabled={!sample} title={sample ? t('mcp.logs.refresh') : t('mcp.action.unavailable')} onClick={() => announce(t('mcp.logs.notice'))}>
+          <button type="button" className="mcp-btn mcp-btn-sm" data-testid="mcp-logs-refresh" onClick={() => void reconnect('mcp.logs.notice')}>
             <Icon name="refresh" size={13} />
             {t('mcp.logs.refresh')}
           </button>
@@ -188,19 +266,48 @@ export default function McpPage() {
               </div>
             ))}
           </div>
+        ) : logs.length > 0 ? (
+          <div className="mcp-log-list">
+            {logs.map((log, index) => (
+              <div key={`${log.time}-${log.service}-${index}`} className="mcp-log" data-testid="mcp-log">
+                <span className="mcp-log-time">{log.time}</span>
+                <span className="mcp-log-service">{log.service}</span>
+                <span className={`mcp-log-result${log.ok ? ' is-ok' : ' is-error'}`}>{log.ok ? '✓' : '✗'}</span>
+                <span className="mcp-log-detail">{log.detail}</span>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="mcp-logs-empty" data-testid="mcp-empty-logs">{t('mcp.logs.empty')}</div>
         )}
       </section>
 
       <div className="mcp-footnote"><Icon name="shield" size={14} /><span>{t('mcp.footnote')}</span></div>
-      <AddMcpDialog open={dialog} onClose={closeDialog} onNotice={announce} />
+      <AddMcpDialog
+        open={dialog}
+        sample={sample}
+        runtimes={runtimeChoices}
+        onClose={closeDialog}
+        onNotice={announce}
+        onSaved={() => void reconnect('mcp.notice.reconnect', true)}
+      />
     </section>
   )
 }
 
 /** A declaration the catalog actually read from a runtime's config file. */
-function LiveMcpCard({ server }: { server: CatalogMcp }) {
+function LiveMcpCard({
+  server,
+  report,
+  probing,
+  onProbe,
+}: {
+  server: CatalogMcp
+  report?: McpProbeResult
+  probing: boolean
+  onProbe: () => void
+}) {
+  const { t } = useI18n()
   return (
     <section className={`mcp-card is-${server.state}`} data-testid="mcp-card" data-service={`${server.runtimeId}:${server.name}`}>
       <div className="mcp-card-head">
@@ -209,7 +316,8 @@ function LiveMcpCard({ server }: { server: CatalogMcp }) {
           <span className="mcp-card-desc mono">{server.source}</span>
         </div>
         <div className="mcp-card-actions">
-          <span className="mcp-status is-disconnected" data-state={server.state}>{server.state}</span>
+          <span className={`mcp-status is-${report ? (report.ok ? 'connected' : 'disconnected') : 'disconnected'}`} data-state={report ? (report.ok ? 'connected' : 'failed') : server.state}>{report ? (report.ok ? 'connected' : 'failed') : server.state}</span>
+          <button type="button" className="mcp-btn mcp-btn-sm" data-testid="mcp-probe" disabled={probing} onClick={onProbe}>{probing ? '…' : t('mcp.action.probe')}</button>
         </div>
       </div>
       <div className="mcp-card-config">
@@ -220,8 +328,15 @@ function LiveMcpCard({ server }: { server: CatalogMcp }) {
           {server.envKeys.length + server.headerKeys.length > 0 ? (
             <span className="mcp-tag">{server.envKeys.length + server.headerKeys.length} keys</span>
           ) : null}
+          {report?.ok ? <span className="mcp-tag">{t('mcp.toolsCount', { count: report.tools.length })}</span> : null}
         </div>
       </div>
+      {report?.tools.length ? (
+        <div className="mcp-tools" data-testid="mcp-tools" role="list" aria-label={`${server.name} ${t('mcp.toolsLabel')}`}>
+          {report.tools.map((tool) => <div key={tool} className="mcp-tool" data-testid="mcp-tool" role="listitem"><code>{tool}</code></div>)}
+        </div>
+      ) : null}
+      {report && !report.ok && report.detail ? <p className="mcp-error" data-testid="mcp-probe-error">{report.detail}</p> : null}
     </section>
   )
 }

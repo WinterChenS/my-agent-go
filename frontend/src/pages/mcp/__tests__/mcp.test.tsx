@@ -34,7 +34,9 @@ describe('mcp normal entry', () => {
     expect(screen.getByTestId('mcp-stat-latency')).toHaveTextContent('—')
     expect(screen.getByTestId('mcp-empty-services')).toHaveTextContent('尚未接入 MCP 服务')
     expect(screen.getByTestId('mcp-empty-logs')).toHaveTextContent('尚未接入连接日志')
-    expect(screen.getByRole('button', { name: '重连全部' })).toBeDisabled()
+    // Reconnect is a real command now; with no host it reports the failure.
+    // Adding stays disabled until a runtime that declares MCP is discovered.
+    expect(screen.getByRole('button', { name: '重连全部' })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: '添加服务' })).toBeDisabled()
     expect(screen.queryByTestId('mcp-card')).toBeNull()
     for (const fixture of ['filesystem', 'postgres-analytics', 'playwright', 'notion', '19', '216', '98.6%']) {

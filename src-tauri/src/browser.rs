@@ -434,13 +434,177 @@ fn page_runtime(port: u16) -> String {
     }}, 200);
   }}
 
+  // The pane's own context menu. WebView2's native menu would cover the page
+  // with commands that act on a browser the reader cannot see, so every
+  // contextmenu is taken here and only actions this pane can really do are
+  // offered. The menu lives in the page because that is the only layer above
+  // the native view.
+  var contextRoot = null, contextDismiss = null;
+  var CONTEXT_ICONS = {{
+    back: '<path d="M14 5 7 12l7 7" />',
+    forward: '<path d="m10 5 7 7-7 7" />',
+    reload: '<path d="M18 12a6 6 0 1 1-2-4.5M18 4v4h-4" />',
+    open: '<path d="M13 5h6v6M19 5l-9 9M18 13v6H5V6h6" />',
+    link: '<path d="M10 14a4 4 0 0 0 6 .4l2-2a4 4 0 0 0-5.7-5.7L11 8M14 10a4 4 0 0 0-6-.4l-2 2A4 4 0 0 0 11.7 17L13 16" />',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />',
+    select: '<path d="M4 6h16M4 12h10M4 18h7" />',
+  }};
+  function contextIcon(name) {{
+    return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      (CONTEXT_ICONS[name] || CONTEXT_ICONS.copy) + '</svg>';
+  }}
+  function legacyCopy(text) {{
+    try {{
+      var field = document.createElement('textarea');
+      field.value = text;
+      field.setAttribute('readonly', '');
+      field.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(field);
+      field.select();
+      var ok = typeof document.execCommand === 'function' ? document.execCommand('copy') : false;
+      field.remove();
+      return ok;
+    }} catch (error) {{ return false; }}
+  }}
+  function contextCopy(text, x, y) {{
+    if (!text) return;
+    try {{
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(text).catch(function () {{ legacyCopy(text); }});
+      }} else legacyCopy(text);
+    }} catch (error) {{ legacyCopy(text); }}
+    if (typeof showAction === 'function') showAction(x, y, '已复制');
+  }}
+  function contextItems(event) {{
+    var node = event.target && event.target.nodeType === 1 ? event.target : document.elementFromPoint(event.clientX, event.clientY);
+    var link = node && node.closest ? node.closest('a[href]') : null;
+    var image = node && node.closest ? node.closest('img[src]') : null;
+    var editable = node && node.closest ? node.closest('input,textarea,[contenteditable="true"]') : null;
+    var selected = String((window.getSelection() || {{}}).toString() || '').trim();
+    var items = [
+      {{ icon: 'back', label: '返回', action: 'back' }},
+      {{ icon: 'forward', label: '前进', action: 'forward' }},
+      {{ icon: 'reload', label: '重新加载', action: 'reload' }},
+    ];
+    if (link) {{
+      items.push({{ divider: true }});
+      items.push({{ icon: 'open', label: '在此面板打开链接', action: 'openLink', href: link.href }});
+      items.push({{ icon: 'link', label: '复制链接地址', action: 'copy', value: link.href }});
+    }}
+    if (image) {{
+      items.push({{ divider: true }});
+      items.push({{ icon: 'open', label: '查看图片', action: 'openLink', href: image.src }});
+      items.push({{ icon: 'link', label: '复制图片地址', action: 'copy', value: image.src }});
+    }}
+    if (selected) {{
+      items.push({{ divider: true }});
+      items.push({{ icon: 'copy', label: '复制选中内容', action: 'copy', value: selected }});
+    }}
+    if (editable) {{
+      items.push({{ divider: true }});
+      items.push({{ icon: 'select', label: '全选', action: 'selectAll', field: editable }});
+    }}
+    items.push({{ divider: true }});
+    items.push({{ icon: 'link', label: '复制页面地址', action: 'copy', value: location.href }});
+    return items;
+  }}
+  function closeContext() {{
+    if (!contextRoot) return;
+    var root = contextRoot;
+    contextRoot = null;
+    if (contextDismiss) {{ document.removeEventListener('pointerdown', contextDismiss, true); contextDismiss = null; }}
+    root.style.opacity = '0';
+    root.style.transform = 'scale(.97)';
+    window.setTimeout(function () {{ root.remove(); }}, 120);
+  }}
+  function openContext(event) {{
+    event.preventDefault();
+    event.stopPropagation();
+    closeContext();
+    var items = contextItems(event);
+    var root = document.createElement('div');
+    root.id = '__anvil_context';
+    root.setAttribute('data-anvil-ui', '1');
+    root.setAttribute('role', 'menu');
+    root.style.cssText = 'all:initial;position:fixed;left:0;top:0;z-index:2147483646;display:block;min-width:172px;max-width:min(280px,90vw);padding:5px;border-radius:12px;background:rgba(24,25,29,.94);border:1px solid rgba(255,255,255,.14);box-shadow:0 12px 34px rgba(0,0,0,.38);color:#f5f6f8;font:12.5px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;opacity:0;transform:scale(.97);transform-origin:top left;transition:opacity .12s ease,transform .12s ease;backdrop-filter:blur(10px)';
+    items.forEach(function (item) {{
+      if (item.divider) {{
+        var line = document.createElement('div');
+        line.style.cssText = 'height:1px;margin:4px 6px;background:rgba(255,255,255,.12)';
+        root.appendChild(line);
+        return;
+      }}
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('role', 'menuitem');
+      button.setAttribute('data-action', item.action);
+      button.setAttribute('data-label', item.label);
+      button.style.cssText = 'all:unset;display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box;padding:6px 9px;border-radius:8px;color:inherit;cursor:pointer;white-space:nowrap';
+      button.innerHTML = contextIcon(item.icon) + '<span>' + item.label + '</span>';
+      button.addEventListener('mouseenter', function () {{ button.style.background = 'rgba(255,255,255,.12)'; }});
+      button.addEventListener('mouseleave', function () {{ button.style.background = 'transparent'; }});
+      button.addEventListener('click', function (clickEvent) {{
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        var x = clickEvent.clientX || event.clientX, y = clickEvent.clientY || event.clientY;
+        if (item.action === 'back') history.back();
+        else if (item.action === 'forward') history.forward();
+        else if (item.action === 'reload') location.reload();
+        else if (item.action === 'openLink' && item.href) location.href = item.href;
+        else if (item.action === 'copy') contextCopy(item.value, x, y);
+        else if (item.action === 'selectAll') {{
+          try {{ item.field.focus(); item.field.select(); }} catch (error) {{ /* detached */ }}
+        }}
+        closeContext();
+      }});
+      root.appendChild(button);
+    }});
+    (document.body || document.documentElement).appendChild(root);
+    var box = root.getBoundingClientRect();
+    var x = Math.max(6, Math.min(event.clientX, window.innerWidth - box.width - 6));
+    var y = Math.max(6, Math.min(event.clientY, window.innerHeight - box.height - 6));
+    root.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px) scale(.97)';
+    contextRoot = root;
+    window.requestAnimationFrame(function () {{
+      if (contextRoot === root) root.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px) scale(1)';
+    }});
+    root.style.opacity = '1';
+    contextDismiss = function (pointer) {{
+      if (!root.contains(pointer.target)) closeContext();
+    }};
+    document.addEventListener('pointerdown', contextDismiss, true);
+  }}
+  document.addEventListener('contextmenu', openContext, true);
+  document.addEventListener('keydown', function (event) {{
+    if (event.key === 'Escape') closeContext();
+  }}, true);
+  window.addEventListener('scroll', closeContext, true);
+  window.addEventListener('resize', closeContext);
+
   window.__anvilBrowser = {{
     run: function (id, method, params) {{
       var out;
       try {{
         out = {{ ok: true, value: null }};
         params = params || {{}};
-        if (method === 'text') {{
+        if (method === 'menu') {{
+          var mx = Number(params.x || 120), my = Number(params.y || 120);
+          if (params.selector) {{
+            var anchor = document.querySelector(params.selector);
+            if (anchor) {{
+              var rect = anchor.getBoundingClientRect();
+              mx = rect.left + rect.width / 2;
+              my = rect.top + rect.height / 2;
+            }}
+          }}
+          openContext({{
+            clientX: mx, clientY: my,
+            target: document.elementFromPoint(mx, my),
+            preventDefault: function () {{}},
+            stopPropagation: function () {{}}
+          }});
+          out.value = {{ items: document.querySelectorAll('#__anvil_context [role="menuitem"]').length }};
+        }} else if (method === 'text') {{
           out.value = (document.body ? document.body.innerText : '').slice(0, 30000);
         }} else if (method === 'title') {{
           out.value = document.title;

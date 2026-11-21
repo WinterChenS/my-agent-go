@@ -23,7 +23,7 @@ use anvil_catalog::runtime::adapter::{
 use anvil_catalog::runtime::registry::Registry;
 use anvil_catalog::runtime::service::{CatalogService, Timeouts};
 use anvil_catalog::store::Store;
-use anvil_catalog::{clock, secrets};
+use anvil_catalog::{clock, mcp, secrets};
 
 /// What a scripted adapter should answer for one sync kind.
 #[derive(Clone)]
@@ -1493,4 +1493,42 @@ fn only_an_untouched_tool_list_gains_delegation() {
         vec!["read".to_string()],
         "an edited list is a user decision"
     );
+}
+
+/// A saved declaration must land in the file the runtime reads, keep other
+/// servers. The catalog row keeps only the key, never the value.
+#[test]
+fn added_mcp_server_is_written_and_imported() {
+    let home = TempHome::new("mcp-add");
+    mcp::write_config(
+        "pi",
+        &home.path(),
+        "demo",
+        "stdio",
+        Some("node"),
+        &["server.mjs".to_string()],
+        None,
+        &[("TOKEN".to_string(), "secret-value".to_string())],
+    )
+    .expect("write first");
+    mcp::write_config(
+        "pi",
+        &home.path(),
+        "other",
+        "stdio",
+        Some("python"),
+        &[],
+        None,
+        &[],
+    )
+    .expect("write second");
+
+    let text = std::fs::read_to_string(home.path().join(".pi/agent/mcp.json")).expect("read");
+    let rows = mcp::from_pi_json("pi", &text, "test").expect("import");
+    assert_eq!(rows.len(), 2, "adding a server must preserve the earlier one");
+    let demo = rows.iter().find(|row| row.name == "demo").expect("demo");
+    assert_eq!(demo.command.as_deref(), Some("node"));
+    assert_eq!(demo.args, vec!["server.mjs".to_string()]);
+    assert_eq!(demo.env_keys, vec!["TOKEN".to_string()]);
+    assert!(text.contains("secret-value"), "the value stays in the runtime config");
 }

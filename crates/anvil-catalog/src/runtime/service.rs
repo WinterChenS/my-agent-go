@@ -717,6 +717,46 @@ impl CatalogService {
             }
         }
     }
+
+/// Add one MCP declaration to a runtime's own config file, then re-read
+/// that runtime's inventory so the new row is on the next snapshot.
+#[allow(clippy::too_many_arguments)]
+pub fn add_mcp_server(
+    &mut self,
+    runtime_id: &str,
+    name: &str,
+    transport: &str,
+    command: Option<&str>,
+    args: &[String],
+    url: Option<&str>,
+    env: &[(String, String)],
+) -> Result<()> {
+    mcp::write_config(runtime_id, &self.home, name, transport, command, args, url, env)?;
+    self.sync_kinds(runtime_id, &[InventoryKind::Mcp], SeedMode::Local)?;
+    Ok(())
+}
+
+/// Probe a declaration before it is saved. Nothing is written to disk.
+pub fn test_mcp_server(
+    &self,
+    transport: &str,
+    command: Option<&str>,
+    args: &[String],
+) -> Result<McpProbe> {
+    match mcp::probe_draft(transport, command, args, self.timeouts.sync) {
+        Ok(tools) => Ok(McpProbe {
+            ok: true,
+            tools,
+            detail: None,
+        }),
+        Err(error) => Ok(McpProbe {
+            ok: false,
+            tools: Vec::new(),
+            detail: Some(error.to_wire()),
+        }),
+    }
+}
+
 }
 
 /// What one adapter contributed to a scan.

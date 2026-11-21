@@ -62,6 +62,8 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_save_agent",
     "catalog_delete_agent",
     "catalog_probe_mcp",
+    "catalog_add_mcp",
+    "catalog_test_mcp",
     "runtime_install",
     "session_list",
     "session_detail",

@@ -409,6 +409,50 @@ pub async fn catalog_probe_mcp(
     })
 }
 
+/// Save one MCP declaration into the chosen runtime's config and rescan it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn catalog_add_mcp(
+    state: State<'_, CatalogState>,
+    runtime_id: String,
+    name: String,
+    transport: String,
+    command: Option<String>,
+    args: Vec<String>,
+    url: Option<String>,
+    env: Vec<(String, String)>,
+) -> Result<CatalogSnapshot, String> {
+    state.with_service(|service| {
+        service
+            .add_mcp_server(
+                &runtime_id,
+                &name,
+                &transport,
+                command.as_deref(),
+                &args,
+                url.as_deref(),
+                &env,
+            )
+            .map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
+    })
+}
+
+/// Try a declaration the reader typed, without saving it.
+#[tauri::command]
+pub async fn catalog_test_mcp(
+    state: State<'_, CatalogState>,
+    transport: String,
+    command: Option<String>,
+    args: Vec<String>,
+) -> Result<McpProbe, String> {
+    state.with_service(|service| {
+        service
+            .test_mcp_server(&transport, command.as_deref(), &args)
+            .map_err(|error| error.to_wire())
+    })
+}
+
 /// What a one-click runtime install did, plus the catalog right after it.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

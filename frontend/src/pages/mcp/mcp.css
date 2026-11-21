@@ -777,6 +777,16 @@
   color: var(--muted);
 }
 
+.mcp-test-result {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: var(--text-sm);
+}
+
 .mcp-error {
   color: var(--danger);
   font-size: var(--text-2xs);

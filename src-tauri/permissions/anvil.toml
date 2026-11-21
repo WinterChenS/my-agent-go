@@ -80,6 +80,16 @@ description = "Allows connecting to one declared MCP server and enumerating its 
 commands.allow = ["catalog_probe_mcp"]
 
 [[permission]]
+identifier = "allow-catalog-add-mcp"
+description = "Allows saving an MCP declaration into the runtime's own config and rescanning it."
+commands.allow = ["catalog_add_mcp"]
+
+[[permission]]
+identifier = "allow-catalog-test-mcp"
+description = "Allows probing an MCP declaration before it is saved."
+commands.allow = ["catalog_test_mcp"]
+
+[[permission]]
 identifier = "allow-runtime-install"
 description = "Allows installing one runtime CLI (pi / codex / opencode / claude) through npm into the shared prefix."
 commands.allow = ["runtime_install"]
