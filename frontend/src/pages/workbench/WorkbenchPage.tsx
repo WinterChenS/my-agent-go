@@ -24,6 +24,23 @@ export function useWorkbenchSample(): boolean {
   return new URLSearchParams(location.search).get('sample') === 'workbench'
 }
 
+/** `09:00` in the viewer's clock, from a UTC ledger stamp. */
+function clockOf(stamp: string): string {
+  const time = Date.parse(stamp)
+  if (!Number.isFinite(time)) return '—'
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(time))
+}
+
+function scheduleStatus(
+  row: { lastStatus: string; enabled: boolean },
+  t: (key: MessageKey) => string,
+): string {
+  if (row.lastStatus === 'running') return t('workbench.schedules.running')
+  if (row.lastStatus === 'success') return t('workbench.schedules.success')
+  if (row.lastStatus === 'failed' || row.lastStatus === 'unknown') return t('workbench.schedules.failed')
+  return row.enabled ? t('workbench.schedules.never') : t('workbench.schedules.paused')
+}
+
 type StatKey = 'sessions' | 'toolCalls' | 'tokens' | 'pending'
 type ButtonMode = 'sample' | 'live' | 'unavailable'
 
@@ -346,8 +363,15 @@ function liveView(
       ready: agent.enabled,
       label: agent.enabled ? t('workbench.agents.ready') : t('workbench.agents.disabled'),
     })),
-    // No scheduler exists in this build. An empty timeline is the truth.
-    schedules: [],
+    schedules: overview.schedules.map((row) => ({
+      time: clockOf(row.nextRunAt || row.lastRunAt),
+      title: row.name,
+      sub: t('workbench.schedules.meta', {
+        agent: row.agent || '—',
+        status: scheduleStatus(row, t),
+      }),
+      state: row.enabled ? 'upcoming' : 'done',
+    })),
     status: [
       {
         label: t('workbench.status.runtime'),
@@ -370,8 +394,10 @@ function liveView(
       },
       {
         label: t('workbench.status.connectors'),
-        value: sources.connectors ? '—' : t('workbench.status.unavailable'),
-        live: false,
+        value: sources.connectors
+          ? t('workbench.status.connectorsValue', { count: count(status.mcpTotal) })
+          : t('workbench.status.unavailable'),
+        live: sources.connectors && status.mcpTotal > 0,
       },
     ],
     quota: sources.quota ? '—' : t('workbench.status.quotaUnavailable'),

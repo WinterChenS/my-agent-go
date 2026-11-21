@@ -118,7 +118,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::workspace::workspace_pick_file,
             crate::workspace::workspace_pick_files,
             crate::extensions::pi_subagent_status,
-            crate::extensions::pi_subagent_install
+            crate::extensions::pi_subagent_install,
+            crate::schedules::schedule_overview,
+            crate::schedules::schedule_save,
+            crate::schedules::schedule_delete,
+            crate::schedules::schedule_toggle,
+            crate::schedules::schedule_run_now,
+            crate::library::library_overview,
+            crate::library::library_import,
+            crate::library::library_export,
+            crate::library::library_preview,
+            crate::library::library_reveal,
+            crate::connectors::connectors_overview,
+            crate::connectors::connector_verify,
+            crate::skills::skill_create,
+            crate::skills::skill_import,
+            crate::skills::skill_remove
         ])
         .setup(|app| {
             create_main_window(app)?;
@@ -139,6 +154,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     .info(&format!("browser bridge unavailable: {error}")),
             }
             start_system_theme_poller(app.handle().clone());
+            // The scheduler: due rows become real turns, one thread per fire.
+            crate::schedules::spawn(app.handle().clone());
             Ok(())
         })
         .build(context)?

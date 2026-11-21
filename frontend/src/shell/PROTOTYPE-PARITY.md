@@ -253,6 +253,13 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - Sample navigation reuses `sample.nav.*` (Skill 9 个已安装 in the tool menu);
   normal `/skills` renders no fixed counts or metadata.
 
+- Live `/skills` writes too: 导入 Skill picks a folder and copies it into the
+  runtime's skill root (`skill_import`), 新建 Skill writes a real `SKILL.md`
+  with YAML frontmatter (`skill_create`), and both re-sync the catalog so the
+  card appears without a restart. 草稿 lists skills whose scan state is not
+  `valid` (missing frontmatter, or a link outside the root); 市场 states plainly
+  that this build has no remote registry instead of showing fake listings.
+
 ## R0-08 MCP
 
 - Normal `/mcp` is the real entry: the four statistics show 0 / 0 / 0 / — with
@@ -287,3 +294,68 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   the existing Windows clamp limitation.
 - Sample navigation reuses `sample.nav.*` (MCP 3 个服务 in the tool menu);
   normal `/mcp` renders no fixed service/tool counts or metadata.
+
+## R0-09 connectors
+
+- Normal `/connectors` reads the catalog's MCP rows through
+  `connectors_overview`. A card is one real server: name, transport
+  (`stdio` / remote), endpoint, probe state, probed tool names, calls and
+  failures in the last seven days. `connected` / `needs re-auth` /
+  `not connected` map from the persisted probe state, not from a fixture.
+- 校验凭证 probes every server in turn (`connector_verify`) and reports
+  已校验 N 个 / 失败 M 个; 校验 in the per-server dialog does the same for one
+  server. A probe writes state and the tool list, so the next read reflects
+  exactly what the server answered. A server that was never probed shows zero
+  actions — the page never guesses a tool count.
+- The policy panel lists connector · tool rows with the real call and failure
+  counts from `tool_call` / `tool_result` events; the activity timeline is the
+  last eight matched calls. The health panel shows probe recency per server.
+- 添加连接器 opens the same MCP add dialog the MCP page uses, so a connector is
+  created where the runtime actually reads it. Editing credentials for a remote
+  server remains the MCP page's job; this page links by state, not by a copy.
+- Sample entry (`/?sample=connectors`) keeps the prototype's six connectors,
+  policy table and credential-health meters; nothing there touches the host.
+
+## R0-10 schedules
+
+- Normal `/schedules` reads `schedule_overview`: schedules, their runs, stats
+  and a seven-day trend, all from the ledger. A schedule is a row plus real
+  occurrences — every fire opened a session, and the occurrence stores that
+  session and run id.
+- 新建任务 / 编辑配置 write through `schedule_save` (cron validated on the host,
+  the agent resolved from the catalog), the switch uses `schedule_toggle`,
+  立即运行 fires once through `schedule_run_now`, and 全部暂停 pauses every
+  enabled row. Stats show 成功率 and 平均时长 as `—` when nothing finished, never
+  as 0%.
+- The host runs one tick thread; a due schedule is claimed exactly once
+  (unique occurrence key), the session is opened as the saved agent and the
+  prompt is sent, and the end state is recorded (`success`, `failed`, `skipped`
+  for an aborted run, `unknown` when the app stopped mid-run).
+- An agent can create one from a sentence: every session is told about
+  `node ~/.anvil/bin/anvil-schedule.mjs create '{...}'`, which posts to the same
+  loopback bridge and the same validation. `list` / `pause` / `resume` /
+  `remove` are available too, so the model can check before adding.
+- Sample entry (`/?sample=schedules`) keeps the six prototype tasks, their run
+  history and the paused/partial badges.
+
+## R0-11 library
+
+- Normal `/library` scans what sessions actually wrote. For every recent
+  session the host reads its `tool_call` events, runs the same
+  `rail::artifact_files` the chat rail uses (same confinement, same scratch
+  exclusions), deduplicates by canonical path and merges
+  `<data dir>/library`, where uploads are copied.
+- Stats are the scan's own numbers: file count, total bytes, files added in the
+  last seven days, distinct source sessions and the newest modification time.
+  There is no quota or auto-clean-up service in this build, so those two
+  prototype stats are not printed as if they existed.
+- Type tabs (文档/表格/网页/图表/代码) count by extension; the search box and the
+  session filter narrow the same list. The detail dialog shows the real path,
+  size, source and the first slice of a text file (`library_preview`), or says
+  plainly that a binary file has no text preview.
+- 上传 opens the native multi-select and copies into the library folder
+  (`library_import`); 导出所选 copies the selection into a timestamped folder
+  under `exports` (`library_export`); 在文件夹中显示 reveals the file. Nothing is
+  deleted by this page.
+- Sample entry (`/?sample=library`) keeps the prototype's eight assets and the
+  fixture detail preview.

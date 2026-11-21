@@ -78,6 +78,11 @@ impl Store {
     fn prepare(connection: Connection) -> Result<Self> {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
+        // Two connections write this file now (the turn's writer and the
+        // scheduler's claims). Without a busy timeout a schedule write landing
+        // during a turn would fail instantly with SQLITE_BUSY instead of
+        // waiting its turn.
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,

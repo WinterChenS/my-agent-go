@@ -28,16 +28,20 @@ pub mod catalog;
 pub mod commands;
 pub mod browser;
 pub mod bridge;
+pub mod connectors;
 pub mod desktop;
 pub mod extensions;
 pub mod host;
 pub mod inject;
+pub mod library;
 pub mod log;
 pub mod options;
 pub mod prefs;
 pub mod runtimes;
 pub mod session;
 pub mod state;
+pub mod schedules;
+pub mod skills;
 pub mod system_theme;
 pub mod workbench;
 pub mod workspace;
@@ -104,4 +108,19 @@ pub const APP_COMMANDS: &[&str] = &[
     "workspace_pick_files",
     "pi_subagent_status",
     "pi_subagent_install",
+    "schedule_overview",
+    "schedule_save",
+    "schedule_delete",
+    "schedule_toggle",
+    "schedule_run_now",
+    "library_overview",
+    "library_import",
+    "library_export",
+    "library_preview",
+    "library_reveal",
+    "connectors_overview",
+    "connector_verify",
+    "skill_create",
+    "skill_import",
+    "skill_remove",
 ];

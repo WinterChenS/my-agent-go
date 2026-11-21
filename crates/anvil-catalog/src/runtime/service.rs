@@ -682,6 +682,7 @@ impl CatalogService {
         if server.transport != "stdio" {
             self.store
                 .set_mcp_state(runtime_id, name, "unsupported_transport", &now)?;
+            self.store.set_mcp_tools(runtime_id, name, &[])?;
             return Ok(McpProbe {
                 ok: false,
                 tools: Vec::new(),
@@ -691,6 +692,7 @@ impl CatalogService {
         let Some(command) = server.command.clone() else {
             self.store
                 .set_mcp_state(runtime_id, name, "missing_command", &now)?;
+            self.store.set_mcp_tools(runtime_id, name, &[])?;
             return Ok(McpProbe {
                 ok: false,
                 tools: Vec::new(),
@@ -701,6 +703,7 @@ impl CatalogService {
             Ok(tools) => {
                 self.store
                     .set_mcp_state(runtime_id, name, "connected", &now)?;
+                self.store.set_mcp_tools(runtime_id, name, &tools)?;
                 Ok(McpProbe {
                     ok: true,
                     detail: Some(format!("{} tools", tools.len())),
@@ -709,6 +712,7 @@ impl CatalogService {
             }
             Err(error) => {
                 self.store.set_mcp_state(runtime_id, name, "failed", &now)?;
+                self.store.set_mcp_tools(runtime_id, name, &[])?;
                 Ok(McpProbe {
                     ok: false,
                     tools: Vec::new(),

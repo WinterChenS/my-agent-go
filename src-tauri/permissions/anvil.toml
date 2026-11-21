@@ -261,7 +261,7 @@ commands.allow = ["pi_subagent_install"]
 
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install", "allow-schedule-overview", "allow-schedule-save", "allow-schedule-delete", "allow-schedule-toggle", "allow-schedule-run-now", "allow-library-overview", "allow-library-import", "allow-library-export", "allow-library-preview", "allow-library-reveal", "allow-connectors-overview", "allow-connector-verify", "allow-skill-create", "allow-skill-import", "allow-skill-remove"]
 [[permission]]
 identifier = "allow-browser-open"
 description = "Allows opening a page in the right pane's browser."
@@ -286,3 +286,78 @@ commands.allow = ["browser_status"]
 identifier = "allow-browser-action"
 description = "Allows the pane's toolbar to navigate back, forward or reload."
 commands.allow = ["browser_action"]
+
+[[permission]]
+identifier = "allow-schedule-overview"
+description = "Allows reading schedules, their recent runs, stats and the seven-day trend from the ledger."
+commands.allow = ["schedule_overview"]
+
+[[permission]]
+identifier = "allow-schedule-save"
+description = "Allows creating or editing a cron schedule that starts a real session."
+commands.allow = ["schedule_save"]
+
+[[permission]]
+identifier = "allow-schedule-delete"
+description = "Allows deleting a schedule and its occurrence history."
+commands.allow = ["schedule_delete"]
+
+[[permission]]
+identifier = "allow-schedule-toggle"
+description = "Allows pausing or resuming a schedule."
+commands.allow = ["schedule_toggle"]
+
+[[permission]]
+identifier = "allow-schedule-run-now"
+description = "Allows firing a schedule immediately and recording the run."
+commands.allow = ["schedule_run_now"]
+
+[[permission]]
+identifier = "allow-library-overview"
+description = "Allows reading the resource library: files sessions wrote plus imports, with sizes and dates."
+commands.allow = ["library_overview"]
+
+[[permission]]
+identifier = "allow-library-import"
+description = "Allows copying picked files into the library directory."
+commands.allow = ["library_import"]
+
+[[permission]]
+identifier = "allow-library-export"
+description = "Allows copying selected assets into a dated export folder."
+commands.allow = ["library_export"]
+
+[[permission]]
+identifier = "allow-library-preview"
+description = "Allows reading the first slice of a text asset inside the library or a project."
+commands.allow = ["library_preview"]
+
+[[permission]]
+identifier = "allow-library-reveal"
+description = "Allows showing a library file in the system file manager."
+commands.allow = ["library_reveal"]
+
+[[permission]]
+identifier = "allow-connectors-overview"
+description = "Allows reading connectors (MCP servers), their probed tools and their ledger call counts."
+commands.allow = ["connectors_overview"]
+
+[[permission]]
+identifier = "allow-connector-verify"
+description = "Allows probing one MCP connector and recording its state and tools."
+commands.allow = ["connector_verify"]
+
+[[permission]]
+identifier = "allow-skill-create"
+description = "Allows authoring a new skill into the runtime's skill root."
+commands.allow = ["skill_create"]
+
+[[permission]]
+identifier = "allow-skill-import"
+description = "Allows copying a picked skill folder into the runtime's skill root."
+commands.allow = ["skill_import"]
+
+[[permission]]
+identifier = "allow-skill-remove"
+description = "Allows removing an installed skill from the runtime's skill root."
+commands.allow = ["skill_remove"]

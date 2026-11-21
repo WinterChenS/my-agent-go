@@ -788,3 +788,24 @@
     width: 100%;
   }
 }
+
+/* Live library details */
+
+.lib-codeblock-empty {
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs-plus);
+  white-space: pre-wrap;
+}
+
+.lib-path {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.lib-field-hint {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}

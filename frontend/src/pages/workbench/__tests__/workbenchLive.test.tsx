@@ -86,6 +86,7 @@ const overview: WorkbenchOverview = {
       isDefault: true,
     },
   ],
+  schedules: [],
   status: {
     runtimeReady: 1,
     runtimeTotal: 2,
@@ -94,6 +95,8 @@ const overview: WorkbenchOverview = {
     mcpTotal: 4,
     connectorsAvailable: false,
     quotaAvailable: false,
+    schedulesEnabled: 0,
+    schedulesToday: 0,
   },
   sources: {
     ledger: true,
@@ -205,7 +208,7 @@ describe('the workbench renders real ledger data', () => {
     installHost()
     renderAt()
     await waitFor(() => expect(screen.getByTestId('workbench-page').getAttribute('data-workbench-mode')).toBe('live'))
-    expect(screen.getByText('本机未接入定时任务调度器，暂无今日任务')).toBeInTheDocument()
+    expect(screen.getByText('还没有定时任务；也可以直接让 Agent 用一句话创建')).toBeInTheDocument()
     expect(screen.getByText('未接入')).toBeInTheDocument()
     expect(screen.getByText('未配置')).toBeInTheDocument()
     expect(screen.getByText('pi 1.5.0 · 1/2 可用')).toBeInTheDocument()

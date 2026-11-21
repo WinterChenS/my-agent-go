@@ -1,7 +1,8 @@
 import { useLocation } from 'react-router-dom'
 
 export type ScheduleState = 'enabled' | 'paused'
-export type RunLabel = 'success' | 'warn' | 'partial' | 'skipped'
+/** `never` is live-only: a real schedule that has not run yet. */
+export type RunLabel = 'success' | 'warn' | 'partial' | 'skipped' | 'never'
 
 export interface RunRecord {
   time: string

@@ -10,6 +10,7 @@
 //! * `adapters` — the two shipped adapters (Pi, Codex);
 //! * `service` — open/send/abort/resume orchestration on top of the registry;
 //! * `workbench` — the home page's counts and activity grid, from the same rows.
+//! * `schedule` — cron triggers and the runs they produced, in the same ledger.
 //!
 //! The ledger is append-only: a run writes events in `seq` order inside one
 //! transaction, and a session's message list is derived from those events, so a
@@ -27,6 +28,7 @@ pub mod model;
 pub mod persona;
 pub mod preview;
 pub mod rail;
+pub mod schedule;
 pub mod service;
 pub mod store;
 pub mod subagent;

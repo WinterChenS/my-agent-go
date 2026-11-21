@@ -231,6 +231,7 @@ fn mcp(runtime_id: &str, name: &str, transport: &str, command: Option<&str>) -> 
         source: "scripted".into(),
         state: "declared".into(),
         probed_at: None,
+        tools: Vec::new(),
     }
 }
 

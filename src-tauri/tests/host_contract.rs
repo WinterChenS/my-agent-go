@@ -850,7 +850,22 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-workspace-pick-files",
             "allow-pi-subagent-status",
             "allow-pi-subagent-install",
-            "allow-runtime-install"
+            "allow-runtime-install",
+            "allow-schedule-overview",
+            "allow-schedule-save",
+            "allow-schedule-delete",
+            "allow-schedule-toggle",
+            "allow-schedule-run-now",
+            "allow-library-overview",
+            "allow-library-import",
+            "allow-library-export",
+            "allow-library-preview",
+            "allow-library-reveal",
+            "allow-connectors-overview",
+            "allow-connector-verify",
+            "allow-skill-create",
+            "allow-skill-import",
+            "allow-skill-remove"
         ]
     );
     for permission in &permissions {

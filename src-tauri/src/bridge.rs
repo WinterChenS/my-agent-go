@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 
 use crate::browser::Browser;
@@ -71,11 +71,32 @@ fn handle(mut stream: TcpStream, app: &AppHandle, browser: &Arc<Browser>) -> std
             json!({ "ok": true }).to_string()
         }
         ("POST", "/rpc") => dispatch(app, browser, &request.body),
+        // Schedules are the app's data, not the page's: the same route an agent
+        // reaches through `anvil-schedule.mjs` creates a row the tab renders.
+        ("GET", "/schedule") => crate::schedules::list_from_bridge(app).to_string(),
+        ("POST", "/schedule") => match serde_json::from_str::<Value>(&request.body) {
+            Ok(value) => crate::schedules::create_from_bridge(app, value).to_string(),
+            Err(error) => json!({ "ok": false, "error": format!("bad json: {error}") }).to_string(),
+        },
+        ("POST", "/schedule/toggle") => bridge_mutation(app, "toggle", &request.body),
+        ("POST", "/schedule/remove") => bridge_mutation(app, "remove", &request.body),
         _ => {
-            return respond(&mut stream, 404, &json!({ "ok": false, "error": "no route" }).to_string());
+            return respond(
+                &mut stream,
+                404,
+                &json!({ "ok": false, "error": "no route" }).to_string(),
+            );
         }
     };
     respond(&mut stream, 200, &body)
+}
+
+/// `POST /schedule/toggle` and `/schedule/remove`.
+fn bridge_mutation(app: &AppHandle, action: &str, body: &str) -> String {
+    match serde_json::from_str::<Value>(body) {
+        Ok(value) => crate::schedules::mutate_from_bridge(app, action, value).to_string(),
+        Err(error) => json!({ "ok": false, "error": format!("bad json: {error}") }).to_string(),
+    }
 }
 
 /// The page reporting the answer to a command it ran.
@@ -115,7 +136,10 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
     let result = match method.as_str() {
         // Opening and moving the pane are the app's business, not the page's.
         "open" => {
-            let url = params.get("url").and_then(Value::as_str).unwrap_or("about:blank");
+            let url = params
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("about:blank");
             browser.open(app, url).map(|()| {
                 show_pane(app, url);
                 json!({ "url": url })
@@ -123,7 +147,10 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
         }
         "close" => browser.close().map(|()| json!(true)),
         "navigate" => {
-            let url = params.get("url").and_then(Value::as_str).unwrap_or("about:blank");
+            let url = params
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("about:blank");
             browser.open(app, url).map(|()| {
                 show_pane(app, url);
                 json!({ "url": url })
@@ -141,7 +168,9 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
                 "forward" => "history.forward()",
                 _ => "location.reload()",
             };
-            browser.run_script(script).map(|()| json!({ "done": method }))
+            browser
+                .run_script(script)
+                .map(|()| json!({ "done": method }))
         }
         _ => browser.call(&method, &params),
     };
@@ -242,13 +271,14 @@ fn write_render(port: &u16) -> Result<(), String> {
     let root = std::path::Path::new(&home).join(".anvil");
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).map_err(|error| format!("browser bridge: {error}"))?;
-    std::fs::write(
-        root.join("browser.json"),
-        format!("{{\"port\":{port}}}"),
-    )
-    .map_err(|error| format!("browser bridge: {error}"))?;
+    std::fs::write(root.join("browser.json"), format!("{{\"port\":{port}}}"))
+        .map_err(|error| format!("browser bridge: {error}"))?;
+    std::fs::write(root.join("bridge.json"), format!("{{\"port\":{port}}}"))
+        .map_err(|error| format!("browser bridge: {error}"))?;
     std::fs::write(bin.join("anvil-browser.mjs"), RENDER_CLI)
         .map_err(|error| format!("browser bridge: {error}"))?;
+    std::fs::write(bin.join("anvil-schedule.mjs"), SCHEDULE_CLI)
+        .map_err(|error| format!("schedule bridge: {error}"))?;
     Ok(())
 }
 
@@ -294,6 +324,94 @@ try {
   process.exit(data.ok ? 0 : 1)
 } catch (error) {
   console.error('the browser bridge is not running: ' + error.message)
+  process.exit(1)
+}
+"##;
+
+/// The command an agent runs to make a schedule from a sentence.
+///
+/// Cron and the clock are the app's business, so the model only supplies what it
+/// understood: a name, when, and what to do. The caller's own time zone offset is
+/// attached here, because the machine running this script is the machine the
+/// schedule fires on.
+const SCHEDULE_CLI: &str = r##"#!/usr/bin/env node
+// Create and inspect Anvil schedules.
+//
+//   node anvil-schedule.mjs create '{"name":"每日站会纪要","cron":"0 9 * * 1-5","prompt":"汇总今天的会议记录","agent":"文档助手"}'
+//   node anvil-schedule.mjs list
+//   node anvil-schedule.mjs pause  '{"id":"sch-..."}'
+//   node anvil-schedule.mjs resume '{"id":"sch-..."}'
+//   node anvil-schedule.mjs remove '{"id":"sch-..."}'
+//
+// `cron` is the five-field form: minute hour day-of-month month day-of-week.
+// `agent` may be a saved agent's name; omit it to use the default agent.
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+function readPort() {
+  for (const name of ['bridge.json', 'browser.json']) {
+    try {
+      return JSON.parse(readFileSync(join(homedir(), '.anvil', name), 'utf8')).port
+    } catch {}
+  }
+  return null
+}
+
+const port = readPort()
+if (!port) {
+  console.error('the Anvil bridge is not running (no ~/.anvil/bridge.json)')
+  process.exit(1)
+}
+
+const [action, ...rest] = process.argv.slice(2)
+if (!action) {
+  console.error('usage: anvil-schedule <create|list|pause|resume|remove> [json]')
+  process.exit(2)
+}
+let params = {}
+if (rest.length > 0) {
+  try {
+    params = JSON.parse(rest.join(' '))
+  } catch (error) {
+    console.error('params must be JSON: ' + error.message)
+    process.exit(2)
+  }
+}
+
+const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+const body =
+  action === 'create'
+    ? {
+        ...params,
+        utcOffsetMinutes: params.utcOffsetMinutes ?? -new Date().getTimezoneOffset(),
+        timeZone: params.timeZone ?? zone,
+      }
+    : params
+
+const routes = {
+  create: ['POST', '/schedule', body],
+  list: ['GET', '/schedule', null],
+  pause: ['POST', '/schedule/toggle', { id: params.id, enabled: false }],
+  resume: ['POST', '/schedule/toggle', { id: params.id, enabled: true }],
+  remove: ['POST', '/schedule/remove', { id: params.id }],
+}
+const route = routes[action]
+if (!route) {
+  console.error('unknown action: ' + action)
+  process.exit(2)
+}
+try {
+  const response = await fetch(`http://127.0.0.1:${port}${route[1]}`, {
+    method: route[0],
+    headers: route[0] === 'GET' ? undefined : { 'content-type': 'application/json' },
+    body: route[0] === 'GET' ? undefined : JSON.stringify(route[2]),
+  })
+  const data = await response.json()
+  console.log(JSON.stringify(data, null, 2))
+  process.exit(data.ok ? 0 : 1)
+} catch (error) {
+  console.error('the Anvil bridge did not answer: ' + error.message)
   process.exit(1)
 }
 "##;

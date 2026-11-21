@@ -81,6 +81,19 @@ export interface WorkbenchStatus {
   mcpTotal: number
   connectorsAvailable: boolean
   quotaAvailable: boolean
+  schedulesEnabled: number
+  schedulesToday: number
+}
+
+/** One scheduled task, as the home page's timeline shows it. */
+export interface WorkbenchSchedule {
+  id: string
+  name: string
+  agent: string
+  nextRunAt: string
+  lastRunAt: string
+  lastStatus: string
+  enabled: boolean
 }
 
 export interface WorkbenchSources {
@@ -102,6 +115,7 @@ export interface WorkbenchOverview {
   chats: WorkbenchChat[]
   artifacts: WorkbenchArtifact[]
   agents: WorkbenchAgent[]
+  schedules: WorkbenchSchedule[]
   status: WorkbenchStatus
   sources: WorkbenchSources
 }

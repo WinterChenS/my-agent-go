@@ -30,6 +30,8 @@ pub struct WorkbenchInput {
     pub weeks: u32,
     pub agents: Vec<WorkbenchAgent>,
     pub artifacts: Vec<WorkbenchArtifact>,
+    /// Schedules the host read from the ledger; empty when none exist.
+    pub schedules: Vec<WorkbenchSchedule>,
     pub status: WorkbenchStatus,
     pub sources: WorkbenchSources,
 }
@@ -47,6 +49,7 @@ pub struct WorkbenchOverview {
     pub chats: Vec<WorkbenchChat>,
     pub artifacts: Vec<WorkbenchArtifact>,
     pub agents: Vec<WorkbenchAgent>,
+    pub schedules: Vec<WorkbenchSchedule>,
     pub status: WorkbenchStatus,
     /// Which parts of this page have a real source. The UI says "not connected"
     /// rather than printing a convincing zero for the ones that do not.
@@ -135,6 +138,18 @@ pub struct WorkbenchAgent {
     pub is_default: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbenchSchedule {
+    pub id: String,
+    pub name: String,
+    pub agent: String,
+    pub next_run_at: String,
+    pub last_run_at: String,
+    pub last_status: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbenchStatus {
@@ -145,6 +160,9 @@ pub struct WorkbenchStatus {
     pub mcp_total: u64,
     pub connectors_available: bool,
     pub quota_available: bool,
+    /// Enabled schedules and how many fired today, when a scheduler exists.
+    pub schedules_enabled: u64,
+    pub schedules_today: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -528,6 +546,7 @@ pub fn report(connection: &Connection, input: &WorkbenchInput) -> Result<Workben
         chats,
         artifacts: input.artifacts.clone(),
         agents: input.agents.clone(),
+        schedules: input.schedules.clone(),
         status: input.status.clone(),
         sources: input.sources.clone(),
     })
@@ -801,5 +820,6 @@ mod tests {
         assert_eq!(view.status.runtime_total, 2);
         assert!(view.sources.filesystem);
         assert!(!view.sources.schedules);
+        assert!(view.schedules.is_empty());
     }
 }

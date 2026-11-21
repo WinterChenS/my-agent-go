@@ -234,6 +234,46 @@ impl SessionState {
         Ok((agent, skills))
     }
 
+    /// The name, runtime and model a saved agent runs as.
+    ///
+    /// The schedule table stores these beside the id so a row still explains
+    /// itself after the agent is renamed; this is the single place that reads
+    /// them from the catalog, so the two can never disagree at creation time.
+    pub(crate) fn agent_target(&self, agent_id: &str) -> Result<(String, String, String), String> {
+        let (agent, _) = self.agent_config(agent_id)?;
+        Ok((agent.name, agent.runtime_id, agent.model_id))
+    }
+
+    /// Open a session for a schedule: the agent's persona, its own directory.
+    ///
+    /// A scheduled run has no composer, so it must not inherit a project from
+    /// whatever the user last had open; the service gives it an isolated
+    /// directory under the workspace root when `cwd` is empty.
+    pub(crate) fn open_scheduled(
+        &self,
+        agent_id: &str,
+        title: &str,
+    ) -> Result<SessionSummary, String> {
+        let (agent, skills) = self.agent_config(agent_id)?;
+        let memory = if agent.memory {
+            self.memory_prompt(agent_id)?
+        } else {
+            String::new()
+        };
+        let spec = spec_for_agent(
+            agent,
+            skills,
+            memory,
+            String::new(),
+            Some(title.to_string()),
+        );
+        self.with_writer(|service| {
+            service
+                .open(&spec)
+                .map_err(|error| error.to_wire().to_string())
+        })
+    }
+
     /// Cross-session memory is a short block of the agent's own past conclusions.
     /// Truncation is by characters, never by byte index into UTF-8.
     fn memory_prompt(&self, agent_id: &str) -> Result<String, String> {
@@ -340,7 +380,7 @@ impl SessionState {
         roots
     }
 
-    fn send(
+    pub(crate) fn send(
         &self,
         session_id: &str,
         text: &str,
@@ -518,7 +558,17 @@ const PANE_TOOLS: &str = r##"## 本应用的浏览器（右侧面板）
 
 其它子命令：text（页面文字）、snapshot（可点元素）、click '{"text":"登录"}'、fill '{"selector":"#q","value":"…"}'、press、scroll、screenshot '{"path":"out/shot.png"}'（存成图片并返回路径，可用来核对页面到底长什么样）、back / forward / reload。
 
-不要用外部浏览器（start / open / explorer / xdg-open）、系统默认浏览器或云电脑去打开网址：那会发生在用户看不见的地方，而用户要的是在应用里看到这个页面。"##;
+不要用外部浏览器（start / open / explorer / xdg-open）、系统默认浏览器或云电脑去打开网址：那会发生在用户看不见的地方，而用户要的是在应用里看到这个页面。
+
+## 定时任务
+
+用户说「每天 / 每周 / 明早九点 / 每小时帮我……」这类要按时间重复执行的请求时，直接创建定时任务，不要只给建议、也不要用 schtasks / cron / 系统计划任务：
+
+  node ~/.anvil/bin/anvil-schedule.mjs create '{"name":"每日站会纪要","cron":"0 9 * * 1-5","prompt":"汇总今天的会议记录，按项目分组提炼结论、待办与阻塞","agent":"文档助手"}'
+
+cron 为五段式：分 时 日 月 周（例：`0 9 * * 1-5` 工作日 9:00，`30 16 * * *` 每天 16:30）。agent 填当前 Agent 的名字，省略则用默认 Agent。其它子命令：list（看已有任务，创建前先查重）、pause / resume / remove '{"id":"sch-…"}'。
+
+创建成功后，用一句话告诉用户任务名称与下次执行时间；执行结果会出现在「定时任务」页。"##;
 
 /// Append the app's own instructions after whatever the persona says.
 fn with_pane_tools(prompt: String) -> String {

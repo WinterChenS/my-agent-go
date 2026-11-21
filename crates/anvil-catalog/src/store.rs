@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
@@ -145,6 +145,7 @@ impl Store {
                 source TEXT NOT NULL,
                 state TEXT NOT NULL,
                 probed_at TEXT,
+                tools TEXT NOT NULL DEFAULT '[]',
                 PRIMARY KEY (runtime_id, name)
             );
             CREATE TABLE IF NOT EXISTS secrets (
@@ -157,6 +158,9 @@ impl Store {
         // `CREATE TABLE IF NOT EXISTS` never adds a column to a database that
         // already exists, and the catalog has lived on user machines since G1.
         self.add_column_if_missing("models", "enabled", "INTEGER NOT NULL DEFAULT 0")?;
+        // A probe's tool list is what makes a connector page say "12 actions"
+        // instead of guessing; databases from before that column just have none.
+        self.add_column_if_missing("mcp", "tools", "TEXT NOT NULL DEFAULT '[]'")?;
         // The default agent used to be derived from the default model and never
         // stored, which left the user no row to bind a runtime to. It is a real
         // row now, so an existing catalog needs the column.
@@ -537,15 +541,46 @@ impl Store {
         fetched_at: &str,
     ) -> Result<()> {
         let transaction = self.connection.transaction()?;
+        // A probe is the app's own observation, not part of the runtime's config
+        // file. Syncing the inventory rewrites the rows from that file, so without
+        // carrying the previous probe forward every sync would reset a server to
+        // `declared` and silently erase "8 tools, connected 3 minutes ago".
+        let previous: std::collections::HashMap<String, (String, Option<String>, String)> = {
+            let mut statement = transaction
+                .prepare("SELECT name, state, probed_at, tools FROM mcp WHERE runtime_id = ?1")?;
+            let rows = statement.query_map(params![runtime_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ),
+                ))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
         transaction.execute("DELETE FROM mcp WHERE runtime_id = ?1", params![runtime_id])?;
         {
             let mut insert = transaction.prepare(
                 "INSERT INTO mcp (
                     runtime_id, name, transport, command, args, url, env_keys,
-                    header_keys, source, state, probed_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    header_keys, source, state, probed_at, tools
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )?;
             for server in servers {
+                let carry = previous
+                    .get(&server.name)
+                    .filter(|(state, _, _)| server.state == "declared" && state != "declared");
+                let state = carry
+                    .map(|(state, _, _)| state.clone())
+                    .unwrap_or_else(|| server.state.clone());
+                let probed_at = carry
+                    .and_then(|(_, at, _)| at.clone())
+                    .or_else(|| server.probed_at.clone());
+                let tools = carry.map(|(_, _, tools)| tools.clone()).unwrap_or_else(|| {
+                    serde_json::to_string(&server.tools).unwrap_or_else(|_| "[]".into())
+                });
                 insert.execute(params![
                     runtime_id,
                     server.name,
@@ -556,8 +591,9 @@ impl Store {
                     serde_json::to_string(&server.env_keys)?,
                     serde_json::to_string(&server.header_keys)?,
                     server.source,
-                    server.state,
-                    server.probed_at
+                    state,
+                    probed_at,
+                    tools
                 ])?;
             }
         }
@@ -1121,13 +1157,14 @@ impl Store {
     pub fn mcp(&self) -> Result<Vec<McpRecord>> {
         let mut statement = self.connection.prepare(
             "SELECT runtime_id, name, transport, command, args, url, env_keys,
-                    header_keys, source, state, probed_at
+                    header_keys, source, state, probed_at, tools
              FROM mcp ORDER BY runtime_id, name",
         )?;
         let rows = statement.query_map([], |row| {
             let args: String = row.get(4)?;
             let env_keys: String = row.get(6)?;
             let header_keys: String = row.get(7)?;
+            let tools: String = row.get(11)?;
             Ok(McpRecord {
                 runtime_id: row.get(0)?,
                 name: row.get(1)?,
@@ -1140,6 +1177,7 @@ impl Store {
                 source: row.get(8)?,
                 state: row.get(9)?,
                 probed_at: row.get(10)?,
+                tools: serde_json::from_str(&tools).unwrap_or_default(),
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
@@ -1356,6 +1394,22 @@ impl Store {
                 "MCP server {name:?} for {runtime_id}"
             )));
         }
+        Ok(())
+    }
+
+    /// Record the tool list a successful probe returned.
+    ///
+    /// Kept apart from [`Self::set_mcp_state`] so a probe that fails does not
+    /// leave yesterday's tools looking current: the caller writes both.
+    pub fn set_mcp_tools(&mut self, runtime_id: &str, name: &str, tools: &[String]) -> Result<()> {
+        self.connection.execute(
+            "UPDATE mcp SET tools = ?3 WHERE runtime_id = ?1 AND name = ?2",
+            params![
+                runtime_id,
+                name,
+                serde_json::to_string(tools).unwrap_or_else(|_| "[]".to_string())
+            ],
+        )?;
         Ok(())
     }
 

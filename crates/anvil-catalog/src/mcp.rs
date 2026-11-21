@@ -49,6 +49,7 @@ impl Draft<'_> {
             source: self.source.to_string(),
             state: "declared".to_string(),
             probed_at: None,
+            tools: Vec::new(),
         }
     }
 }

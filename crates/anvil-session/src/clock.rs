@@ -120,7 +120,8 @@ pub fn local_date(stamp: &str, offset_minutes: i64) -> Option<String> {
 }
 
 /// Howard Hinnant's `civil_from_days`: days since 1970-01-01 to a civil date.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+#[must_use]
+pub fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let shifted = days + 719_468;
     let era = if shifted >= 0 {
         shifted / 146_097

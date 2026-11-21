@@ -2,43 +2,88 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
-import { formAgents, scheduleOutputs, schedulePermissions, scheduleTimezones } from './sampleData'
+import {
+  localTimeZone,
+  saveSchedule,
+  utcOffsetMinutes,
+  type ScheduleRecord,
+} from './client'
 
 const CRON_PATTERN = /^\s*\S+(\s+\S+){4}\s*$/
 
+const PERMISSIONS = ['medium', 'high', 'full', 'readonly'] as const
+const PERMISSION_KEYS: Record<(typeof PERMISSIONS)[number], MessageKey> = {
+  medium: 'schedules.form.permission.medium',
+  high: 'schedules.form.permission.high',
+  full: 'schedules.form.permission.full',
+  readonly: 'schedules.form.permission.readonly',
+}
+const OUTPUTS = ['library', 'inline', 'mail'] as const
+const OUTPUT_KEYS: Record<(typeof OUTPUTS)[number], MessageKey> = {
+  library: 'schedules.form.output.library',
+  inline: 'schedules.form.output.inline',
+  mail: 'schedules.form.output.mail',
+}
+
+export interface ScheduleAgentChoice {
+  id: string
+  name: string
+  model: string
+}
+
 export default function NewScheduleDialog({
   open,
+  sample = false,
+  agents = [],
+  initial = null,
   onClose,
   onNotice,
+  onSaved,
 }: {
   open: boolean
+  /** Sample mode keeps the prototype's notices and never touches the host. */
+  sample?: boolean
+  agents?: ScheduleAgentChoice[]
+  /** A row being edited; `null` creates a new schedule. */
+  initial?: ScheduleRecord | null
   onClose: () => void
   onNotice: (message: string) => void
+  onSaved?: () => Promise<void> | void
 }) {
   const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
-  const [agent, setAgent] = useState(formAgents[0])
+  const [agentId, setAgentId] = useState('')
   const [cron, setCron] = useState('0 9 * * 1-5')
-  const [timezone, setTimezone] = useState(scheduleTimezones[0])
+  const [timezone, setTimezone] = useState('')
   const [prompt, setPrompt] = useState('')
-  const [permission, setPermission] = useState(schedulePermissions[0])
-  const [output, setOutput] = useState(scheduleOutputs[0])
+  const [permission, setPermission] = useState<(typeof PERMISSIONS)[number]>('medium')
+  const [output, setOutput] = useState<(typeof OUTPUTS)[number]>('library')
   const [notify, setNotify] = useState(true)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setName('')
-    setAgent(formAgents[0])
-    setCron('0 9 * * 1-5')
-    setTimezone(scheduleTimezones[0])
-    setPrompt('')
-    setPermission(schedulePermissions[0])
-    setOutput(scheduleOutputs[0])
+    setName(initial?.name ?? '')
+    setAgentId(initial?.agentId ?? agents[0]?.id ?? '')
+    setCron(initial?.cron ?? '0 9 * * 1-5')
+    setTimezone(initial?.timeZone ?? localTimeZone())
+    setPrompt(initial?.prompt ?? '')
+    setPermission(
+      (PERMISSIONS as readonly string[]).includes(initial?.permission ?? '')
+        ? (initial?.permission as (typeof PERMISSIONS)[number])
+        : 'medium',
+    )
+    setOutput(
+      (OUTPUTS as readonly string[]).includes(initial?.outputTarget ?? '')
+        ? (initial?.outputTarget as (typeof OUTPUTS)[number])
+        : 'library',
+    )
     setNotify(true)
     setError('')
-  }, [open])
+    setSaving(false)
+  }, [agents, initial, open])
 
   useEffect(() => {
     if (!open) return
@@ -79,7 +124,7 @@ export default function NewScheduleDialog({
 
   if (!open) return null
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim()) {
       setError(t('schedules.validation.nameRequired'))
       return
@@ -88,9 +133,42 @@ export default function NewScheduleDialog({
       setError(t('schedules.validation.cronInvalid'))
       return
     }
-    setError('')
-    onClose()
-    onNotice(t('schedules.notice.create'))
+    if (!sample && !agentId) {
+      setError(t('schedules.validation.agentRequired'))
+      return
+    }
+    if (sample) {
+      setError('')
+      onClose()
+      onNotice(t('schedules.notice.create'))
+      return
+    }
+    setSaving(true)
+    try {
+      const saved = await saveSchedule({
+        id: initial?.id,
+        name: name.trim(),
+        cron: cron.trim(),
+        timeZone: timezone,
+        utcOffsetMinutes: utcOffsetMinutes(),
+        agentId,
+        prompt: prompt.trim() || name.trim(),
+        permission,
+        outputTarget: output,
+        enabled: initial ? initial.enabled : true,
+      })
+      setError('')
+      onClose()
+      await onSaved?.()
+      onNotice(
+        initial
+          ? t('schedules.notice.saved', { name: saved.name })
+          : t('schedules.notice.created', { name: saved.name }),
+      )
+    } catch (cause) {
+      setSaving(false)
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   return (
@@ -103,7 +181,7 @@ export default function NewScheduleDialog({
       <div ref={ref} className="sc-dialog" role="dialog" aria-modal="true" aria-labelledby="sc-dialog-title">
         <div className="sc-dialog-head">
           <div>
-            <h2 id="sc-dialog-title">{t('schedules.dialog.title')}</h2>
+            <h2 id="sc-dialog-title">{initial ? t('schedules.dialog.editTitle') : t('schedules.dialog.title')}</h2>
             <p>{t('schedules.dialog.description')}</p>
           </div>
           <button type="button" className="sc-iconbtn" aria-label={t('schedules.form.close')} onClick={onClose}>
@@ -118,8 +196,11 @@ export default function NewScheduleDialog({
             </label>
             <label className="sc-field">
               <span>{t('schedules.form.agent')}</span>
-              <select value={agent} onChange={(event) => setAgent(event.target.value)}>
-                {formAgents.map((value) => <option key={value}>{value}</option>)}
+              <select value={agentId} onChange={(event) => { setAgentId(event.target.value); setError('') }}>
+                {agents.length === 0 ? <option value="">{t('schedules.form.noAgent')}</option> : null}
+                {agents.map((choice) => (
+                  <option key={choice.id} value={choice.id}>{choice.name}</option>
+                ))}
               </select>
             </label>
             <label className="sc-field">
@@ -128,9 +209,7 @@ export default function NewScheduleDialog({
             </label>
             <label className="sc-field">
               <span>{t('schedules.form.timezone')}</span>
-              <select value={timezone} onChange={(event) => setTimezone(event.target.value)}>
-                {scheduleTimezones.map((value) => <option key={value}>{value}</option>)}
-              </select>
+              <input className="mono" value={timezone} onChange={(event) => setTimezone(event.target.value)} />
             </label>
           </div>
           <small className="sc-form-hint">{t('schedules.form.cronHint')}</small>
@@ -142,14 +221,14 @@ export default function NewScheduleDialog({
           <div className="sc-form-grid">
             <label className="sc-field">
               <span>{t('schedules.form.permission')}</span>
-              <select value={permission} onChange={(event) => setPermission(event.target.value)}>
-                {schedulePermissions.map((key) => <option key={key} value={key}>{t(key as MessageKey)}</option>)}
+              <select value={permission} onChange={(event) => setPermission(event.target.value as (typeof PERMISSIONS)[number])}>
+                {PERMISSIONS.map((key) => <option key={key} value={key}>{t(PERMISSION_KEYS[key])}</option>)}
               </select>
             </label>
             <label className="sc-field">
               <span>{t('schedules.form.output')}</span>
-              <select value={output} onChange={(event) => setOutput(event.target.value)}>
-                {scheduleOutputs.map((key) => <option key={key} value={key}>{t(key as MessageKey)}</option>)}
+              <select value={output} onChange={(event) => setOutput(event.target.value as (typeof OUTPUTS)[number])}>
+                {OUTPUTS.map((key) => <option key={key} value={key}>{t(OUTPUT_KEYS[key])}</option>)}
               </select>
             </label>
           </div>
@@ -165,7 +244,9 @@ export default function NewScheduleDialog({
         <div className="sc-dialog-foot">
           <span className="sc-muted sc-spread">{t('schedules.form.footnote')}</span>
           <button type="button" className="sc-btn" onClick={onClose}>{t('schedules.form.cancel')}</button>
-          <button type="button" className="sc-btn sc-btn-primary" onClick={submit}>{t('schedules.form.create')}</button>
+          <button type="button" className="sc-btn sc-btn-primary" disabled={saving} onClick={() => void submit()}>
+            {initial ? t('schedules.form.save') : t('schedules.form.create')}
+          </button>
         </div>
       </div>
     </div>

@@ -11,8 +11,8 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use anvil_session::workbench::{
-    WorkbenchAgent, WorkbenchArtifact, WorkbenchInput, WorkbenchOverview, WorkbenchSources,
-    WorkbenchStatus,
+    WorkbenchAgent, WorkbenchArtifact, WorkbenchInput, WorkbenchOverview, WorkbenchSchedule,
+    WorkbenchSources, WorkbenchStatus,
 };
 use anvil_session::{EventKind, RunEvent};
 use rusqlite::{Connection, params};
@@ -44,26 +44,48 @@ pub async fn workbench_overview(
 
     state.with_reader(|store| {
         let connection = store.raw();
-        let (agents, status, catalog_ok) = catalog
+        let (agents, mut status, catalog_ok) = catalog
             .as_ref()
             .map(|catalog| read_catalog(catalog, connection))
             .unwrap_or_else(|| (Vec::new(), WorkbenchStatus::default(), false));
         let (artifacts, filesystem_ok) = recent_artifacts(connection);
+        // Schedules are rows in this same ledger, so the home page can show the
+        // next fire instead of "no scheduler in this build".
+        let schedule_view = anvil_session::schedule::view(connection, offset)
+            .map_err(|error| error.to_wire().to_string())?;
+        let schedules: Vec<WorkbenchSchedule> = schedule_view
+            .schedules
+            .iter()
+            .map(|row| WorkbenchSchedule {
+                id: row.id.clone(),
+                name: row.name.clone(),
+                agent: row.agent_name.clone(),
+                next_run_at: row.next_run_at.clone(),
+                last_run_at: row.last_run_at.clone(),
+                last_status: row.last_status.clone(),
+                enabled: row.enabled,
+            })
+            .collect();
+        status.schedules_enabled = schedule_view.stats.enabled;
+        status.schedules_today = schedule_view.stats.today_runs;
+        status.connectors_available = catalog_ok;
         let input = WorkbenchInput {
             today,
             utc_offset_minutes: offset,
             weeks,
             agents,
             artifacts,
+            schedules,
             status,
             sources: WorkbenchSources {
                 ledger: true,
                 catalog: catalog_ok,
                 filesystem: filesystem_ok,
-                // No scheduler, connector registry or quota service exists in
-                // this build. Those three cards must not invent a number.
-                schedules: false,
-                connectors: false,
+                schedules: true,
+                // Connectors are the catalog's MCP rows; without a catalog there
+                // is nothing to count.
+                connectors: catalog_ok,
+                // No quota service exists in this build.
                 quota: false,
             },
         };
@@ -148,6 +170,7 @@ fn read_catalog(
         mcp_total: mcp.len() as u64,
         connectors_available: false,
         quota_available: false,
+        ..WorkbenchStatus::default()
     };
     (rows, status, true)
 }

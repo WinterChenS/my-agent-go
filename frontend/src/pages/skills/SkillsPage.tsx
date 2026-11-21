@@ -16,6 +16,8 @@ import './skills.css'
 import { useCatalog } from '../../catalog/useCatalog'
 import type { CatalogSkill } from '../../catalog/client'
 import { CatalogSkillsPanel, CatalogSummary } from '../../catalog/CatalogPanels'
+import { pickWorkspace } from '../../workspace/client'
+import { createSkill, importSkill } from './client'
 
 const SOURCE_KEYS: Record<SkillSource, MessageKey> = {
   builtin: 'skills.source.builtin',
@@ -34,6 +36,8 @@ export default function SkillsPage() {
   const [notice, setNotice] = useState('')
   const [dialog, setDialog] = useState<SkillDialogKind>(null)
   const [editing, setEditing] = useState<SkillRecord | null>(null)
+  const [building, setBuilding] = useState(false)
+  const [busy, setBusy] = useState(false)
   const dialogTrigger = useRef<HTMLElement | null>(null)
 
   const records = sample ? (tab === 'installed' ? installedSkills : tab === 'market' ? marketSkills : draftSkills) : []
@@ -72,6 +76,42 @@ export default function SkillsPage() {
     setTab(next)
     setQuery('')
   }
+  // Live mode can really install: the catalog is scanned from disk, so both
+  // buttons only need the host, not a populated list.
+  const canWrite = sample || liveReady
+  const draftLive = liveSkills.filter((skill) => skill.state !== 'valid')
+  const onImport = async () => {
+    if (sample) {
+      openDialog('import', document.body as HTMLElement)
+      return
+    }
+    setBusy(true)
+    try {
+      const folder = await pickWorkspace()
+      if (!folder) return
+      const installed = await importSkill(folder)
+      await catalog.syncInventory()
+      announce(t('skills.notice.imported', { path: installed }))
+    } catch (error) {
+      announce(t('skills.notice.failed', { message: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const onCreate = async (values: { name: string; description: string; body: string }) => {
+    setBusy(true)
+    try {
+      const installed = await createSkill(values.name, values.description, values.body)
+      await catalog.syncInventory()
+      setBuilding(false)
+      announce(t('skills.notice.created', { name: values.name, path: installed }))
+    } catch (error) {
+      announce(t('skills.notice.failed', { message: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
     event.preventDefault()
@@ -90,11 +130,11 @@ export default function SkillsPage() {
           <p>{t('skills.description')}</p>
         </div>
         <div className="skills-head-actions">
-          <button type="button" className="skills-btn" disabled={!sample} title={sample ? t('skills.import') : t('skills.action.unavailable')} onClick={(event) => openDialog('import', event.currentTarget)}>
+          <button type="button" className="skills-btn" disabled={!canWrite || busy} title={canWrite ? t('skills.import') : t('skills.action.unavailable')} onClick={(event) => (sample ? openDialog('import', event.currentTarget) : void onImport())}>
             <Icon name="download" size={14} />
             {t('skills.import')}
           </button>
-          <button type="button" className="skills-btn skills-btn-primary" disabled={!sample} title={sample ? t('skills.new') : t('skills.action.unavailable')} onClick={(event) => openDialog('builder', event.currentTarget)}>
+          <button type="button" className="skills-btn skills-btn-primary" disabled={!canWrite || busy} title={canWrite ? t('skills.new') : t('skills.action.unavailable')} onClick={(event) => (sample ? openDialog('builder', event.currentTarget) : setBuilding(true))}>
             <Icon name="plus" size={14} />
             {t('skills.new')}
           </button>
@@ -161,10 +201,17 @@ export default function SkillsPage() {
           <b>{t('catalog.skills.empty')}</b>
           <span>{t('catalog.inventory.sync')}</span>
         </div>
+      ) : liveReady && tab === 'drafts' && draftLive.length > 0 ? (
+        <div className="skills-grid" data-testid="skills-grid">
+          {draftLive.map((skill) => (
+            <LiveSkillCard key={`${skill.runtimeId}:${skill.path}`} skill={skill} />
+          ))}
+        </div>
       ) : liveReady ? (
         <div className="skills-empty-grid" data-testid="skill-empty-list">
           <Icon name="puzzle" size={22} />
-          <b>{t('skills.action.unavailable')}</b>
+          <b>{tab === 'market' ? t('skills.market.unavailable') : t('skills.drafts.empty')}</b>
+          <span>{tab === 'market' ? t('skills.market.unavailableBody') : t('skills.drafts.emptyBody')}</span>
         </div>
       ) : (
         <div className="skills-empty-grid" data-testid="skill-empty-list">
@@ -185,7 +232,79 @@ export default function SkillsPage() {
       </div>
 
       <SkillDialogs kind={dialog} initial={editing} onClose={closeDialog} onNotice={announce} />
+      {building ? (
+        <LiveSkillBuilder busy={busy} onClose={() => setBuilding(false)} onCreate={(values) => void onCreate(values)} />
+      ) : null}
     </section>
+  )
+}
+
+function LiveSkillBuilder({
+  busy,
+  onClose,
+  onCreate,
+}: {
+  busy: boolean
+  onClose: () => void
+  onCreate: (values: { name: string; description: string; body: string }) => void
+}) {
+  const { t } = useI18n()
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [body, setBody] = useState('')
+  const [error, setError] = useState('')
+  return (
+    <div
+      className="skills-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="skills-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-live-title">
+        <div className="skills-dialog-head">
+          <div>
+            <h2 id="skill-live-title">{t('skills.live.title')}</h2>
+            <p>{t('skills.live.description')}</p>
+          </div>
+          <button type="button" className="skills-iconbtn" aria-label={t('skills.builder.cancel')} onClick={onClose}>
+            <Icon name="x" size={15} />
+          </button>
+        </div>
+        <div className="skills-dialog-body">
+          <label className="skills-field">
+            <span>{t('skills.builder.name')}</span>
+            <input value={name} onChange={(event) => { setName(event.target.value); setError('') }} />
+          </label>
+          <label className="skills-field">
+            <span>{t('skills.builder.descriptionLabel')}</span>
+            <input value={description} onChange={(event) => setDescription(event.target.value)} />
+          </label>
+          <label className="skills-field">
+            <span>{t('skills.live.body')}</span>
+            <textarea rows={6} value={body} placeholder={t('skills.live.bodyPlaceholder')} onChange={(event) => setBody(event.target.value)} />
+          </label>
+          <small className="skills-hint">{t('skills.live.hint')}</small>
+          {error ? <p className="skills-error" role="alert">{error}</p> : null}
+        </div>
+        <div className="skills-dialog-foot">
+          <button type="button" className="skills-btn" onClick={onClose}>{t('skills.builder.cancel')}</button>
+          <button
+            type="button"
+            className="skills-btn skills-btn-primary"
+            disabled={busy}
+            onClick={() => {
+              if (!name.trim()) {
+                setError(t('skills.validation.nameRequired'))
+                return
+              }
+              onCreate({ name: name.trim(), description: description.trim(), body: body.trim() })
+            }}
+          >
+            {t('skills.live.create')}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

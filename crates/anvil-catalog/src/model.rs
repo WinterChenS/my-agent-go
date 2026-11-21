@@ -497,6 +497,9 @@ pub struct McpRecord {
     /// `declared` until an explicit probe succeeds.
     pub state: String,
     pub probed_at: Option<String>,
+    /// Tool names the last successful probe listed; empty until then.
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 /// Result of one sync, kept so a failure can be told apart from an empty list.

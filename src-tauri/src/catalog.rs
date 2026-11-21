@@ -64,7 +64,7 @@ impl CatalogState {
             .map_err(|_| "catalog: state lock poisoned".to_string())
     }
 
-    fn with_service<T>(
+    pub(crate) fn with_service<T>(
         &self,
         action: impl FnOnce(&mut CatalogService) -> Result<T, String>,
     ) -> Result<T, String> {
