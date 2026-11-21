@@ -498,6 +498,31 @@ pub async fn session_open(
     })
 }
 
+/// What every session is told about the app it runs inside.
+///
+/// The pane's browser is driven by a command, not by a tool call. A model that
+/// has never been told that command exists reaches for a browser it does know —
+/// an MCP tool, the system default — and the page opens where the user cannot
+/// see it. So the app writes this part of the prompt itself, for every session.
+const PANE_TOOLS: &str = r##"## 本应用的浏览器（右侧面板）
+
+这个应用的右侧有一个真实浏览器面板，用户就看着它。用户让你“打开 / 看看 / 操作某个网页”时，用这条命令，它会在右侧面板里打开并让用户看到：
+
+  node ~/.anvil/bin/anvil-browser.mjs navigate '{"url":"https://example.com"}'
+
+其它子命令：text（页面文字）、snapshot（可点元素）、click '{"text":"登录"}'、fill '{"selector":"#q","value":"…"}'、press、scroll、screenshot '{"path":"out/shot.png"}'（存成图片并返回路径，可用来核对页面到底长什么样）、back / forward / reload。
+
+不要用外部浏览器（start / open / explorer / xdg-open）、系统默认浏览器或云电脑去打开网址：那会发生在用户看不见的地方，而用户要的是在应用里看到这个页面。"##;
+
+/// Append the app's own instructions after whatever the persona says.
+fn with_pane_tools(prompt: String) -> String {
+    if prompt.trim().is_empty() {
+        PANE_TOOLS.to_string()
+    } else {
+        format!("{prompt}\n\n{PANE_TOOLS}")
+    }
+}
+
 /// The spec used when the user picks a model instead of a saved Agent.
 ///
 /// Behaving like the CLI means the built-in tools are available. Only these
@@ -519,6 +544,7 @@ fn model_spec(
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
+        append_system_prompt: with_pane_tools(String::new()),
         ..Default::default()
     }
 }
@@ -548,7 +574,7 @@ fn spec_for_agent(
         agent_id: agent.slug,
         thinking: agent.thinking,
         system_prompt: agent.system_prompt,
-        append_system_prompt: memory,
+        append_system_prompt: with_pane_tools(memory),
         skills,
         allow_tools,
         tools,
@@ -888,10 +914,37 @@ mod tests {
         assert_eq!(spec.title.as_deref(), Some("迁移工程师"));
         assert_eq!(spec.thinking, "high");
         assert_eq!(spec.system_prompt, "你是迁移工程师");
-        assert_eq!(spec.append_system_prompt, "历史结论摘要");
+        // The persona's digest stays first; the app's own instructions follow.
+        assert!(spec.append_system_prompt.starts_with("历史结论摘要"));
+        assert!(spec.append_system_prompt.contains("anvil-browser.mjs navigate"));
         assert_eq!(spec.skills, vec!["D:/skills/review.md"]);
         assert_eq!(spec.tools, vec!["read", "grep"]);
         assert!(spec.allow_tools);
+    }
+
+    /// Every session learns how to open a page the user can see. Without this
+    /// the model picks a browser it already knows and the page opens elsewhere.
+    #[test]
+    fn every_session_is_told_about_the_pane_browser() {
+        let spec = model_spec(
+            "pi".into(),
+            "claude-sonnet-4".into(),
+            "D:/work/api".into(),
+            None,
+        );
+        assert!(spec.append_system_prompt.contains("anvil-browser.mjs navigate"));
+
+        let agent = anvil_catalog::model::AgentRecord::default_persona();
+        let with_memory = spec_for_agent(
+            agent,
+            Vec::new(),
+            "历史结论摘要".into(),
+            "D:/work/api".into(),
+            None,
+        );
+        // The persona's own text is not replaced; the app appends to it.
+        assert!(with_memory.append_system_prompt.starts_with("历史结论摘要"));
+        assert!(with_memory.append_system_prompt.contains("anvil-browser.mjs navigate"));
     }
 
     /// Read-only is the one permission mode that changes runtime arguments.

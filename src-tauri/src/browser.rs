@@ -33,6 +33,12 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 /// How long a command may take before the caller is told nobody answered.
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Event telling the window that the pane should come forward on a URL.
+///
+/// A pane that is closed is a webview parked off-screen: a runtime navigating
+/// in the background would put the page where nobody can look at it.
+pub const SHOW_EVENT: &str = "anvil://browser-show";
+
 /// One page command the runtime understands.
 pub type Reply = Result<Value, String>;
 

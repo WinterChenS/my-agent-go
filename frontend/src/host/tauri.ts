@@ -26,6 +26,14 @@ export interface HostPreferences {
 /** Event the host emits when the Windows app theme flips. */
 export const SYSTEM_THEME_EVENT = 'anvil://system-theme'
 
+/** Event the host emits when the pane should come forward on a URL. */
+export const BROWSER_SHOW_EVENT = 'anvil://browser-show'
+
+/** Event payload of {@link BROWSER_SHOW_EVENT}. */
+export interface BrowserShowPayload {
+  url: string
+}
+
 /** Event payload of {@link SYSTEM_THEME_EVENT}. */
 export interface SystemThemePayload {
   systemDark: boolean

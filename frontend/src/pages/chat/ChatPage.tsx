@@ -62,6 +62,7 @@ import {
   type UiAnswer,
   type UiRequest,
 } from '../../chat/client'
+import { BROWSER_SHOW_EVENT, listenHost, type BrowserShowPayload } from '../../host/tauri'
 import { ExtensionUiCard } from './ExtensionUiCard'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { imageSrc } from '../../chat/image'
@@ -549,6 +550,32 @@ export default function ChatPage() {
     setRailWidthState(width)
     writeRailWidth(width)
   }
+  // The agent can open a page through the bridge without touching this page.
+  // The pane is the only place the user can see it, so the pane comes forward.
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void listenHost<BrowserShowPayload>(BROWSER_SHOW_EVENT, (payload) => {
+      const url = typeof payload?.url === 'string' ? payload.url : ''
+      if (!url) return
+      setBrowserUrl(url)
+      setRailOpen(true)
+      setRailTab('browser')
+    })
+      .then((cleanup) => {
+        if (disposed) cleanup()
+        else unlisten = cleanup
+      })
+      .catch(() => {
+        // Without the event bridge the pane still works; it just does not come
+        // forward on its own.
+      })
+    return () => {
+      disposed = true
+      if (unlisten) unlisten()
+    }
+  }, [])
+
   const openPreview = (path: string) => {
     setPreviewPath(path)
     setRailOpen(true)

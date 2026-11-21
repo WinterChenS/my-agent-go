@@ -15,7 +15,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::browser::Browser;
 
@@ -113,12 +113,18 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
         // Opening and moving the pane are the app's business, not the page's.
         "open" => {
             let url = params.get("url").and_then(Value::as_str).unwrap_or("about:blank");
-            browser.open(app, url).map(|()| json!({ "url": url }))
+            browser.open(app, url).map(|()| {
+                show_pane(app, url);
+                json!({ "url": url })
+            })
         }
         "close" => browser.close().map(|()| json!(true)),
         "navigate" => {
             let url = params.get("url").and_then(Value::as_str).unwrap_or("about:blank");
-            browser.open(app, url).map(|()| json!({ "url": url }))
+            browser.open(app, url).map(|()| {
+                show_pane(app, url);
+                json!({ "url": url })
+            })
         }
         // The picture of the page: what the DOM cannot say — that the layout
         // broke, that a banner covers the button, that the page is blank.
@@ -140,6 +146,15 @@ fn dispatch(app: &AppHandle, browser: &Arc<Browser>, body: &str) -> String {
         Ok(value) => json!({ "ok": true, "value": value }).to_string(),
         Err(error) => json!({ "ok": false, "error": error }).to_string(),
     }
+}
+
+/// Bring the pane forward on `url`.
+///
+/// The click the user asked for has to end somewhere they can see: a runtime
+/// that navigates while the pane is closed still gets its page loaded, so the
+/// window is told to open the pane and show it.
+fn show_pane(app: &AppHandle, url: &str) {
+    let _ = app.emit(crate::browser::SHOW_EVENT, json!({ "url": url }));
 }
 
 fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<Request>> {
