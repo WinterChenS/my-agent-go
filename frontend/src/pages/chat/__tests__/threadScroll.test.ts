@@ -5,6 +5,7 @@ import {
   FOLLOW_THRESHOLD,
   isNearBottom,
   isOurScroll,
+  tailHeightFor,
   topOffsetFor,
 } from '../threadScroll'
 
@@ -54,5 +55,17 @@ describe('thread follow arithmetic', () => {
     expect(isOurScroll(node, 161)).toBe(true)
     expect(isOurScroll(node, 120)).toBe(false)
     expect(isOurScroll(node, null)).toBe(false)
+  })
+
+  it('sizes the tail so following the bottom pins the question at the top', () => {
+    // The question sits 200px into the content but only 100px is reachable in
+    // a 600px viewport; the tail must add the missing 100px.
+    expect(tailHeightFor(200, 700, 600, 0)).toBe(100)
+    // Recomputing on the next render leaves the tail unchanged (converged).
+    expect(tailHeightFor(200, 800, 600, 100)).toBe(100)
+    // When the answer is already taller than the screen, no tail is needed.
+    expect(tailHeightFor(200, 1200, 600, 0)).toBe(0)
+    // A shrinking requirement shrinks the tail back down, never below zero.
+    expect(tailHeightFor(200, 900, 600, 100)).toBe(0)
   })
 })

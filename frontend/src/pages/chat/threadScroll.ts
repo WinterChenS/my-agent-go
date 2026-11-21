@@ -39,3 +39,24 @@ export function topOffsetFor(node: HTMLElement, child: HTMLElement): number {
 export function isOurScroll(node: HTMLElement, expected: number | null): boolean {
   return expected !== null && Math.abs(node.scrollTop - expected) <= 2
 }
+
+/**
+ * Height the invisible tail must have so the furthest reachable scroll lands
+ * the newest question at the top of the viewport.
+ *
+ * A freshly sent message has almost nothing under it: the scroller runs out of
+ * content and clamps, so the question cannot reach the top. `targetTop` is the
+ * scroll position that would put it there; `scrollHeight - clientHeight` is the
+ * furthest we can currently go. Adding their difference to the tail makes the
+ * two agree. The value is scroll-position independent, so recomputing it every
+ * render converges in one step and never fights the reader's own scrolling.
+ */
+export function tailHeightFor(
+  targetTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  currentTail: number,
+): number {
+  const reachable = scrollHeight - clientHeight
+  return Math.max(0, currentTail + (targetTop - reachable))
+}

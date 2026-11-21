@@ -67,6 +67,7 @@ import {
   bottomOffset,
   isNearBottom,
   isOurScroll,
+  tailHeightFor,
   topOffsetFor,
 } from './threadScroll'
 import { ExtensionUiCard } from './ExtensionUiCard'
@@ -638,6 +639,7 @@ export default function ChatPage() {
   // The thread follows the answer until the reader scrolls away. A separate
   // expected value distinguishes our own `scrollTop` writes from theirs.
   const threadRef = useRef<HTMLDivElement>(null)
+  const tailRef = useRef<HTMLDivElement>(null)
   const followRef = useRef(true)
   const expectedScrollRef = useRef<number | null>(null)
   const skipFollowRef = useRef(false)
@@ -935,6 +937,37 @@ export default function ChatPage() {
   // the transcript length: a new send always produces a new key.
   const lastUserKey = lastUser ? `${lastUser.id}:${lastUser.text}:${visibleMessages.length}` : ''
 
+  // Keep an empty tail at the end of the column whose height is exactly the
+  // room the newest question needs to reach the top of the viewport. With that
+  // padding in place, "follow the bottom" and "pin the new question at the top"
+  // are the same scroll position — the answer grows into the space below it,
+  // and the older messages stay above, one scroll away. Measured and written
+  // directly on the node: sizing it through state would re-render and loop.
+  // Declared before the scroll effects below so they see the updated height.
+  useLayoutEffect(() => {
+    const tail = tailRef.current
+    if (!tail) return
+    if (sample) {
+      tail.style.height = '0px'
+      return
+    }
+    const node = threadRef.current
+    if (!node) return
+    const bubbles = node.querySelectorAll<HTMLElement>('[data-testid="chat-message-user"]')
+    const last = bubbles[bubbles.length - 1]
+    if (!last) {
+      tail.style.height = '0px'
+      return
+    }
+    // The scroll position that puts the newest question at the top of the
+    // viewport. Deliberately not clamped to what is currently reachable —
+    // that shortfall is exactly what the tail exists to make up.
+    const targetTop =
+      node.scrollTop + last.getBoundingClientRect().top - node.getBoundingClientRect().top
+    const height = tailHeightFor(targetTop, node.scrollHeight, node.clientHeight, tail.offsetHeight)
+    if (Math.abs(tail.offsetHeight - height) > 1) tail.style.height = `${height}px`
+  })
+
   // Opening a thread lands on its newest message. This is a placement, not a
   // preference: the reader can scroll up immediately afterwards and keep that
   // position for as long as the turn runs.
@@ -943,6 +976,10 @@ export default function ChatPage() {
     if (!node) return
     followRef.current = true
     skipFollowRef.current = true
+    // Seed the signature from the messages already in the thread, so the next
+    // send counts as new (otherwise the first send would look like "first
+    // render" and skip the pin-to-top entirely).
+    lastUserIdRef.current = lastUserKey
     expectedScrollRef.current = bottomOffset(node)
     node.scrollTop = expectedScrollRef.current
   }, [currentId])
@@ -1532,8 +1569,10 @@ export default function ChatPage() {
                     >
                       <ContextChips meta={message.meta} />
                       <div className="chat-body-with-copy chat-body-user">
-                        <div className="chat-bubble">{message.text}</div>
-                        <CopyButton text={message.text} role="user" />
+                        <div className="chat-bubble-wrap">
+                          <div className="chat-bubble">{message.text}</div>
+                          <CopyButton text={message.text} role="user" />
+                        </div>
                       </div>
                     </article>
                   ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (
@@ -1635,6 +1674,9 @@ export default function ChatPage() {
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
                 />
+                {/* Invisible spacer: sized so "scroll to bottom" pins the
+                    newest question at the top and leaves the answer room. */}
+                <div className="chat-thread-tail" data-testid="chat-thread-tail" ref={tailRef} aria-hidden="true" />
               </div>
             ) : blankPage ? null : (
               <div className="chat-empty" data-testid="chat-empty" role="status">

@@ -270,6 +270,15 @@ button.chat-badge:hover {
   padding: 0 var(--space-12);
 }
 
+/* Invisible tail that gives a new question room to sit at the top of the
+   viewport while the answer is still short. Its height is measured and written
+   inline by ChatPage; it must never be squeezed by the flex column. */
+.chat-thread-tail {
+  flex: 0 0 auto;
+  width: 1px;
+  pointer-events: none;
+}
+
 .chat-empty {
   display: grid;
   place-items: center;
@@ -316,6 +325,36 @@ button.chat-badge:hover {
 .chat-body-user {
   display: flex;
   justify-content: flex-end;
+  /* `.chat-msg-user` sets align-items:flex-end, which used to shrink this row
+     to its content. The bubble's percentage max-width was then measured
+     against that shrinking box — a circular dependency that collapsed a short
+     message to one character per line. Stretch the row to the message's full
+     width so the wrap's cap has a stable box to measure against. */
+  align-self: stretch;
+  width: 100%;
+}
+
+/* `max-content` makes the wrapper as wide as the text on one line; the cap
+   brings long messages back under control, where the bubble wraps. Using
+   shrink-to-fit here instead reintroduced the loop: the bubble's own wrapping
+   fed back into the wrapper's min-content width and squeezed a short message
+   to a single character per line. The wrapper is positioned so the copy button
+   can sit just left of the bubble. */
+.chat-bubble-wrap {
+  position: relative;
+  width: max-content;
+  max-width: min(88%, 46rem);
+  min-width: 0;
+}
+
+.chat-body-user .chat-bubble {
+  width: 100%;
+  /* The global `.chat-bubble { max-width: 88% }` is relative to the wrap, whose
+     max-content sizing in turn depends on the bubble. That percentage loop is
+     what collapsed the text to one character per line. The cap now lives only
+     on the wrap; the bubble fills it and wraps long words itself. */
+  max-width: none;
+  overflow-wrap: anywhere;
 }
 
 .chat-copy-btn {
@@ -343,7 +382,9 @@ button.chat-badge:hover {
 }
 
 .chat-body-with-copy:hover > .chat-copy-btn,
-.chat-body-with-copy:focus-within > .chat-copy-btn {
+.chat-body-with-copy:focus-within > .chat-copy-btn,
+.chat-bubble-wrap:hover > .chat-copy-btn,
+.chat-bubble-wrap:focus-within > .chat-copy-btn {
   opacity: 1;
   pointer-events: auto;
 }
