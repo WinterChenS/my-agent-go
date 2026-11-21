@@ -10,14 +10,18 @@ interface PaletteItem {
   sub: string
   kind: 'page' | 'action'
   path?: string
+  /** Clears the active conversation before navigating to a fresh chat. */
+  freshChat?: boolean
 }
 
-const ACTIONS: Array<{ label: MessageKey; sub: MessageKey }> = [
-  { label: 'workbench.palette.action.newChat', sub: 'workbench.palette.action.newChatSub' },
-  { label: 'workbench.palette.action.newSchedule', sub: 'workbench.palette.action.newScheduleSub' },
-  { label: 'workbench.palette.action.addMcp', sub: 'workbench.palette.action.addMcpSub' },
-  { label: 'workbench.palette.action.manageRuntime', sub: 'workbench.palette.action.manageRuntimeSub' },
-  { label: 'workbench.palette.action.tokenAudit', sub: 'workbench.palette.action.tokenAuditSub' },
+/** Each command opens the real screen that does the job. A palette action that
+ *  only showed a "coming later" notice was a dead end, not a shortcut. */
+const ACTIONS: Array<{ label: MessageKey; sub: MessageKey; path: string; freshChat?: boolean }> = [
+  { label: 'workbench.palette.action.newChat', sub: 'workbench.palette.action.newChatSub', path: '/chat', freshChat: true },
+  { label: 'workbench.palette.action.newSchedule', sub: 'workbench.palette.action.newScheduleSub', path: '/schedules' },
+  { label: 'workbench.palette.action.addMcp', sub: 'workbench.palette.action.addMcpSub', path: '/mcp' },
+  { label: 'workbench.palette.action.manageRuntime', sub: 'workbench.palette.action.manageRuntimeSub', path: '/settings#runtime' },
+  { label: 'workbench.palette.action.tokenAudit', sub: 'workbench.palette.action.tokenAuditSub', path: '/settings#observability' },
 ]
 
 export default function GlobalSearchDialog({
@@ -35,7 +39,6 @@ export default function GlobalSearchDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
-  const [notice, setNotice] = useState('')
 
   const items = useMemo(() => {
     const pages: PaletteItem[] = SHELL_ROUTES.map((route) => ({
@@ -50,6 +53,8 @@ export default function GlobalSearchDialog({
       label: t(action.label),
       sub: t(action.sub),
       kind: 'action',
+      path: action.path,
+      freshChat: action.freshChat,
     }))
     return pages.concat(actions)
   }, [t])
@@ -66,7 +71,6 @@ export default function GlobalSearchDialog({
     if (!open) return
     setQuery('')
     setActive(0)
-    setNotice('')
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus())
     return () => window.cancelAnimationFrame(frame)
   }, [open])
@@ -92,9 +96,14 @@ export default function GlobalSearchDialog({
 
   const activate = (item: PaletteItem | undefined) => {
     if (!item) return
-    if (item.kind === 'action') {
-      setNotice(t('workbench.palette.unavailable'))
-      return
+    if (item.freshChat) {
+      // The chat page keeps the active conversation in localStorage; clearing
+      // it is what makes '/chat' a new conversation rather than the last one.
+      try {
+        window.localStorage.removeItem('anvil.chat.session')
+      } catch {
+        // Private mode: navigation still opens the composer.
+      }
     }
     if (item.path) {
       navigate(item.path)
@@ -140,8 +149,7 @@ export default function GlobalSearchDialog({
               onChange={(event) => {
                 setQuery(event.target.value)
                 setActive(0)
-                setNotice('')
-              }}
+                          }}
               placeholder={t('workbench.palette.placeholder')}
               aria-label={t('workbench.palette.placeholder')}
               role="combobox"
@@ -172,11 +180,6 @@ export default function GlobalSearchDialog({
               </div>
             ))}
           </div>
-          {notice ? (
-            <p className="wb-palette-notice" role="status">
-              {notice}
-            </p>
-          ) : null}
         </div>
         <div className="wb-palette-foot">
           <span>

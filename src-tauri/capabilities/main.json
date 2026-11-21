@@ -49,6 +49,8 @@
     "allow-session-context-list",
     "allow-session-rail",
     "allow-session-export",
+    "allow-session-audit",
+    "allow-session-audit-export",
     "allow-agent-runs",
     "allow-workspace-defaults",
     "allow-workspace-ensure",

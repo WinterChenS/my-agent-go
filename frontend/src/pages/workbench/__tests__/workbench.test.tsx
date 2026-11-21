@@ -152,7 +152,7 @@ describe('quick jump palette', () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
 
-  it('shows the prototype empty result and disables unconnected actions', async () => {
+  it('shows the empty result and opens the real screen behind each action', async () => {
     const user = userEvent.setup()
     renderAt('/')
     const trigger = screen.getByRole('button', { name: '搜索' })
@@ -162,10 +162,23 @@ describe('quick jump palette', () => {
     await user.type(input, '不存在的关键词')
     expect(within(dialog).getByText('没有匹配的页面或操作')).toBeInTheDocument()
     await user.clear(input)
-    const action = within(dialog).getByRole('option', { name: /新建对话/ })
+    // The Token usage audit shortcut now lands on the observability section,
+    // not on a "coming later" notice.
+    const action = within(dialog).getByRole('option', { name: /Token 用量审计/ })
     await user.click(action)
-    expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByRole('status')).toHaveTextContent('未接入：该操作将在后续任务开放')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '快速跳转' })).toBeNull())
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument()
+  })
+
+  it('starts a fresh chat by clearing the active conversation', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('anvil.chat.session', 'old-session')
+    renderAt('/')
+    await user.click(screen.getByRole('button', { name: '搜索' }))
+    const dialog = screen.getByRole('dialog', { name: '快速跳转' })
+    await user.click(within(dialog).getByRole('option', { name: /新建对话/ }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '快速跳转' })).toBeNull())
+    expect(window.localStorage.getItem('anvil.chat.session')).toBeNull()
   })
 
   it('keeps focus in the palette input on Tab', async () => {

@@ -861,6 +861,15 @@
   margin: 0;
 }
 
+/* A model id can be far longer than the label column. Keep it on one line
+   with an ellipsis (title shows the full id) so it never wraps under the
+   meter and the row stays one line tall. */
+.st-bar-row .st-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .st-meter {
   display: block;
   height: 5px;

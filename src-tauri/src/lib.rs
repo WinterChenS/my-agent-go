@@ -91,6 +91,8 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_context_list",
     "session_rail",
     "session_export",
+    "session_audit",
+    "session_audit_export",
     "agent_runs",
     "workspace_defaults",
     "workspace_ensure",

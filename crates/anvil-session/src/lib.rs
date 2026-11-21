@@ -15,6 +15,7 @@
 //! crashed run still leaves everything that actually arrived.
 
 pub mod adapter;
+pub mod audit;
 pub mod adapters;
 pub mod clock;
 pub mod context;

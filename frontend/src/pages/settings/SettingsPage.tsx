@@ -1,10 +1,18 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import LanguageSettings from '../../i18n/LanguageSettings'
 import Icon from '../../shell/Icon'
 import ThemeSettings from './ThemeSettings'
+import {
+  describeSessionError,
+  exportSessionAudit,
+  sessionAudit,
+  type AuditPeriod,
+  type AuditReport,
+  type AuditShare,
+} from '../../chat/client'
 import {
   fastRouteModels,
   modelRouteModels,
@@ -24,7 +32,7 @@ import {
 } from './settingsData'
 import './settings.css'
 import { useCatalog } from '../../catalog/useCatalog'
-import { PREF_AUTO_SYNC, PREF_SHOW_TIMELINE, useBoolPreference, useSendShortcut, type SendShortcut } from '../../preferences/flags'
+import { PREF_AUDIT_MASK, PREF_AUTO_SYNC, PREF_SHOW_TIMELINE, useBoolPreference, useSendShortcut, type SendShortcut } from '../../preferences/flags'
 import {
   CatalogModelsPanel,
   CatalogRuntimeTable,
@@ -601,6 +609,88 @@ function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (messag
 function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (message: string) => void }) {
   const { t } = useI18n()
   const [tab, setTab] = useState<ObsTab>('usage')
+  const [period, setPeriod] = useState<AuditPeriod>('7')
+  const [report, setReport] = useState<AuditReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState('')
+  const [exporting, setExporting] = useState(false)
+
+  // The sample route keeps its fixtures for design comparison. A real window
+  // reads the ledger instead: every number below comes from a usage event, a
+  // run row or a tool call, never from a seeded chart.
+  useEffect(() => {
+    if (sample) return
+    let cancelled = false
+    setLoading(true)
+    setFailed('')
+    sessionAudit(period)
+      .then((next) => {
+        if (!cancelled) setReport(next)
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setFailed(describeSessionError(cause))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sample, period])
+
+  const exportRows = async () => {
+    if (sample) {
+      onNotice(t('settings.notice.exportCsv'))
+      return
+    }
+    setExporting(true)
+    try {
+      const result = await exportSessionAudit(period)
+      onNotice(t('settings.obs.exported', { count: result.rows, path: result.path }))
+    } catch (cause) {
+      onNotice(t('settings.obs.exportFailed', { message: describeSessionError(cause) }))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const totals = report?.usage.totals
+  const hasAny =
+    !!totals && (totals.calls > 0 || totals.tools > 0 || report.traces.length > 0 || report.executions.length > 0)
+  const liveStats = totals
+    ? [
+        {
+          key: 'tokens',
+          value: totals.reported ? formatCount(totals.tokens) : '—',
+          sub: totals.reported
+            ? `${t('settings.obs.input')} ${formatCount(totals.input)} · ${t('settings.obs.output')} ${formatCount(totals.output)}`
+            : t('settings.obs.noTokens'),
+        },
+        { key: 'calls', value: formatCount(totals.calls), sub: `${report?.usage.days.length ?? 0} ${t('settings.obs.usageSub')}` },
+        { key: 'tools', value: formatCount(totals.tools), sub: `${formatCount(totals.tools)} ${t('settings.obs.tab.executions')}` },
+      ]
+    : []
+  const maxDay = Math.max(
+    1,
+    ...(report?.usage.days.map((day) => day.input + day.output) ?? [1]),
+  )
+  const shares = (rows: AuditShare[] | undefined, fallback: string) => {
+    const list = rows ?? []
+    const max = Math.max(1, ...list.map((row) => row.tokens))
+    return list.map((row) => ({
+      label: row.label || fallback,
+      width: Math.round((row.tokens / max) * 100),
+      note: `${formatCount(row.tokens)} · ${formatCount(row.calls)}`,
+    }))
+  }
+
+  const statusLine = loading
+    ? t('settings.obs.loading')
+    : failed
+      ? t('settings.obs.failed', { message: failed })
+      : !hasAny
+        ? t('settings.obs.realEmpty')
+        : ''
 
   return (
     <div className="st-stack">
@@ -623,16 +713,28 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
         <>
           <Card
             title={t('settings.obs.usageTitle')}
-            sub={sample ? t('settings.obs.usageSub') : undefined}
+            sub={sample ? t('settings.obs.usageSub') : t('settings.obs.liveSub')}
             testId="settings-usage"
             actions={
               <>
-                <select className="st-select st-select-sm" aria-label={t('settings.obs.period')} disabled={!sample}>
-                  <option>{t('settings.obs.period7')}</option>
-                  <option>{t('settings.obs.period30')}</option>
-                  <option>{t('settings.obs.periodMonth')}</option>
+                <select
+                  className="st-select st-select-sm"
+                  aria-label={t('settings.obs.period')}
+                  data-testid="settings-audit-period"
+                  value={period}
+                  onChange={(event) => setPeriod(event.target.value as AuditPeriod)}
+                >
+                  <option value="7">{t('settings.obs.period7')}</option>
+                  <option value="30">{t('settings.obs.period30')}</option>
+                  <option value="month">{t('settings.obs.periodMonth')}</option>
                 </select>
-                <button type="button" className="st-btn st-btn-sm st-btn-ghost" disabled={!sample} onClick={() => onNotice(t('settings.notice.exportCsv'))}>
+                <button
+                  type="button"
+                  className="st-btn st-btn-sm st-btn-ghost"
+                  data-testid="settings-audit-export"
+                  disabled={exporting}
+                  onClick={() => void exportRows()}
+                >
                   <Icon name="download" size={12} />
                   {t('settings.obs.export')}
                 </button>
@@ -670,8 +772,37 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                   </div>
                 </div>
               </>
+            ) : statusLine ? (
+              <Empty text={statusLine} testId="settings-usage-empty" />
             ) : (
-              <Empty text={t('settings.obs.empty')} testId="settings-usage-empty" />
+              <>
+                <div className="st-stats" data-testid="settings-audit-totals">
+                  {liveStats.map((entry) => (
+                    <div key={entry.key} className="st-stat">
+                      <span>{t(`settings.obs.${entry.key}` as MessageKey)}</span>
+                      <b>{entry.value}</b>
+                      <small>{entry.sub}</small>
+                    </div>
+                  ))}
+                </div>
+                <div className="st-chart-wrap">
+                  <div className="st-chart" role="img" aria-label={t('settings.obs.chartAria')} data-testid="settings-audit-chart">
+                    {(report?.usage.days ?? []).map((day) => (
+                      <div key={day.date} className="st-chart-col" title={`${day.date} · ${day.input + day.output}`}>
+                        <b className="st-seg-in" style={{ height: `${Math.round((day.input / maxDay) * 100)}%` }} />
+                        <b className="st-seg-out" style={{ height: `${Math.round((day.output / maxDay) * 100)}%` }} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="st-axis">
+                    {(report?.usage.days ?? []).map((day) => <span key={day.date}>{day.date.slice(5)}</span>)}
+                  </div>
+                  <div className="st-legend">
+                    <span><i className="st-legend-in" />{t('settings.obs.input')}</span>
+                    <span><i className="st-legend-out" />{t('settings.obs.output')}</span>
+                  </div>
+                </div>
+              </>
             )}
           </Card>
 
@@ -687,8 +818,18 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                     </div>
                   ))}
                 </div>
+              ) : shares(report?.usage.by_model, t('settings.obs.unknownModel')).length ? (
+                <div className="st-bars" data-testid="settings-audit-by-model">
+                  {shares(report?.usage.by_model, t('settings.obs.unknownModel')).map((entry) => (
+                    <div key={entry.label} className="st-bar-row">
+                      <span className="st-row-sub mono st-bar-label" title={entry.label}>{entry.label}</span>
+                      <span className="st-meter"><span style={{ width: `${entry.width}%` }} /></span>
+                      <span className="st-row-sub mono st-bar-note">{entry.note}</span>
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <Empty text={t('settings.obs.empty')} />
+                <Empty text={t('settings.obs.byModelEmpty')} />
               )}
             </Card>
             <Card title={t('settings.obs.byAgent')} testId="settings-usage-agent">
@@ -702,8 +843,18 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                     </div>
                   ))}
                 </div>
+              ) : shares(report?.usage.by_agent, t('settings.obs.unknownAgent')).length ? (
+                <div className="st-bars" data-testid="settings-audit-by-agent">
+                  {shares(report?.usage.by_agent, t('settings.obs.unknownAgent')).map((entry) => (
+                    <div key={entry.label} className="st-bar-row">
+                      <span className="st-row-sub st-bar-label" title={entry.label}>{entry.label}</span>
+                      <span className="st-meter"><span style={{ width: `${entry.width}%` }} /></span>
+                      <span className="st-row-sub mono st-bar-note">{entry.note}</span>
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <Empty text={t('settings.obs.empty')} />
+                <Empty text={t('settings.obs.byModelEmpty')} />
               )}
             </Card>
           </div>
@@ -750,8 +901,40 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                 </tbody>
               </table>
             </div>
+          ) : statusLine ? (
+            <Empty text={statusLine} testId="settings-traces-empty" />
           ) : (
-            <Empty text={t('settings.obs.empty')} testId="settings-traces-empty" />
+            <div className="st-table-wrap">
+              <table className="st-table">
+                <thead>
+                  <tr>
+                    <th>{t('settings.obs.traceId')}</th>
+                    <th>{t('settings.obs.traceSession')}</th>
+                    <th>{t('settings.obs.traceSteps')}</th>
+                    <th>{t('settings.obs.traceDuration')}</th>
+                    <th>{t('settings.obs.traceState')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(report?.traces ?? []).map((trace) => (
+                    <tr key={trace.id} data-testid="settings-trace-row">
+                      <td className="mono">{trace.id.slice(0, 8)}</td>
+                      <td>
+                        <div className="st-row-title">{trace.session || '—'}</div>
+                        <div className="st-row-sub">{trace.model || t('settings.obs.unknownModel')}</div>
+                      </td>
+                      <td className="mono">{trace.steps}</td>
+                      <td className="mono">{formatDuration(trace.duration_ms)}</td>
+                      <td>
+                        <span className={`st-badge is-${trace.state}`}>
+                          <i />{t(trace.state === 'warn' ? 'settings.obs.state.waiting' : trace.state === 'success' ? 'settings.obs.state.done' : 'settings.obs.state.failed')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       ) : null}
@@ -796,8 +979,40 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                 </tbody>
               </table>
             </div>
+          ) : statusLine ? (
+            <Empty text={statusLine} testId="settings-executions-empty" />
           ) : (
-            <Empty text={t('settings.obs.empty')} testId="settings-executions-empty" />
+            <div className="st-table-wrap">
+              <table className="st-table">
+                <thead>
+                  <tr>
+                    <th>{t('settings.obs.execTime')}</th>
+                    <th>{t('settings.obs.execAction')}</th>
+                    <th>{t('settings.obs.execActor')}</th>
+                    <th>{t('settings.obs.execResult')}</th>
+                    <th className="st-num">{t('settings.obs.traceDuration')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(report?.executions ?? []).map((row, index) => (
+                    <tr key={`${row.at}-${index}`} data-testid="settings-execution-row">
+                      <td className="mono st-row-sub">{row.at.slice(0, 19).replace('T', ' ')}</td>
+                      <td>
+                        <div className="mono">{row.action}</div>
+                        <div className="st-row-sub">{row.subject || row.session || '—'}</div>
+                      </td>
+                      <td>{row.model || t('settings.obs.unknownModel')}</td>
+                      <td>
+                        <span className={`st-badge ${row.ok === true ? 'is-success' : row.ok === false ? 'is-danger' : 'is-warn'}`}>
+                          {t(row.ok === true ? 'settings.obs.result.success' : row.ok === false ? 'settings.obs.result.failed' : 'settings.obs.result.running')}
+                        </span>
+                      </td>
+                      <td className="st-num mono">{row.duration_ms === null ? '—' : formatDuration(row.duration_ms)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       ) : null}
@@ -805,8 +1020,40 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
   )
 }
 
+/** Compact, locale-stable number for a stat card. */
+function formatCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(value)
+}
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '—'
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.round(ms / 60_000)}m`
+}
+
 function SecurityPanel({ sample, onNotice }: { sample: boolean; onNotice: (message: string) => void }) {
   const { t } = useI18n()
+  const [auditMask, setAuditMask] = useBoolPreference(PREF_AUDIT_MASK, true)
+  const [auditPeriod, setAuditPeriod] = useState<AuditPeriod>('30')
+  const [exporting, setExporting] = useState(false)
+  const generateAudit = async () => {
+    if (sample) {
+      onNotice(t('settings.notice.auditExport'))
+      return
+    }
+    setExporting(true)
+    try {
+      const result = await exportSessionAudit(auditPeriod, auditMask)
+      onNotice(t('settings.security.exportDone', { count: result.rows, path: result.path }))
+    } catch (cause) {
+      onNotice(t('settings.security.exportFailed', { message: describeSessionError(cause) }))
+    } finally {
+      setExporting(false)
+    }
+  }
   const rules = [
     { titleKey: 'settings.security.external', subKey: 'settings.security.externalSub' },
     { titleKey: 'settings.security.files', subKey: 'settings.security.filesSub' },
@@ -835,28 +1082,44 @@ function SecurityPanel({ sample, onNotice }: { sample: boolean; onNotice: (messa
       </Card>
 
       <Card title={t('settings.security.audit')} testId="settings-audit">
-        {sample ? (
-          <div className="st-rows">
-            <SettingRow title={t('settings.security.retention')} sub={t('settings.security.retentionSub')}>
-              <select className="st-select" aria-label={t('settings.security.retention')}>
-                <option>{t('settings.security.days', { count: 180 })}</option>
-                <option>{t('settings.security.days', { count: 90 })}</option>
-                <option>{t('settings.security.days', { count: 365 })}</option>
-              </select>
-            </SettingRow>
-            <SettingRow title={t('settings.security.mask')} sub={t('settings.security.maskSub')}>
-              <Switch checked label={t('settings.security.mask')} onChange={() => onNotice(t('settings.notice.toggle'))} />
-            </SettingRow>
-            <SettingRow title={t('settings.security.export')} sub={t('settings.security.exportSub')}>
-              <button type="button" className="st-btn" onClick={() => onNotice(t('settings.notice.auditExport'))}>
-                <Icon name="download" size={13} />
-                {t('settings.security.generate')}
-              </button>
-            </SettingRow>
-          </div>
-        ) : (
-          <Empty text={t('settings.security.empty')} />
-        )}
+        <div className="st-rows">
+          <SettingRow title={t('settings.security.exportScope')} sub={t('settings.security.exportScopeSub')}>
+            <select
+              className="st-select"
+              aria-label={t('settings.security.exportScope')}
+              data-testid="settings-audit-scope"
+              value={auditPeriod}
+              onChange={(event) => setAuditPeriod(event.target.value as AuditPeriod)}
+            >
+              <option value="7">{t('settings.obs.period7')}</option>
+              <option value="30">{t('settings.obs.period30')}</option>
+              <option value="month">{t('settings.obs.periodMonth')}</option>
+            </select>
+          </SettingRow>
+          <SettingRow title={t('settings.security.mask')} sub={t('settings.security.maskSub')}>
+            <Switch
+              checked={auditMask}
+              value={auditMask}
+              label={t('settings.security.mask')}
+              onChange={() => {
+                setAuditMask(!auditMask)
+                onNotice(t(!auditMask ? 'settings.security.maskOn' : 'settings.security.maskOff'))
+              }}
+            />
+          </SettingRow>
+          <SettingRow title={t('settings.security.export')} sub={t('settings.security.exportSub')}>
+            <button
+              type="button"
+              className="st-btn"
+              data-testid="settings-audit-generate"
+              disabled={exporting}
+              onClick={() => void generateAudit()}
+            >
+              <Icon name="download" size={13} />
+              {exporting ? t('settings.security.exporting') : t('settings.security.generate')}
+            </button>
+          </SettingRow>
+        </div>
       </Card>
 
       <Card title={t('settings.security.data')} testId="settings-data">
@@ -888,18 +1151,32 @@ function SettingRow({ title, sub, children, danger }: { title: string; sub: stri
   )
 }
 
-function Switch({ checked, label, disabled, onChange }: { checked: boolean; label: string; disabled?: boolean; onChange: () => void }) {
+function Switch({
+  checked,
+  label,
+  disabled,
+  value,
+  onChange,
+}: {
+  checked: boolean
+  label: string
+  disabled?: boolean
+  /** Controlled state, for a preference that must survive other pages. */
+  value?: boolean
+  onChange: () => void
+}) {
   const [on, setOn] = useState(checked)
+  const shown = value ?? on
   return (
     <button
       type="button"
       className="st-switch"
       role="switch"
-      aria-checked={on}
+      aria-checked={shown}
       aria-label={label}
       disabled={disabled}
       onClick={() => {
-        setOn((value) => !value)
+        if (value === undefined) setOn((previous) => !previous)
         onChange()
       }}
     >

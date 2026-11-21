@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
+use anvil_session::audit::{self, AuditReport};
 use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
 use anvil_session::rail::RailView;
 use anvil_session::{
@@ -864,6 +865,58 @@ pub async fn session_compact(
             .compact(&session_id, keep_last as usize)
             .map_err(|error| error.to_wire().to_string())
     })
+}
+
+/// Read the observability/audit view out of the session ledger.
+///
+/// Every number is derived from rows a runtime wrote: usage events, runs and
+/// tool calls. The host does not estimate tokens or cost, and a runtime that
+/// reported neither shows up as "not reported" rather than as a measured zero.
+#[tauri::command]
+pub async fn session_audit(
+    state: State<'_, SessionState>,
+    period: Option<String>,
+) -> Result<AuditReport, String> {
+    let label = period.unwrap_or_else(|| "7".to_string());
+    let period = audit::parse_period(&label).map_err(|error| error.to_wire().to_string())?;
+    let today = anvil_session::clock::today();
+    state.with_reader(|store| {
+        audit::report(store.raw(), period, &today).map_err(|error| error.to_wire().to_string())
+    })
+}
+
+/// Write the execution log to a CSV beside the ledger and report where it went.
+#[tauri::command]
+pub async fn session_audit_export(
+    state: State<'_, SessionState>,
+    period: Option<String>,
+    mask: Option<bool>,
+) -> Result<AuditExportReport, String> {
+    let label = period.unwrap_or_else(|| "30".to_string());
+    let period = audit::parse_period(&label).map_err(|error| error.to_wire().to_string())?;
+    let today = anvil_session::clock::today();
+    let view = state.with_reader(|store| {
+        audit::report(store.raw(), period, &today).map_err(|error| error.to_wire().to_string())
+    })?;
+    let csv = audit::executions_csv(&view.executions, mask.unwrap_or(true));
+    let root = state.export_dir();
+    std::fs::create_dir_all(&root).map_err(|error| format!("audit export dir: {error}"))?;
+    let name = format!("audit-{}-{}.csv", view.since, view.today);
+    let path = root.join(&name);
+    let temp = root.join(format!("{name}.tmp"));
+    std::fs::write(&temp, csv.as_bytes()).map_err(|error| format!("audit export write: {error}"))?;
+    std::fs::rename(&temp, &path).map_err(|error| format!("audit export replace: {error}"))?;
+    Ok(AuditExportReport {
+        path: path.to_string_lossy().to_string(),
+        rows: view.executions.len(),
+    })
+}
+
+/// Where an audit CSV landed, and how many execution rows it holds.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AuditExportReport {
+    pub path: String,
+    pub rows: usize,
 }
 
 // A conversation with no explicit project no longer inherits one shared

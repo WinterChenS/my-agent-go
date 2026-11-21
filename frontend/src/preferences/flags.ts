@@ -19,6 +19,8 @@ export const PREF_ONBOARDING_DONE = 'anvil.onboarding.done'
  * because there are exactly two named choices and the settings page shows them.
  */
 export const PREF_SEND_SHORTCUT = 'anvil.chat.sendShortcut'
+/** Mask secret-looking arguments in exported audit CSVs. On by default. */
+export const PREF_AUDIT_MASK = 'anvil.settings.auditMask'
 export type SendShortcut = 'enter' | 'ctrl-enter'
 
 const EVENT = 'anvil:preference'

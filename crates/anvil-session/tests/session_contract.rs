@@ -489,3 +489,180 @@ fn paging_walks_every_session_exactly_once_across_a_restart() {
     wanted.sort();
     assert_eq!(seen, wanted, "every session appears exactly once");
 }
+
+// ---- audit / observability -------------------------------------------------
+
+/// An in-memory ledger with one session, so audit reads have real rows to fold.
+fn audit_store() -> (Store, String) {
+    let mut store = Store::open_in_memory().expect("memory ledger");
+    let at = "2026-11-20T10:00:00Z";
+    store
+        .create_session(&anvil_session::store::NewSession {
+            id: "s1",
+            runtime_id: "pi",
+            title: "报告会话",
+            model: "claude-sonnet-4",
+            project_path: "D:/work",
+            agent_id: "agent-a",
+            at,
+            ..Default::default()
+        })
+        .expect("session");
+    (store, "s1".into())
+}
+
+fn audit_event(store: &mut Store, session: &str, run: &str, kind: EventKind, payload: serde_json::Value) {
+    store
+        .append_event(session, run, kind, &payload)
+        .expect("event");
+}
+
+#[test]
+fn audit_reads_the_shapes_runtimes_actually_emit() {
+    let (mut store, id) = audit_store();
+    // pi's shape: input excludes cached reads, cost nested.
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::Usage,
+        serde_json::json!({ "usage": {
+            "input": 100, "output": 40, "cacheRead": 25, "cost": { "total": 0.12 }
+        }}),
+    );
+    // OpenAI-compatible shape: prompt/output_tokens.
+    audit_event(
+        &mut store,
+        &id,
+        "r2",
+        EventKind::Usage,
+        serde_json::json!({ "usage": { "prompt_tokens": 60, "output_tokens": 20 }}),
+    );
+    // A runtime that only reports a total must not be dropped.
+    audit_event(
+        &mut store,
+        &id,
+        "r3",
+        EventKind::Usage,
+        serde_json::json!({ "usage": { "totalTokens": 7 }}),
+    );
+    let view = anvil_session::audit::report(
+        store.raw(),
+        anvil_session::audit::Period::Days7,
+        "2026-11-21",
+    )
+    .expect("audit");
+    assert_eq!(view.usage.totals.calls, 3);
+    assert!(view.usage.totals.reported, "usage events were present");
+    // 100+25 cached + 60 + 7 = 192 input; 40+20 = 60 output.
+    assert_eq!(view.usage.totals.input, 192);
+    assert_eq!(view.usage.totals.output, 60);
+    assert_eq!(view.usage.totals.tokens, 252);
+    assert_eq!(view.usage.totals.cached, 25);
+    assert!((view.usage.totals.cost - 0.12).abs() < 1e-9);
+    assert_eq!(view.usage.by_model[0].label, "claude-sonnet-4");
+    assert_eq!(view.usage.by_agent[0].label, "agent-a");
+    assert_eq!(view.usage.days.len(), 1);
+}
+
+#[test]
+fn a_thread_snapshot_is_not_added_to_per_request_reports() {
+    let (mut store, id) = audit_store();
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::Usage,
+        serde_json::json!({ "usage": { "input": 10, "output": 5 }}),
+    );
+    // Two snapshots of the same run: only the last one counts.
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::Usage,
+        serde_json::json!({ "scope": "thread", "usage": { "totalTokens": 100 }}),
+    );
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::Usage,
+        serde_json::json!({ "scope": "thread", "usage": { "totalTokens": 300 }}),
+    );
+    let view = anvil_session::audit::report(
+        store.raw(),
+        anvil_session::audit::Period::Days7,
+        "2026-11-21",
+    )
+    .expect("audit");
+    assert_eq!(view.usage.totals.calls, 2, "one request + one snapshot");
+    assert_eq!(view.usage.totals.input, 310);
+    assert_eq!(view.usage.totals.output, 5);
+}
+
+#[test]
+fn tool_calls_pair_with_their_result_and_export_as_csv() {
+    let (mut store, id) = audit_store();
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::ToolCall,
+        serde_json::json!({ "tool": "bash", "args": "echo \"a,b\"" }),
+    );
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::ToolResult,
+        serde_json::json!({ "ok": true, "output": "a,b" }),
+    );
+    let view = anvil_session::audit::report(
+        store.raw(),
+        anvil_session::audit::Period::Days7,
+        "2026-11-21",
+    )
+    .expect("audit");
+    assert_eq!(view.usage.totals.tools, 1);
+    assert_eq!(view.executions.len(), 1);
+    assert_eq!(view.executions[0].action, "bash");
+    assert_eq!(view.executions[0].ok, Some(true));
+    let csv = anvil_session::audit::executions_csv(&view.executions, false);
+    assert!(csv.contains("\"echo \"\"a,b\"\"\""), "CSV quotes commas: {csv}");
+}
+
+#[test]
+fn the_period_boundaries_are_inclusive_and_calendar_correct() {
+    assert_eq!(
+        anvil_session::audit::Period::Days7.since("2026-03-03"),
+        "2026-02-25"
+    );
+    assert_eq!(
+        anvil_session::audit::Period::Month.since("2026-11-21"),
+        "2026-11-01"
+    );
+}
+
+#[test]
+fn masking_an_export_hides_secrets_but_keeps_ordinary_arguments() {
+    let (mut store, id) = audit_store();
+    audit_event(
+        &mut store,
+        &id,
+        "r1",
+        EventKind::ToolCall,
+        serde_json::json!({ "tool": "bash", "args": "curl -H api_key=sk-live-123 https://example.com" }),
+    );
+    let view = anvil_session::audit::report(
+        store.raw(),
+        anvil_session::audit::Period::Days7,
+        "2026-11-21",
+    )
+    .expect("audit");
+    let plain = anvil_session::audit::executions_csv(&view.executions, false);
+    let masked = anvil_session::audit::executions_csv(&view.executions, true);
+    assert!(plain.contains("sk-live-123"), "unmasked export keeps the argument");
+    assert!(!masked.contains("sk-live-123"), "masked export hides the secret");
+    assert!(masked.contains("https://example.com"), "the rest of the command stays readable");
+}

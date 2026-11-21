@@ -605,3 +605,90 @@ export function browserClose(): Promise<void> {
 export function browserAction(method: 'back' | 'forward' | 'reload'): Promise<void> {
   return hostCall<void>('browser_action', { method })
 }
+
+// ---- observability / audit -------------------------------------------------
+
+/** One day's token totals, straight from `usage` events in the ledger. */
+export interface AuditUsageDay {
+  date: string
+  input: number
+  output: number
+  cached: number
+  cost: number
+  calls: number
+}
+
+export interface AuditShare {
+  label: string
+  tokens: number
+  calls: number
+}
+
+export interface AuditTotals {
+  tokens: number
+  input: number
+  output: number
+  cached: number
+  cost: number
+  calls: number
+  tools: number
+  /** False when no runtime reported token counters: show "—", not "0". */
+  reported: boolean
+}
+
+export interface AuditTrace {
+  id: string
+  session_id: string
+  session: string
+  model: string
+  agent: string
+  steps: number
+  tokens: number
+  started_at: string
+  duration_ms: number
+  state: 'warn' | 'success' | 'failed'
+}
+
+export interface AuditExecution {
+  at: string
+  action: string
+  subject: string
+  session: string
+  model: string
+  ok: boolean | null
+  duration_ms: number | null
+}
+
+export interface AuditReport {
+  period: string
+  since: string
+  today: string
+  usage: {
+    days: AuditUsageDay[]
+    by_model: AuditShare[]
+    by_agent: AuditShare[]
+    totals: AuditTotals
+  }
+  traces: AuditTrace[]
+  executions: AuditExecution[]
+}
+
+export type AuditPeriod = '7' | '30' | 'month'
+
+/** Read the real usage/trace/execution view from the session ledger. */
+export function sessionAudit(period: AuditPeriod = '7'): Promise<AuditReport> {
+  return hostCall<AuditReport>('session_audit', { period })
+}
+
+export interface AuditExportReport {
+  path: string
+  rows: number
+}
+
+/** Write the execution log as a CSV beside the ledger. */
+export function exportSessionAudit(
+  period: AuditPeriod = '30',
+  mask = true,
+): Promise<AuditExportReport> {
+  return hostCall<AuditExportReport>('session_audit_export', { period, mask })
+}
