@@ -63,10 +63,17 @@ import {
   type UiRequest,
 } from '../../chat/client'
 import { BROWSER_SHOW_EVENT, listenHost, type BrowserShowPayload } from '../../host/tauri'
+import {
+  bottomOffset,
+  isNearBottom,
+  isOurScroll,
+  topOffsetFor,
+} from './threadScroll'
 import { ExtensionUiCard } from './ExtensionUiCard'
 import ChatHistoryPanel from './ChatHistoryPanel'
 import { imageSrc } from '../../chat/image'
 import { useWorkspace } from '../../workspace/WorkspaceProvider'
+import { copyText } from './copyText'
 import { pickWorkspace, pickWorkspaceFiles } from '../../workspace/client'
 import ChatRail, { type RailTab } from './ChatRail'
 import { sampleChat, useChatSample, type ChatProse, type ChatTool, type SampleMessage } from './sampleData'
@@ -333,6 +340,44 @@ function useRunDetail(
 }
 
 /**
+ * The copy affordance for a whole bubble. It lives in the message body, not in
+ * a toolbar: the reader's eye is already there, and a code block keeps its own
+ * button inside the block so the two are never confused. CSS keeps it hidden
+ * until the body is hovered or focused; keyboard focus still reveals it.
+ */
+function CopyButton({ text, role }: { text: string; role: 'user' | 'agent' }) {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+    },
+    [],
+  )
+  return (
+    <button
+      type="button"
+      className="chat-copy-btn"
+      data-testid="chat-message-copy"
+      data-role={role}
+      aria-label={copied ? t('chat.markdown.copied') : t('chat.message.copy')}
+      title={copied ? t('chat.markdown.copied') : t('chat.message.copy')}
+      onClick={() => {
+        void copyText(text).then((ok) => {
+          if (!ok) return
+          setCopied(true)
+          if (timer.current !== null) window.clearTimeout(timer.current)
+          timer.current = window.setTimeout(() => setCopied(false), 1600)
+        })
+      }}
+    >
+      <Icon name={copied ? 'check' : 'copy'} size={13} />
+    </button>
+  )
+}
+
+/**
  * Open while reasoning is still streaming (and kept at its tail), collapsed
  * once the answer has landed. An explicit click always wins over the default.
  */
@@ -590,6 +635,14 @@ export default function ChatPage() {
   // is and asks for it.
   const [browserUrl, setBrowserUrl] = useState('')
   const noticeRef = useRef<((message: string) => void) | null>(null)
+  // The thread follows the answer until the reader scrolls away. A separate
+  // expected value distinguishes our own `scrollTop` writes from theirs.
+  const threadRef = useRef<HTMLDivElement>(null)
+  const followRef = useRef(true)
+  const expectedScrollRef = useRef<number | null>(null)
+  const skipFollowRef = useRef(false)
+  const lastUserIdRef = useRef<string | null>(null)
+  const ignoreScrollUntilRef = useRef(0)
   /**
    * The ring that marks the turn the rail jumped to.
    *
@@ -875,6 +928,100 @@ export default function ChatPage() {
     (message) =>
       !(message.role === 'assistant' && message.runId && streamingRunIds.has(message.runId)),
   )
+
+  const lastUser = [...visibleMessages].reverse().find((message) => message.role === 'user')
+  // The optimistic copy of every turn uses the same `pending-<session>` id, so
+  // the id alone cannot tell turn two from turn three. Include the words and
+  // the transcript length: a new send always produces a new key.
+  const lastUserKey = lastUser ? `${lastUser.id}:${lastUser.text}:${visibleMessages.length}` : ''
+
+  // Opening a thread lands on its newest message. This is a placement, not a
+  // preference: the reader can scroll up immediately afterwards and keep that
+  // position for as long as the turn runs.
+  useLayoutEffect(() => {
+    const node = threadRef.current
+    if (!node) return
+    followRef.current = true
+    skipFollowRef.current = true
+    expectedScrollRef.current = bottomOffset(node)
+    node.scrollTop = expectedScrollRef.current
+  }, [currentId])
+
+  // A new turn re-arms the follow, even if the last one ended while the reader
+  // was reading an earlier message.
+  useEffect(() => {
+    if (live.running) {
+      followRef.current = true
+      ignoreScrollUntilRef.current = Date.now() + 500
+    }
+  }, [live.running])
+
+  // Sending puts the message just written at the top of the column. The answer
+  // grows into the space below it, and the follow effect then keeps the tail in
+  // view — the reader sees what they asked and what it is producing.
+  useLayoutEffect(() => {
+    if (lastUserKey === lastUserIdRef.current) return
+    const firstRender = lastUserIdRef.current === null
+    lastUserIdRef.current = lastUserKey
+    if (firstRender || !lastUser) return
+    const node = threadRef.current
+    if (!node) return
+    const bubbles = node.querySelectorAll<HTMLElement>('[data-testid="chat-message-user"]')
+    const last = bubbles[bubbles.length - 1]
+    if (!last) return
+    followRef.current = true
+    skipFollowRef.current = true
+    // The scroll event from our own placement can arrive after the next turn
+    // has already re-armed the follow. Ignore reader-intent events briefly.
+    ignoreScrollUntilRef.current = Date.now() + 600
+    expectedScrollRef.current = topOffsetFor(node, last)
+    node.scrollTop = expectedScrollRef.current
+  }, [lastUserKey])
+
+  // No dependency list on purpose: a delta, a tool card or a rail update can
+  // each change the height. Only a running turn we are still following moves.
+  useLayoutEffect(() => {
+    if (sample || !live.running || !followRef.current) return
+    if (skipFollowRef.current) {
+      skipFollowRef.current = false
+      return
+    }
+    const node = threadRef.current
+    if (!node) return
+    const bottom = bottomOffset(node)
+    if (Math.abs(node.scrollTop - bottom) <= 2) return
+    expectedScrollRef.current = bottom
+    node.scrollTop = bottom
+  })
+
+  const onThreadScroll = () => {
+    const node = threadRef.current
+    if (!node || !live.running) return
+    if (Date.now() < ignoreScrollUntilRef.current) return
+    if (isOurScroll(node, expectedScrollRef.current)) {
+      expectedScrollRef.current = null
+      return
+    }
+    followRef.current = isNearBottom(node)
+  }
+
+  // A wheel up is intent even before the scroll event arrives; on a trackpad
+  // the scroll event can lag a whole frame behind the first delta.
+  const onThreadWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY < 0) followRef.current = false
+    else if (isNearBottom(event.currentTarget)) followRef.current = true
+  }
+  const touchAt = useRef<number | null>(null)
+  const onThreadTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchAt.current = event.touches[0]?.clientY ?? null
+  }
+  const onThreadTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const next = event.touches[0]?.clientY
+    if (next === undefined || touchAt.current === null) return
+    if (next > touchAt.current) followRef.current = false
+    else if (isNearBottom(event.currentTarget)) followRef.current = true
+    touchAt.current = next
+  }
   // The runtime the next turn will run on. pi delegates only through its
   // `subagent` extension, so this is also the condition for the install notice.
   const activeRuntime = liveSession?.runtimeId ?? live.model?.runtimeId ?? ''
@@ -1313,7 +1460,16 @@ export default function ChatPage() {
         style={{ '--rail-w': `${railWidth}px` } as React.CSSProperties}
       >
         <div className={`chat-thread-col${blankPage ? ' is-blank' : ''}`}>
-          <div className="chat-thread" data-testid="chat-thread">
+          <div
+            className="chat-thread"
+            data-testid="chat-thread"
+            data-follow={followRef.current ? 'true' : 'false'}
+            ref={threadRef}
+            onScroll={onThreadScroll}
+            onWheel={onThreadWheel}
+            onTouchStart={onThreadTouchStart}
+            onTouchMove={onThreadTouchMove}
+          >
             {sample ? (
               <div className="chat-thread-inner" data-testid="chat-message-list" aria-label={sampleChat.title}>
                 {sampleChat.messages.map((message) => (
@@ -1375,7 +1531,10 @@ export default function ChatPage() {
                       key={message.id}
                     >
                       <ContextChips meta={message.meta} />
-                      <div className="chat-bubble">{message.text}</div>
+                      <div className="chat-body-with-copy chat-body-user">
+                        <div className="chat-bubble">{message.text}</div>
+                        <CopyButton text={message.text} role="user" />
+                      </div>
                     </article>
                   ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (
                     <section
@@ -1408,27 +1567,30 @@ export default function ChatPage() {
                           {speakerName}
                         </span>
                       </div>
-                      {message.runId && partsWithAnswer[message.runId]?.length ? (
-                        <TurnPartsList
-                          parts={partsWithAnswer[message.runId]}
-                          sources={live.rail?.sources.length ?? 0}
-                          onCite={showSource}
-                          onAnswerUi={answerUi}
-                        />
-                      ) : null}
-                      {/* The parts already carry the answer when the ledger has
-                          its text deltas; printing the stored message as well
-                          would show the same words twice. The message is the
-                          fallback for a turn whose deltas never landed. */}
-                      {message.runId && partsWithAnswer[message.runId]?.some((part) => part.kind === 'text') ? null : (
-                        <div className="chat-prose chat-live-text chat-markdown">
-                          <Markdown
-                            text={message.text}
+                      <div className="chat-body-with-copy chat-body-agent">
+                        {message.runId && partsWithAnswer[message.runId]?.length ? (
+                          <TurnPartsList
+                            parts={partsWithAnswer[message.runId]}
                             sources={live.rail?.sources.length ?? 0}
                             onCite={showSource}
+                            onAnswerUi={answerUi}
                           />
-                        </div>
-                      )}
+                        ) : null}
+                        {/* The parts already carry the answer when the ledger has
+                            its text deltas; printing the stored message as well
+                            would show the same words twice. The message is the
+                            fallback for a turn whose deltas never landed. */}
+                        {message.runId && partsWithAnswer[message.runId]?.some((part) => part.kind === 'text') ? null : (
+                          <div className="chat-prose chat-live-text chat-markdown">
+                            <Markdown
+                              text={message.text}
+                              sources={live.rail?.sources.length ?? 0}
+                              onCite={showSource}
+                            />
+                          </div>
+                        )}
+                        <CopyButton text={message.text} role="agent" />
+                      </div>
                       {/* The count stays under the answer after the turn is
                           written; it used to exist only in the streaming bubble
                           and vanished the moment the reply landed. */}
@@ -2923,7 +3085,13 @@ function Composer({
         </div>
       ) : null}
       {queueAside}
-      <form className="chat-composer" onSubmit={submit} aria-label={t('chat.composer.placeholder')}>
+      <form
+        className={`chat-composer${live?.running ? ' is-working' : ''}`}
+        data-testid="chat-composer-form"
+        data-working={live?.running ? 'true' : 'false'}
+        onSubmit={submit}
+        aria-label={t('chat.composer.placeholder')}
+      >
         <div className="chat-composer-field">
           {/* Paints the skill blocks behind the real characters. The textarea
               above keeps every native editing behaviour (caret, selection, IME)

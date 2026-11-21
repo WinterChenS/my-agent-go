@@ -305,6 +305,61 @@ button.chat-badge:hover {
 
 /* ---------- messages ---------- */
 
+/* Copying a whole bubble: revealed on hover or keyboard focus, never a fixed
+   row of icons above the answer. The code block keeps its own button inside
+   the block, so a reader never has to guess which text a button copies. */
+.chat-body-with-copy {
+  position: relative;
+  min-width: 0;
+}
+
+.chat-body-user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-copy-btn {
+  position: absolute;
+  z-index: 1;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.chat-body-user .chat-copy-btn {
+  right: auto;
+  left: -30px;
+}
+
+.chat-body-with-copy:hover > .chat-copy-btn,
+.chat-body-with-copy:focus-within > .chat-copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-copy-btn:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+@media (hover: none) {
+  .chat-copy-btn {
+    opacity: 0.8;
+    pointer-events: auto;
+  }
+}
+
 .chat-msg {
   display: flex;
   flex-direction: column;
@@ -2017,6 +2072,36 @@ button.chat-badge:hover {
 .chat-composer:focus-within {
   border-color: color-mix(in oklab, var(--accent) 55%, var(--border-strong));
   box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+/* While a turn runs the field is the one place waiting happens. A travelling
+   gradient on the border says "still working" without a spinner or a banner;
+   it is removed the moment the answer lands. */
+.chat-composer.is-working {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(90deg, var(--accent), var(--success), var(--warn), var(--accent)) border-box;
+  background-size: 100% 100%, 300% 100%;
+  box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent),
+    0 0 18px color-mix(in oklab, var(--success) 16%, transparent);
+  animation: chat-composer-glow 2.8s linear infinite;
+}
+
+.chat-composer.is-working:focus-within {
+  border-color: transparent;
+}
+
+@keyframes chat-composer-glow {
+  from { background-position: 0 0, 0% 0; }
+  to { background-position: 0 0, 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer.is-working {
+    animation: none;
+    background-position: 0 0, 35% 0;
+  }
 }
 
 .chat-composer textarea {

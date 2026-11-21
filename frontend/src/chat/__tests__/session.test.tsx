@@ -467,6 +467,55 @@ describe('chat live session', () => {
     expect(host.aborted()).toBe(false)
   })
 
+  it('copies either bubble from its own hover button', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'remember this')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('ok'))
+
+    const userCopy = within(screen.getByTestId('chat-message-user')).getByTestId('chat-message-copy')
+    const agentCopy = within(screen.getByTestId('chat-message-agent')).getByTestId('chat-message-copy')
+    expect(userCopy).toHaveAttribute('aria-label', '复制')
+    expect(agentCopy).toHaveAttribute('data-role', 'agent')
+    const shownUserText = userCopy.closest('.chat-body-with-copy')?.querySelector('.chat-bubble')?.textContent ?? ''
+    expect(shownUserText).toBeTruthy()
+    await userEvent.click(userCopy)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(shownUserText))
+    await userEvent.click(agentCopy)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('ok'))
+  })
+
+  it('lights the composer while a turn runs and clears it when the answer lands', async () => {
+    installHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    const form = screen.getByTestId('chat-composer-form')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    expect(form).toHaveAttribute('data-working', 'false')
+    await userEvent.type(composer, 'light up')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(form).toHaveAttribute('data-working', 'true'))
+    expect(form).toHaveClass('is-working')
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('ok'), {
+      timeout: 3000,
+    })
+    await waitFor(() => expect(form).toHaveAttribute('data-working', 'false'))
+    expect(form).not.toHaveClass('is-working')
+  })
+
   it('clears the transcript when a new conversation is started', async () => {
     installHost()
     render(

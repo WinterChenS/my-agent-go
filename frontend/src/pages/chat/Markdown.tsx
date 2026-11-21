@@ -2,6 +2,7 @@ import { Children, isValidElement, useMemo, useRef, useState, type ReactNode } f
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useI18n } from '../../i18n/LanguageProvider'
+import { copyText } from './copyText'
 
 /** Stable plugin list: a new array on each render re-parses the whole tree. */
 const REMARK_PLUGINS = [remarkGfm]
@@ -138,13 +139,11 @@ function CodeBlock({ children }: { children: ReactNode }) {
   const body = textOf(children)
 
   const copy = () => {
-    void navigator.clipboard
-      ?.writeText(body)
-      .then(() => {
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1600)
-      })
-      .catch(() => undefined)
+    void copyText(body).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    })
   }
 
   return (
