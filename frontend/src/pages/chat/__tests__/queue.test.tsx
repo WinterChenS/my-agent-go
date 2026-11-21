@@ -46,6 +46,26 @@ describe('the queued-message list', () => {
     expect(screen.queryByText(/待发送/)).toBeNull()
   })
 
+  it('shows the attachments a queued message carries', () => {
+    mount({
+      items: [
+        {
+          id: 'c',
+          text: 'look at this',
+          refs: [
+            { kind: 'file', path: 'D:/work/report.md', label: 'report.md' },
+            { kind: 'skill', path: 'skill:pdf', label: 'pdf' },
+          ],
+        },
+      ],
+    })
+    const refs = screen.getAllByTestId('chat-queue-ref')
+    expect(refs).toHaveLength(2)
+    expect(refs[0].textContent).toContain('report.md')
+    expect(refs[0].getAttribute('title')).toBe('D:/work/report.md')
+    expect(refs[1].textContent).toContain('pdf')
+  })
+
   it('offers a grip so the send order can be dragged', () => {
     mount()
     const row = screen.getAllByTestId('chat-queue-item')[0]

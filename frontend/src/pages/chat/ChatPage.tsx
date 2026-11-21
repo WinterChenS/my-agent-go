@@ -670,7 +670,7 @@ export default function ChatPage() {
   // reader says "now" (steer) or the turn ends.
   const [queue, setQueue] = useState<QueuedTurn[]>([])
   /** A queued message handed back to the composer for editing. */
-  const [draftRequest, setDraftRequest] = useState<{ id: number; text: string } | null>(null)
+  const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; refs: ContextRef[] } | null>(null)
   const dialogTrigger = useRef<HTMLElement | null>(null)
   const railToggle = useRef<HTMLButtonElement>(null)
   const historyToggle = useRef<HTMLButtonElement>(null)
@@ -1221,7 +1221,7 @@ export default function ChatPage() {
     const item = queue.find((entry) => entry.id === id)
     if (!item) return
     setQueue((previous) => previous.filter((entry) => entry.id !== id))
-    setDraftRequest({ id: Date.now(), text: item.text })
+    setDraftRequest({ id: Date.now(), text: item.text, refs: item.refs })
     showNotice(t('chat.queue.editing'))
   }
 
@@ -2208,6 +2208,31 @@ export function ContextRing({
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
+  // The card floats above the ring with a gap between them. Leaving the ring
+  // used to close the card immediately, so the pointer died in that gap before
+  // reaching the compact button. Hold the card briefly on leave and cancel the
+  // close as soon as the pointer is over the card (or back on the ring).
+  const closeTimer = useRef<number | null>(null)
+  const keepOpen = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+    setOpen(true)
+  }
+  const closeSoon = () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setOpen(false)
+    }, 220)
+  }
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    },
+    [],
+  )
   const ratio = percent ?? (used !== null && windowSize > 0 ? (used * 100) / windowSize : 0)
   const shown = Math.max(0, Math.min(100, ratio))
   const circumference = 2 * Math.PI * 13
@@ -2218,7 +2243,12 @@ export function ContextRing({
       : t('chat.context.used', { used: used.toLocaleString(), window: label })
   const tooltip = `${t('chat.context.label', { window: label, percent: Math.round(shown) })} · ${detail}`
   return (
-    <span className="chat-context-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span
+      className="chat-context-wrap"
+      data-testid="chat-context-wrap"
+      onMouseEnter={keepOpen}
+      onMouseLeave={closeSoon}
+    >
       <span
         className="chat-context"
         data-testid="chat-context"
@@ -2227,8 +2257,8 @@ export function ContextRing({
         aria-label={tooltip}
         role="img"
         tabIndex={0}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onFocus={keepOpen}
+        onBlur={closeSoon}
       >
         <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
           <circle cx="16" cy="16" r="13" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
@@ -2246,7 +2276,13 @@ export function ContextRing({
         </svg>
       </span>
       {open ? (
-        <span className="chat-context-card" role="tooltip" data-testid="chat-context-card">
+        <span
+          className="chat-context-card"
+          role="tooltip"
+          data-testid="chat-context-card"
+          onMouseEnter={keepOpen}
+          onMouseLeave={closeSoon}
+        >
           <span className="chat-context-card-head">
             <Icon name="sparkle" size={12} />
             <b>{t('chat.context.label', { window: label, percent: Math.round(shown) })}</b>
@@ -2259,6 +2295,8 @@ export function ContextRing({
               data-testid="chat-context-compact"
               disabled={compacting}
               onClick={() => {
+                if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+                closeTimer.current = null
                 onCompact?.()
                 setOpen(false)
               }}
@@ -2329,7 +2367,24 @@ export function QueuedMessages({
             <span className="chat-queue-grip" aria-hidden="true">
               <Icon name="grip" size={13} />
             </span>
-            <p title={item.text}>{item.text}</p>
+            <div className="chat-queue-body">
+              <p title={item.text}>{item.text}</p>
+              {item.refs.length > 0 ? (
+                <span className="chat-queue-refs" data-testid="chat-queue-refs">
+                  {item.refs.map((ref, index) => (
+                    <span
+                      key={`${ref.kind}:${ref.path}:${index}`}
+                      className="chat-context-chip"
+                      data-testid="chat-queue-ref"
+                      title={ref.path}
+                    >
+                      <Icon name={ref.kind === 'skill' ? 'puzzle' : ref.kind === 'dir' ? 'folder' : 'file'} size={11} />
+                      <b>{ref.label ?? ref.path.split(/[\\/]/).pop() ?? ref.kind}</b>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </div>
             <div className="chat-queue-actions">
               <button
                 type="button"
@@ -2639,7 +2694,7 @@ function Composer({
   /** Messages queued behind the running turn, shown above the field. */
   queueAside?: ReactNode
   /** A queued message handed back for editing; the id makes each handoff fire once. */
-  draftRequest?: { id: number; text: string } | null
+  draftRequest?: { id: number; text: string; refs: ContextRef[] } | null
   /** Context-window occupancy, below the field. */
   contextAside?: ReactNode
 }) {
@@ -2709,6 +2764,18 @@ function Composer({
   useEffect(() => {
     if (!draftRequest) return
     setText(draftRequest.text)
+    // Bring the queued message's attachments back with it. Inline skills live
+    // in the text itself; only file/dir refs become chips again.
+    setAttachments(
+      (draftRequest.refs ?? [])
+        .filter((ref) => ref.kind !== 'skill' && ref.path)
+        .map((ref) => ({
+          id: `picked:${ref.path}`,
+          name: ref.label ?? ref.path.split(/[\\/]/).pop() ?? ref.path,
+          kind: ref.kind,
+          path: ref.path,
+        })),
+    )
     caretTarget.current = draftRequest.text.length
   }, [draftRequest])
 
