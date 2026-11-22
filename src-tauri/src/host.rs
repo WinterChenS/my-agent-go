@@ -333,6 +333,22 @@ pub fn resolve_frontend_dist(
         candidates.push(exe_dir.join("frontend").join("dist"));
         candidates.push(exe_dir.join("frontend"));
         candidates.push(exe_dir.join("dist"));
+        // Installed bundles do not keep the resources beside the executable:
+        //   macOS  <app>/Contents/MacOS/anvil  ->  <app>/Contents/Resources
+        //   Linux  /usr/bin/anvil              ->  /usr/lib/Anvil
+        // The same relative rule covers an AppImage's $APPDIR/usr/bin.
+        if let Some(parent) = exe_dir.parent() {
+            candidates.push(parent.join("Resources").join("frontend").join("dist"));
+            candidates.push(parent.join("Resources").join("frontend"));
+            candidates.push(
+                parent
+                    .join("lib")
+                    .join("Anvil")
+                    .join("frontend")
+                    .join("dist"),
+            );
+            candidates.push(parent.join("lib").join("Anvil").join("frontend"));
+        }
     }
     for candidate in &candidates {
         if candidate.join("index.html").is_file() {
@@ -390,5 +406,43 @@ mod tests {
             root.join("frontend").canonicalize().expect("canonical")
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Installers place the bundled frontend in the platform resource folder,
+    /// not beside the binary. Both layouts must resolve without an env var.
+    #[test]
+    fn installed_macos_and_linux_layouts_are_found() {
+        let env = |_: &str| None::<String>;
+
+        let mac = std::env::temp_dir().join(format!("anvil-host-mac-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&mac);
+        bundle(&mac.join("Contents/Resources/frontend/dist"));
+        let found = resolve_frontend_dist(
+            &env,
+            None,
+            Some(mac.join("Contents/MacOS").as_path()),
+        )
+        .expect("macOS Resources");
+        assert_eq!(
+            found,
+            mac.join("Contents/Resources/frontend/dist")
+                .canonicalize()
+                .expect("canonical")
+        );
+        let _ = std::fs::remove_dir_all(&mac);
+
+        let linux = std::env::temp_dir().join(format!("anvil-host-linux-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&linux);
+        bundle(&linux.join("usr/lib/Anvil/frontend/dist"));
+        let found =
+            resolve_frontend_dist(&env, None, Some(linux.join("usr/bin").as_path()))
+                .expect("Linux /usr/lib");
+        assert_eq!(
+            found,
+            linux.join("usr/lib/Anvil/frontend/dist")
+                .canonicalize()
+                .expect("canonical")
+        );
+        let _ = std::fs::remove_dir_all(&linux);
     }
 }

@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="tech">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anvil · 2026 年度项目总结</title>
+  <style>
+    :root {
+      /* ═══ 默认主题：科技青紫 ═══ */
+      --bg: #12133a;
+      --text: #edf3ff;
+      --text-dim: #9eabd0;
+      --gold: #27d8ff;
+      --gold2: #8b7cff;
+      --gold-mid: #63e5ff;
+      --accent-rgb: 39, 216, 255;
+      --accent2-rgb: 139, 124, 255;
+      --gold-dim: rgba(var(--accent-rgb), 0.10);
+      --gold-border: rgba(var(--accent-rgb), 0.28);
+      --card-border: rgba(145, 166, 220, 0.13);
+      --gold-strong: rgba(var(--accent-rgb), 0.38);
+      --surface: #191c43;
+      --surface2: #22285a;
+      --topbar-bg: rgba(18, 19, 58, 0.85);
+      --green: #49d99a;
+      --orange: #f3ad45;
+      --blue: #5aaeff;
+      --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+    }
+
+    /* ═══ 主题切换：在 <html> 上设 data-theme="corporate|mono|forest|tech" ═══ */
+
+    html[data-theme="corporate"] {
+      /* 商务蓝金 */
+      --bg: #0d1b2a;
+      --text: #eef3fb;
+      --text-dim: #93a4bf;
+      --gold: #e0b04c;
+      --gold2: #7aa5ff;
+      --gold-mid: #f0cd7c;
+      --accent-rgb: 224, 176, 76;
+      --accent2-rgb: 122, 165, 255;
+      --gold-dim: rgba(var(--accent-rgb), 0.10);
+      --gold-border: rgba(var(--accent-rgb), 0.28);
+      --card-border: rgba(168, 190, 220, 0.14);
+      --gold-strong: rgba(var(--accent-rgb), 0.38);
+      --surface: #16263a;
+      --surface2: #1d3249;
+      --topbar-bg: rgba(13, 27, 42, 0.85);
+      --green: #4ec58a;
+      --orange: #efb14d;
+      --blue: #6f9fff;
+    }
+
+    html[data-theme="mono"] {
+      /* 极简黑白 */
+      --bg: #121417;
+      --text: #eef0f3;
+      --text-dim: #98a0aa;
+      --gold: #e8edf2;
+      --gold2: #9aa7b8;
+      --gold-mid: #ffffff;
+      --accent-rgb: 232, 237, 242;
+      --accent2-rgb: 154, 167, 184;
+      --gold-dim: rgba(var(--accent-rgb), 0.08);
+      --gold-border: rgba(var(--accent-rgb), 0.22);
+      --card-border: rgba(190, 200, 214, 0.14);
+      --gold-strong: rgba(var(--accent-rgb), 0.35);
+      --surface: #1a1d22;
+      --surface2: #22262d;
+      --topbar-bg: rgba(18, 20, 23, 0.85);
+      --green: #8fd6a8;
+      --orange: #e0a95f;
+      --blue: #8fb3d8;
+    }
+
+    html[data-theme="forest"] {
+      /* 清新自然绿 */
+      --bg: #0f1a17;
+      --text: #e9f5ee;
+      --text-dim: #93b0a0;
+      --gold: #35d08a;
+      --gold2: #7fd0a8;
+      --gold-mid: #7be8b0;
+      --accent-rgb: 53, 208, 138;
+      --accent2-rgb: 127, 208, 168;
+      --gold-dim: rgba(var(--accent-rgb), 0.10);
+      --gold-border: rgba(var(--accent-rgb), 0.28);
+      --card-border: rgba(150, 200, 175, 0.14);
+      --gold-strong: rgba(var(--accent-rgb), 0.38);
+      --surface: #15251f;
+      --surface2: #1b3129;
+      --topbar-bg: rgba(15, 26, 23, 0.85);
+      --green: #49d99a;
+      --orange: #e8b45f;
+      --blue: #62c5b8;
+    }
+
+    html[data-theme="tech"] {
+      /* 科技青紫（与默认一致，供显式指定） */
+      --bg: #12133a;
+      --text: #edf3ff;
+      --text-dim: #9eabd0;
+      --gold: #27d8ff;
+      --gold2: #8b7cff;
+      --gold-mid: #63e5ff;
+      --accent-rgb: 39, 216, 255;
+      --accent2-rgb: 139, 124, 255;
+      --gold-dim: rgba(var(--accent-rgb), 0.10);
+      --gold-border: rgba(var(--accent-rgb), 0.28);
+      --card-border: rgba(145, 166, 220, 0.13);
+      --gold-strong: rgba(var(--accent-rgb), 0.38);
+      --surface: #191c43;
+      --surface2: #22285a;
+      --topbar-bg: rgba(18, 19, 58, 0.85);
+      --green: #49d99a;
+      --orange: #f3ad45;
+      --blue: #5aaeff;
+    }
+
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 1200px 700px at 20% -10%, rgba(var(--accent-rgb), 0.06), transparent 60%),
+        radial-gradient(ellipse 1000px 600px at 90% 20%, rgba(var(--accent2-rgb), 0.06), transparent 60%),
+        linear-gradient(rgba(var(--accent-rgb), 0.032) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(var(--accent-rgb), 0.032) 1px, transparent 1px);
+      background-size: auto, auto, 46px 46px, 46px 46px;
+      color: var(--text);
+      font-family: var(--font-body);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    ::selection {
+      background: var(--gold-dim);
+      color: var(--gold2);
+    }
+
+    .topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 28px;
+      background: var(--topbar-bg);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(var(--accent-rgb), 0.12);
+      gap: 14px;
+    }
+
+    .topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--gold2);
+      white-space: nowrap;
+    }
+
+    .topbar .brand .logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #080b18;
+      font-size: 12px;
+      box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.45), 0 0 26px rgba(var(--accent2-rgb), 0.30);
+      font-weight: 900;
+    }
+
+    .topbar .tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .topbar .tabs a {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 12.5px;
+      padding: 5px 11px;
+      border-radius: 20px;
+      transition: all .25s ease;
+      border: 1px solid transparent;
+    }
+
+    .topbar .tabs a:hover {
+      color: var(--text);
+      background: var(--surface2);
+    }
+
+    .topbar .tabs a.active {
+      color: var(--gold2);
+      background: var(--gold-dim);
+      border-color: var(--gold-border);
+    }
+
+    .progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0;
+      z-index: 101;
+      background: linear-gradient(90deg, var(--gold), var(--gold2));
+      box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45), 0 0 24px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .dots {
+      position: fixed;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+
+    .dots a {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 2px solid var(--gold-border);
+      background: transparent;
+      transition: all .25s ease;
+      position: relative;
+    }
+
+    .dots a.active {
+      background: var(--gold2);
+      border-color: var(--gold2);
+      box-shadow: 0 0 8px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .dots a span {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--gold2);
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      padding: 3px 10px;
+      border-radius: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+    }
+
+    .dots a:hover span {
+      opacity: 1;
+    }
+
+    .deck {
+      width: 100%;
+    }
+
+    .slide {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 90px 48px 70px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid rgba(var(--accent-rgb), 0.08);
+    }
+
+    .slide:last-child {
+      border-bottom: none;
+    }
+
+    .slide-header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 6px;
+    }
+
+    .slide-index {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--gold);
+      font-family: var(--font-mono);
+    }
+
+    .slide-sub {
+      font-size: 15px;
+      color: var(--text-dim);
+    }
+
+    h2 {
+      font-size: 40px;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: -0.3px;
+      line-height: 1.25;
+      margin-bottom: 10px;
+      text-shadow: 0 0 20px rgba(var(--accent-rgb), 0.35);
+    }
+
+    h2 .hl {
+      color: var(--gold2);
+    }
+
+    .gold-line {
+      width: 52px;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold), var(--gold2));
+      margin: 2px 0 26px;
+      border-radius: 2px;
+      box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      transition: border-color .25s ease, box-shadow .25s ease;
+    }
+
+    .card:hover {
+      border-color: var(--gold-strong);
+      box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.15);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+    }
+
+    .grid-5 {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 1200px) {
+      .grid-4,
+      .grid-5 {
+        grid-template-columns: 1fr 1fr;
+      }
+      .grid-3,
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .grid-4,
+      .grid-5,
+      .grid-3,
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+      .slide {
+        padding: 84px 22px 50px;
+      }
+      h2 {
+        font-size: 28px;
+      }
+      .topbar .tabs a {
+        font-size: 11px;
+        padding: 4px 8px;
+      }
+      .dots,
+      .topbar .brand span:last-child {
+        display: none;
+      }
+    }
+
+    /* ═══ 通用面板 ═══ */
+    .summary-strip {
+      margin-top: 26px;
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.09), rgba(var(--accent2-rgb), 0.035));
+      border: 1px solid var(--gold-border);
+      border-radius: 12px;
+      padding: 20px 30px;
+      text-align: center;
+      font-size: 17px;
+      line-height: 1.8;
+      color: var(--text);
+    }
+
+    .summary-strip b {
+      color: var(--gold2);
+    }
+
+    .summary-strip .ss-title {
+      font-size: 13px;
+      letter-spacing: 3px;
+      color: var(--gold);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .7s ease, transform .7s ease;
+    }
+
+    .reveal.in {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* ═══ 封面 ═══ */
+    .cover {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding-top: 110px;
+      background:
+        radial-gradient(ellipse 900px 480px at 50% 28%, rgba(var(--accent-rgb), 0.18), transparent 65%),
+        radial-gradient(ellipse 600px 320px at 50% 80%, rgba(var(--accent2-rgb), 0.12), transparent 70%);
+    }
+
+    .cover .kicker {
+      font-size: 14px;
+      letter-spacing: 4px;
+      color: var(--gold);
+      font-weight: 700;
+      margin-bottom: 24px;
+    }
+
+    .cover h1 {
+      font-size: 54px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      line-height: 1.18;
+      margin-bottom: 18px;
+    }
+
+    .cover h1 .gold {
+      background: linear-gradient(135deg, var(--gold), var(--gold-mid) 50%, var(--gold2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 22px rgba(var(--accent-rgb), 0.45)) drop-shadow(0 0 60px rgba(var(--accent2-rgb), 0.30));
+    }
+
+    .cover .subtitle {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--gold2);
+      margin-bottom: 8px;
+    }
+
+    .cover .subtitle-2 {
+      font-size: 15px;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+    }
+
+    .cover .chips {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .cover .chip {
+      font-size: 13px;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 5px 14px;
+    }
+
+    .cover .cover-meta {
+      margin-top: 34px;
+      display: flex;
+      gap: 34px;
+      justify-content: center;
+      flex-wrap: wrap;
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+
+    .cover .cover-meta b {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .cover .scroll-hint {
+      margin-top: 56px;
+      color: var(--gold);
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      animation: bob 2s ease-in-out infinite;
+    }
+
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(8px); }
+    }
+
+    /* ═══ P1 个人介绍 ═══ */
+    .profile-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px 22px;
+    }
+
+    .profile-card .pc-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .profile-card .pc-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 19px;
+      flex-shrink: 0;
+    }
+
+    .profile-card .pc-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--gold2);
+    }
+
+    .profile-card .pc-sub {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .profile-card .pc-line {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .profile-card .pc-line b {
+      color: var(--gold2);
+    }
+
+    .profile-card .pc-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .profile-card .pc-tags span {
+      font-size: 12px;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 3px 12px;
+    }
+
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
+    }
+
+    .tl-item {
+      display: grid;
+      grid-template-columns: 86px 14px 1fr;
+      gap: 0 14px;
+      position: relative;
+      padding-bottom: 20px;
+    }
+
+    .tl-item:last-child {
+      padding-bottom: 0;
+    }
+
+    .tl-item .tl-time {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: right;
+      padding-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .tl-item .tl-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--surface2);
+      border: 3px solid var(--gold);
+      margin-top: 5px;
+      position: relative;
+      box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.45);
+      z-index: 1;
+    }
+
+    .tl-item .tl-dot::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 17px;
+      width: 2px;
+      height: 100%;
+      background: linear-gradient(180deg, var(--gold-border), transparent);
+      transform: translateX(-50%);
+    }
+
+    .tl-item:last-child .tl-dot::after {
+      display: none;
+    }
+
+    .tl-item.current .tl-dot {
+      background: var(--gold2);
+      box-shadow: 0 0 10px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .tl-item.current .tl-box {
+      border-color: var(--gold-strong);
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), rgba(var(--accent2-rgb), 0.04));
+    }
+
+    .tl-item .tl-box {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 13px 18px;
+    }
+
+    .tl-item .tl-box .tl-company {
+      font-size: 15.5px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .tl-item .tl-box .tl-role {
+      font-size: 13.5px;
+      color: var(--gold2);
+      font-weight: 700;
+      margin: 2px 0;
+    }
+
+    .tl-item .tl-box .tl-desc {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    .tl-item .tl-box .tl-desc b {
+      color: var(--gold);
+    }
+
+    /* ═══ P2 业绩总览 ═══ */
+    .one-liner {
+      text-align: center;
+      font-size: 19px;
+      font-weight: 600;
+      line-height: 1.8;
+      padding: 22px 32px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.09), rgba(var(--accent2-rgb), 0.035));
+      border: 1px solid var(--gold-border);
+      margin-bottom: 24px;
+      color: var(--text);
+    }
+
+    .one-liner .gold {
+      color: var(--gold2);
+      font-weight: 800;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px 16px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold), transparent);
+    }
+
+    .stat-card .st-num {
+      font-size: 40px;
+      font-weight: 900;
+      color: var(--gold2);
+      font-family: var(--font-mono);
+      line-height: 1.15;
+      text-shadow: 0 0 18px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .stat-card .st-num small {
+      font-size: 20px;
+    }
+
+    .stat-card .st-label {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    .stat-card .st-label b {
+      color: var(--gold);
+    }
+
+    .stat-card.hot {
+      border-color: var(--gold-strong);
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), rgba(var(--accent2-rgb), 0.04));
+    }
+
+    .stat-card.hot::before {
+      background: var(--gold2);
+    }
+
+    .sub-block-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 30px 0 16px;
+    }
+
+    .sub-block-title .sbt-no {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--gold);
+      font-family: var(--font-mono);
+      letter-spacing: 1px;
+    }
+
+    .sub-block-title .sbt-text {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .sub-block-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .quality-compare {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      flex-wrap: wrap;
+    }
+
+    .qc-box {
+      flex: 1;
+      max-width: 340px;
+      border-radius: 12px;
+      padding: 22px 26px;
+      text-align: center;
+      border: 1px solid;
+      background: var(--surface);
+    }
+
+    .qc-box.p1 {
+      border-color: var(--orange);
+      background: rgba(243, 173, 69, 0.06);
+    }
+
+    .qc-box.p2 {
+      border-color: var(--green);
+      background: rgba(73, 217, 154, 0.06);
+    }
+
+    .qc-box .qc-phase {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .qc-box.p1 .qc-phase {
+      color: var(--orange);
+    }
+
+    .qc-box.p2 .qc-phase {
+      color: var(--green);
+    }
+
+    .qc-box .qc-num {
+      font-size: 58px;
+      font-weight: 900;
+      font-family: var(--font-mono);
+      line-height: 1.1;
+    }
+
+    .qc-box.p1 .qc-num {
+      color: var(--orange);
+    }
+
+    .qc-box.p2 .qc-num {
+      color: var(--green);
+    }
+
+    .qc-box .qc-unit {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .qc-mid {
+      text-align: center;
+      min-width: 150px;
+    }
+
+    .qc-mid .qm-arrow {
+      font-size: 34px;
+      font-weight: 900;
+      color: var(--gold2);
+      line-height: 1;
+      text-shadow: 0 0 14px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .qc-mid .qm-pct {
+      font-size: 30px;
+      font-weight: 900;
+      color: var(--gold2);
+      font-family: var(--font-mono);
+      margin-top: 4px;
+    }
+
+    .qc-mid .qm-label {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .qc-bars {
+      margin-top: 14px;
+    }
+
+    .qc-bars .qbar {
+      height: 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+
+    .qc-bars .qbar .qbar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 1.2s ease;
+    }
+
+    .qc-bars .qbar.p1f .qbar-fill {
+      background: linear-gradient(90deg, var(--orange), #f5a623);
+    }
+
+    .qc-bars .qbar.p2f .qbar-fill {
+      background: linear-gradient(90deg, var(--green), #2ea866);
+    }
+
+    .note-strip {
+      margin-top: 18px;
+      background: rgba(90, 174, 255, 0.05);
+      border: 1px dashed rgba(90, 174, 255, 0.4);
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    .note-strip .ns-title {
+      font-weight: 800;
+      color: var(--blue);
+      margin-bottom: 4px;
+    }
+
+    .note-strip b {
+      color: var(--gold2);
+    }
+
+    /* ═══ P3 项目成果 ═══ */
+    .phase-compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin-bottom: 26px;
+    }
+
+    @media (max-width: 960px) {
+      .phase-compare {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .phase-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .phase-card .pc-head {
+      padding: 14px 22px;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--gold-border);
+    }
+
+    .phase-card.p1 .pc-head {
+      background: rgba(90, 174, 255, 0.08);
+      color: var(--blue);
+    }
+
+    .phase-card.p2 .pc-head {
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), rgba(var(--accent2-rgb), 0.05));
+      color: var(--gold2);
+      border-bottom-color: var(--gold-strong);
+    }
+
+    .phase-card .pc-body {
+      padding: 18px 22px;
+    }
+
+    .phase-card .pc-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .phase-card .pc-row {
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: var(--text-dim);
+    }
+
+    .phase-card .pc-row .pr-lbl {
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 5px;
+      letter-spacing: 1px;
+    }
+
+    .phase-card .pc-row .pr-lbl::before {
+      content: '◆ ';
+      color: var(--gold);
+    }
+
+    .phase-card .pc-row b {
+      color: var(--gold2);
+    }
+
+    .mod-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .mod-list li {
+      font-size: 13.5px;
+      color: var(--text);
+      padding-left: 26px;
+      position: relative;
+      line-height: 1.5;
+    }
+
+    .mod-list li::before {
+      content: '①';
+      position: absolute;
+      left: 0;
+      color: var(--gold);
+      font-size: 12px;
+    }
+
+    .mod-list li:nth-child(2)::before { content: '②'; }
+    .mod-list li:nth-child(3)::before { content: '③'; }
+    .mod-list li:nth-child(4)::before { content: '④'; }
+
+    .status-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status-chips span {
+      font-size: 12px;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-weight: 700;
+      border: 1px solid;
+    }
+
+    .status-chips .up {
+      color: var(--green);
+      border-color: rgba(73, 217, 154, 0.5);
+      background: rgba(73, 217, 154, 0.08);
+    }
+
+    .status-chips .test {
+      color: var(--orange);
+      border-color: rgba(243, 173, 69, 0.5);
+      background: rgba(243, 173, 69, 0.08);
+    }
+
+    .contrib-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .contrib-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .contrib-card {
+      border-radius: 10px;
+      padding: 20px 22px;
+      border: 1px solid;
+    }
+
+    .contrib-card.c1 {
+      background: rgba(90, 174, 255, 0.06);
+      border-color: rgba(90, 174, 255, 0.4);
+    }
+
+    .contrib-card.c2 {
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), rgba(var(--accent2-rgb), 0.04));
+      border-color: var(--gold-strong);
+    }
+
+    .contrib-card .cc-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .contrib-card.c1 .cc-title {
+      color: var(--blue);
+    }
+
+    .contrib-card.c2 .cc-title {
+      color: var(--gold2);
+    }
+
+    .contrib-card .cc-desc {
+      font-size: 13.5px;
+      color: var(--text-dim);
+      line-height: 1.75;
+    }
+
+    .contrib-card .cc-desc b {
+      color: var(--text);
+    }
+
+    /* ═══ P4 工作亮点 ═══ */
+    .highlight-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .highlight-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .hl-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hl-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold), transparent);
+    }
+
+    .hl-card .hl-no {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--gold);
+      font-family: var(--font-mono);
+      margin-bottom: 10px;
+    }
+
+    .hl-card .hl-title {
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--gold2);
+      margin-bottom: 10px;
+    }
+
+    .hl-card .hl-desc {
+      font-size: 13.5px;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .hl-card .hl-desc b {
+      color: var(--text);
+    }
+
+    .hl-card .hl-desc .g {
+      color: var(--gold2);
+    }
+
+    .hl-card .hl-flow {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .hl-flow .hf-step {
+      font-size: 12px;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 4px 11px;
+      font-weight: 600;
+    }
+
+    .hl-flow .hf-arrow {
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .hl-card.wide {
+      grid-column: span 2;
+    }
+
+    @media (max-width: 960px) {
+      .hl-card.wide {
+        grid-column: span 1;
+      }
+    }
+
+    /* ═══ P5 心得体会 ═══ */
+    .insight-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .insight-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .in-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 0 18px;
+    }
+
+    .in-card .in-no {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #080b18;
+      font-size: 17px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.45), 0 0 30px rgba(var(--accent2-rgb), 0.30);
+    }
+
+    .in-card .in-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--gold2);
+      margin-bottom: 8px;
+      padding-top: 3px;
+    }
+
+    .in-card .in-desc {
+      font-size: 13.5px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      grid-column: 2;
+    }
+
+    .in-card .in-desc b {
+      color: var(--text);
+    }
+
+    .in-card .in-desc .g {
+      color: var(--gold2);
+    }
+
+    .focus-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+      grid-column: 2;
+    }
+
+    .focus-chips span {
+      font-size: 12px;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 4px 12px;
+    }
+
+    /* ═══ P6 规划 ═══ */
+    .direction-strip {
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.09), rgba(var(--accent2-rgb), 0.035));
+      border: 1px solid var(--gold-border);
+      border-radius: 12px;
+      padding: 18px 26px;
+      text-align: center;
+      font-size: 18px;
+      line-height: 1.8;
+      margin-bottom: 26px;
+      color: var(--text);
+    }
+
+    .direction-strip b {
+      color: var(--gold2);
+    }
+
+    .plan-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 1100px) {
+      .plan-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .plan-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .plan-card .pl-top {
+      padding: 18px 22px 16px;
+      border-bottom: 1px solid var(--gold-strong);
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.09), rgba(var(--accent2-rgb), 0.035));
+    }
+
+    .plan-card .pl-phase {
+      font-size: 12.5px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--gold);
+      font-family: var(--font-mono);
+    }
+
+    .plan-card .pl-name {
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--gold2);
+      margin: 4px 0 8px;
+    }
+
+    .plan-card .pl-dir {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+
+    .plan-card .pl-dir b {
+      color: var(--text);
+    }
+
+    .plan-card .pl-body {
+      padding: 16px 22px 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .plan-card .pl-item .pli-lbl {
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+      letter-spacing: 1px;
+    }
+
+    .plan-card .pl-item .pli-lbl::before {
+      content: '◆ ';
+      color: var(--gold);
+    }
+
+    .plan-card ul {
+      list-style: none;
+    }
+
+    .plan-card .pl-item li {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+      padding-left: 18px;
+      position: relative;
+    }
+
+    .plan-card .pl-item li::before {
+      content: '·';
+      position: absolute;
+      left: 4px;
+      color: var(--gold);
+      font-weight: 900;
+    }
+
+    .plan-card .pl-item li b {
+      color: var(--gold2);
+    }
+
+    .plan-card .pl-metrics {
+      margin-top: auto;
+      background: var(--surface2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    .plan-card .pl-metrics .pm-title {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      letter-spacing: 1px;
+    }
+
+    .plan-card .pl-metrics li {
+      font-size: 12.5px;
+      color: var(--text);
+      line-height: 1.6;
+      padding-left: 16px;
+      position: relative;
+    }
+
+    .plan-card .pl-metrics li::before {
+      content: '•';
+      position: absolute;
+      left: 2px;
+      color: var(--gold2);
+      font-weight: 900;
+    }
+
+    .plan-card .pl-metrics li b {
+      color: var(--gold2);
+    }
+
+    .plan-card .pl-foot {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 14px 22px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .plan-card .pl-foot .tag {
+      font-size: 12px;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-weight: 700;
+      border: 1px solid;
+    }
+
+    .plan-card .pl-foot .tag.state {
+      color: var(--orange);
+      border-color: rgba(243, 173, 69, 0.5);
+      background: rgba(243, 173, 69, 0.08);
+    }
+
+    .plan-card .pl-foot .tag.role {
+      color: var(--gold2);
+      border-color: var(--gold-border);
+      background: var(--gold-dim);
+    }
+
+    /* ═══ P7 建议 ═══ */
+    .sug-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .sug-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .sug-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 0 16px;
+      align-items: start;
+    }
+
+    .sug-card .sg-no {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: var(--gold-dim);
+      border: 1px solid var(--gold-border);
+      color: var(--gold2);
+      font-size: 16px;
+      font-weight: 900;
+      font-family: var(--font-mono);
+      box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sug-card .sg-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--gold2);
+      margin-bottom: 6px;
+      padding-top: 4px;
+    }
+
+    .sug-card .sg-desc {
+      font-size: 13.5px;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .sug-card .sg-desc b {
+      color: var(--text);
+    }
+
+    .sug-card .sg-desc .g {
+      color: var(--gold2);
+    }
+
+    .sug-card .sg-list {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .sug-card .sg-list span {
+      font-size: 12px;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 3px 11px;
+    }
+
+    .sug-card.wide {
+      grid-column: span 2;
+    }
+
+    @media (max-width: 960px) {
+      .sug-card.wide {
+        grid-column: span 1;
+      }
+    }
+
+    /* ═══ P8 总结 ═══ */
+    .final {
+      text-align: center;
+    }
+
+    .final .f-title {
+      font-size: 34px;
+      font-weight: 900;
+      color: var(--gold2);
+      margin: 6px 0 14px;
+    }
+
+    .transition-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin: 8px 0 30px;
+      flex-wrap: wrap;
+    }
+
+    .tf-box {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px 30px;
+      text-align: center;
+      min-width: 200px;
+    }
+
+    .tf-box.from .tf-text {
+      color: var(--text-dim);
+    }
+
+    .tf-box.to {
+      border-color: var(--gold-strong);
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), rgba(var(--accent2-rgb), 0.04));
+    }
+
+    .tf-box.to .tf-text {
+      color: var(--gold2);
+    }
+
+    .tf-box .tf-caption {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .tf-box .tf-text {
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .tf-arrow {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--gold);
+      padding: 0 16px;
+    }
+
+    .growth-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-bottom: 30px;
+    }
+
+    @media (max-width: 1100px) {
+      .growth-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .growth-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 18px 16px;
+      text-align: center;
+    }
+
+    .growth-card .gr-name {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--gold2);
+      margin-bottom: 8px;
+    }
+
+    .growth-card .gr-arrow {
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 900;
+      margin-bottom: 8px;
+    }
+
+    .growth-card .gr-desc {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      line-height: 1.65;
+    }
+
+    .growth-card .gr-desc b {
+      color: var(--text);
+    }
+
+    .future-strip {
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.12), rgba(var(--accent2-rgb), 0.04));
+      border: 1px solid var(--gold-border);
+      border-radius: 12px;
+      padding: 26px 34px;
+      margin-bottom: 24px;
+    }
+
+    .future-strip .fs-line {
+      font-size: 17px;
+      line-height: 2;
+      color: var(--text);
+    }
+
+    .future-strip .fs-line b {
+      color: var(--gold2);
+    }
+
+    .future-strip .fs-turns {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .future-strip .fs-turns span {
+      font-size: 14.5px;
+      font-weight: 700;
+      border: 1px solid var(--gold-border);
+      background: var(--gold-dim);
+      color: var(--gold2);
+      border-radius: 20px;
+      padding: 6px 16px;
+    }
+
+    .future-strip .fs-turns .arr {
+      background: transparent;
+      border: none;
+      padding: 0;
+      font-size: 18px;
+    }
+
+    .thanks {
+      font-size: 17px;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .thanks b {
+      color: var(--gold2);
+    }
+
+    .closing-tag {
+      margin-top: 34px;
+      font-size: 13px;
+      color: var(--text-dim);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 16px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="progress" id="progressBar"></div>
+
+  <div class="topbar">
+    <div class="brand"><span class="logo">A</span><span>Anvil · 2026 年度项目总结</span></div>
+    <div class="tabs" id="tabs">
+      <a href="#s-p1">年度概览</a>
+      <a href="#s-p2">交付时间线</a>
+      <a href="#s-p3">架构决策</a>
+      <a href="#s-p4">技术亮点</a>
+      <a href="#s-p5">工程质量</a>
+      <a href="#s-p6">不足与风险</a>
+      <a href="#s-p7">年度规划</a>
+      <a href="#s-p8">年度总结</a>
+    </div>
+  </div>
+
+  <div class="dots" id="dots">
+    <a href="#s-cover"><span>封面</span></a>
+    <a href="#s-p1"><span>年度概览</span></a>
+    <a href="#s-p2"><span>交付时间线</span></a>
+    <a href="#s-p3"><span>架构决策</span></a>
+    <a href="#s-p4"><span>技术亮点</span></a>
+    <a href="#s-p5"><span>工程质量</span></a>
+    <a href="#s-p6"><span>不足与风险</span></a>
+    <a href="#s-p7"><span>年度规划</span></a>
+    <a href="#s-p8"><span>年度总结</span></a>
+  </div>
+
+  <div class="deck">
+
+    <!-- ═══ 封面 ═══ -->
+    <div class="slide cover" id="s-cover">
+      <div class="kicker">2026 年度项目总结 · 工程交付复盘</div>
+      <h1>Anvil 桌面 Agent 工作台<br><span class="gold">2026 年度项目总结</span></h1>
+      <p class="subtitle">两次架构决断、一次全量重建，把「看起来能用」换成「证据说通过」</p>
+      <p class="subtitle-2">Anvil · 2026 Annual Engineering Report — Go/Wails → Rust/Tauri</p>
+      <div class="chips">
+        <span class="chip">🦀 Rust 1.95 + Tauri v2 · React/TS</span>
+        <span class="chip">📊 477 次提交 · 4.9 万行代码</span>
+        <span class="chip">🧪 534 项测试全绿 · 183 份证据</span>
+        <span class="chip">⚖️ 8 份 ADR 划定边界</span>
+      </div>
+      <div class="cover-meta">
+        <span>汇报人：<b>XXX</b></span>
+        <span>部门：<b>XXX</b></span>
+        <span>日期：<b>2026年11月</b></span>
+      </div>
+      <div class="scroll-hint"><span>向下滑动</span><span>▼</span></div>
+    </div>
+
+    <!-- ═══ P1 年度概览 ═══ -->
+    <div class="slide" id="s-p1">
+      <div class="slide-header">
+        <span class="slide-index">01</span>
+        <span class="slide-sub">交付规模 · 代码体量 · 测试与证据</span>
+      </div>
+      <h2>年度概览</h2>
+      <div class="gold-line"></div>
+
+      <div class="one-liner reveal">
+        2026 年，Anvil 从空仓库长成一套<span class="gold">可构建、可验收、可复现</span>的桌面 Agent 产品基座：<br>
+        经历 <span class="gold">Go + Wails</span> 到 <span class="gold">Rust + Tauri</span> 的换栈，并完成一次原型优先的全量重建。
+      </div>
+
+      <div class="sub-block-title reveal">
+        <span class="sbt-no">METRICS</span>
+        <span class="sbt-text">核心量化成果</span>
+      </div>
+
+      <div class="grid-5">
+        <div class="stat-card reveal">
+          <div class="st-num"><span data-count="477">0</span></div>
+          <div class="st-label">次<br><b>代码提交</b></div>
+        </div>
+        <div class="stat-card reveal">
+          <div class="st-num">4.9<small>万+</small></div>
+          <div class="st-label">行<br><b>累计代码</b><br><span style="font-size:11px;color:var(--text-dim);">Rust 2.3 万 · 前端 2.6 万</span></div>
+        </div>
+        <div class="stat-card reveal">
+          <div class="st-num"><span data-count="534">0</span></div>
+          <div class="st-label">项<br><b>测试全绿</b><br><span style="font-size:11px;color:var(--text-dim);">Rust 285 · 前端 249</span></div>
+        </div>
+        <div class="stat-card reveal">
+          <div class="st-num"><span data-count="183">0</span></div>
+          <div class="st-label">份<br><b>验收证据</b><br><span style="font-size:11px;color:var(--text-dim);">绑定 revision / target</span></div>
+        </div>
+        <div class="stat-card hot reveal">
+          <div class="st-num"><span data-count="8">0</span></div>
+          <div class="st-label">份<br><b>架构决策记录</b><br><span style="font-size:11px;color:var(--text-dim);">ADR 0001–0008</span></div>
+        </div>
+      </div>
+
+      <div class="sub-block-title reveal">
+        <span class="sbt-no">SCALE</span>
+        <span class="sbt-text">工程规模</span>
+      </div>
+
+      <div class="grid-4">
+        <div class="card reveal">
+          <div style="font-size:26px;font-weight:800;color:var(--gold);">61<small style="font-size:13px;"> 文件</small></div>
+          <div style="font-size:12.5px;color:var(--text-dim);margin-top:4px;">Rust 源码 · 3 个 crate + Tauri 宿主</div>
+        </div>
+        <div class="card reveal">
+          <div style="font-size:26px;font-weight:800;color:var(--gold);">93<small style="font-size:13px;"> 文件</small></div>
+          <div style="font-size:12.5px;color:var(--text-dim);margin-top:4px;">前端 TS/TSX · React + Vite</div>
+        </div>
+        <div class="card reveal">
+          <div style="font-size:26px;font-weight:800;color:var(--gold);">36<small style="font-size:13px;"> 分支</small></div>
+          <div style="font-size:12.5px;color:var(--text-dim);margin-top:4px;">特性分支 · 30 次合并</div>
+        </div>
+        <div class="card reveal">
+          <div style="font-size:26px;font-weight:800;color:var(--gold);">68<small style="font-size:13px;"> 篇</small></div>
+          <div style="font-size:12.5px;color:var(--text-dim);margin-top:4px;">设计 / 计划 / 验收文档</div>
+        </div>
+      </div>
+
+      <div class="note-strip reveal">
+        <div class="ns-title">📌 口径说明</div>
+        数据取自 <b>codex/anvil-rebuild</b> 工作树（git rev-list 477 / wc -l 统计 / VERSION.txt 测试记录）。交付集中在 <b>2026-11-03 → 11-15 的 13 天窗口</b>，不是全年均摊；跨平台真机证据按 ADR 0005 / 0008 记为 deferred，不计入本页成果。
+      </div>
+    </div>
+
+    <!-- ═══ P2 交付时间线 ═══ -->
+    <div class="slide" id="s-p2">
+      <div class="slide-header">
+        <span class="slide-index">02</span>
+        <span class="slide-sub">基座 · 能力铺开 · 规模化 · 重建 · 换栈 · 收口</span>
+      </div>
+      <h2>年度交付时间线</h2>
+      <div class="gold-line"></div>
+
+      <div class="timeline reveal">
+        <div class="tl-item">
+          <div class="tl-time">11-03</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">基座日 · F00–F07</div>
+            <div class="tl-role">23 次提交，一天之内立起骨架</div>
+            <div class="tl-desc">冻结工具链与版本、共享契约与真实检查编排器、<b>Pi 1.5.0 协议基线（RPC / MCP / extension）</b>、RPC 分帧与 worker 监督、执行前授权、配置 CAS 五层合并 + <b>SQLite FTS5 trigram</b> + DPAPI 凭证。</div>
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-time">11-04 ~ 05</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">能力铺开 · C01–C05 / B00–B01</div>
+            <div class="tl-role">工作台、模型、技能、MCP、记忆、原生浏览器</div>
+            <div class="tl-desc">真实模型端到端、技能发现语义收口（RES01–04）、MCP 配置与统一工具目录、长期记忆中文检索；同期把门禁改为 <b>case × target × display</b> 三维判定，并接入 Windows 原生 WebView2 同窗右栏。</div>
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-time">11-06 ~ 08</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">规模化 · F08 / C08–C09 / U00–U07</div>
+            <div class="tl-role">128 次提交，年度峰值</div>
+            <div class="tl-desc">Pi 发现与兼容协商（认证版本 + 注册 hash + 契约探测）、UI 全量实现；把 MEM / RES / CFG 系列用例<b>统一改为外部观察型证据</b>，杜绝「测试进程自证」。</div>
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-time">11-09</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">转折点 · REBUILD</div>
+            <div class="tl-role">先删，再重建</div>
+            <div class="tl-desc">ADR 0006 把范围重定为「原型优先、G0 界面 → G1 多 Agent 发现 → G2 会话」；同一天定下<b>权限档位 ask / full_access（受理时钉住）</b>、工作区信任、模型配置溯源诊断。</div>
+          </div>
+        </div>
+
+        <div class="tl-item current">
+          <div class="tl-time">11-10</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">换栈决断 · ADR 0007</div>
+            <div class="tl-role">Go + Wails 退役，Rust + Tauri 上台</div>
+            <div class="tl-desc">旧实现（<code>cmd/</code>、<code>internal/</code>、<code>go.mod</code>）从工作树删除；技术路线锁定 <b>Rust 1.95.0 + Tauri v2 + React/TS/Vite + rusqlite bundled</b>，验收平台由 ADR 0008 确认不变。</div>
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-time">11-11 ~ 15</div>
+          <div class="tl-dot"></div>
+          <div class="tl-box">
+            <div class="tl-company">迁移收口 · R0-RS01–RS05</div>
+            <div class="tl-role">拆分 crate、会话归约、模型目录、真窗口验收</div>
+            <div class="tl-desc"><b>anvil-paths / anvil-session / anvil-catalog</b> 三 crate 落位，thinking 与工具卡片按 ledger 顺序渲染、model picker 由真实探测种子数据驱动；同期把 cargo target 移出工作树，避免 C 盘膨胀。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-strip reveal">
+        <div class="ss-title">节奏总结</div>
+        13 天里完成「立架子 → 铺能力 → 大改范围 → 整体换栈」四次跃迁，<b>靠的是决策先落地、证据后补位</b>，而不是靠加班堆功能。
+      </div>
+    </div>
+
+    <!-- ═══ P3 架构决策 ═══ -->
+    <div class="slide" id="s-p3">
+      <div class="slide-header">
+        <span class="slide-index">03</span>
+        <span class="slide-sub">8 份 ADR 构成的一条决策链</span>
+      </div>
+      <h2>架构决策：两次换壳与三次收窄</h2>
+      <div class="gold-line"></div>
+
+      <div class="phase-compare">
+        <div class="phase-card p1 reveal">
+          <div class="pc-head">⚙️ 阶段 A · Go + Wails</div>
+          <div class="pc-body">
+            <div class="pc-rows">
+              <div class="pc-row">
+                <div class="pr-lbl">建设目标</div>
+                用最短路径跑通<b>端到端真实链路</b>
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">技术栈</div>
+                <ul class="mod-list">
+                  <li>Go + Wails 应用壳</li>
+                  <li>WebView2 原生子视图（ADR 0004）</li>
+                  <li>SQLite + FTS5 trigram</li>
+                </ul>
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">范围口径</div>
+                <div class="status-chips">
+                  <span class="test">◌ ADR 0005：验收收敛为 win-x64 / Win10 22H2</span>
+                  <span class="test">◌ ADR 0002：F06 安装器推迟至 G4</span>
+                </div>
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">结局</div>
+                <b>11-09 整体删除</b>，证据保留为历史
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="phase-card p2 reveal">
+          <div class="pc-head">🦀 阶段 B · Rust + Tauri</div>
+          <div class="pc-body">
+            <div class="pc-rows">
+              <div class="pc-row">
+                <div class="pr-lbl">建设目标</div>
+                六目标矩阵、<b>隔离契约</b>与可验收交付
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">技术栈</div>
+                <ul class="mod-list">
+                  <li>Rust 1.95.0（rust-toolchain 锁定）</li>
+                  <li>Tauri v2 桌面宿主</li>
+                  <li>React / TS / Vite / Tailwind</li>
+                  <li>rusqlite bundled（FTS5 trigram）</li>
+                </ul>
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">范围口径</div>
+                <div class="status-chips">
+                  <span class="up">✓ ADR 0007：换栈决定并实施</span>
+                  <span class="up">✓ ADR 0008：验收平台确认不变</span>
+                </div>
+              </div>
+              <div class="pc-row">
+                <div class="pr-lbl">现状</div>
+                R0-RS01–RS05 落地，真实窗口跑通
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sub-block-title reveal">
+        <span class="sbt-no">DECISIONS</span>
+        <span class="sbt-text">决策先行，代码后动</span>
+      </div>
+
+      <div class="contrib-grid">
+        <div class="contrib-card c1 reveal">
+          <div class="cc-title">为什么允许自己换壳</div>
+          <div class="cc-desc">8 份 ADR 把「换桌面壳、换承载方式、删平台、迁移凭证、放宽门禁」全部写成<b>必须先留痕</b>的动作：ADR 0004 记宿主依赖、0005 记验收收窄、0006 记范围重定、0007 记换栈、0008 记平台不变。<b>任何一次都不静默执行</b>。</div>
+        </div>
+        <div class="contrib-card c2 reveal">
+          <div class="cc-title">换栈付出的代价</div>
+          <div class="cc-desc">旧实现全量重写，Wails 时代的证据只能作历史参考；换来的是<b>可复现的构建链</b>（<code>--locked</code>、target 锁在 D 盘）与 <b>285 项 Rust 测试</b>——从「能跑起来」升级为「跑错了会红」。</div>
+        </div>
+      </div>
+
+      <div class="summary-strip reveal">
+        <div class="ss-title">决策复盘</div>
+        这一年的技术选择不是「越新越好」，而是<b>每收窄一次范围、每换一次壳，都必须同时接受一次门禁的重新审判</b>。
+      </div>
+    </div>
+
+    <!-- ═══ P4 技术亮点 ═══ -->
+    <div class="slide" id="s-p4">
+      <div class="slide-header">
+        <span class="slide-index">04</span>
+        <span class="slide-sub">门禁 · Pi · 桌面 · 数据 · 验收</span>
+      </div>
+      <h2>技术亮点</h2>
+      <div class="gold-line"></div>
+
+      <div class="highlight-grid">
+        <div class="hl-card reveal">
+          <div class="hl-no">01 / 门禁</div>
+          <div class="hl-title">让「通过」无法伪造</div>
+          <div class="hl-desc">门禁按 <b>case × target × display</b> 三维判定，同一必需位出现两份证据、证据 gateId 串阶段、<b>worktreeDirty</b> 一律判死；退出码 <b>0 / 1 / 2</b> 保真（ADR 0001），禁止 <code>|| true</code>、禁止空 suite 判成功、禁止写 passed.json 冒充执行。</div>
+        </div>
+
+        <div class="hl-card reveal">
+          <div class="hl-no">02 / Pi</div>
+          <div class="hl-title">能力协商，而不是假设</div>
+          <div class="hl-desc">宿主 Pi 走<b>认证版本 + 注册 hash + 契约探测</b>三段式，探测用隔离 agentDir、不碰真实 provider 与用户配置；多 Pi 不静默切换，PATH 上的 <b>WeChat node shim</b> 被显式拦截；1.4.0 这类低于最低版本的一律停在 upgrade_available，不进兼容探测。</div>
+        </div>
+
+        <div class="hl-card reveal">
+          <div class="hl-no">03 / 桌面</div>
+          <div class="hl-title">原生 WebView2 与主窗口同窗</div>
+          <div class="hl-desc">浏览器不做外挂窗口，而是<b>同一主窗口右栏</b>的原生子视图：缩放、分栏、焦点、最小化、剪贴板、IME 输入、<b>50 轮连续交互</b>逐项做过真机回归，全部以 Tauri 之前的实物证据链固定行为。</div>
+        </div>
+
+        <div class="hl-card reveal">
+          <div class="hl-no">04 / 数据</div>
+          <div class="hl-title">配置与凭证按「可追溯」设计</div>
+          <div class="hl-desc"><b>CAS + 五层合并</b>保证配置来源可解释、可回溯；SQLite 走 rusqlite bundled 并开 <b>FTS5 trigram</b>，中文检索不依赖外部分词；凭证入 <b>DPAPI</b>，不落明文。</div>
+        </div>
+
+        <div class="hl-card wide reveal">
+          <div class="hl-no">05 / 验收</div>
+          <div class="hl-title">真实桌面验收，不用静态 UI 冒充</div>
+          <div class="hl-desc">界面与交互由 <b>agent-desktop</b> 驱动真实窗口取证（G0 界面、G1 多 Agent 发现与同步、G2 会话顺序），Pi 真实用例用本机已安装的 Pi 与现有登录；外部观察型用例必须有真实机器与 review 字段，<b>mock 与静态界面不能顶替证据</b>。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ P5 工程质量 ═══ -->
+    <div class="slide" id="s-p5">
+      <div class="slide-header">
+        <span class="slide-index">05</span>
+        <span class="slide-sub">可复现 · 常绿 · 归属 · 真机</span>
+      </div>
+      <h2>工程质量与门禁</h2>
+      <div class="gold-line"></div>
+
+      <div class="insight-grid">
+        <div class="in-card reveal">
+          <div class="in-no">01</div>
+          <div class="in-title">构建可复现</div>
+          <div class="in-desc">全部构建 <code>--locked</code>，工具链由 <code>rust-toolchain.toml</code> 钉在 <b>Rust 1.95.0</b>；<code>CARGO_TARGET_DIR</code> 与 RUSTUP/CARGO_HOME 全部锁在 <b>D 盘</b>，不允许往 C 盘装工具链、不允许构建产物漂移。</div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">02</div>
+          <div class="in-title">三道关常绿</div>
+          <div class="in-desc">每次交付前跑满 <b>cargo fmt / clippy -D warnings / cargo test --workspace</b>，本次体验包记录为 <b class="g">285 passed</b>；前端 <b class="g">vitest 249 passed</b> 且 <code>npm run build</code> 归零，一手数据写进 VERSION.txt 而不是口头承诺。</div>
+          <div class="focus-chips">
+            <span>fmt · 0</span>
+            <span>clippy · 0</span>
+            <span>cargo test · 285</span>
+            <span>vitest · 249</span>
+          </div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">03</div>
+          <div class="in-title">证据有归属</div>
+          <div class="in-desc"><b>183 份</b>证据文件绑定 revision + target + display，dirty 工作区的产物直接拒收；集成测试不再改写已提交的历史证据，<code>verify</code> 会检测运行期脏化。旧 PASS 不自动覆盖新范围。</div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">04</div>
+          <div class="in-title">真实窗口检查项</div>
+          <div class="in-desc">在解压后的真实产物上验收：thinking 与工具卡片按 <b>ledger 顺序</b>（think → call → think）、首 token 前只显示 dots、新建会话清空 transcript，模型按 runtime tab 分组、@skill 芯片可用。</div>
+        </div>
+      </div>
+
+      <div class="note-strip reveal">
+        <div class="ns-title">📌 未闭环项（如实记录）</div>
+        本次体验包基于 <code>57ee76f</code> 之上的工作树，含 <b>54 个未提交改动</b>，因此证据归属需在干净 revision 上重跑；Tauri bundle 按设计禁用，前端从磁盘加载。
+      </div>
+
+      <div class="summary-strip reveal">
+        <div class="ss-title">质量口径</div>
+        状态只有 PASS / FAIL / BLOCKED / NOT_RUN，<b>PASS 由证据确定，不由「看起来能用」确定</b>；缺机器就写 BLOCKED，不删目标、不改口径、不伪造证据。
+      </div>
+    </div>
+
+    <!-- ═══ P6 不足与风险 ═══ -->
+    <div class="slide" id="s-p6">
+      <div class="slide-header">
+        <span class="slide-index">06</span>
+        <span class="slide-sub">窗口 · 单点 · 平台 · 归属</span>
+      </div>
+      <h2>不足与风险</h2>
+      <div class="gold-line"></div>
+
+      <div class="insight-grid">
+        <div class="in-card reveal">
+          <div class="in-no">01</div>
+          <div class="in-title">交付窗口太窄</div>
+          <div class="in-desc">全年产出压进 <b>11-03 → 11-15 的 13 天</b>，477 次提交密度过高，评审、复盘与文档沉淀被挤到交付之后；一旦出现误判，返工窗口也只剩几天。</div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">02</div>
+          <div class="in-title">单点总线风险</div>
+          <div class="in-desc">477 次提交、36 个特性分支来自<b>单一作者</b>，bus factor = 1；上下文大量存在于个人脑中，交接靠 handoff 文档兜底，<b>不是可持续的工程结构</b>。</div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">03</div>
+          <div class="in-title">跨平台证据缺口</div>
+          <div class="in-desc">六目标里只有 <b>win-x64 / Windows 10 22H2</b> 有真机证据；mac-x64、mac-arm64、linux-x64、linux-arm64 按 ADR 0005 / 0008 记 <b>deferred</b>——<b>不得据此宣称跨平台</b>。</div>
+        </div>
+
+        <div class="in-card reveal">
+          <div class="in-no">04</div>
+          <div class="in-title">证据归属待收口</div>
+          <div class="in-desc">体验包建在含 54 个未提交改动的工作树上，<b>G0–G2 未在干净 revision 上重跑</b>；门禁自己的规则是「dirty 判死」，这条也得对自己生效。</div>
+        </div>
+      </div>
+
+      <div class="summary-strip reveal">
+        <div class="ss-title">诚实口径</div>
+        未过 <b>G4</b> 不称 Anvil V1 可交付，未过 <b>G5</b> 不称正式发行完成。<br>本年度结论是「<b>基座成立、验收未闭合</b>」，不是「已完成」。
+      </div>
+    </div>
+
+    <!-- ═══ P7 年度规划 ═══ -->
+    <div class="slide" id="s-p7">
+      <div class="slide-header">
+        <span class="slide-index">07</span>
+        <span class="slide-sub">结清证据 → 跨平台真机 → G4/G5 交付</span>
+      </div>
+      <h2>2027 年度规划</h2>
+      <div class="gold-line"></div>
+
+      <div class="direction-strip reveal">
+        整体方向：从 <b>「单机可用的体验包」</b> 推进到 <b>「过 G4 的内部版本、过 G5 的公开发行」</b>
+      </div>
+
+      <div class="plan-grid">
+        <div class="plan-card reveal">
+          <div class="pl-top">
+            <div class="pl-phase">PHASE 1 · 结清</div>
+            <div class="pl-name">把证据钉回干净 revision</div>
+            <div class="pl-dir">核心工作：<b>拆分 54 个未提交改动 + 重跑 G0–G2</b></div>
+          </div>
+          <div class="pl-body">
+            <div class="pl-item">
+              <div class="pli-lbl">重点目标</div>
+              <ul>
+                <li>未提交改动按模块拆成可审查提交</li>
+                <li>干净工作树上重跑 <b>G0 界面 / G1 多 Agent / G2 会话</b></li>
+                <li>v1-gates 的 case 状态逐条对齐当前 revision</li>
+                <li>历史 PASS 与新范围做显式映射，不默认继承</li>
+              </ul>
+            </div>
+            <div class="pl-metrics">
+              <div class="pm-title">目标指标</div>
+              <ul>
+                <li>183 份证据全部绑定干净 revision</li>
+                <li>门禁报告 <b>0 条 dirty / 0 条重复位</b></li>
+                <li>G0–G2 全部 case 有 PASS 或明确的 BLOCKED 记录</li>
+              </ul>
+            </div>
+          </div>
+          <div class="pl-foot">
+            <span class="tag state">◌ 当前状态：进行中</span>
+            <span class="tag role">👤 个人角色：主要负责人</span>
+          </div>
+        </div>
+
+        <div class="plan-card reveal">
+          <div class="pl-top">
+            <div class="pl-phase">PHASE 2 · 跨平台</div>
+            <div class="pl-name">补齐四目标真机矩阵</div>
+            <div class="pl-dir">核心方向：<b>mac-x64 / mac-arm64 / linux-x64 / linux-arm64</b>，Linux 双 display 各一份</div>
+          </div>
+          <div class="pl-body">
+            <div class="pl-item">
+              <div class="pli-lbl">重点建设</div>
+              <ul>
+                <li>真机环境与架构证据（ENV02）</li>
+                <li>X11 / Wayland 两个会话的 native 套件</li>
+                <li>WebView 承载在各平台的等价行为对照</li>
+                <li>deferred 清单逐条转正或写清阻塞原因</li>
+              </ul>
+            </div>
+            <div class="pl-metrics">
+              <div class="pm-title">目标</div>
+              <ul>
+                <li>四个目标从 deferred 变为<b>实测 PASS</b></li>
+                <li>跨平台声明<b>以真机证据为前提</b>，不再用「应该可以」表述</li>
+              </ul>
+            </div>
+          </div>
+          <div class="pl-foot">
+            <span class="tag state">◌ 当前状态：未开始</span>
+          </div>
+        </div>
+
+        <div class="plan-card reveal">
+          <div class="pl-top">
+            <div class="pl-phase">PHASE 3 · 交付</div>
+            <div class="pl-name">G4 / G5 与安装器</div>
+            <div class="pl-dir">核心方向：<b>F06 安装器 + 签名 + 发布通道 + package suite 重跑</b></div>
+          </div>
+          <div class="pl-body">
+            <div class="pl-item">
+              <div class="pli-lbl">重点探索</div>
+              <ul>
+                <li>应用托管安装 / 升级流程（不覆盖外部 Pi）</li>
+                <li>代码签名与发行通道</li>
+                <li>重编后的最终包必须重跑 package suite</li>
+                <li>把 bus factor 从 1 降到 2：双人 review + 文档化交接</li>
+              </ul>
+            </div>
+            <div class="pl-metrics">
+              <div class="pm-title">目标</div>
+              <ul>
+                <li>内部版本达到 <b>G4</b></li>
+                <li>公开版本达到 <b>G5</b></li>
+                <li>核心模块<b>双人可维护</b></li>
+              </ul>
+            </div>
+          </div>
+          <div class="pl-foot">
+            <span class="tag state">◌ 当前状态：规划中</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-strip reveal">
+        <div class="ss-title">规划总结</div>
+        2027 年的第一件事不是加功能，而是<b>把 2026 年已经做过的事，用干净证据重新证明一遍</b>。
+      </div>
+    </div>
+
+    <!-- ═══ P8 年度总结 ═══ -->
+    <div class="slide final" id="s-p8">
+      <div class="slide-header" style="justify-content:center;">
+        <span class="slide-index">08</span>
+        <span class="slide-sub">年度复盘 · 未来展望</span>
+      </div>
+      <div class="f-title reveal">年度总结</div>
+      <div class="gold-line" style="margin:0 auto 26px;"></div>
+
+      <div class="reveal" style="font-size:15.5px;color:var(--text-dim);line-height:1.8;max-width:860px;margin:0 auto;">
+        这一年 Anvil 完成了从「能演示」到「<b style="color:var(--text);">能验收</b>」的性质转变
+      </div>
+
+      <div class="transition-flow reveal">
+        <div class="tf-box from">
+          <div class="tf-caption">从</div>
+          <div class="tf-text">「看起来能用」</div>
+        </div>
+        <div class="tf-arrow">→</div>
+        <div class="tf-box to">
+          <div class="tf-caption">逐步转变为</div>
+          <div class="tf-text">「证据说通过」</div>
+        </div>
+      </div>
+
+      <div class="sub-block-title reveal">
+        <span class="sbt-no">GROWTH</span>
+        <span class="sbt-text">年度持续成长的五个方面</span>
+      </div>
+
+      <div class="growth-grid">
+        <div class="growth-card reveal">
+          <div class="gr-name">架构决断</div>
+          <div class="gr-arrow">→</div>
+          <div class="gr-desc">两次换壳、三次收窄，<b>全部留痕于 ADR</b></div>
+        </div>
+        <div class="growth-card reveal">
+          <div class="gr-name">门禁工程</div>
+          <div class="gr-arrow">→</div>
+          <div class="gr-desc">把「通过」做成<b>不可伪造</b>的判定</div>
+        </div>
+        <div class="growth-card reveal">
+          <div class="gr-name">隔离与安全</div>
+          <div class="gr-arrow">→</div>
+          <div class="gr-desc">Pi 探测隔离、权限档位钉住、凭证入 DPAPI</div>
+        </div>
+        <div class="growth-card reveal">
+          <div class="gr-name">桌面与前端</div>
+          <div class="gr-arrow">→</div>
+          <div class="gr-desc">原生 WebView2 与 React 界面<b>等价行为</b>对齐</div>
+        </div>
+        <div class="growth-card reveal">
+          <div class="gr-name">取证与文档</div>
+          <div class="gr-arrow">→</div>
+          <div class="gr-desc">68 篇设计 / 计划 / 验收文档 + 183 份证据</div>
+        </div>
+      </div>
+
+      <div class="future-strip reveal">
+        <div class="fs-line">
+          <b>未来：</b>把 Anvil 从「单机可用的体验包」推进到「<b>过 G4 的内部版本</b>」，<br>
+          再以真机证据换取跨平台与公开发行的资格。
+        </div>
+        <div class="fs-turns">
+          <span>从「完成功能」</span><span class="arr">→</span><span>走向「闭合证据」</span>
+          <span class="arr">｜</span>
+          <span>从「个人交付」</span><span class="arr">→</span><span>走向「团队可维护」</span>
+        </div>
+      </div>
+
+      <div class="thanks reveal">
+        感谢<b>领导及团队</b>这一年的指导与支持。
+      </div>
+
+      <div class="closing-tag reveal">
+        Anvil · 2026 年度项目总结 · win-x64 / Windows 10 22H2 · build 20261116-v8
+      </div>
+    </div>
+
+  </div>
+  <script>
+    (function () {
+      var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+      var tabs = document.querySelectorAll('#tabs a');
+      var dots = document.querySelectorAll('#dots a');
+      var progress = document.getElementById('progressBar');
+
+      function onScroll() {
+        var scrollTop = window.scrollY || document.documentElement.scrollTop;
+        var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        progress.style.width = (docHeight > 0 ? (scrollTop / docHeight * 100) : 0) + '%';
+
+        var current = 0;
+        slides.forEach(function (s, i) {
+          if (s.offsetTop - 120 <= scrollTop) current = i;
+        });
+        tabs.forEach(function (t) { t.classList.remove('active'); });
+        dots.forEach(function (d) { d.classList.remove('active'); });
+        var tabIndex = current >= 1 ? current - 1 : -1;
+        if (tabIndex >= 0 && tabs[tabIndex]) tabs[tabIndex].classList.add('active');
+        if (dots[current]) dots[current].classList.add('active');
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll);
+      onScroll();
+
+      // 键盘翻页
+      document.addEventListener('keydown', function (e) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) return;
+        var ids = ['#s-cover', '#s-p1', '#s-p2', '#s-p3', '#s-p4', '#s-p5', '#s-p6', '#s-p7', '#s-p8'];
+        if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+          e.preventDefault();
+          var cur = slides.findIndex(function (s) { return s.getBoundingClientRect().top > 10; });
+          if (cur === -1) cur = slides.length;
+          scrollToId(ids[Math.min(cur, ids.length - 1)]);
+        } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+          e.preventDefault();
+          var below = slides.filter(function (s) { return s.getBoundingClientRect().top < -10; });
+          scrollToId(ids[Math.max(below.length - 1, 0)]);
+        }
+      });
+
+      function scrollToId(id) {
+        var el = document.querySelector(id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      // 数字滚动
+      function animateCount(el) {
+        var target = parseFloat(el.getAttribute('data-count'));
+        if (isNaN(target)) return;
+        var duration = 1300, start = null;
+        function step(ts) {
+          if (!start) start = ts;
+          var p = Math.min((ts - start) / duration, 1);
+          var eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = Math.round(target * eased).toLocaleString('zh-CN');
+          if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+
+      // 滚动进入动画 + 数字触发
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            e.target.classList.add('in');
+            e.target.querySelectorAll('[data-count]').forEach(function (n) { if (!n.dataset.done) { n.dataset.done = '1'; animateCount(n); } });
+            io.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.12 });
+
+      document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+    })();
+  </script>
+</body>
+
+</html>

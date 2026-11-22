@@ -1,0 +1,128 @@
+name: Build installers
+
+# Every push to main builds the real platform installers. Build jobs publish
+# workflow artifacts; one final job collects them into a single GitHub Release
+# so a matrix race cannot create four half-filled releases.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# The checked-in .cargo/config.toml pins an absolute Windows path for local
+# builds. CI must override it or the runner tries to create a directory named
+# "D:" relative to the checkout.
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            platform: windows-latest
+            bundles: msi,nsis
+            args: ""
+          - name: macos-arm64
+            platform: macos-latest
+            bundles: dmg,app
+            args: --target aarch64-apple-darwin
+          - name: macos-x64
+            platform: macos-latest
+            bundles: dmg,app
+            args: --target x86_64-apple-darwin
+          - name: linux-x64
+            platform: ubuntu-22.04
+            bundles: deb,appimage,rpm
+            args: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf xdg-utils
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build platform installers
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          # No tagName / releaseName here: this job only builds and uploads
+          # workflow artifacts. `release` creates one release from all of them.
+          args: --bundles ${{ matrix.bundles }} ${{ matrix.args }}
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: anvil-${{ matrix.name }}-[bundle]
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download every platform bundle
+        uses: actions/download-artifact@v4
+        with:
+          pattern: anvil-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: List bundles
+        run: find artifacts -maxdepth 2 -type f -printf '%P %s bytes\n' | sort
+
+      - name: Read app version
+        id: version
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish one release with all installers
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
+          name: Anvil v${{ steps.version.outputs.value }} (build ${{ github.run_number }})
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/*.msi
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.app
+            artifacts/*.deb
+            artifacts/*.rpm
+            artifacts/*.AppImage

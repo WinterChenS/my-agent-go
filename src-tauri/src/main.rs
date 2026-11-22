@@ -1,3 +1,9 @@
+// A release binary started from Explorer / the Start menu must not open a
+// console window first: this is a GUI app. Debug builds keep the console so
+// `cargo run` and the native test runner still show diagnostics. Startup
+// failures are reported by a message box (see below), not by stderr.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 fn main() {
     if let Err(error) = anvil::desktop::run() {
         eprintln!("Anvil: {error}");
