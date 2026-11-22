@@ -31,15 +31,9 @@
 //! are reported as [`PathError::OutsideD`] with the share or namespace as the
 //! volume, because they are not the local `D:` volume.
 //!
-//! The crate is Windows-only: macOS/Linux write roots have not been decided yet,
-//! so building elsewhere fails instead of silently accepting a path.
-
-#[cfg(not(windows))]
-compile_error!(
-    "crates/anvil-paths implements the Windows D:-only write rule. The macOS/Linux write roots \
-     are not decided yet (docs/superpowers/specs/2026-11-10-anvil-rust-tauri-design.md), so this \
-     crate refuses to build rather than silently accepting a non-D: root."
-);
+//! On macOS/Linux the same API resolves absolute paths with `canonicalize`
+//! and reports `/` as the volume. The D:-only contract stays Windows-only:
+//! `validate_d_path` and the volume helpers are unchanged there.
 
 #[cfg(windows)]
 mod win;
@@ -237,6 +231,12 @@ pub fn final_path(path: &Path) -> io::Result<PathBuf> {
     win::final_path(path)
 }
 
+/// On Unix, `canonicalize` follows symlinks; there is no junction API to call.
+#[cfg(not(windows))]
+pub fn final_path(path: &Path) -> io::Result<PathBuf> {
+    std::fs::canonicalize(path)
+}
+
 /// Validate that `path` is a writable location on `D:`.
 ///
 /// With `create == false` the path must already exist and be writable;
@@ -343,6 +343,7 @@ struct RequestedPath {
 }
 
 impl RequestedPath {
+    #[cfg(windows)]
     fn parse(path: &Path) -> Result<Self, PathError> {
         if path.as_os_str().is_empty() || path.to_string_lossy().trim().is_empty() {
             return Err(PathError::EmptyPath);
@@ -389,6 +390,33 @@ impl RequestedPath {
         }
 
         let mut absolute = PathBuf::from(format!("{volume}\\"));
+        absolute.extend(parts.iter());
+        Ok(Self { absolute })
+    }
+
+    #[cfg(not(windows))]
+    fn parse(path: &Path) -> Result<Self, PathError> {
+        if path.as_os_str().is_empty() || path.to_string_lossy().trim().is_empty() {
+            return Err(PathError::EmptyPath);
+        }
+        if !path.is_absolute() {
+            return Err(PathError::RelativePath {
+                path: path.to_path_buf(),
+            });
+        }
+        let mut parts: Vec<OsString> = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    parts.pop();
+                }
+                Component::Normal(name) => parts.push(name.to_os_string()),
+                // RootDir is the absolute anchor; Prefix cannot occur on Unix.
+                Component::RootDir | Component::Prefix(_) => {}
+            }
+        }
+        let mut absolute = PathBuf::from("/");
         absolute.extend(parts.iter());
         Ok(Self { absolute })
     }
@@ -447,6 +475,7 @@ fn prefix_volume(prefix: &Prefix<'_>, path: &Path) -> String {
 }
 
 /// Volume of an absolute path, derived from its prefix.
+#[cfg(windows)]
 fn volume_of(path: &Path) -> Result<String, PathError> {
     match path.components().next() {
         Some(Component::Prefix(prefix)) => Ok(prefix_volume(&prefix.kind(), path)),
@@ -457,6 +486,22 @@ fn volume_of(path: &Path) -> Result<String, PathError> {
                 "path has no volume prefix",
             )),
         }),
+    }
+}
+
+/// Unix has one root volume; the D:-only check never applies here.
+#[cfg(not(windows))]
+fn volume_of(path: &Path) -> Result<String, PathError> {
+    if path.is_absolute() {
+        Ok("/".to_string())
+    } else {
+        Err(PathError::Resolve {
+            path: path.to_path_buf(),
+            source: Box::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path has no absolute root",
+            )),
+        })
     }
 }
 
