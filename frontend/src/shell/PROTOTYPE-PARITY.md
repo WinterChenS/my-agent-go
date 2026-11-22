@@ -234,6 +234,13 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - Concurrency has no runtime switch in pi's extension; it reaches the parent as
   a line in the roster ("同时最多并行 N 个子任务"), which is an instruction, not a
   hard cap.
+- A sub agent cannot own another sub agent. Selecting one makes the 子 Agent tab
+  count only its real children (zero), show an explicit empty state, and hide the
+  委派策略 / 并发 controls and 新建子 Agent button — those belong to the parent
+  main agent, and rendering them on a child edits the wrong row. `begin('sub')`
+  from a selected child also files the new child under its parent, never under
+  the child. After a save, an unexpected catalog response keeps the open editor
+  instead of falling back to `agents[0]` (the default main agent).
 
 ## R0-07 skills
 
