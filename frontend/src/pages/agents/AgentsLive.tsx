@@ -226,7 +226,15 @@ export default function AgentsLive() {
       runtimeId,
       modelId: modelsFor(runtimeId)[0]?.modelId ?? '',
       groupKind,
-      delegatedFrom: groupKind === 'sub' ? (editor?.id ?? 'default') : '',
+      // A sub agent cannot own another sub agent in pi. If one is selected,
+      // put the new child under its parent (or the default main agent) instead
+      // of filing it under a row that can never delegate.
+      delegatedFrom:
+        groupKind === 'sub'
+          ? editor && editor.draft.groupKind === 'sub'
+            ? editor.draft.delegatedFrom || 'default'
+            : editor?.id ?? 'default'
+          : '',
     }
     setEditorState({ id: null, draft })
     setTab('basic')
@@ -265,11 +273,18 @@ export default function AgentsLive() {
     try {
       const next = await saveCatalogAgent(draft)
       catalog.apply(next)
+      // Never fall back to `agents[0]`: after a failed lookup that would leave
+      // the user editing the default main agent while believing the sub agent
+      // was just saved. Keep the exact row that was open, or the old editor.
       const saved =
         next.agents.find((agent) => agent.id === draft.id) ??
         next.agents.find((agent) => agent.slug === draft.slug) ??
-        next.agents[0]
-        setEditorState(saved ? { id: saved.id, draft: agentToDraft(saved) } : editor)
+        null
+      setEditorState(
+        saved && (saved.id === editor.id || saved.slug === draft.slug)
+          ? { id: saved.id, draft: agentToDraft(saved) }
+          : editor,
+      )
       setNotice(t('agents.live.savedPersona'))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -313,14 +328,22 @@ export default function AgentsLive() {
 
   const draft = editor?.draft ?? null
   const selected = editor?.id ? agents.find((agent) => agent.id === editor.id) ?? null : null
-  const subRows = subAgents.filter((agent) => agent.delegatedFrom === editor?.id || !agent.delegatedFrom)
+  // Delegation policy belongs to the parent. A sub agent cannot have children
+  // of its own in pi, so the 子 Agent tab must not list the selected sub agent
+  // as if it were one, and must not offer controls that edit the wrong row.
+  const nestedSub = draft?.groupKind === 'sub'
+  const subRows = subAgents.filter((agent) => {
+    if (agent.id === editor?.id) return false
+    if (nestedSub) return agent.delegatedFrom === editor?.id
+    return agent.delegatedFrom === editor?.id || !agent.delegatedFrom
+  })
   const subStates = new Map((overview?.rows ?? []).map((row) => [row.slug, row]))
   const draftModels = draft ? modelsFor(draft.runtimeId) : []
   const draftSkills = draft ? skillsFor(draft.runtimeId) : []
   const tabs: Array<{ id: AgentTab; label: string }> = [
     { id: 'basic', label: t('agents.tab.basic') },
     { id: 'prompt', label: t('agents.tab.prompt') },
-    { id: 'sub', label: t('agents.tab.sub', { count: subAgents.length }) },
+    { id: 'sub', label: t('agents.tab.sub', { count: nestedSub ? subRows.length : subAgents.length }) },
     { id: 'perm', label: t('agents.tab.perm') },
     { id: 'runs', label: t('agents.tab.runs') },
   ]
@@ -516,11 +539,12 @@ export default function AgentsLive() {
                       draft={draft}
                       patch={patch}
                       rows={subRows}
-                      subTotal={subAgents.length}
+                      subTotal={nestedSub ? subRows.length : subAgents.length}
                       onNew={() => begin('sub')}
                       onToggleSub={(agent) => void toggleSubAgent(agent)}
                       states={subStates}
                       dir={overview?.dir ?? ''}
+                      nested={nestedSub}
                       t={t}
                     />
                   ) : null}
@@ -874,6 +898,7 @@ function SubPanel({
   onToggleSub,
   states,
   dir,
+  nested,
   t,
 }: {
   draft: CatalogAgentDraft
@@ -884,6 +909,7 @@ function SubPanel({
   onToggleSub: (agent: CatalogAgent) => void
   states: Map<string, SubagentRowState>
   dir: string
+  nested: boolean
   t: Translate
 }) {
   return (
@@ -900,6 +926,12 @@ function SubPanel({
         <Icon name="folder" size={13} />
         <span>{t('agents.sub.stateHint', { dir: dir || '~/.pi/agent/agents' })}</span>
       </div>
+      {nested ? (
+        <div className="agents-notice is-muted" data-testid="agent-sub-nested">
+          <Icon name="alert" size={13} />
+          <span>{t('agents.sub.nestedHint')}</span>
+        </div>
+      ) : null}
       <div className="agents-table-wrap">
         <table className="agents-table">
           <thead>
@@ -942,39 +974,47 @@ function SubPanel({
               )
             })}
             {rows.length === 0 ? (
-              <tr><td colSpan={5} className="agents-list-empty">{t('agents.live.subEmpty', { count: subTotal })}</td></tr>
+              <tr>
+                <td colSpan={5} className="agents-list-empty" data-testid="agent-sub-empty">
+                  {nested ? t('agents.sub.nestedEmpty') : t('agents.live.subEmpty', { count: subTotal })}
+                </td>
+              </tr>
             ) : null}
           </tbody>
         </table>
       </div>
-      <div className="agents-form-grid">
-        <label className="agents-field">
-          <span>{t('agents.sub.policy')}</span>
-          <select
-            aria-label={t('agents.sub.policy')}
-            value={draft.delegationPolicy}
-            onChange={(event) => patch({ delegationPolicy: event.target.value as CatalogAgent['delegationPolicy'] })}
-          >
-            {POLICIES.map((policy) => <option key={policy.id} value={policy.id}>{t(policy.key)}</option>)}
-          </select>
-          <small>{t('agents.sub.policyHint')}</small>
-        </label>
-        <label className="agents-field">
-          <span>{t('agents.sub.concurrency')}</span>
-          <select
-            aria-label={t('agents.sub.concurrency')}
-            value={draft.concurrency}
-            onChange={(event) => patch({ concurrency: Number(event.target.value) })}
-          >
-            {[2, 4, 8].map((limit) => <option key={limit} value={limit}>{limit}</option>)}
-          </select>
-          <small>{t('agents.sub.concurrencyHint')}</small>
-        </label>
-      </div>
-      <button type="button" className="agents-btn" onClick={onNew}>
-        <Icon name="plus" size={13} />
-        {t('agents.sub.new')}
-      </button>
+      {!nested ? (
+        <>
+          <div className="agents-form-grid">
+          <label className="agents-field">
+            <span>{t('agents.sub.policy')}</span>
+            <select
+              aria-label={t('agents.sub.policy')}
+              value={draft.delegationPolicy}
+              onChange={(event) => patch({ delegationPolicy: event.target.value as CatalogAgent['delegationPolicy'] })}
+            >
+              {POLICIES.map((policy) => <option key={policy.id} value={policy.id}>{t(policy.key)}</option>)}
+            </select>
+            <small>{t('agents.sub.policyHint')}</small>
+          </label>
+          <label className="agents-field">
+            <span>{t('agents.sub.concurrency')}</span>
+            <select
+              aria-label={t('agents.sub.concurrency')}
+              value={draft.concurrency}
+              onChange={(event) => patch({ concurrency: Number(event.target.value) })}
+            >
+              {[2, 4, 8].map((limit) => <option key={limit} value={limit}>{limit}</option>)}
+            </select>
+            <small>{t('agents.sub.concurrencyHint')}</small>
+          </label>
+          </div>
+          <button type="button" className="agents-btn" onClick={onNew}>
+            <Icon name="plus" size={13} />
+            {t('agents.sub.new')}
+          </button>
+        </>
+      ) : null}
     </div>
   )
 }

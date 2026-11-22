@@ -179,6 +179,30 @@ describe('agents live page — prototype parity and real persona', () => {
     expect(tabs).toEqual(['基础配置', '指令与工具', '子 Agent 0', '权限边界', '运行记录'])
   })
 
+  it('does not show a selected sub agent as its own child or let it edit the parent policy', async () => {
+    const sub = agent('agent-sub', '侦察员', {
+      groupKind: 'sub',
+      description: '只读侦察',
+      delegatedFrom: 'default',
+    })
+    mocks.loadCatalog.mockResolvedValue({ ...snapshot, agents: [...agents, sub] } as CatalogSnapshot)
+    renderPage()
+    await screen.findByTestId('agents-live-list')
+
+    await userEvent.click(screen.getByTestId('agents-live-row-agent-sub'))
+    await userEvent.click(screen.getByRole('tab', { name: '子 Agent 0' }))
+    expect(screen.getByTestId('agent-sub-nested')).toHaveTextContent('pi 不支持')
+    expect(screen.getByTestId('agent-sub-empty')).toHaveTextContent('没有下级子 Agent')
+    expect(screen.queryByLabelText('委派策略')).toBeNull()
+    expect(screen.queryByLabelText('并发上限')).toBeNull()
+
+    // The main agent keeps its child list and its own policy control.
+    await userEvent.click(screen.getByTestId('agents-live-row-default'))
+    await userEvent.click(screen.getByRole('tab', { name: '子 Agent 1' }))
+    expect(screen.getByLabelText('委派策略')).toBeTruthy()
+    expect(screen.getAllByText('侦察员').length).toBeGreaterThan(1)
+  })
+
   it('saves the persona: system prompt, thinking level, tool switch and skill', async () => {
     renderPage()
     await screen.findByTestId('agents-live-list')
