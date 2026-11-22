@@ -991,6 +991,35 @@ impl Store {
     /// that is not installed would look saved and then fail at the first turn.
     /// Everything else is the agent's persona and is stored as sent, so saving
     /// a page and reopening it shows exactly what the user typed.
+    /// A fresh `agent-…` id that no row holds.
+    ///
+    /// Second-resolution ids collided: two agents created inside the same second
+    /// shared an id, and the upsert silently replaced the first one — the user
+    /// saw "saved" and ended up with one agent. Milliseconds plus a process-wide
+    /// counter, then a real existence check, because a counter resets on restart.
+    fn next_agent_id(&self) -> Result<String> {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_millis())
+            .unwrap_or_default();
+        loop {
+            let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let candidate = format!("agent-{millis}-{seq}");
+            let taken: Option<i64> = self
+                .connection
+                .query_row(
+                    "SELECT 1 FROM agents WHERE id = ?1",
+                    params![candidate],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if taken.is_none() {
+                return Ok(candidate);
+            }
+        }
+    }
+
     pub fn save_agent(&self, draft: &AgentDraft, now: &str) -> Result<AgentRecord> {
         let name = draft.name.trim();
         if name.is_empty() {
@@ -1017,7 +1046,7 @@ impl Store {
         }
         let id = match draft.id.as_deref().filter(|value| !value.trim().is_empty()) {
             Some(value) => value.to_string(),
-            None => format!("agent-{}", crate::clock::unix_now()),
+            None => self.next_agent_id()?,
         };
         let slug = match draft.slug.trim() {
             "" => id.clone(),

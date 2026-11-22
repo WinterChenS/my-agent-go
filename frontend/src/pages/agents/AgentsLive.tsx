@@ -16,6 +16,7 @@ import {
   blankAgentDraft,
   deleteCatalogAgent,
   loadAgentRuns,
+  loadSubagentOverview,
   normalizeAgent,
   saveCatalogAgent,
   type AgentRun,
@@ -24,6 +25,8 @@ import {
   type CatalogModel,
   type CatalogRuntime,
   type CatalogSkill,
+  type SubagentOverview,
+  type SubagentRowState,
 } from '../../catalog/client'
 import { useCatalog } from '../../catalog/useCatalog'
 import Icon from '../../shell/Icon'
@@ -152,6 +155,7 @@ export default function AgentsLive() {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [mobilePane, setMobilePane] = useState<'list' | 'detail'>('detail')
   const [runs, setRuns] = useState<AgentRun[]>([])
+  const [overview, setOverview] = useState<SubagentOverview | null>(null)
   const [runsState, setRunsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const mainAgents = agents.filter((agent) => agent.groupKind !== 'sub')
   const subAgents = agents.filter((agent) => agent.groupKind === 'sub')
@@ -183,6 +187,23 @@ export default function AgentsLive() {
       alive = false
     }
   }, [tab, editor?.id, notice])
+
+  // Which sub agents pi can be asked for right now. Read-only: saving an agent
+  // is what writes the file, so this refreshes after every save/delete.
+  const subCount = subAgents.length
+  useEffect(() => {
+    let alive = true
+    loadSubagentOverview()
+      .then((next) => {
+        if (alive) setOverview(next)
+      })
+      .catch(() => {
+        if (alive) setOverview(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [subCount, notice])
 
   const patch = (change: Partial<CatalogAgentDraft>) =>
     setEditorState((current) => {
@@ -227,6 +248,12 @@ export default function AgentsLive() {
     }
     if (!/^[a-z0-9-]+$/.test(draft.slug)) {
       setError(t('agents.validation.slugInvalid'))
+      return
+    }
+    if (draft.groupKind === 'sub' && !draft.description.trim()) {
+      // The description is the whole selection input: pi drops a file without
+      // one, and the parent has nothing to choose the agent by.
+      setError(t('agents.validation.subDescription'))
       return
     }
     if (!draft.runtimeId || !draft.modelId) {
@@ -287,6 +314,7 @@ export default function AgentsLive() {
   const draft = editor?.draft ?? null
   const selected = editor?.id ? agents.find((agent) => agent.id === editor.id) ?? null : null
   const subRows = subAgents.filter((agent) => agent.delegatedFrom === editor?.id || !agent.delegatedFrom)
+  const subStates = new Map((overview?.rows ?? []).map((row) => [row.slug, row]))
   const draftModels = draft ? modelsFor(draft.runtimeId) : []
   const draftSkills = draft ? skillsFor(draft.runtimeId) : []
   const tabs: Array<{ id: AgentTab; label: string }> = [
@@ -484,7 +512,17 @@ export default function AgentsLive() {
                     <PromptPanel draft={draft} patch={patch} skills={draftSkills} t={t} />
                   ) : null}
                   {tab === 'sub' ? (
-                    <SubPanel draft={draft} patch={patch} rows={subRows} subTotal={subAgents.length} onNew={() => begin('sub')} onToggleSub={(agent) => void toggleSubAgent(agent)} t={t} />
+                    <SubPanel
+                      draft={draft}
+                      patch={patch}
+                      rows={subRows}
+                      subTotal={subAgents.length}
+                      onNew={() => begin('sub')}
+                      onToggleSub={(agent) => void toggleSubAgent(agent)}
+                      states={subStates}
+                      dir={overview?.dir ?? ''}
+                      t={t}
+                    />
                   ) : null}
                   {tab === 'perm' ? <PermPanel draft={draft} patch={patch} t={t} /> : null}
                   {tab === 'runs' ? (
@@ -818,6 +856,15 @@ function PromptPanel({
   )
 }
 
+const SUB_STATE_KEYS: Record<string, MessageKey> = {
+  ready: 'agents.sub.state.ready',
+  pending: 'agents.sub.state.pending',
+  conflict: 'agents.sub.state.conflict',
+  'no-description': 'agents.sub.state.noDescription',
+  disabled: 'agents.sub.state.disabled',
+  'other-runtime': 'agents.sub.state.otherRuntime',
+}
+
 function SubPanel({
   draft,
   patch,
@@ -825,6 +872,8 @@ function SubPanel({
   subTotal,
   onNew,
   onToggleSub,
+  states,
+  dir,
   t,
 }: {
   draft: CatalogAgentDraft
@@ -833,6 +882,8 @@ function SubPanel({
   subTotal: number
   onNew: () => void
   onToggleSub: (agent: CatalogAgent) => void
+  states: Map<string, SubagentRowState>
+  dir: string
   t: Translate
 }) {
   return (
@@ -844,6 +895,10 @@ function SubPanel({
       <div className="agents-notice is-muted" data-testid="agent-sub-limit">
         <Icon name="alert" size={13} />
         <span>{t('agents.live.delegationHint')}</span>
+      </div>
+      <div className="agents-notice is-muted" data-testid="agent-sub-dir">
+        <Icon name="folder" size={13} />
+        <span>{t('agents.sub.stateHint', { dir: dir || '~/.pi/agent/agents' })}</span>
       </div>
       <div className="agents-table-wrap">
         <table className="agents-table">
@@ -857,9 +912,26 @@ function SubPanel({
             </tr>
           </thead>
           <tbody>
-            {rows.map((agent) => (
+            {rows.map((agent) => {
+              const state = states.get(agent.slug)
+              const key = state ? SUB_STATE_KEYS[state.state] : undefined
+              return (
               <tr key={agent.id}>
-                <td><span className="agents-table-agent"><span className="agents-badge agents-badge-sm">{agent.name.slice(0, 1)}</span>{agent.name}</span></td>
+                <td>
+                  <span className="agents-table-agent">
+                    <span className="agents-badge agents-badge-sm">{agent.name.slice(0, 1)}</span>
+                    {agent.name}
+                    {state && key ? (
+                      <span
+                        className="agents-sub-state"
+                        data-state={state.state}
+                        title={state.detail || t(key)}
+                      >
+                        {t(key)}
+                      </span>
+                    ) : null}
+                  </span>
+                </td>
                 <td>{agent.runtimeId}</td>
                 <td className="mono">{agent.modelId}</td>
                 <td className="mono">{agent.concurrency}</td>
@@ -867,7 +939,8 @@ function SubPanel({
                   <Switch checked={agent.enabled} label={`${agent.name} ${t('agents.sub.table.enabled')}`} onChange={() => onToggleSub(agent)} />
                 </td>
               </tr>
-            ))}
+              )
+            })}
             {rows.length === 0 ? (
               <tr><td colSpan={5} className="agents-list-empty">{t('agents.live.subEmpty', { count: subTotal })}</td></tr>
             ) : null}

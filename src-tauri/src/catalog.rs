@@ -21,6 +21,9 @@ use anvil_catalog::runtime::adapter::{McpProbe, ModelVerification};
 use anvil_catalog::{CatalogService, Store};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::state::HostState;
+use crate::subagents::{SubagentOverview, sync_agents};
+
 /// Emitted once the background discovery pass has committed its rows.
 pub const CATALOG_SCANNED_EVENT: &str = "anvil://catalog-scanned";
 
@@ -372,27 +375,68 @@ pub async fn catalog_set_model_enabled(
 /// Save one agent: name, binding and every persona field the page edits.
 #[tauri::command]
 pub async fn catalog_save_agent(
+    app: AppHandle,
     state: State<'_, CatalogState>,
     agent: anvil_catalog::model::AgentDraft,
 ) -> Result<CatalogSnapshot, String> {
-    state.with_service(|service| {
+    let snapshot = state.with_service(|service| {
         service
             .save_agent(&agent)
             .map_err(|error| error.to_wire())?;
         service.snapshot().map_err(|error| error.to_wire())
-    })
+    })?;
+    // A sub agent is only real once pi can read it, so the row and the file are
+    // written in the same call: a saved agent that the runtime has never heard of
+    // is exactly the state this page used to be stuck in.
+    log_sync(&app, &snapshot);
+    Ok(snapshot)
 }
 
 /// Remove one saved agent. The derived default agent cannot be removed.
 #[tauri::command]
 pub async fn catalog_delete_agent(
+    app: AppHandle,
     state: State<'_, CatalogState>,
     id: String,
 ) -> Result<CatalogSnapshot, String> {
-    state.with_service(|service| {
+    let snapshot = state.with_service(|service| {
         service.delete_agent(&id).map_err(|error| error.to_wire())?;
         service.snapshot().map_err(|error| error.to_wire())
-    })
+    })?;
+    // Deleting the row removes the file this app wrote for it, and nothing else.
+    log_sync(&app, &snapshot);
+    Ok(snapshot)
+}
+
+/// Write every sub-agent row to pi's agent directory and log what happened.
+fn log_sync(app: &AppHandle, snapshot: &CatalogSnapshot) {
+    let report = sync_agents(&snapshot.agents);
+    if report.is_noop() {
+        return;
+    }
+    let dir = crate::subagents::agents_dir();
+    let state = app.state::<HostState>();
+    state
+        .config
+        .log
+        .info(&crate::subagents::summary(dir, &report));
+}
+
+/// Which sub agents pi can actually be asked for right now.
+///
+/// Read-only on purpose: the page draws per-row state from this, and a page load
+/// must not rewrite files. The snapshot save is what writes them.
+#[tauri::command]
+pub async fn subagent_overview(
+    state: State<'_, CatalogState>,
+) -> Result<SubagentOverview, String> {
+    let agents = state.with_service(|service| {
+        service
+            .snapshot()
+            .map(|snapshot| snapshot.agents)
+            .map_err(|error| error.to_wire())
+    })?;
+    Ok(crate::subagents::overview(&agents))
 }
 
 /// Connect to one declared MCP server and enumerate its tools.

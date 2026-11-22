@@ -405,6 +405,10 @@ export interface PiSubagentStatus {
   agents: number
   prompts: number
   canInstall: boolean
+  /** The installed copy is behind the one inside the current pi package. */
+  updateAvailable: boolean
+  installedDigest?: string
+  sourceDigest?: string
   detail?: string
 }
 
@@ -421,6 +425,37 @@ export function piSubagentStatus(): Promise<PiSubagentStatus> {
 
 export function installPiSubagent(): Promise<PiSubagentInstall> {
   return hostCall<PiSubagentInstall>('pi_subagent_install')
+}
+
+/**
+ * Replace the installed extension sources with the current pi package's copy.
+ * Agent and prompt files the user edited are left alone.
+ */
+export function updatePiSubagent(): Promise<PiSubagentInstall> {
+  return hostCall<PiSubagentInstall>('pi_subagent_update')
+}
+
+/** One sub agent's standing in pi's agents directory. */
+export interface SubagentRowState {
+  slug: string
+  /** `ready` | `pending` | `conflict` | `no-description` | `disabled` | `other-runtime`. */
+  state: string
+  detail: string
+}
+
+/**
+ * Which saved sub agents the runtime can be asked for right now, and why the
+ * rest cannot. Read-only: saving an agent is what writes the file.
+ */
+export interface SubagentOverview {
+  dir: string
+  files: string[]
+  rows: SubagentRowState[]
+  foreign: string[]
+}
+
+export function loadSubagentOverview(): Promise<SubagentOverview> {
+  return hostCall<SubagentOverview>('subagent_overview')
 }
 
 /** What one runtime install attempt did (npm's own words included). */

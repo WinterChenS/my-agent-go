@@ -326,6 +326,9 @@ pub const BUILTIN_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "grep", "
 /// extension is not installed.
 pub const DELEGATION_TOOLS: [&str; 1] = ["subagent"];
 
+/// The one tool name that delegates; used where the policy has to remove it.
+pub const SUBAGENT_TOOL: &str = DELEGATION_TOOLS[0];
+
 /// The tool list a new agent gets: the built-ins plus delegation.
 ///
 /// Read-only mode deliberately excludes delegation: a child agent runs its own
@@ -448,6 +451,31 @@ impl AgentRecord {
     pub fn allows_tools(&self) -> bool {
         !self.effective_tools().is_empty()
     }
+
+    /// The allowlist the runtime should receive, after the delegation policy.
+    ///
+    /// `never` is the only policy this build can turn into a runtime fact: it
+    /// drops `subagent` from the allowlist, so the model is not offered a tool
+    /// whose use would contradict the setting. An empty configured list means
+    /// "the runtime's default set" — which includes `subagent` — so it becomes
+    /// the built-ins minus `subagent` rather than "no tools": refusing to
+    /// delegate must not leave the agent unable to work.
+    #[must_use]
+    pub fn runtime_tools(&self) -> Vec<String> {
+        let mut tools = self.effective_tools();
+        if self.delegation_policy != "never" {
+            return tools;
+        }
+        tools.retain(|name| name != SUBAGENT_TOOL);
+        if tools.is_empty() {
+            tools = DEFAULT_TOOLS
+                .iter()
+                .filter(|name| **name != SUBAGENT_TOOL)
+                .map(|name| (*name).to_string())
+                .collect();
+        }
+        tools
+    }
 }
 
 /// What the agent page sends when it saves.
@@ -556,4 +584,38 @@ pub struct CatalogSnapshot {
     /// by itself on a brand-new profile.
     #[serde(default)]
     pub setup_done: bool,
+}
+
+#[cfg(test)]
+mod delegation_tests {
+    use super::*;
+
+    /// "Never delegate" has to remove the tool as well as the roster: a UI
+    /// switch that leaves the model holding `subagent` is a switch that does
+    /// nothing.
+    #[test]
+    fn never_delegating_removes_the_subagent_tool() {
+        let mut agent = AgentRecord::default_persona();
+        agent.delegation_policy = "never".to_string();
+        agent.tools = vec!["read".to_string(), "subagent".to_string()];
+        assert_eq!(agent.runtime_tools(), vec!["read"]);
+
+        // An empty list means "the runtime default", which contains subagent.
+        // It must become the built-ins without it, never an empty allowlist.
+        agent.tools = Vec::new();
+        let tools = agent.runtime_tools();
+        assert!(tools.iter().any(|name| name == "bash"));
+        assert!(!tools.iter().any(|name| name == SUBAGENT_TOOL));
+    }
+
+    /// Every other policy leaves the allowlist exactly as configured.
+    #[test]
+    fn auto_and_explicit_keep_the_delegation_tool() {
+        for policy in ["auto", "explicit"] {
+            let mut agent = AgentRecord::default_persona();
+            agent.delegation_policy = policy.to_string();
+            agent.tools = vec!["read".to_string(), "subagent".to_string()];
+            assert_eq!(agent.runtime_tools(), vec!["read", "subagent"], "{policy}");
+        }
+    }
 }

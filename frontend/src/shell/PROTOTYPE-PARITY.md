@@ -211,6 +211,29 @@ entry; they must not be reintroduced outside isolated sample fixtures.
 - Sample navigation reuses the R0-05 shell fixture: `对话 4` and the five tool
   metadata strings are present only in sample mode. Normal `/agents` keeps them
   absent.
+- **Sub agents are files, not rows.** Saving a sub agent writes
+  `~/.pi/agent/agents/<slug>.md` — front matter `name`, `description`, `tools`,
+  `model` (only when the id names a provider) and an `anvil: <id>` marker that
+  pi ignores. That is the only interface pi's official `subagent` extension
+  scans, so the row is what the runtime reads instead of a second registry.
+  Files this app did not write are never touched: pi's own planner / reviewer /
+  scout / worker stay, and a slug that collides with one is reported as
+  「名称被占用」 instead of overwriting it.
+- **The description is the selection input.** Every turn's appended system
+  prompt carries a roster built from that same directory — this app's agents and
+  pi's own on one list — plus the rule that a task with no matching agent is
+  done by the parent itself. `description` is required for a sub agent for the
+  same reason; without it pi drops the file and the parent has nothing to choose
+  by.
+- **The policy removes a tool.** `delegationPolicy: never` drops `subagent` from
+  the allowlist and skips the roster; `explicit` keeps the tool and tells the
+  parent not to delegate unless the user named an agent. An empty configured
+  list becomes the built-ins minus `subagent`, never 「no tools」.
+- `subagent_overview` reads the directory (no writes) so the table can say
+  已生效 / 待保存 / 名称被占用 / 缺少描述 / 已停用 / 非 pi per row.
+- Concurrency has no runtime switch in pi's extension; it reaches the parent as
+  a line in the roster ("同时最多并行 N 个子任务"), which is an instruction, not a
+  hard cap.
 
 ## R0-07 skills
 
@@ -392,3 +415,15 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   its own menu (返回 / 前进 / 重新加载 / 复制页面地址), drawn inside the page so it
   sits above the native view.
 - Consequence: right-click paste in the composer is gone; Ctrl+V still works.
+
+## R0-13 runtime extensions
+
+- 设置 → 运行时 → 运行时扩展 shows pi's `subagent` extension with one state and
+  two actions. 检查更新 compares the content digest (FNV-1a over `index.ts` and
+  `agents.ts`) of the installed copy with the copy inside the current pi
+  package; a difference flips the badge to 可更新 and offers 更新.
+- 更新 rewrites the extension's shipped sources only. Agent and prompt files the
+  user edited are counted as skipped and left alone, and the README's
+  "Installed by Anvil" note is appended once, not once per run.
+- No package copy (pi installed somewhere the heuristic cannot see) means no
+  update is offered at all — "cannot compare" is not reported as "up to date"

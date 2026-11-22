@@ -196,9 +196,19 @@ describe('settings runtime extensions', () => {
     canInstall: true,
     detail: 'the subagent extension is not installed in the pi agent directory',
   }
-  const installed = { ...missing, installed: true, agents: 4, prompts: 3, canInstall: false }
+  const installed = {
+    ...missing,
+    installed: true,
+    agents: 4,
+    prompts: 3,
+    canInstall: false,
+    updateAvailable: false,
+    installedDigest: 'aaaa',
+    sourceDigest: 'aaaa',
+  }
+  const stale = { ...installed, updateAvailable: true, sourceDigest: 'bbbb' }
 
-  function installRuntimeHost() {
+  function installRuntimeHost(status: typeof missing = missing) {
     const calls: string[] = []
     const snapshot = {
       agents: [],
@@ -239,8 +249,9 @@ describe('settings runtime extensions', () => {
       invoke: async (command: string) => {
         calls.push(command)
         if (command === 'catalog_snapshot' || command === 'catalog_sync_inventory') return snapshot
-        if (command === 'pi_subagent_status') return missing
+        if (command === 'pi_subagent_status') return status
         if (command === 'pi_subagent_install') return { written: 6, skipped: 0, status: installed }
+        if (command === 'pi_subagent_update') return { written: 2, skipped: 3, status: installed }
         if (command === 'session_list') return { sessions: [], total: 0 }
         if (command === 'session_projects') return []
         return null
@@ -271,5 +282,24 @@ describe('settings runtime extensions', () => {
       expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('已安装'),
     )
     expect(screen.getByTestId('settings-notice')).toHaveTextContent('已安装 subagent 扩展')
+  })
+
+  it('offers an update only when the installed copy is behind the pi package', async () => {
+    const calls = installRuntimeHost(stale)
+    const user = userEvent.setup()
+    renderAt('/settings#runtime')
+
+    const card = await screen.findByTestId('settings-extensions')
+    const row = within(card).getByTestId('catalog-subagent')
+    await waitFor(() =>
+      expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('可更新'),
+    )
+
+    await user.click(within(row).getByTestId('catalog-subagent-update'))
+    await waitFor(() => expect(calls).toContain('pi_subagent_update'))
+    await waitFor(() =>
+      expect(within(row).getByTestId('catalog-subagent-state')).toHaveTextContent('已安装'),
+    )
+    expect(screen.getByTestId('settings-notice')).toHaveTextContent('扩展已更新')
   })
 })

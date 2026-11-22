@@ -11,6 +11,7 @@ import {
   loadCatalog,
   piSubagentStatus,
   probeCatalogMcp,
+  updatePiSubagent,
   setCatalogModelEnabled,
   setDefaultCatalogModel,
   verifyCatalogModel,
@@ -321,19 +322,41 @@ export function SubagentExtensionPanel({
       .finally(() => setBusy(false))
   }
 
+  // The update path is the install path with a different promise: the sources
+  // are replaced, the user's own agent and prompt files are not.
+  const update = () => {
+    if (busy) return
+    setBusy(true)
+    updatePiSubagent()
+      .then((report) => {
+        setStatus(report.status)
+        onNotice?.(t('catalog.subagent.updatedNotice', { written: report.written }))
+      })
+      .catch((cause) => onNotice?.(t('catalog.subagent.failed', { message: failureText(cause) })))
+      .finally(() => setBusy(false))
+  }
+
+  const stale = installed && (status?.updateAvailable ?? false)
   const badge = checking && !status
     ? t('catalog.subagent.checking')
-    : installed
-      ? t('catalog.subagent.installedBadge')
-      : t('catalog.subagent.missingBadge')
-  const line = installed
-    ? t('catalog.subagent.installedLine', {
+    : stale
+      ? t('catalog.subagent.updateBadge')
+      : installed
+        ? t('catalog.subagent.installedBadge')
+        : t('catalog.subagent.missingBadge')
+  const line = stale
+    ? t('catalog.subagent.updateLine', {
         agents: status?.agents ?? 0,
         prompts: status?.prompts ?? 0,
       })
-    : status?.canInstall
-      ? t('catalog.subagent.missingLine')
-      : t('catalog.subagent.noSource')
+    : installed
+      ? t('catalog.subagent.installedLine', {
+          agents: status?.agents ?? 0,
+          prompts: status?.prompts ?? 0,
+        })
+      : status?.canInstall
+        ? t('catalog.subagent.missingLine')
+        : t('catalog.subagent.noSource')
 
   return (
     <div className="cat-subagent" data-testid="catalog-subagent">
@@ -344,8 +367,8 @@ export function SubagentExtensionPanel({
         <span className="cat-subagent-title">
           <b>{t('catalog.subagent.title')}</b>
           <span
-            className={`cat-badge ${installed ? 'is-success' : checking ? '' : 'is-warn'}`}
-            data-status={installed ? 'installed' : 'missing'}
+            className={`cat-badge ${stale ? 'is-warn' : installed ? 'is-success' : checking ? '' : 'is-warn'}`}
+            data-status={stale ? 'stale' : installed ? 'installed' : 'missing'}
             data-testid="catalog-subagent-state"
           >
             <i />{badge}
@@ -364,10 +387,24 @@ export function SubagentExtensionPanel({
           className="cat-btn"
           data-testid="catalog-subagent-recheck"
           disabled={checking || busy}
+          title={status?.installedDigest ? `installed ${status.installedDigest}` : undefined}
           onClick={check}
         >
-          {t('catalog.subagent.recheck')}
+          {checking ? t('catalog.subagent.checkBusy') : t('catalog.subagent.check')}
         </button>
+        {stale ? (
+          <button
+            type="button"
+            className="cat-btn cat-btn-primary"
+            data-testid="catalog-subagent-update"
+            disabled={busy || checking}
+            title={t('catalog.subagent.updateHint')}
+            onClick={update}
+          >
+            <Icon name="download" size={12} />
+            {busy ? t('catalog.subagent.updating') : t('catalog.subagent.update')}
+          </button>
+        ) : null}
         {installed ? null : (
           <button
             type="button"

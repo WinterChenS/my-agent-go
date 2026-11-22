@@ -48,6 +48,23 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "catalog: database {}",
         catalog.database().display()
     ));
+    // A sub agent saved by an older build has a row and no file, so pi has never
+    // been able to delegate to it. Reconcile once at startup instead of waiting
+    // for the user to press 保存 again.
+    match catalog.with_service(|service| service.snapshot().map_err(|error| error.to_wire())) {
+        Ok(snapshot) => {
+            let report = crate::subagents::sync_agents(&snapshot.agents);
+            if !report.is_noop() {
+                config.log.info(&crate::subagents::summary(
+                    crate::subagents::agents_dir(),
+                    &report,
+                ));
+            }
+        }
+        Err(error) => config
+            .log
+            .info(&format!("subagents: not synced at startup: {error}")),
+    }
     let session = SessionState::new(
         config.data_dir.join("sessions.sqlite"),
         config.data_dir.join("workspace"),
@@ -77,6 +94,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_mark_setup_done,
             crate::catalog::catalog_save_agent,
             crate::catalog::catalog_delete_agent,
+            crate::catalog::subagent_overview,
             crate::catalog::catalog_probe_mcp,
             crate::catalog::catalog_add_mcp,
             crate::catalog::catalog_test_mcp,
@@ -121,6 +139,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::workspace::workspace_pick_files,
             crate::extensions::pi_subagent_status,
             crate::extensions::pi_subagent_install,
+            crate::extensions::pi_subagent_update,
             crate::schedules::schedule_overview,
             crate::schedules::schedule_save,
             crate::schedules::schedule_delete,

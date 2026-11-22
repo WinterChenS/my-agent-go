@@ -32,6 +32,7 @@ pub mod schedule;
 pub mod service;
 pub mod store;
 pub mod subagent;
+pub mod subagents;
 pub mod ui;
 pub mod workbench;
 

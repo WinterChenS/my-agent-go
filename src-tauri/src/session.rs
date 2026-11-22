@@ -260,12 +260,14 @@ impl SessionState {
         } else {
             String::new()
         };
+        let roster = crate::subagents::roster_for(&agent.delegation_policy, agent.concurrency);
         let spec = spec_for_agent(
             agent,
             skills,
             memory,
             String::new(),
             Some(title.to_string()),
+            &roster,
         );
         self.with_writer(|service| {
             service
@@ -522,21 +524,26 @@ pub async fn session_open(
             } else {
                 String::new()
             };
+            let roster = crate::subagents::roster_for(&agent.delegation_policy, agent.concurrency);
             Some(spec_for_agent(
                 agent,
                 skills,
                 memory,
                 cwd.clone().unwrap_or_default(),
                 title.clone(),
+                &roster,
             ))
         }
         None => None,
     };
     state.with_writer(|service| {
         let spec = persona.unwrap_or_else(|| {
+            // No saved agent means no saved policy: delegation is on, at the
+            // catalog's default ceiling.
+            let roster = crate::subagents::roster_for("auto", 4);
             // No explicit project: the service gives the conversation its own
             // isolated directory under the workspace root.
-            model_spec(runtime_id, model, cwd.unwrap_or_default(), title)
+            model_spec(runtime_id, model, cwd.unwrap_or_default(), title, &roster)
         });
         service
             .open(&spec)
@@ -582,12 +589,20 @@ cron 为五段式：分 时 日 月 周（例：`0 9 * * 1-5` 工作日 9:00，`
 连接器不是 MCP：MCP 是工具服务端，连接器是用用户自己的账号访问一个外部服务。用户说「帮我查邮件 / 读 Notion 页面 / 搜钉钉文档」时用连接器；没有对应连接器就如实说明还没配置，不要编造内容。"##;
 
 /// Append the app's own instructions after whatever the persona says.
-fn with_pane_tools(prompt: String) -> String {
-    if prompt.trim().is_empty() {
-        PANE_TOOLS.to_string()
-    } else {
-        format!("{prompt}\n\n{PANE_TOOLS}")
+///
+/// Order is memory → delegation → app tools: recall is background, the roster is
+/// the one place the parent learns which agents exist, and the app's tool
+/// instructions come last so they read as the closing paragraph.
+fn with_context(memory: String, roster: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !memory.trim().is_empty() {
+        parts.push(memory);
     }
+    if !roster.trim().is_empty() {
+        parts.push(roster.to_string());
+    }
+    parts.push(PANE_TOOLS.to_string());
+    parts.join("\n\n")
 }
 
 /// The spec used when the user picks a model instead of a saved Agent.
@@ -600,6 +615,7 @@ fn model_spec(
     model: String,
     cwd: String,
     title: Option<String>,
+    roster: &str,
 ) -> SessionSpec {
     SessionSpec {
         runtime_id,
@@ -611,7 +627,7 @@ fn model_spec(
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
-        append_system_prompt: with_pane_tools(String::new()),
+        append_system_prompt: with_context(String::new(), roster),
         ..Default::default()
     }
 }
@@ -620,16 +636,25 @@ fn model_spec(
 ///
 /// Pure on purpose: the host's part of "the configuration takes effect" is a
 /// mapping, and a mapping can be tested without a Tauri app or a real window.
-/// The catalog lookup and the memory digest are done by the caller.
+/// The catalog lookup, the memory digest and the roster are done by the caller.
+///
+/// `delegationPolicy` is the one field here that removes a capability instead of
+/// adding one: `never` drops `subagent` from the allowlist, so the model is not
+/// offered a tool whose only use would contradict the setting.
 fn spec_for_agent(
     agent: anvil_catalog::model::AgentRecord,
     skills: Vec<String>,
     memory: String,
     cwd: String,
     title: Option<String>,
+    roster: &str,
 ) -> SessionSpec {
-    let allow_tools = agent.allows_tools();
-    let tools = agent.effective_tools();
+    let tools = agent.runtime_tools();
+    let allow_tools = if tools.is_empty() {
+        agent.allows_tools()
+    } else {
+        true
+    };
     SessionSpec {
         runtime_id: agent.runtime_id,
         model: agent.model_id,
@@ -641,7 +666,7 @@ fn spec_for_agent(
         agent_id: agent.slug,
         thinking: agent.thinking,
         system_prompt: agent.system_prompt,
-        append_system_prompt: with_pane_tools(memory),
+        append_system_prompt: with_context(memory, roster),
         skills,
         allow_tools,
         tools,
@@ -997,7 +1022,7 @@ mod tests {
     /// so the runtime could not call anything at all.
     #[test]
     fn picking_a_model_keeps_the_builtin_tools_available() {
-        let spec = model_spec("pi".into(), "auto/fast".into(), "D:/work".into(), None);
+        let spec = model_spec("pi".into(), "auto/fast".into(), "D:/work".into(), None, "");
         assert!(spec.allow_tools);
         assert_eq!(
             spec.tools,
@@ -1028,13 +1053,16 @@ mod tests {
             "历史结论摘要".into(),
             "D:/work/api".into(),
             None,
+            "## 子 agent（委派）\n\n- `scout` — Fast recon\n",
         );
         assert_eq!(spec.agent_id, "migration-engineer");
         assert_eq!(spec.title.as_deref(), Some("迁移工程师"));
         assert_eq!(spec.thinking, "high");
         assert_eq!(spec.system_prompt, "你是迁移工程师");
-        // The persona's digest stays first; the app's own instructions follow.
+        // The persona's digest stays first; the roster and then the app's own
+        // instructions follow.
         assert!(spec.append_system_prompt.starts_with("历史结论摘要"));
+        assert!(spec.append_system_prompt.contains("`scout` — Fast recon"));
         assert!(spec.append_system_prompt.contains("anvil-browser.mjs navigate"));
         assert_eq!(spec.skills, vec!["D:/skills/review.md"]);
         assert_eq!(spec.tools, vec!["read", "grep"]);
@@ -1050,6 +1078,7 @@ mod tests {
             "claude-sonnet-4".into(),
             "D:/work/api".into(),
             None,
+            "",
         );
         assert!(spec.append_system_prompt.contains("anvil-browser.mjs navigate"));
 
@@ -1060,6 +1089,7 @@ mod tests {
             "历史结论摘要".into(),
             "D:/work/api".into(),
             None,
+            "",
         );
         // The persona's own text is not replaced; the app appends to it.
         assert!(with_memory.append_system_prompt.starts_with("历史结论摘要"));
@@ -1072,7 +1102,7 @@ mod tests {
         let mut agent = anvil_catalog::model::AgentRecord::default_persona();
         agent.permission = "readonly".into();
         agent.tools = vec!["bash".into()];
-        let spec = spec_for_agent(agent, vec![], String::new(), "D:/work".into(), None);
+        let spec = spec_for_agent(agent, vec![], String::new(), "D:/work".into(), None, "");
         assert_eq!(
             spec.tools,
             vec!["read", "grep", "find", "ls"],

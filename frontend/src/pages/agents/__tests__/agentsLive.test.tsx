@@ -246,7 +246,10 @@ describe('agents live page — prototype parity and real persona', () => {
     expect(screen.getByTestId('agent-permission-limit')).toHaveTextContent('不会强制拦截')
 
     await userEvent.click(screen.getByRole('tab', { name: /子 Agent/ }))
-    expect(screen.getByTestId('agent-sub-limit')).toHaveTextContent('不会自动派生任务')
+    // The hint now describes the real mechanism: a file pi reads, plus a roster
+    // in the parent's prompt — not "saved but never used".
+    expect(screen.getByTestId('agent-sub-limit')).toHaveTextContent('~/.pi/agent/agents')
+    expect(screen.getByTestId('agent-sub-dir')).toHaveTextContent('主 Agent 的名单里就有它')
     await userEvent.selectOptions(screen.getByLabelText('委派策略'), 'explicit')
 
     await userEvent.click(screen.getByTestId('agent-save'))

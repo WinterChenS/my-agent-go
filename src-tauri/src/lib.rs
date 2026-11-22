@@ -42,6 +42,7 @@ pub mod session;
 pub mod state;
 pub mod schedules;
 pub mod skills;
+pub mod subagents;
 pub mod system_theme;
 pub mod workbench;
 pub mod workspace;
@@ -66,6 +67,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_mark_setup_done",
     "catalog_save_agent",
     "catalog_delete_agent",
+    "subagent_overview",
     "catalog_probe_mcp",
     "catalog_add_mcp",
     "catalog_test_mcp",
@@ -110,6 +112,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "workspace_pick_files",
     "pi_subagent_status",
     "pi_subagent_install",
+    "pi_subagent_update",
     "schedule_overview",
     "schedule_save",
     "schedule_delete",

@@ -1293,3 +1293,32 @@
 .agents-list-card [data-testid='agents-live-list'] {
   display: contents;
 }
+
+/* Whether the runtime can actually be asked for this sub agent. Neutral by
+   default (a pending row is not an error), tinted only where a reader has to
+   act: a taken name, or a missing description the runtime would drop. */
+.agents-sub-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.agents-sub-state[data-state='ready'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.agents-sub-state[data-state='conflict'],
+.agents-sub-state[data-state='no-description'] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}

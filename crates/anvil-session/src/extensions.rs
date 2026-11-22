@@ -57,6 +57,18 @@ pub struct PiSubagentStatus {
     pub prompts: usize,
     /// Install is possible: the source exists and the extension is not there.
     pub can_install: bool,
+    /// The installed copy differs from the one inside the current pi package.
+    ///
+    /// pi is upgraded as a package, and its `examples/extensions/subagent` moves
+    /// with it — the file copied earlier does not. `false` when either side is
+    /// missing, because "cannot compare" is not "up to date".
+    pub update_available: bool,
+    /// Content digest of the installed entry files, when they exist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_digest: Option<String>,
+    /// Content digest of the package's own entry files, when they exist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_digest: Option<String>,
     /// Why install is not possible (or why nothing was found), for the tooltip.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -102,6 +114,38 @@ fn extension_dir(agent_dir: &Path) -> PathBuf {
 
 fn has_entry(dir: &Path) -> bool {
     dir.join("index.ts").is_file() || dir.join("index.js").is_file()
+}
+
+/// Files whose bytes decide whether a copy is current.
+///
+/// `README.md` is excluded on purpose: the installed copy carries the note this
+/// app appends, so its digest can never match the package's and every check
+/// would report an update that is not there.
+const CODE_FILES: &[&str] = &["index.ts", "agents.ts"];
+
+/// FNV-1a over the entry files, names included.
+///
+/// Not a security hash: it only has to notice that two small files differ. A
+/// missing file on one side changes the digest, so "half copied" also reads as
+/// stale instead of matching by accident.
+fn digest(dir: &Path) -> Option<String> {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut any = false;
+    for name in CODE_FILES {
+        let Ok(bytes) = std::fs::read(dir.join(name)) else {
+            continue;
+        };
+        any = true;
+        for byte in name.bytes().chain(bytes.iter().copied()) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        // A separator that cannot appear in a file name keeps `a`+`bc` from
+        // hashing like `ab`+`c`.
+        hash ^= 0xff;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    any.then(|| format!("{hash:016x}"))
 }
 
 fn count_markdown(dir: &Path) -> usize {
@@ -181,6 +225,12 @@ fn status_at(agent_dir: &Path, source: Option<&Path>) -> PiSubagentStatus {
                 .to_string(),
         )
     };
+    let installed_digest = if installed { digest(&dir) } else { None };
+    let source_digest = source.and_then(digest);
+    let update_available = match (&installed_digest, &source_digest) {
+        (Some(installed), Some(packaged)) => installed != packaged,
+        _ => false,
+    };
     PiSubagentStatus {
         installed,
         agent_dir: display_path(agent_dir),
@@ -189,6 +239,9 @@ fn status_at(agent_dir: &Path, source: Option<&Path>) -> PiSubagentStatus {
         agents: count_markdown(&agent_dir.join("agents")),
         prompts: count_markdown(&agent_dir.join("prompts")),
         can_install: !installed && source.is_some(),
+        update_available,
+        installed_digest,
+        source_digest,
         detail,
     }
 }
@@ -206,10 +259,13 @@ pub fn pi_subagent_status() -> PiSubagentStatus {
             installed: false,
             agent_dir: String::new(),
             extension_dir: String::new(),
-            source: source.map(|path| display_path(&path)),
+            source: source.as_ref().map(|path| display_path(path)),
             agents: 0,
             prompts: 0,
             can_install: false,
+            update_available: false,
+            installed_digest: None,
+            source_digest: source.as_deref().and_then(digest),
             detail: Some(
                 "cannot resolve pi's agent directory: neither PI_CODING_AGENT_DIR nor HOME is set"
                     .to_string(),
@@ -250,8 +306,12 @@ fn install_into(agent_dir: &Path, source: &Path) -> Result<PiSubagentInstall> {
     let readme = target.join("README.md");
     if readme.is_file() {
         let mut text = std::fs::read_to_string(&readme).unwrap_or_default();
-        text.push_str(INSTALL_NOTE);
-        std::fs::write(&readme, text)?;
+        // An update replaces the README from the package, which has no note, but
+        // a re-run on an installed copy must not stack the note twice.
+        if !text.contains("## Installed by Anvil") {
+            text.push_str(INSTALL_NOTE);
+            std::fs::write(&readme, text)?;
+        }
     }
 
     // Resources are the user's once they exist: same name, different words.
@@ -367,6 +427,21 @@ pub fn install_pi_subagent() -> Result<PiSubagentInstall> {
         )
     })?;
     install_into(&agent_dir, &source)
+}
+
+/// Replace the installed copy with the one the current pi package ships.
+///
+/// Only the extension's own sources move: an agent or prompt file the user has
+/// edited is theirs, and rewriting it would be a data loss dressed up as an
+/// update. `update_available` in the status is what tells the UI to offer this.
+pub fn update_pi_subagent() -> Result<PiSubagentInstall> {
+    let status = pi_subagent_status();
+    if !status.installed {
+        return Err(Error::NotFound(
+            "the subagent extension is not installed, so there is nothing to update".to_string(),
+        ));
+    }
+    install_pi_subagent()
 }
 
 #[cfg(test)]
@@ -558,6 +633,63 @@ mod tests {
     fn text_without_front_matter_is_left_alone() {
         let text = "model: claude-haiku-4-5\nnot a manifest\n";
         assert_eq!(unpin_model(text), text);
+    }
+
+    #[test]
+    fn an_installed_copy_reports_stale_only_after_the_package_changes() {
+        let root = temp_root("stale");
+        let source = fake_source(&root);
+        let agent_dir = root.join("agent");
+        install_into(&agent_dir, &source).expect("install");
+
+        let fresh = status_at(&agent_dir, Some(&source));
+        assert!(fresh.installed);
+        assert!(
+            !fresh.update_available,
+            "a fresh install must not offer an update"
+        );
+        assert_eq!(fresh.installed_digest, fresh.source_digest);
+
+        // The package moves with a pi upgrade; the copied file does not.
+        std::fs::write(source.join("index.ts"), "// pi 1.7 changed the tool\n").expect("write");
+        let stale = status_at(&agent_dir, Some(&source));
+        assert!(stale.update_available);
+        assert_ne!(stale.installed_digest, stale.source_digest);
+
+        // Updating copies the new source and the report says "current" again.
+        let report = install_into(&agent_dir, &source).expect("update");
+        assert!(report.written >= 1);
+        assert!(!report.status.update_available);
+        let text = std::fs::read_to_string(agent_dir.join("extensions/subagent/index.ts"))
+            .expect("read");
+        assert!(text.contains("pi 1.7"));
+    }
+
+    #[test]
+    fn an_update_does_not_stack_the_readme_note() {
+        let root = temp_root("note");
+        let source = fake_source(&root);
+        let agent_dir = root.join("agent");
+        install_into(&agent_dir, &source).expect("install");
+        install_into(&agent_dir, &source).expect("update");
+        let readme =
+            std::fs::read_to_string(agent_dir.join("extensions/subagent/README.md")).expect("read");
+        assert_eq!(readme.matches("## Installed by Anvil").count(), 1, "{readme}");
+    }
+
+    #[test]
+    fn without_a_package_copy_there_is_no_update_to_offer() {
+        let root = temp_root("noupdate");
+        let source = fake_source(&root);
+        let agent_dir = root.join("agent");
+        install_into(&agent_dir, &source).expect("install");
+        let status = status_at(&agent_dir, None);
+        assert!(status.installed);
+        assert!(
+            !status.update_available,
+            "cannot compare is not up to date, but it is not an update either"
+        );
+        assert!(status.detail.is_none());
     }
 
     #[test]

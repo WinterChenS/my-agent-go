@@ -1039,6 +1039,31 @@ fn draft(name: Option<&str>, runtime_id: &str, model_id: &str) -> AgentDraft {
     }
 }
 
+/// Two agents created in the same second used to share an id, and the upsert
+/// replaced the first one: both saves answered "ok" and only one row existed.
+#[test]
+fn two_agents_created_back_to_back_are_two_rows() {
+    let mut store = Store::open_in_memory().expect("store");
+    let at = clock::now_rfc3339();
+    store
+        .replace_models("pi", &[model("pi", "alpha")], &at)
+        .expect("discover");
+
+    let first = store
+        .save_agent(&draft(Some("评审"), "pi", "alpha"), &at)
+        .expect("first");
+    let second = store
+        .save_agent(&draft(Some("侦察"), "pi", "alpha"), &at)
+        .expect("second");
+    assert_ne!(first.id, second.id, "two saves must be two ids");
+    let listed = store.agents().expect("agents");
+    assert_eq!(
+        listed.iter().filter(|row| !row.is_default).count(),
+        2,
+        "both agents survive: {listed:?}"
+    );
+}
+
 /// An agent is a saved runtime+model pair, and the built-in one is a real row:
 /// the user has to be able to point it at a runtime, which a row derived from
 /// the default model never allowed.
