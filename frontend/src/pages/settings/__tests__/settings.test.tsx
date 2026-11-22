@@ -25,8 +25,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('settings sections', () => {
-  it('declares the five prototype sections in order', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['general', 'models', 'runtime', 'observability', 'security'])
+  it('declares the sections in order', () => {
+    // 记忆 is this build's own addition: the prototype has no memory surface,
+    // and the two layers it shows are the reason it exists at all.
+    expect(SETTINGS_SECTIONS).toEqual([
+      'general',
+      'models',
+      'runtime',
+      'observability',
+      'memory',
+      'security',
+    ])
   })
 
   it('renders the general pane with the real theme and language controls', () => {

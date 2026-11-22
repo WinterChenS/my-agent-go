@@ -35,6 +35,7 @@ pub mod host;
 pub mod inject;
 pub mod library;
 pub mod log;
+pub mod memory;
 pub mod options;
 pub mod prefs;
 pub mod runtimes;
@@ -103,6 +104,12 @@ pub const APP_COMMANDS: &[&str] = &[
     "session_audit",
     "session_audit_export",
     "workbench_overview",
+    "memory_overview",
+    "memory_save",
+    "memory_update",
+    "memory_delete",
+    "memory_clear",
+    "memory_set_switches",
     "agent_runs",
     "workspace_defaults",
     "workspace_ensure",

@@ -170,6 +170,12 @@ export interface AgentRun {
   toolCalls: number
   tokens: number
   status: string
+  /** `main` for an owned conversation, `sub` for one delegated child. */
+  kind: 'main' | 'sub'
+  /** Which agent actually did the work. */
+  agentName: string
+  /** Unique key: one conversation can hold several child delegates. */
+  runKey: string
 }
 
 export interface CatalogSkill {
@@ -334,8 +340,12 @@ export function saveCatalogAgent(draft: CatalogAgentDraft): Promise<CatalogSnaps
 }
 
 /** The agent's run records, read from the real session ledger. */
-export function loadAgentRuns(agentId: string, limit = 20): Promise<AgentRun[]> {
-  return hostCall<AgentRun[]>('agent_runs', { agentId, limit })
+export function loadAgentRuns(
+  agentId: string,
+  limit = 20,
+  slug?: string,
+): Promise<AgentRun[]> {
+  return hostCall<AgentRun[]>('agent_runs', { agentId, slug, limit })
 }
 
 export function deleteCatalogAgent(id: string): Promise<CatalogSnapshot> {

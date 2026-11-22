@@ -171,7 +171,7 @@ impl SessionState {
         Ok(())
     }
 
-    fn with_writer<T>(
+    pub(crate) fn with_writer<T>(
         &self,
         action: impl FnOnce(&mut SessionService) -> Result<T, String>,
     ) -> Result<T, String> {
@@ -261,19 +261,47 @@ impl SessionState {
             String::new()
         };
         let roster = crate::subagents::roster_for(&agent.delegation_policy, agent.concurrency);
+        let notes = join_notes(&self.memory_notes(), &roster);
         let spec = spec_for_agent(
             agent,
             skills,
             memory,
             String::new(),
             Some(title.to_string()),
-            &roster,
+            &notes,
         );
         self.with_writer(|service| {
             service
                 .open(&spec)
                 .map_err(|error| error.to_wire().to_string())
         })
+    }
+
+    /// 用户长期记忆 as a prompt block, honouring the 注入 switch.
+    ///
+    /// Read straight from the ledger on every open: a memory the user deleted a
+    /// second ago must not survive in a running session's persona.
+    pub(crate) fn memory_notes(&self) -> String {
+        let settings = match self.with_reader(|store| {
+            store
+                .memory_settings()
+                .map_err(|error| error.to_wire().to_string())
+        }) {
+            Ok(settings) => settings,
+            Err(_) => return String::new(),
+        };
+        if !settings.inject {
+            return String::new();
+        }
+        let rows = match self.with_reader(|store| {
+            store
+                .memories(Some("user"), None)
+                .map_err(|error| error.to_wire().to_string())
+        }) {
+            Ok(rows) => rows,
+            Err(_) => return String::new(),
+        };
+        anvil_session::memory::prompt_block(&rows, anvil_session::memory::PROMPT_BUDGET)
     }
 
     /// Cross-session memory is a short block of the agent's own past conclusions.
@@ -525,13 +553,14 @@ pub async fn session_open(
                 String::new()
             };
             let roster = crate::subagents::roster_for(&agent.delegation_policy, agent.concurrency);
+            let notes = join_notes(&state.memory_notes(), &roster);
             Some(spec_for_agent(
                 agent,
                 skills,
                 memory,
                 cwd.clone().unwrap_or_default(),
                 title.clone(),
-                &roster,
+                &notes,
             ))
         }
         None => None,
@@ -541,9 +570,10 @@ pub async fn session_open(
             // No saved agent means no saved policy: delegation is on, at the
             // catalog's default ceiling.
             let roster = crate::subagents::roster_for("auto", 4);
+            let notes = join_notes(&state.memory_notes(), &roster);
             // No explicit project: the service gives the conversation its own
             // isolated directory under the workspace root.
-            model_spec(runtime_id, model, cwd.unwrap_or_default(), title, &roster)
+            model_spec(runtime_id, model, cwd.unwrap_or_default(), title, &notes)
         });
         service
             .open(&spec)
@@ -586,7 +616,17 @@ cron 为五段式：分 时 日 月 周（例：`0 9 * * 1-5` 工作日 9:00，`
 
 先 list 看已连接的连接器和它们的工具名、参数，再 call。邮件用 mail_list / mail_read / mail_send，Notion 用 notion_search / notion_read_page / notion_create_page，钉钉文档用 dingtalk_search_docs / dingtalk_read_doc。
 
-连接器不是 MCP：MCP 是工具服务端，连接器是用用户自己的账号访问一个外部服务。用户说「帮我查邮件 / 读 Notion 页面 / 搜钉钉文档」时用连接器；没有对应连接器就如实说明还没配置，不要编造内容。"##;
+连接器不是 MCP：MCP 是工具服务端，连接器是用用户自己的账号访问一个外部服务。用户说「帮我查邮件 / 读 Notion 页面 / 搜钉钉文档」时用连接器；没有对应连接器就如实说明还没配置，不要编造内容。
+
+## 记忆
+
+用户让你「记住」某件事（偏好、约定、项目事实）时，写进记忆库，不要只回一句「好的」：
+
+  node ~/.anvil/bin/anvil-memory.mjs add '{"text":"回答先给结论，不要寒暄","kind":"preference"}'
+  node ~/.anvil/bin/anvil-memory.mjs list
+  node ~/.anvil/bin/anvil-memory.mjs forget '{"id":"mem-…"}'
+
+kind 取 preference（偏好）/ fact（事实）/ constraint（约束）/ workflow（习惯）。只记用户明确要求保留的内容，一条一句话；不要自己推测着往里写，也不要替用户记录聊天里顺口提到的琐事。写进记忆库的东西会出现在「设置 → 记忆」，并且从下一轮开始每轮都会带上。用户说「忘掉…」时先 list 找到 id 再 forget，不要凭记忆猜 id。"##;
 
 /// Append the app's own instructions after whatever the persona says.
 ///
@@ -603,6 +643,16 @@ fn with_context(memory: String, roster: &str) -> String {
     }
     parts.push(PANE_TOOLS.to_string());
     parts.join("\n\n")
+}
+
+/// Join the two app-authored prompt blocks, skipping the empty ones.
+fn join_notes(memory: &str, roster: &str) -> String {
+    match (memory.trim().is_empty(), roster.trim().is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => roster.to_string(),
+        (false, true) => memory.to_string(),
+        (false, false) => format!("{memory}\n\n{roster}"),
+    }
 }
 
 /// The spec used when the user picks a model instead of a saved Agent.
@@ -678,11 +728,22 @@ fn spec_for_agent(
 pub async fn agent_runs(
     state: State<'_, SessionState>,
     agent_id: String,
+    slug: Option<String>,
     limit: Option<usize>,
 ) -> Result<Vec<anvil_session::model::AgentRun>, String> {
+    // Sessions store the slug; the agents page selects by row id. Without the
+    // slug a saved agent's own history looked empty. The default agent also
+    // owns conversations opened from the model picker, whose agent id is empty.
+    let mut aliases: Vec<String> = Vec::new();
+    if let Some(slug) = slug.filter(|value| !value.trim().is_empty()) {
+        aliases.push(slug);
+    }
+    if agent_id == "default" || aliases.iter().any(|value| value == "default") {
+        aliases.push(String::new());
+    }
     state.with_reader(|store| {
         store
-            .agent_runs(&agent_id, limit.unwrap_or(20).clamp(1, 100))
+            .agent_runs(&agent_id, &aliases, limit.unwrap_or(20).clamp(1, 100))
             .map_err(|error| error.to_wire().to_string())
     })
 }

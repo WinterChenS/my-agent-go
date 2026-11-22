@@ -457,8 +457,21 @@ pub struct AgentRun {
     pub turns: i64,
     pub tool_calls: i64,
     pub tokens: i64,
-    /// `idle` | `running` | `aborted` | `failed` | `archived`.
+    /// `completed` | `running` | `failed` | `aborted` | `archived`.
     pub status: String,
+    /// `main` for a conversation owned by the agent, `sub` for one delegation.
+    #[serde(default = "default_run_kind")]
+    pub kind: String,
+    /// The agent that actually did the work (a saved name or a pi agent file).
+    #[serde(default)]
+    pub agent_name: String,
+    /// Stable React key: one conversation can hold several child delegates.
+    #[serde(default)]
+    pub run_key: String,
+}
+
+fn default_run_kind() -> String {
+    "main".to_string()
 }
 
 /// What one compaction did.

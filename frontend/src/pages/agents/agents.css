@@ -1322,3 +1322,33 @@
   background: var(--danger-soft);
   color: var(--danger);
 }
+
+/* A run row can be the conversation itself or one delegated child. Keep the
+   distinction visible: mixing the two is what made the old numbers misleading. */
+.agents-run-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.agents-run-kind.is-sub {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.agents-run-agent {
+  margin-left: var(--space-2);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+}
+
+.agents-run-status.is-failed {
+  border-color: color-mix(in oklab, var(--danger) 24%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
+}

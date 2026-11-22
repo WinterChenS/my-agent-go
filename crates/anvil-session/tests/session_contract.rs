@@ -666,3 +666,158 @@ fn masking_an_export_hides_secrets_but_keeps_ordinary_arguments() {
     assert!(!masked.contains("sk-live-123"), "masked export hides the secret");
     assert!(masked.contains("https://example.com"), "the rest of the command stays readable");
 }
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+/// The page and the prompt read the same rows: what is listed is what is
+/// injected, and a delete removes it from both.
+#[test]
+fn memories_are_listed_edited_and_deleted_as_rows() {
+    use anvil_session::memory::{MemoryDraft, MemoryPatch, prompt_block};
+
+    let mut store = Store::open_in_memory().expect("ledger");
+    let at = "2026-11-22T04:00:00Z";
+
+    let first = store
+        .add_memory(
+            &MemoryDraft {
+                scope: "user".into(),
+                kind: "preference".into(),
+                text: "  回答先给结论\n不要寒暄 ".into(),
+                ..Default::default()
+            },
+            at,
+        )
+        .expect("add");
+    assert!(first.id.starts_with("mem-"));
+    assert_eq!(first.text, "回答先给结论 不要寒暄", "text is flattened on write");
+
+    let second = store
+        .add_memory(
+            &MemoryDraft {
+                scope: "user".into(),
+                kind: "constraint".into(),
+                text: "不要改 ~/.pi".into(),
+                pinned: true,
+                ..Default::default()
+            },
+            at,
+        )
+        .expect("add pinned");
+
+    let listed = store.memories(Some("user"), None).expect("list");
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].id, second.id, "pinned rows lead the list");
+
+    // Search narrows the same rows.
+    let found = store.memories(None, Some("结论")).expect("search");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, first.id);
+
+    // Editing flips the source, so the host stops overwriting it.
+    let edited = store
+        .update_memory(
+            &first.id,
+            &MemoryPatch {
+                text: Some("回答先给结论，再给理由".into()),
+                ..Default::default()
+            },
+            at,
+        )
+        .expect("edit");
+    assert_eq!(edited.source, "manual");
+    assert_eq!(edited.text, "回答先给结论，再给理由");
+
+    assert!(prompt_block(&store.memories(Some("user"), None).expect("list"), 9999).contains("[约束] 不要改 ~/.pi"));
+
+    store.delete_memory(&first.id).expect("delete");
+    let left = store.memories(Some("user"), None).expect("list");
+    assert_eq!(left.len(), 1);
+    assert!(!prompt_block(&left, 9999).contains("回答先给结论"));
+
+    assert_eq!(store.clear_memories(Some("user")).expect("clear"), 1);
+    assert!(store.memories(Some("user"), None).expect("list").is_empty());
+}
+
+/// A conversation leaves one conclusion row, and it is the assistant's last
+/// answer — not a hidden transcript.
+#[test]
+fn a_conversation_leaves_one_editable_conclusion() {
+    use anvil_session::memory::{MemoryPatch, prompt_block};
+
+    let mut store = Store::open_in_memory().expect("ledger");
+    let at = "2026-11-22T04:00:00Z";
+    store
+        .create_session(&anvil_session::store::NewSession {
+            id: "sess-1",
+            runtime_id: "pi",
+            title: "第一个会话",
+            model: "auto/fast",
+            project_path: "D:/work",
+            at,
+            ..Default::default()
+        })
+        .expect("session");
+    store
+        .append_message("sess-1", None, Role::Assistant, "目录里有三个文件：a、b、c。", at, None)
+        .expect("message");
+    store
+        .append_message("sess-1", None, Role::Assistant, "最终结论：三个文件都在。", at, None)
+        .expect("second message");
+
+    let rows = store.memories(Some("session"), None).expect("list");
+    assert_eq!(rows.len(), 1, "one row per conversation, not one per turn");
+    assert_eq!(rows[0].session_id, "sess-1");
+    assert_eq!(rows[0].session_title, "第一个会话");
+    assert!(rows[0].text.contains("三个文件都在"), "the latest answer wins");
+
+    // Session memories are a record for the user, not a hidden input.
+    assert!(prompt_block(&rows, 9999).is_empty());
+
+    // Editing pins the user's version: the next answer must not overwrite it.
+    store
+        .update_memory(&rows[0].id, &MemoryPatch { text: Some("我改过的结论".into()), ..Default::default() }, at)
+        .expect("edit");
+    store
+        .append_message("sess-1", None, Role::Assistant, "又一次回答。", at, None)
+        .expect("another");
+    let after = store.memories(Some("session"), None).expect("list");
+    assert_eq!(after[0].text, "我改过的结论");
+}
+
+/// Turning recording off stops new rows and leaves the existing ones alone.
+#[test]
+fn the_session_switch_stops_new_conclusions_without_deleting_old_ones() {
+    let mut store = Store::open_in_memory().expect("ledger");
+    let at = "2026-11-22T04:00:00Z";
+    store
+        .create_session(&anvil_session::store::NewSession {
+            id: "sess-1",
+            runtime_id: "pi",
+            title: "会话",
+            model: "auto/fast",
+            project_path: "D:/work",
+            at,
+            ..Default::default()
+        })
+        .expect("session");
+    store
+        .append_message("sess-1", None, Role::Assistant, "第一轮结论", at, None)
+        .expect("first");
+    assert_eq!(store.memories(Some("session"), None).expect("list").len(), 1);
+
+    let settings = store
+        .set_memory_settings(None, Some(false))
+        .expect("switch off");
+    assert!(!settings.record_sessions);
+    assert!(settings.inject, "the other switch keeps its value");
+
+    store
+        .append_message("sess-1", None, Role::Assistant, "第二轮结论", at, None)
+        .expect("second");
+    let rows = store.memories(Some("session"), None).expect("list");
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].text.contains("第一轮"), "recorded text is not rewritten");
+}

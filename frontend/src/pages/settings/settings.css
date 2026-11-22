@@ -982,3 +982,207 @@
     order: 3;
   }
 }
+
+/* ---- memory (设置 → 记忆) ------------------------------------------------ */
+
+.memory-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+  border-top: 1px solid var(--border);
+}
+
+.memory-tab {
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.memory-tab.is-active {
+  border-color: var(--border-strong);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.memory-tabs-hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.memory-compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.memory-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-body);
+  line-height: 1.6;
+}
+
+.memory-compose-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.memory-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.memory-pin input {
+  accent-color: var(--accent);
+}
+
+.memory-hint {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+}
+
+.memory-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.memory-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.memory-row:last-child {
+  border-bottom: none;
+}
+
+.memory-kind {
+  flex: none;
+  margin-top: 1px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.memory-kind.is-preference {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.memory-kind.is-constraint {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.memory-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-text {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.memory-text.is-off {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.memory-chip {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+}
+
+.memory-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.memory-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.memory-icon-btn:hover:not(:disabled) {
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.memory-icon-btn[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.memory-icon-btn.is-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.memory-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.memory-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.memory-edit-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.memory-path {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  margin: 0;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

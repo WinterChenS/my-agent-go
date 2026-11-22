@@ -426,4 +426,40 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   user edited are counted as skipped and left alone, and the README's
   "Installed by Anvil" note is appended once, not once per run.
 - No package copy (pi installed somewhere the heuristic cannot see) means no
-  update is offered at all — "cannot compare" is not reported as "up to date"
+  update is offered at all — "cannot compare" is not reported as "up to date".
+
+
+## R0-14 memory (设置 → 记忆)
+
+- Two layers, stored as rows in the session ledger: **长期记忆** (`scope=user`)
+  is flattenable text with a kind (偏好 / 事实 / 约束 / 习惯), a pin and an enable
+  switch; **会话记忆** (`scope=session`) is one editable conclusion per
+  conversation, written from the assistant's last answer.
+- Only `user` rows reach the prompt, as a budgeted bullet list in the appended
+  system prompt. A session conclusion is a record for the reader, never a
+  hidden recall input; promoting it turns it into a user row and removes the
+  session row.
+- Every row shown in the page is the row that can be injected: disabling or
+  deleting takes effect on the next open, with no cache to invalidate.
+- Two switches: injection and recording. Turning recording off stops new
+  conclusions without deleting old ones. A row the user edited (`source=manual`)
+  is never overwritten by the next conversation's answer.
+- The agent can write the same rows through `~/.anvil/bin/anvil-memory.mjs`
+  (`list` / `add` / `forget`), so 「记住…」 is auditable in this page rather than
+  disappearing into a hidden store.
+
+## R0-15 agent run records
+
+- One row used to be one session, selected by agent **id** while the ledger
+  stores the agent **slug**. A saved agent's history therefore came back empty.
+  The page now sends both; the built-in default also claims conversations opened
+  from the model picker (whose stored agent id is empty).
+- A delegated child has no session of its own — pi runs it inside the parent's
+  process and reports it as a stream of `sub_agent` events. Those events are
+  folded by `agentId` into one **子 Agent** row per call: the task as its title,
+  `max()` of cumulative tool snapshots, the child's own `turns` and
+  `input + output + cacheRead` tokens. The parent's row counts its own tool
+  calls plus one per delegation, but never the child's tools or tokens.
+- Status is taken from the child's terminal event (`completed` / `failed` /
+  `interrupted`) rather than the parent's session status, and the table shows a
+  来源 column so the two kinds of rows cannot be mistaken for each other.

@@ -174,7 +174,7 @@ export default function AgentsLive() {
     if (tab !== 'runs' || !editor?.id) return
     let alive = true
     setRunsState('loading')
-    loadAgentRuns(editor.id)
+    loadAgentRuns(editor.id, 20, editor.draft.slug)
       .then((rows) => {
         if (!alive) return
         setRuns(rows)
@@ -186,7 +186,7 @@ export default function AgentsLive() {
     return () => {
       alive = false
     }
-  }, [tab, editor?.id, notice])
+  }, [tab, editor?.id, editor?.draft.slug, notice])
 
   // Which sub agents pi can be asked for right now. Read-only: saving an agent
   // is what writes the file, so this refreshes after every save/delete.
@@ -1054,8 +1054,12 @@ function RunsPanel({
   state: 'idle' | 'loading' | 'ready' | 'error'
   t: Translate
 }) {
-  const statusKey = (status: string): MessageKey =>
-    status === 'idle' ? 'agents.runs.done' : status === 'archived' ? 'agents.runs.archived' : 'agents.runs.pending'
+  const statusKey = (status: string): MessageKey => {
+    if (status === 'failed' || status === 'aborted' || status === 'error') return 'agents.runs.failed'
+    if (status === 'archived') return 'agents.runs.archived'
+    if (status === 'running' || status === 'pending') return 'agents.runs.pending'
+    return 'agents.runs.done'
+  }
   return (
     <div className="agents-panel">
       <div className="agents-table-wrap">
@@ -1063,6 +1067,7 @@ function RunsPanel({
           <thead>
             <tr>
               <th>{t('agents.runs.time')}</th>
+              <th>{t('agents.runs.source')}</th>
               <th>{t('agents.runs.chat')}</th>
               <th>{t('agents.runs.turns')}</th>
               <th>{t('agents.runs.tools')}</th>
@@ -1072,8 +1077,16 @@ function RunsPanel({
           </thead>
           <tbody>
             {rows.map((run) => (
-              <tr key={run.sessionId}>
+              <tr key={run.runKey || run.sessionId}>
                 <td className="mono">{run.at}</td>
+                <td>
+                  <span className={`agents-run-kind is-${run.kind}`}>
+                    {t(run.kind === 'sub' ? 'agents.runs.sub' : 'agents.runs.main')}
+                  </span>
+                  {run.kind === 'sub' && run.agentName ? (
+                    <span className="agents-run-agent">{run.agentName}</span>
+                  ) : null}
+                </td>
                 <td>{run.title}</td>
                 <td className="mono is-right">{run.turns}</td>
                 <td className="mono is-right">{run.toolCalls}</td>
@@ -1083,7 +1096,7 @@ function RunsPanel({
             ))}
             {rows.length === 0 && state !== 'loading' ? (
               <tr>
-                <td colSpan={6} className="agents-list-empty" data-testid="agent-runs-empty">
+                <td colSpan={7} className="agents-list-empty" data-testid="agent-runs-empty">
                   {state === 'error' ? t('agents.live.runsError') : t('agents.live.runsEmpty')}
                 </td>
               </tr>

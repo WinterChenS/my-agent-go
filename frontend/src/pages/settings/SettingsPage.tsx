@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import ThemeSettings from './ThemeSettings'
+import MemoryPanel from './MemoryPanel'
 import {
   describeSessionError,
   exportSessionAudit,
@@ -39,7 +40,7 @@ import {
   SubagentExtensionPanel,
 } from '../../catalog/CatalogPanels'
 
-type SectionId = 'general' | 'models' | 'runtime' | 'observability' | 'security'
+type SectionId = 'general' | 'models' | 'runtime' | 'observability' | 'memory' | 'security'
 type ObsTab = 'usage' | 'traces' | 'executions'
 
 const SECTIONS: Array<{ id: SectionId; icon: string; labelKey: MessageKey; keywords: string }> = [
@@ -47,6 +48,7 @@ const SECTIONS: Array<{ id: SectionId; icon: string; labelKey: MessageKey; keywo
   { id: 'models', icon: 'brain', labelKey: 'settings.nav.models', keywords: '模型 供应商 API 密钥 目录' },
   { id: 'runtime', icon: 'terminal', labelKey: 'settings.nav.runtime', keywords: '运行时 并发 环境 权限 沙箱' },
   { id: 'observability', icon: 'zap', labelKey: 'settings.nav.observability', keywords: '观测 Token 用量 审计 链路 执行' },
+  { id: 'memory', icon: 'database', labelKey: 'settings.nav.memory', keywords: '记忆 长期记忆 偏好 会话 memory' },
   { id: 'security', icon: 'shield', labelKey: 'settings.nav.security', keywords: '安全 权限 确认 审计 数据' },
 ]
 
@@ -143,6 +145,7 @@ export default function SettingsPage() {
           {section === 'models' ? <ModelsPanel sample={sample} onNotice={announce} /> : null}
           {section === 'runtime' ? <RuntimePanel sample={sample} onNotice={announce} /> : null}
           {section === 'observability' ? <ObservabilityPanel sample={sample} onNotice={announce} /> : null}
+          {section === 'memory' ? <MemoryPanel /> : null}
           {section === 'security' ? <SecurityPanel sample={sample} onNotice={announce} /> : null}
         </div>
       </div>

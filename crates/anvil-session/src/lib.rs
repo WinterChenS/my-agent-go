@@ -24,6 +24,7 @@ pub mod context;
 pub mod error;
 pub mod export;
 pub mod extensions;
+pub mod memory;
 pub mod model;
 pub mod persona;
 pub mod preview;

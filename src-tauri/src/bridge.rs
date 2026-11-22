@@ -83,6 +83,11 @@ fn handle(mut stream: TcpStream, app: &AppHandle, browser: &Arc<Browser>) -> std
         // Connectors: what the agent may call, and the call itself. The host
         // owns the credentials, so the tool never leaves this process except as
         // an HTTPS/IMAP/SMTP request the connector makes.
+        // Memory: what the user let the agent remember. Same rows the 设置 →
+        // 记忆 page shows, so "记住这个" and "忘掉那条" are auditable afterwards.
+        ("GET", "/memory") => crate::memory::list_for_agent(app).to_string(),
+        ("POST", "/memory") => crate::memory::add_from_agent(app, &request.body).to_string(),
+        ("POST", "/memory/forget") => crate::memory::forget_from_agent(app, &request.body).to_string(),
         ("GET", "/connectors") => crate::connectors::list_for_agent(app).to_string(),
         ("POST", "/connector/call") => connector_call(app, &request.body).to_string(),
         _ => {
@@ -310,6 +315,8 @@ fn write_render(port: &u16) -> Result<(), String> {
         .map_err(|error| format!("schedule bridge: {error}"))?;
     std::fs::write(bin.join("anvil-connector.mjs"), CONNECTOR_CLI)
         .map_err(|error| format!("connector bridge: {error}"))?;
+    std::fs::write(bin.join("anvil-memory.mjs"), MEMORY_CLI)
+        .map_err(|error| format!("memory bridge: {error}"))?;
     Ok(())
 }
 
@@ -509,6 +516,76 @@ try {
   process.exit(data.ok ? 0 : 1)
 } catch (error) {
   console.error('the Anvil bridge did not answer: ' + error.message)
+  process.exit(1)
+}
+"##;
+
+/// The command an agent runs when the user says 「记住…」.
+///
+/// One job: turn a sentence into a row the 设置 → 记忆 page will show. It prints
+/// the id so the model can confirm, and `forget` takes that id back.
+const MEMORY_CLI: &str = r##"#!/usr/bin/env node
+// Anvil memory: what the user let the assistant remember.
+//
+//   node anvil-memory.mjs list
+//   node anvil-memory.mjs add '{"text":"回答先给结论，不要寒暄","kind":"preference"}'
+//   node anvil-memory.mjs forget '{"id":"mem-..."}'
+//
+// `kind` is preference | fact | constraint | workflow. Add only what the user
+// asked to keep: every entry here is shown in 设置 → 记忆 and is injected into
+// future turns.
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+function readPort() {
+  for (const name of ['bridge.json', 'browser.json']) {
+    try {
+      return JSON.parse(readFileSync(join(homedir(), '.anvil', name), 'utf8')).port
+    } catch {}
+  }
+  return null
+}
+
+const port = readPort()
+if (!port) {
+  console.error('the Anvil bridge is not running (no ~/.anvil/bridge.json)')
+  process.exit(1)
+}
+
+const [action, ...rest] = process.argv.slice(2)
+if (!action || !['list', 'add', 'forget'].includes(action)) {
+  console.error('usage: anvil-memory <list|add|forget> [json]')
+  process.exit(2)
+}
+let params = {}
+if (rest.length > 0) {
+  try {
+    params = JSON.parse(rest.join(' '))
+  } catch (error) {
+    console.error('params must be JSON: ' + error.message)
+    process.exit(2)
+  }
+}
+
+const url =
+  action === 'list'
+    ? `http://127.0.0.1:${port}/memory`
+    : action === 'add'
+      ? `http://127.0.0.1:${port}/memory`
+      : `http://127.0.0.1:${port}/memory/forget`
+
+try {
+  const response = await fetch(url, {
+    method: action === 'list' ? 'GET' : 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: action === 'list' ? undefined : JSON.stringify(params),
+  })
+  const data = await response.json()
+  console.log(JSON.stringify(data, null, 2))
+  process.exit(data.ok ? 0 : 1)
+} catch (error) {
+  console.error('the Anvil bridge is not reachable: ' + error.message)
   process.exit(1)
 }
 "##;

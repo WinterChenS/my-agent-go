@@ -271,12 +271,17 @@ describe('agents live page — prototype parity and real persona', () => {
         toolCalls: 5,
         tokens: 1200,
         status: 'idle',
+        kind: 'main',
+        agentName: 'Default Agent',
+        runKey: 's-1',
       },
     ])
     renderPage()
     await screen.findByTestId('agents-live-list')
     await userEvent.click(screen.getByRole('tab', { name: '运行记录' }))
-    expect(mocks.loadAgentRuns).toHaveBeenCalledWith('default')
+    // id and slug both go down: the ledger stores the slug, the row has an id.
+    expect(mocks.loadAgentRuns).toHaveBeenCalledWith('default', 20, 'default')
+    expect(screen.getByTestId('agent-runs-table')).toHaveTextContent('主 Agent')
     expect(await screen.findByText('迁移评估')).toBeTruthy()
     expect(screen.getByTestId('agent-runs-table')).toHaveTextContent('1200')
   })
