@@ -101,6 +101,29 @@
   overflow-x: auto;
 }
 
+/* npm's live transcript under the runtime table. The panel keeps its normal
+   height; only this box scrolls as new lines arrive. */
+.cat-install-log {
+  margin: var(--space-3) 0 0;
+  max-height: 148px;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: var(--text-2xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scroll-behavior: smooth;
+}
+
+.cat-install-log.is-running {
+  border-color: var(--accent);
+}
+
 .cat-table {
   width: 100%;
   border-collapse: collapse;

@@ -22,6 +22,7 @@ import {
   type RuntimeUpdateCheck,
 } from './client'
 import { byRuntime, modelsFor, syncProblems, type CatalogView } from './useCatalog'
+import { onRuntimeInstallLog } from './installLog'
 
 /** Human status label for a runtime row. */
 export function runtimeStatusKey(status: string): MessageKey {
@@ -122,6 +123,20 @@ export function CatalogRuntimeTable({
   const [override, setOverride] = useState<CatalogSnapshot | null>(null)
   const [checks, setChecks] = useState<Record<string, RuntimeUpdateCheck>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  const [installLog, setInstallLog] = useState<string[]>([])
+  const logRef = useRef<HTMLPreElement | null>(null)
+  // The npm transcript streams while `installRuntime` is still in flight.
+  useEffect(() => {
+    if (!busy) return
+    return onRuntimeInstallLog(busy, (line) => {
+      setInstallLog((lines) => [...lines.slice(-399), line])
+    })
+  }, [busy])
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [installLog])
+
   const snapshot = override ?? view.snapshot
   const runtimes = snapshot?.runtimes ?? []
   if (view.status !== 'ready' && !override) return null
@@ -150,8 +165,12 @@ export function CatalogRuntimeTable({
 
   const update = async (runtimeId: string, version: string) => {
     setBusy(runtimeId)
+    setInstallLog([])
     try {
       const result = await installRuntime(runtimeId)
+      if (result.report.output) {
+        setInstallLog((lines) => [...lines, ...result.report.output.split(/\r?\n/)])
+      }
       if (result.snapshot) setOverride(result.snapshot)
       setChecks((current) => {
         const next = { ...current }
@@ -248,6 +267,16 @@ export function CatalogRuntimeTable({
           })}
         </tbody>
       </table>
+      {installLog.length > 0 ? (
+        <pre
+          ref={logRef}
+          className={`cat-install-log${busy ? ' is-running' : ''}`}
+          data-testid="catalog-runtime-install-log"
+          aria-live="polite"
+        >
+          {installLog.join('\n')}
+        </pre>
+      ) : null}
     </div>
   )
 }

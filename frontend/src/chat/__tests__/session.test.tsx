@@ -516,6 +516,45 @@ describe('chat live session', () => {
     expect(form).not.toHaveClass('is-working')
   })
 
+  it('merges send and stop into one button that follows the draft and run state', async () => {
+    const host = installHost({ hangSend: true })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    const action = () => screen.getByTestId('chat-send')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+
+    // Empty field: the label stays 发送, but there is nothing to send yet.
+    expect(action()).toHaveAttribute('data-mode', 'send')
+    expect(action()).toBeDisabled()
+    expect(action()).toHaveTextContent('发送')
+
+    await userEvent.type(composer, 'first turn')
+    expect(action()).toHaveAttribute('data-mode', 'send')
+    expect(action()).toBeEnabled()
+
+    // Once the turn starts the field is cleared, so the same button becomes 停止.
+    await userEvent.click(action())
+    await waitFor(() => expect(action()).toHaveAttribute('data-mode', 'stop'))
+    expect(action()).toBeEnabled()
+    expect(action()).toHaveTextContent('停止')
+
+    // A draft typed mid-run wins: it queues instead of stopping, and the
+    // tooltip says so. After that send clears the field, stop comes back.
+    await userEvent.type(composer, 'queued turn')
+    expect(action()).toHaveAttribute('data-mode', 'send')
+    expect(action()).toHaveAttribute('title', '排队发送（Enter · Shift+Enter 换行）')
+    await userEvent.click(action())
+    await waitFor(() => expect(screen.getAllByTestId('chat-queue-item')).toHaveLength(1))
+    await waitFor(() => expect(action()).toHaveAttribute('data-mode', 'stop'))
+
+    await userEvent.click(action())
+    await waitFor(() => expect(host.aborted()).toBe(true))
+  })
+
   it('clears the transcript when a new conversation is started', async () => {
     installHost()
     render(

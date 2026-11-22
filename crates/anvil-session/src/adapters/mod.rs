@@ -139,14 +139,31 @@ fn node_shim_target(script: &Path) -> Option<(PathBuf, PathBuf)> {
     if !target.is_file() {
         return None;
     }
-    let node = {
-        let sibling = directory.join("node.exe");
-        if sibling.is_file() {
-            sibling
-        } else {
-            PathBuf::from("node")
-        }
-    };
+    // Prefer an absolute Node pinned by our installer. A plain `node` falls
+    // back to PATH, where an old Node from another tool can shadow the one npm
+    // used and make the CLI fail before it prints a version.
+    let quoted: Vec<&str> = line.split('"').collect();
+    let node = quoted
+        .iter()
+        .find(|part| {
+            let name = Path::new(part)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            (name == "node.exe" || name == "node")
+                && Path::new(part).is_absolute()
+                && Path::new(part).is_file()
+        })
+        .map(PathBuf::from)
+        .or_else(|| {
+            let sibling = directory.join("node.exe");
+            sibling.is_file().then_some(sibling)
+        })
+        .or_else(|| {
+            anvil_catalog::runtime::adapters::common::preferred_node().map(Path::to_path_buf)
+        })
+        .unwrap_or_else(|| PathBuf::from("node"));
     Some((node, target))
 }
 
@@ -234,5 +251,41 @@ mod tests {
             .collect();
         assert_eq!(args.len(), 1);
         assert!(args[0].ends_with("cli.js"), "{args:?}");
+    }
+
+    #[test]
+    fn an_installer_pinned_node_beats_the_path_lookup() {
+        if !cfg!(windows) {
+            return;
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".tmp")
+            .join("test")
+            .join("shim-pinned");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("node_modules/pkg/dist")).expect("create");
+        std::fs::write(root.join("node_modules/pkg/dist/cli.js"), "process.exit(0)")
+            .expect("write");
+        std::fs::create_dir_all(root.join("pinned")).expect("create pinned dir");
+        let pinned = root.join("pinned/node.exe");
+        std::fs::write(&pinned, "").expect("write pinned node");
+        std::fs::write(root.join("node.exe"), "").expect("write sibling node");
+        let shim = root.join("pkg.cmd");
+        std::fs::write(
+            &shim,
+            format!(
+                "@ECHO off\r\n\"{}\" \"%dp0%\\node_modules\\pkg\\dist\\cli.js\" %*\r\n",
+                pinned.display()
+            ),
+        )
+        .expect("write shim");
+
+        let command = command_for(&shim);
+        assert_eq!(
+            command.get_program().to_string_lossy().to_lowercase(),
+            pinned.to_string_lossy().to_lowercase()
+        );
     }
 }

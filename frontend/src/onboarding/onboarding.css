@@ -499,6 +499,30 @@
   color: var(--danger);
 }
 
+/* npm's live transcript. Kept short enough that the wizard footer stays put;
+   overflow scrolls to the newest line as events arrive. */
+.ob-install-log {
+  margin: 10px 0 0;
+  max-height: 132px;
+  overflow: auto;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: var(--text-2xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scroll-behavior: smooth;
+}
+
+.ob-install-log.is-done {
+  max-height: 96px;
+  opacity: 0.85;
+}
+
 .ob-skeleton {
   height: 44px;
   border-radius: var(--r-md);

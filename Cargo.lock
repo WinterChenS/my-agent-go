@@ -93,6 +93,7 @@ dependencies = [
 name = "anvil-session"
 version = "0.1.0"
 dependencies = [
+ "anvil-catalog",
  "anvil-paths",
  "rusqlite",
  "serde",

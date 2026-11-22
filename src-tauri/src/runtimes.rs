@@ -80,6 +80,8 @@ pub struct InstallReport {
     pub package: String,
     pub prefix: String,
     pub installed_path: Option<String>,
+    /// The version the shim actually printed after installation, if it runs.
+    pub version: Option<String>,
     /// npm's combined output, trimmed for display.
     pub output: String,
     pub elapsed_ms: u64,
@@ -96,8 +98,11 @@ pub fn prefix() -> Result<PathBuf, String> {
     })
 }
 
-/// Install `runtime_id` into the shared prefix.
-pub fn install(runtime_id: &str) -> Result<InstallReport, String> {
+/// Install `runtime_id` into the shared prefix, reporting npm's output live.
+pub fn install<F>(runtime_id: &str, mut on_line: F) -> Result<InstallReport, String>
+where
+    F: FnMut(&str),
+{
     let spec = spec(runtime_id).ok_or_else(|| {
         format!("不支持的运行时：{runtime_id}（可安装：pi / codex / opencode / claude）")
     })?;
@@ -110,8 +115,8 @@ pub fn install(runtime_id: &str) -> Result<InstallReport, String> {
     let prefix_arg = prefix.to_string_lossy().into_owned();
     // `--global` is what makes npm put the `bin` shim at the prefix root on
     // Windows and in `<prefix>/bin` on macOS/Linux — the two places
-    // `common::shared_shim` and the adapters look. A local install would drop
-    // the shim in `node_modules/.bin`, where nothing scans for it.
+    // `common::shared_shim` and the adapters look. It is a per-user global
+    // prefix, so no administrator rights and no change to the system PATH.
     let args = [
         "install",
         "--global",
@@ -120,25 +125,238 @@ pub fn install(runtime_id: &str) -> Result<InstallReport, String> {
         spec.package,
         "--no-fund",
         "--no-audit",
-        "--loglevel=error",
     ];
-    let output = process::run(&npm, &args, INSTALL_TIMEOUT)
+    on_line(&format!(
+        "$ {} install --global --prefix \"{}\" {}",
+        npm.display(),
+        prefix.display(),
+        spec.package
+    ));
+    let output = process::run_streaming(&npm, &args, INSTALL_TIMEOUT, &[], |line| on_line(line))
         .map_err(|error| format!("运行 npm 失败：{error}"))?;
 
     // A clean exit code is not enough: the shim is what discovery and the
-    // session adapters actually execute, so its presence is the real signal.
+    // session adapters actually execute, so it must exist *and* answer
+    // `--version` with a version we can parse.
     let installed = common::shared_shim(&prefix, spec.binary);
     let installed = installed.is_file().then(|| installed);
-    let ok = output.success() && installed.is_some();
+    let mut notes: Vec<String> = Vec::new();
+    if output.success() {
+        if let Some(shim) = &installed {
+            match pin_shim_to_node(&prefix, spec, &npm, shim) {
+                Ok(Some(message)) => notes.push(message),
+                Ok(None) => {}
+                Err(message) => notes.push(format!("启动器绑定失败：{message}")),
+            }
+        }
+    }
+    let probe = installed
+        .as_ref()
+        .and_then(|path| common::version_probe(path, Duration::from_secs(15)).ok());
+    let version = probe.as_ref().and_then(|(parsed, first_line, _)| {
+        parsed
+            .map(|value| value.to_string())
+            .or_else(|| (!first_line.is_empty()).then(|| first_line.clone()))
+    });
+    let ok = output.success()
+        && installed.is_some()
+        && probe
+            .as_ref()
+            .is_some_and(|(parsed, _, _)| parsed.is_some());
+    if !ok {
+        if !output.success() {
+            notes.push(format!("npm 退出码 {:?}", output.code));
+        } else if installed.is_none() {
+            notes.push(format!(
+                "没有生成启动器 {}",
+                common::shared_shim(&prefix, spec.binary).display()
+            ));
+        } else {
+            notes.push("启动器已写入，但 `--version` 没有返回可识别的版本；通常是 PATH 中的 Node 版本过低。".to_string());
+        }
+    }
+    for note in &notes {
+        on_line(note);
+    }
+    let mut transcript = combined_output(&output);
+    for note in &notes {
+        transcript.push('\n');
+        transcript.push_str(note);
+    }
     Ok(InstallReport {
         runtime_id: runtime_id.to_string(),
         ok,
         package: spec.package.to_string(),
         prefix: prefix.display().to_string(),
         installed_path: installed.map(|path| path.display().to_string()),
-        output: output_tail(&output.text(), 1200),
+        version,
+        output: output_tail(&transcript, 4000),
         elapsed_ms: output.elapsed_ms,
     })
+}
+
+/// npm splits progress between the two pipes; keep both in the final report.
+fn combined_output(output: &process::CommandOutput) -> String {
+    let mut text = String::new();
+    for stream in [&output.stdout, &output.stderr] {
+        let trimmed = stream.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(trimmed);
+    }
+    text
+}
+
+/// The Node version a package declares it needs, e.g. `>=22.19.0` → 22.19.0.
+fn required_node(
+    package_dir: &std::path::Path,
+) -> Option<anvil_catalog::runtime::version::Version> {
+    use anvil_catalog::runtime::version::Version;
+
+    let path = package_dir.join("package.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let engines = value.get("engines")?.get("node")?.as_str()?;
+    Version::find(engines)
+}
+
+/// Pick the newest Node we can actually start, preferring npm's own sibling.
+///
+/// Windows boxes often carry an old Node from another tool ahead of the real
+/// one on PATH. npm itself uses the Node beside `npm.cmd`, but the `.cmd` shim
+/// it writes resolves `node` from PATH again — binding the shim to this path
+/// makes install, discovery, and sessions agree on one interpreter.
+fn node_for_npm(
+    npm: &std::path::Path,
+    required: Option<anvil_catalog::runtime::version::Version>,
+) -> Result<(std::path::PathBuf, anvil_catalog::runtime::version::Version), String> {
+    use anvil_catalog::runtime::version::Version;
+
+    let mut candidates = Vec::new();
+    if let Some(directory) = npm.parent() {
+        for name in ["node.exe", "node"] {
+            candidates.push(directory.join(name));
+        }
+    }
+    for directory in std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default()
+    {
+        for name in ["node.exe", "node"] {
+            candidates.push(directory.join(name));
+        }
+    }
+    if let Some(found) = process::which("node") {
+        candidates.push(found);
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut best: Option<(std::path::PathBuf, Version)> = None;
+    let mut newest_seen: Option<Version> = None;
+    for candidate in candidates {
+        if !candidate.is_file() {
+            continue;
+        }
+        let key = candidate.to_string_lossy().to_lowercase();
+        if !seen.insert(key) {
+            continue;
+        }
+        let Ok(output) = process::run(&candidate, &["--version"], Duration::from_secs(3)) else {
+            continue;
+        };
+        if !output.success() {
+            continue;
+        }
+        let Some(version) = Version::find(&output.text()) else {
+            continue;
+        };
+        if newest_seen.is_none_or(|current| version > current) {
+            newest_seen = Some(version);
+        }
+        if required.is_some_and(|minimum| version < minimum) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(_, current)| version > *current) {
+            best = Some((candidate, version));
+        }
+    }
+    best.ok_or_else(|| match (required, newest_seen) {
+        (Some(minimum), Some(found)) => {
+            format!("需要 Node >= {minimum}，PATH 上找到的最高版本是 {found}；请升级 Node 后重试")
+        }
+        (Some(minimum), None) => format!("找不到可用的 Node（需要 >= {minimum}）"),
+        _ => "找不到可执行的 Node.js".to_string(),
+    })
+}
+
+/// Rewrite npm's PATH-dependent shim so it launches the pinned Node directly.
+///
+/// Only the generated `<name>.cmd` / `bin/<name>` is touched; the package and
+/// its own files are left alone, so a later npm update simply replaces it.
+fn pin_shim_to_node(
+    prefix: &std::path::Path,
+    spec: &Spec,
+    npm: &std::path::Path,
+    shim: &std::path::Path,
+) -> Result<Option<String>, String> {
+    let package_dir = prefix.join("node_modules").join(spec.package);
+    let manifest = std::fs::read_to_string(package_dir.join("package.json"))
+        .map_err(|error| format!("读取 {} 的 package.json 失败：{error}", spec.package))?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest)
+        .map_err(|error| format!("解析 {} 的 package.json 失败：{error}", spec.package))?;
+    let relative = manifest
+        .get("bin")
+        .and_then(|bin| {
+            bin.as_str().map(str::to_string).or_else(|| {
+                bin.get(spec.binary)
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+        })
+        .ok_or_else(|| format!("{} 没有声明 {} 入口", spec.package, spec.binary))?;
+    let cli = package_dir.join(relative);
+    if !cli.is_file() {
+        return Err(format!("找不到 {} 的入口 {}", spec.package, cli.display()));
+    }
+
+    let (node, version) = node_for_npm(npm, required_node(&package_dir))?;
+    #[cfg(windows)]
+    {
+        let node_literal = node.to_string_lossy().replace('%', "%%");
+        let cli_literal = cli.to_string_lossy().replace('%', "%%");
+        let body = format!(
+            "@ECHO off\r\n\"{node_literal}\" \"{cli_literal}\" %*\r\nEXIT /b %ERRORLEVEL%\r\n"
+        );
+        std::fs::write(shim, body)
+            .map_err(|error| format!("写入 {} 失败：{error}", shim.display()))?;
+    }
+    #[cfg(not(windows))]
+    {
+        let escape = |path: &std::path::Path| path.to_string_lossy().replace('"', "\\\"");
+        let body = format!(
+            "#!/bin/sh\nexec \"{}\" \"{}\" \"$@\"\n",
+            escape(&node),
+            escape(&cli)
+        );
+        std::fs::write(shim, body)
+            .map_err(|error| format!("写入 {} 失败：{error}", shim.display()))?;
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(shim)
+            .map_err(|error| error.to_string())?
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(shim, permissions).map_err(|error| error.to_string())?;
+    }
+    Ok(Some(format!(
+        "已把 {} 启动器绑定到 Node {}（{}），避免 PATH 里的旧版 Node 干扰",
+        spec.binary,
+        version,
+        node.display()
+    )))
 }
 
 /// What npm says about a runtime's package, compared with the installed CLI.
@@ -177,11 +395,17 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
         error: None,
     };
     let prefix = prefix()?;
-    let npm = common::shared_npm(&prefix)
-        .ok_or_else(|| "未找到 npm：请先安装 Node.js".to_string())?;
+    let npm =
+        common::shared_npm(&prefix).ok_or_else(|| "未找到 npm：请先安装 Node.js".to_string())?;
     let output = process::run(
         &npm,
-        &["view", spec.package, "version", "--json", "--loglevel=error"],
+        &[
+            "view",
+            spec.package,
+            "version",
+            "--json",
+            "--loglevel=error",
+        ],
         UPDATE_TIMEOUT,
     )
     .map_err(|error| format!("查询 npm 失败：{error}"))?;
@@ -189,21 +413,13 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
         check.error = Some(output_tail(&output.text(), 400));
         return Ok(check);
     }
-    let latest = output
-        .text()
-        .trim()
-        .trim_matches('"')
-        .trim()
-        .to_string();
+    let latest = output.text().trim().trim_matches('"').trim().to_string();
     if latest.is_empty() {
         check.error = Some("npm 没有返回版本号".to_string());
         return Ok(check);
     }
     check.latest = Some(latest.clone());
-    check.update_available = match (
-        installed.and_then(Version::find),
-        Version::find(&latest),
-    ) {
+    check.update_available = match (installed.and_then(Version::find), Version::find(&latest)) {
         (Some(current), Some(remote)) => remote > current,
         // No installed version means the CLI is missing; installing is the fix,
         // and the install button already covers that case.
@@ -212,7 +428,8 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
     Ok(check)
 }
 
-fn output_tail(text: &str, limit: usize) -> String {    let trimmed = text.trim();
+fn output_tail(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
     if trimmed.chars().count() <= limit {
         return trimmed.to_string();
     }

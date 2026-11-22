@@ -27,6 +27,9 @@ use crate::subagents::{SubagentOverview, sync_agents};
 /// Emitted once the background discovery pass has committed its rows.
 pub const CATALOG_SCANNED_EVENT: &str = "anvil://catalog-scanned";
 
+/// One npm install line, delivered while the install is still running.
+pub const RUNTIME_INSTALL_LOG_EVENT: &str = "anvil://runtime-install-log";
+
 /// Catalog state shared by the commands.
 pub struct CatalogState {
     database: PathBuf,
@@ -120,9 +123,8 @@ impl CatalogState {
                 return Ok(self.annotate(cached));
             }
         }
-        let snapshot = self.with_service(|service| {
-            service.snapshot().map_err(|error| error.to_wire())
-        })?;
+        let snapshot =
+            self.with_service(|service| service.snapshot().map_err(|error| error.to_wire()))?;
         let snapshot = self.annotate(snapshot);
         if let Ok(mut slot) = self.last.lock() {
             *slot = Some(snapshot.clone());
@@ -247,7 +249,11 @@ pub async fn catalog_snapshot(app: AppHandle) -> Result<CatalogSnapshot, String>
 /// model is default", which discovery alone can also produce).
 #[tauri::command]
 pub async fn catalog_mark_setup_done(state: State<'_, CatalogState>) -> Result<(), String> {
-    state.with_service(|service| service.mark_setup_complete().map_err(|error| error.to_wire()))
+    state.with_service(|service| {
+        service
+            .mark_setup_complete()
+            .map_err(|error| error.to_wire())
+    })
 }
 
 /// Re-scan and re-sync everything.
@@ -427,9 +433,7 @@ fn log_sync(app: &AppHandle, snapshot: &CatalogSnapshot) {
 /// Read-only on purpose: the page draws per-row state from this, and a page load
 /// must not rewrite files. The snapshot save is what writes them.
 #[tauri::command]
-pub async fn subagent_overview(
-    state: State<'_, CatalogState>,
-) -> Result<SubagentOverview, String> {
+pub async fn subagent_overview(state: State<'_, CatalogState>) -> Result<SubagentOverview, String> {
     let agents = state.with_service(|service| {
         service
             .snapshot()
@@ -531,7 +535,10 @@ pub async fn runtime_update_check(
     runtime_id: String,
 ) -> Result<crate::runtimes::UpdateCheck, String> {
     let installed = state.with_service(|service| {
-        let rows = service.store().runtimes().map_err(|error| error.to_wire())?;
+        let rows = service
+            .store()
+            .runtimes()
+            .map_err(|error| error.to_wire())?;
         Ok(rows
             .into_iter()
             .find(|row| row.runtime_id == runtime_id)
@@ -553,6 +560,7 @@ pub async fn runtime_update_check(
 /// discovery reads the same prefix the installer writes to.
 #[tauri::command]
 pub async fn runtime_install(
+    app: AppHandle,
     state: State<'_, CatalogState>,
     runtime_id: String,
 ) -> Result<RuntimeInstallResult, String> {
@@ -568,9 +576,16 @@ pub async fn runtime_install(
     })?;
 
     let target = runtime_id.clone();
-    let report = tauri::async_runtime::spawn_blocking(move || crate::runtimes::install(&target))
-        .await
-        .map_err(|error| format!("install task: {error}"))??;
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        crate::runtimes::install(&target, |line| {
+            let _ = app.emit(
+                RUNTIME_INSTALL_LOG_EVENT,
+                serde_json::json!({ "runtimeId": target, "line": line }),
+            );
+        })
+    })
+    .await
+    .map_err(|error| format!("install task: {error}"))??;
 
     let snapshot = state.with_service(|service| {
         if report.ok {

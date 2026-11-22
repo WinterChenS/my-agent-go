@@ -2704,6 +2704,13 @@ function Composer({
   // the composer, so the setting takes effect in an already-open conversation.
   const [sendShortcut] = useSendShortcut()
   const [text, setText] = useState(sample ? sampleChat.composerDraft : '')
+  // One action button serves both jobs. A draft always wins: typing while a
+  // turn streams queues the message, and the stop action appears only once the
+  // field is empty. That keeps "send" and "stop" from ever competing for the
+  // same click.
+  const hasDraft = Boolean(text.trim())
+  const liveRunning = live !== null && live.running
+  const stopMode = liveRunning && !hasDraft
   const [mentionHits, setMentionHits] = useState<MentionHit[]>([])
   const [mentionMode, setMentionMode] = useState<MentionMode>('all')
   /** Keyboard cursor: arrows move it, Tab/Enter accept it, the wheel scrolls. */
@@ -3480,28 +3487,31 @@ function Composer({
           {contextAside}
           <div className="chat-composer-actions">
             <button
-              type="button"
-              className="chat-btn chat-btn-sm"
-              data-testid="chat-stop"
-              disabled={!enabled || (live !== null && !live.running)}
-              onClick={() => (live ? live.onStop() : onNotice(t('chat.notice.stop')))}
-            >
-              <Icon name="pause" size={12} />
-              {t('chat.composer.stop')}
-            </button>
-            <button
-              type="submit"
+              type={stopMode ? 'button' : 'submit'}
               className="chat-send"
               data-testid="chat-send"
-              aria-label={t('chat.composer.send')}
+              data-mode={stopMode ? 'stop' : 'send'}
+              aria-label={t(stopMode ? 'chat.composer.stop' : 'chat.composer.send')}
               title={
-                sendShortcut === 'enter'
-                  ? t('chat.composer.sendTip.enter')
-                  : t('chat.composer.sendTip.ctrlEnter')
+                stopMode
+                  ? t('chat.composer.stop')
+                  : liveRunning
+                    ? t(
+                        sendShortcut === 'enter'
+                          ? 'chat.composer.queueTip.enter'
+                          : 'chat.composer.queueTip.ctrlEnter',
+                      )
+                    : t(
+                        sendShortcut === 'enter'
+                          ? 'chat.composer.sendTip.enter'
+                          : 'chat.composer.sendTip.ctrlEnter',
+                      )
               }
-              disabled={!enabled || !text.trim()}
+              disabled={stopMode ? !live?.running : !enabled || !hasDraft}
+              onClick={stopMode ? () => live?.onStop() : undefined}
             >
-              <Icon name="send" size={14} />
+              <Icon name={stopMode ? 'pause' : 'send'} size={13} />
+              <span>{t(stopMode ? 'chat.composer.stop' : 'chat.composer.send')}</span>
             </button>
           </div>
         </div>

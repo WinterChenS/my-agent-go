@@ -32,7 +32,8 @@ describe('chat normal entry', () => {
     expect(screen.queryByTestId('sample-banner')).toBeNull()
     expect(screen.getByTestId('chat-composer')).toBeDisabled()
     expect(screen.getByTestId('chat-send')).toBeDisabled()
-    expect(screen.getByTestId('chat-stop')).toBeDisabled()
+    // The two actions are now one button; no separate stop control remains.
+    expect(screen.queryByTestId('chat-stop')).toBeNull()
     expect(screen.getByTestId('chat-history-empty')).toHaveTextContent('尚未接入会话')
     expect(screen.getAllByRole('tab')).toHaveLength(4)
     expect(screen.queryByTestId('nav-count-chat')).toBeNull()

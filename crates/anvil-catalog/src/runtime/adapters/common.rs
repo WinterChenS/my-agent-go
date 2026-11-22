@@ -12,6 +12,9 @@ use crate::model::{InstallSource, RuntimeCandidate};
 use crate::runtime::process;
 use crate::runtime::version::Version;
 
+/// Re-exported so session adapters can pin the same Node as discovery.
+pub use crate::runtime::process::preferred_node;
+
 /// User home directory.
 pub fn home() -> PathBuf {
     if let Some(value) = std::env::var_os("USERPROFILE") {
@@ -165,12 +168,38 @@ fn executable_extensions() -> Vec<String> {
     }
 }
 
+/// Run npm shims with a known-good Node first on `PATH`.
+///
+/// npm shims call `node` by name. Windows boxes often have an old Node from a
+/// development tool ahead of the real one, which makes `pi --version` fail
+/// after a perfectly successful install. Prepending the newest working Node we
+/// can start keeps probes and sessions on the same interpreter npm used.
+pub fn node_env() -> Vec<(String, String)> {
+    let Some(node) = process::preferred_node() else {
+        return Vec::new();
+    };
+    let Some(directory) = node.parent() else {
+        return Vec::new();
+    };
+    let original = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries = vec![directory.to_path_buf()];
+    for path in std::env::split_paths(&original) {
+        if path != directory {
+            entries.push(path);
+        }
+    }
+    match std::env::join_paths(entries) {
+        Ok(value) => vec![("PATH".to_string(), value.to_string_lossy().into_owned())],
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Run `--version` and return the parsed version plus the raw first line.
 pub fn version_probe(
     executable: &Path,
     timeout: Duration,
 ) -> Result<(Option<Version>, String, u64)> {
-    let output = process::run(executable, &["--version"], timeout)?;
+    let output = process::run_with_env(executable, &["--version"], timeout, &node_env())?;
     let text = output.text();
     let first_line = text.lines().next().unwrap_or("").trim().to_string();
     Ok((Version::find(&text), first_line, output.elapsed_ms))

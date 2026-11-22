@@ -33,8 +33,9 @@ function catalog(runtimes: Array<Record<string, unknown>>, models: Array<Record<
   }
 }
 
-function installHost(snapshot = catalog([], [])) {
+function installHost(snapshot = catalog([], []), runtimeResult: unknown = null) {
   const calls: Array<{ command: string; args: Record<string, unknown> | undefined }> = []
+  let emitInstallLine: ((line: string) => void) | null = null
   const internals = {
     invoke: async (command: string, args: Record<string, unknown> | undefined) => {
       calls.push({ command, args })
@@ -45,14 +46,23 @@ function installHost(snapshot = catalog([], [])) {
         case 'catalog_set_model_enabled':
         case 'catalog_set_default_model':
           return snapshot
+        case 'runtime_install':
+          return runtimeResult
         default:
           return null
       }
     },
+    transformCallback: (callback: (event: unknown) => void) => {
+      emitInstallLine = (line: string) =>
+        callback({ payload: { runtimeId: 'pi', line } })
+      return 1
+    },
   }
   ;(window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ =
     internals as unknown as TauriInternals
-  return calls
+  return Object.assign(calls, {
+    emit: (line: string) => emitInstallLine?.(line),
+  })
 }
 
 beforeEach(() => {
@@ -170,6 +180,49 @@ describe('first-run wizard', () => {
           call.args?.modelId === 'deepseek-v4',
       ),
     ).toBe(true)
+    await waitFor(() => expect(screen.queryByTestId('onboarding')).toBeNull())
+  })
+
+  it('streams npm output and lets the user finish right after a successful install', async () => {
+    const user = userEvent.setup()
+    let release!: (value: unknown) => void
+    let result!: unknown
+    const host = installHost(
+      catalog([{ runtimeId: 'pi', displayName: 'Pi Agent', status: 'not_installed' }], []),
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    render(<App />)
+
+    await user.click(await screen.findByTestId('onboarding-next'))
+    await user.click(screen.getByTestId('onboarding-install-pi'))
+
+    const log = await screen.findByTestId('onboarding-install-log')
+    host.emit('added 1 package in 3s')
+    await waitFor(() => expect(log).toHaveTextContent('added 1 package in 3s'))
+
+    result = {
+      report: {
+        runtimeId: 'pi',
+        ok: true,
+        package: '@earendil-works/pi-coding-agent',
+        prefix: 'C:\\Users\\winte\\AppData\\Local\\pi-node\\current',
+        installedPath: 'C:\\Users\\winte\\AppData\\Local\\pi-node\\current\\pi.cmd',
+        version: '1.6.0',
+        output: 'added 1 package in 3s',
+        elapsedMs: 3000,
+      },
+      snapshot: catalog(
+        [{ runtimeId: 'pi', displayName: 'Pi Agent', status: 'available', version: '1.6.0' }],
+        [PI_MODEL],
+      ),
+    }
+    release(result)
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-finish')).toBeEnabled())
+    expect(screen.getByTestId('onboarding-notice')).toHaveTextContent('v1.6.0')
+    await user.click(screen.getByTestId('onboarding-finish'))
     await waitFor(() => expect(screen.queryByTestId('onboarding')).toBeNull())
   })
 

@@ -45,6 +45,7 @@ import {
   type PiSubagentStatus,
 } from '../catalog/client'
 import { readCachedSnapshot, writeCachedSnapshot } from '../catalog/cache'
+import { onRuntimeInstallLog } from '../catalog/installLog'
 import { notifyCatalogChanged } from '../catalog/notify'
 import { useTheme } from '../preferences/ThemeProvider'
 import type { ThemeMode } from '../preferences/theme'
@@ -143,6 +144,9 @@ export default function OnboardingDialog() {
   const [busy, setBusy] = useState(false)
   /** runtimeId npm is installing right now, if any. */
   const [installing, setInstalling] = useState<string | null>(null)
+  /** Incremental npm output, newest line last. */
+  const [installLog, setInstallLog] = useState<string[]>([])
+  const logRef = useRef<HTMLPreElement | null>(null)
   const [notice, setNotice] = useState('')
   const seeded = useRef(false)
   /**
@@ -206,6 +210,19 @@ export default function OnboardingDialog() {
       .catch(() => undefined)
   }, [finished])
 
+  // npm can run for minutes. Show each line as it arrives and keep the box
+  // pinned to the bottom, so a cold download never looks like a frozen wizard.
+  useEffect(() => {
+    if (!installing) return
+    return onRuntimeInstallLog(installing, (line) => {
+      setInstallLog((lines) => [...lines.slice(-399), line])
+    })
+  }, [installing])
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [installLog])
+
   const toggleRuntime = useCallback((runtimeId: string) => {
     setSelected((current) =>
       current.includes(runtimeId)
@@ -237,7 +254,13 @@ export default function OnboardingDialog() {
       const choice = pickModel(models.filter((model) => model.runtimeId === runtimeId))
       if (choice) picks.push({ runtimeId, modelId: choice.modelId })
     }
-    if (picks.length === 0) return
+    // An install can succeed while the catalog has not caught up. The wizard
+    // must still close: leaving it open with a disabled button strands the user
+    // even though settings can repair or re-detect the runtime afterwards.
+    if (picks.length === 0) {
+      finish(false)
+      return
+    }
     const wanted = new Set(picks.map((pick) => `${pick.runtimeId}|${pick.modelId}`))
     setBusy(true)
     setNotice('')
@@ -309,14 +332,23 @@ export default function OnboardingDialog() {
   const installOne = useCallback(
     async (runtimeId: string) => {
       setInstalling(runtimeId)
+      setInstallLog([])
       setNotice('')
       try {
         const { report, snapshot } = await installRuntime(runtimeId)
         catalog.apply(snapshot)
         writeCachedSnapshot(snapshot)
+        // Events can be missed while the tab is backgrounded; the final report
+        // carries the same transcript, so the log is complete either way.
+        if (report.output) {
+          setInstallLog((lines) => [...lines, ...report.output.split(/\r?\n/)])
+        }
         if (!report.ok) {
           setNotice(
-            `${runtimeId} 安装未完成：${report.output || 'npm 没有返回输出，请检查网络或 Node.js 版本。'}`,
+            `${runtimeId} 安装未完成：${
+              report.output.split(/\r?\n/).filter(Boolean).slice(-2).join(' ') ||
+              'npm 没有返回输出，请检查网络或 Node.js 版本。'
+            }`,
           )
           return
         }
@@ -324,9 +356,10 @@ export default function OnboardingDialog() {
           current.includes(runtimeId) ? current : [...current, runtimeId],
         )
         setNotice(
-          `已安装 ${runtimeId}（${Math.max(1, Math.round(report.elapsedMs / 1000))}s）${
-            report.installedPath ? ` → ${report.installedPath}` : ''
-          }`,
+          `已安装 ${runtimeId}${report.version ? ` v${report.version}` : ''}（${Math.max(
+            1,
+            Math.round(report.elapsedMs / 1000),
+          )}s）${report.installedPath ? ` → ${report.installedPath}` : ''}`,
         )
       } catch (cause) {
         setNotice(cause instanceof Error ? cause.message : String(cause))
@@ -349,9 +382,10 @@ export default function OnboardingDialog() {
 
   const piSelected = selected.includes(DEFAULT_RUNTIME)
   const canInstallSubagent = piSelected && Boolean(subagent?.canInstall) && !subagent?.installed
-  const chosenCount = selected.filter((runtimeId) =>
-    available.some((runtime) => runtime.runtimeId === runtimeId),
-  ).length
+  // A successful install adds the id to `selected` even if the catalog's probe
+  // has not caught up yet. Counting `selected` keeps 完成设置 enabled in that
+  // window instead of stranding the user behind a disabled button.
+  const chosenCount = selected.length
   /**
    * Model lists land with the discovery pass. Finishing before they do would be
    * a silent no-op — there is nothing to switch on yet — and a button that does
@@ -420,7 +454,7 @@ export default function OnboardingDialog() {
           ) : (
             <>
               <p className="ob-sub">
-                勾选要启用的运行时；没安装的可以在这里一键安装（走 npm，装到当前用户目录，不需要管理员权限）。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
+                勾选要启用的运行时；没安装的可以在这里一键安装（npm 全局方式装到当前用户目录，不需要管理员权限，也不改系统 PATH）。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
               </p>
 
               {failed ? (
@@ -509,14 +543,32 @@ export default function OnboardingDialog() {
               )}
 
               {installing ? (
-                <p className="ob-hint" data-testid="onboarding-installing">
-                  正在通过 npm 安装 {installing}，首次下载可能需要一到三分钟…
-                </p>
+                <>
+                  <p className="ob-hint" data-testid="onboarding-installing">
+                    正在通过 npm 全局安装 {installing} 到当前用户目录（不修改系统 PATH），首次下载可能需要一到三分钟…
+                  </p>
+                  <pre
+                    ref={logRef}
+                    className="ob-install-log"
+                    data-testid="onboarding-install-log"
+                    aria-live="polite"
+                  >
+                    {installLog.length ? installLog.join('\n') : '正在等待 npm 输出…'}
+                  </pre>
+                </>
+              ) : installLog.length > 0 ? (
+                <pre
+                  ref={logRef}
+                  className="ob-install-log is-done"
+                  data-testid="onboarding-install-log"
+                >
+                  {installLog.join('\n')}
+                </pre>
               ) : null}
 
               {!loading && !failed && available.length === 0 ? (
                 <p className="ob-hint">
-                  本机还没有可用的运行时。点「一键安装」会装到当前用户目录（不动系统 PATH），装完自动识别并勾选。
+                  本机还没有可用的运行时。点「一键安装」会按 npm 全局方式装到当前用户目录（不动系统 PATH），装完自动识别并勾选。
                 </p>
               ) : null}
 

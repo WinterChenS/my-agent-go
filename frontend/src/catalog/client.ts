@@ -475,6 +475,8 @@ export interface RuntimeInstallReport {
   package: string
   prefix: string
   installedPath: string | null
+  /** Version read back from the shim after install, when it answers. */
+  version: string | null
   output: string
   elapsedMs: number
 }

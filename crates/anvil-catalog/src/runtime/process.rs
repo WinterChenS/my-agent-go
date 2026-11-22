@@ -4,12 +4,17 @@
 //! its pipes are drained on separate threads so a chatty CLI cannot deadlock,
 //! and no window is created.
 
-use std::io::Read;
+use std::collections::HashSet;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
+use crate::runtime::version::Version;
 
 /// Result of one bounded child process.
 #[derive(Clone, Debug, Default)]
@@ -36,6 +41,58 @@ impl CommandOutput {
     }
 }
 
+/// The newest Node.js executable this machine can actually start.
+///
+/// npm `.cmd` shims resolve `node` from `PATH` at call time. On Windows that
+/// PATH can contain an old Node bundled with another tool ahead of the real
+/// install; `pi --version` then dies with a syntax error even though npm
+/// installed the package correctly. Probing and launching runtimes must pin a
+/// working Node instead of trusting whatever happens to be first on PATH.
+static PREFERRED_NODE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// A Node executable that can run the installed CLIs, if the machine has one.
+pub fn preferred_node() -> Option<&'static Path> {
+    PREFERRED_NODE
+        .get_or_init(|| {
+            let mut seen = HashSet::new();
+            let mut best: Option<(PathBuf, Version)> = None;
+            let mut candidates = Vec::new();
+
+            if let Some(found) = which("node") {
+                candidates.push(found);
+            }
+            for directory in path_entries() {
+                for name in ["node.exe", "node"] {
+                    candidates.push(directory.join(name));
+                }
+            }
+
+            for candidate in candidates {
+                if !candidate.is_file() {
+                    continue;
+                }
+                let key = candidate.to_string_lossy().to_lowercase();
+                if !seen.insert(key) {
+                    continue;
+                }
+                let Ok(output) = run(&candidate, &["--version"], Duration::from_secs(2)) else {
+                    continue;
+                };
+                if !output.success() {
+                    continue;
+                }
+                let Some(version) = Version::find(&output.text()) else {
+                    continue;
+                };
+                if best.as_ref().is_none_or(|(_, current)| version > *current) {
+                    best = Some((candidate, version));
+                }
+            }
+            best.map(|(path, _)| path)
+        })
+        .as_deref()
+}
+
 /// Run `program` with `args`, killing it at `timeout`.
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> Result<CommandOutput> {
     run_with_env(program, args, timeout, &[])
@@ -48,6 +105,24 @@ pub fn run_with_env(
     timeout: Duration,
     env: &[(String, String)],
 ) -> Result<CommandOutput> {
+    run_streaming(program, args, timeout, env, |_| {})
+}
+
+/// Run a child and deliver each stdout/stderr line as it arrives.
+///
+/// Used for installs, where a silent ten-minute wait reads as a hang. The
+/// callback runs on the calling thread, so emitting a Tauri event from it is
+/// safe; the pipe readers only move lines through a channel.
+pub fn run_streaming<F>(
+    program: &Path,
+    args: &[&str],
+    timeout: Duration,
+    env: &[(String, String)],
+    mut on_line: F,
+) -> Result<CommandOutput>
+where
+    F: FnMut(&str),
+{
     if !program.exists() {
         return Err(Error::NotFound(format!(
             "executable {} does not exist",
@@ -77,11 +152,31 @@ pub fn run_with_env(
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let stdout_reader = std::thread::spawn(move || read_all(stdout));
-    let stderr_reader = std::thread::spawn(move || read_all(stderr));
+    let (sender, receiver) = mpsc::channel::<StreamLine>();
+    let out_sender = sender.clone();
+    let stdout_reader = thread::spawn(move || stream_lines(stdout, out_sender, false));
+    let err_sender = sender.clone();
+    let stderr_reader = thread::spawn(move || stream_lines(stderr, err_sender, true));
+    drop(sender);
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut drain = |output: &mut String, line: &str| {
+        if !line.is_empty() {
+            on_line(line);
+        }
+        output.push_str(line);
+        output.push('\n');
+    };
 
     let mut timed_out = false;
     let code = loop {
+        for item in receiver.try_iter() {
+            match item {
+                StreamLine::Out(line) => drain(&mut stdout, &line),
+                StreamLine::Err(line) => drain(&mut stderr, &line),
+            }
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status.code(),
             Ok(None) => {}
@@ -96,11 +191,17 @@ pub fn run_with_env(
             let _ = child.wait();
             break None;
         }
-        std::thread::sleep(Duration::from_millis(25));
+        thread::sleep(Duration::from_millis(25));
     };
 
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
+    for item in receiver.try_iter() {
+        match item {
+            StreamLine::Out(line) => drain(&mut stdout, &line),
+            StreamLine::Err(line) => drain(&mut stderr, &line),
+        }
+    }
     Ok(CommandOutput {
         code,
         stdout,
@@ -110,15 +211,37 @@ pub fn run_with_env(
     })
 }
 
-fn read_all<R: Read>(reader: Option<R>) -> String {
-    let Some(mut reader) = reader else {
-        return String::new();
+enum StreamLine {
+    Out(String),
+    Err(String),
+}
+
+/// Forward one complete line at a time, including an unterminated final line.
+fn stream_lines<R: Read>(reader: Option<R>, sender: mpsc::Sender<StreamLine>, is_stderr: bool) {
+    let Some(reader) = reader else {
+        return;
     };
+    let mut reader = BufReader::new(reader);
     let mut buffer = Vec::new();
-    // A CLI that keeps writing after the deadline is killed, so a short read is
-    // expected; the partial text is still what the caller wants to inspect.
-    let _ = reader.read_to_end(&mut buffer);
-    String::from_utf8_lossy(&buffer).into_owned()
+    loop {
+        buffer.clear();
+        match reader.read_until(b'\n', &mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let line = String::from_utf8_lossy(&buffer)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string();
+                let item = if is_stderr {
+                    StreamLine::Err(line)
+                } else {
+                    StreamLine::Out(line)
+                };
+                if sender.send(item).is_err() {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 /// First `name` found on `PATH`, honouring `PATHEXT` on Windows.
