@@ -53,9 +53,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: >-
-            ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # The toolchain action does not reliably install both macOS targets from
+      # a comma-separated expression on an arm64 runner. Do it explicitly.
+      - name: Install macOS cross targets
+        if: startsWith(matrix.platform, 'macos')
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-22.04'
