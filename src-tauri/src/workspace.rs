@@ -163,7 +163,13 @@ pub async fn workspace_pick(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<Option<String>, String> {
+    #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
+    #[cfg(not(windows))]
+    let owner = {
+        let _ = &window;
+        None
+    };
     log_pick(&app, "folder: opening");
     let outcome = pick_on_main_thread(&app, owner, PickKind::Folder);
     log_pick(&app, &format!("folder: {outcome:?}"));
@@ -178,7 +184,13 @@ pub async fn workspace_pick_file(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<Option<String>, String> {
+    #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
+    #[cfg(not(windows))]
+    let owner = {
+        let _ = &window;
+        None
+    };
     log_pick(&app, "file: opening");
     let outcome = pick_on_main_thread(&app, owner, PickKind::File);
     log_pick(&app, &format!("file: {outcome:?}"));
@@ -195,7 +207,13 @@ pub async fn workspace_pick_files(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<Vec<String>, String> {
+    #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
+    #[cfg(not(windows))]
+    let owner = {
+        let _ = &window;
+        None
+    };
     log_pick(&app, "files: opening");
     let outcome = pick_on_main_thread(&app, owner, PickKind::Files);
     log_pick(&app, &format!("files: {outcome:?}"));

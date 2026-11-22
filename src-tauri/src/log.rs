@@ -15,12 +15,14 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+#[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Go's `os.OpenFile` share mode: readers and writers may open the same file.
+#[cfg(windows)]
 const FILE_SHARE_ALL: u32 = 0x0000_0007;
 
 /// Append-only host log.
@@ -34,11 +36,13 @@ impl HostLog {
     pub fn open(log_dir: &Path) -> std::io::Result<Self> {
         std::fs::create_dir_all(log_dir)?;
         let path = log_dir.join("anvil.log");
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .share_mode(FILE_SHARE_ALL)
-            .open(&path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        // Unix permits readers on an append-only file; the explicit share mode
+        // is a Windows API and does not exist there.
+        #[cfg(windows)]
+        options.share_mode(FILE_SHARE_ALL);
+        let file = options.open(&path)?;
         Ok(Self {
             path,
             file: Mutex::new(Some(file)),
