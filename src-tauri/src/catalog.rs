@@ -438,6 +438,21 @@ pub async fn catalog_add_mcp(
     })
 }
 
+/// Delete a declared MCP server from the runtime's own config, then rescan.
+#[tauri::command]
+pub async fn catalog_remove_mcp(
+    state: State<'_, CatalogState>,
+    runtime_id: String,
+    name: String,
+) -> Result<CatalogSnapshot, String> {
+    state.with_service(|service| {
+        service
+            .remove_mcp_server(&runtime_id, &name)
+            .map_err(|error| error.to_wire())?;
+        service.snapshot().map_err(|error| error.to_wire())
+    })
+}
+
 /// Try a declaration the reader typed, without saving it.
 #[tauri::command]
 pub async fn catalog_test_mcp(
@@ -445,10 +460,11 @@ pub async fn catalog_test_mcp(
     transport: String,
     command: Option<String>,
     args: Vec<String>,
+    url: Option<String>,
 ) -> Result<McpProbe, String> {
     state.with_service(|service| {
         service
-            .test_mcp_server(&transport, command.as_deref(), &args)
+            .test_mcp_server(&transport, command.as_deref(), &args, url.as_deref())
             .map_err(|error| error.to_wire())
     })
 }
@@ -459,6 +475,30 @@ pub async fn catalog_test_mcp(
 pub struct RuntimeInstallResult {
     report: crate::runtimes::InstallReport,
     snapshot: CatalogSnapshot,
+}
+
+/// Ask npm for the latest version of a runtime's package.
+///
+/// Read-only: nothing is installed here, and the UI only offers the update
+/// button when the registry really has something newer.
+#[tauri::command]
+pub async fn runtime_update_check(
+    state: State<'_, CatalogState>,
+    runtime_id: String,
+) -> Result<crate::runtimes::UpdateCheck, String> {
+    let installed = state.with_service(|service| {
+        let rows = service.store().runtimes().map_err(|error| error.to_wire())?;
+        Ok(rows
+            .into_iter()
+            .find(|row| row.runtime_id == runtime_id)
+            .and_then(|row| row.version))
+    })?;
+    let target = runtime_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::runtimes::check_update(&target, installed.as_deref())
+    })
+    .await
+    .map_err(|error| format!("update check task: {error}"))?
 }
 
 /// Install one runtime CLI (an npm package) into the shared prefix, then rescan.

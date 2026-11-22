@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
-import LanguageSettings from '../../i18n/LanguageSettings'
 import Icon from '../../shell/Icon'
 import ThemeSettings from './ThemeSettings'
 import {
@@ -88,16 +87,6 @@ export default function SettingsPage() {
           <h1>{t('settings.title')}</h1>
           <p>{t('settings.description')}</p>
         </div>
-        <div className="st-head-actions">
-          <button type="button" className="st-btn" onClick={() => announce(t('settings.notice.check'))}>
-            <Icon name="check" size={14} />
-            {t('settings.check')}
-          </button>
-          <button type="button" className="st-btn st-btn-primary" onClick={() => announce(t('settings.notice.save'))}>
-            <Icon name="check" size={14} />
-            {t('settings.save')}
-          </button>
-        </div>
       </div>
 
       {sample ? (
@@ -148,7 +137,6 @@ export default function SettingsPage() {
               />
               <BehaviourCard />
               <ThemeSettings />
-              <LanguageSettings />
               <NotificationsCard sample={sample} onNotice={announce} />
             </>
           ) : null}
@@ -492,7 +480,7 @@ function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (messag
         ) : catalog.status === 'ready' ? (
           <div className="st-catalog" data-testid="settings-runtime-catalog">
             <CatalogSummary view={catalog} />
-            <CatalogRuntimeTable view={catalog} />
+            <CatalogRuntimeTable view={catalog} onNotice={onNotice} />
           </div>
         ) : (
           <Empty
@@ -657,14 +645,32 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
   const totals = report?.usage.totals
   const hasAny =
     !!totals && (totals.calls > 0 || totals.tools > 0 || report.traces.length > 0 || report.executions.length > 0)
+  // Cache hit rate is a ratio over input tokens: the cache can only save what
+  // would otherwise have been sent. A provider that reports no counters must
+  // read as "—", never as 0%.
+  const cacheRate =
+    totals && totals.reported && totals.cached + totals.input > 0
+      ? (totals.cached / (totals.cached + totals.input)) * 100
+      : null
   const liveStats = totals
     ? [
         {
           key: 'tokens',
           value: totals.reported ? formatCount(totals.tokens) : '—',
           sub: totals.reported
-            ? `${t('settings.obs.input')} ${formatCount(totals.input)} · ${t('settings.obs.output')} ${formatCount(totals.output)}`
+            ? `${t('settings.obs.input')} ${formatCount(totals.input)} · ${t('settings.obs.output')} ${formatCount(totals.output)} · ${t('settings.obs.cached')} ${formatCount(totals.cached)}`
             : t('settings.obs.noTokens'),
+        },
+        {
+          key: 'cache',
+          value: cacheRate === null ? '—' : `${cacheRate.toFixed(1)}%`,
+          sub:
+            cacheRate === null
+              ? t('settings.obs.cacheNone')
+              : t('settings.obs.cacheSub', {
+                  cached: formatCount(totals.cached),
+                  input: formatCount(totals.input),
+                }),
         },
         { key: 'calls', value: formatCount(totals.calls), sub: `${report?.usage.days.length ?? 0} ${t('settings.obs.usageSub')}` },
         { key: 'tools', value: formatCount(totals.tools), sub: `${formatCount(totals.tools)} ${t('settings.obs.tab.executions')}` },
@@ -680,7 +686,9 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
     return list.map((row) => ({
       label: row.label || fallback,
       width: Math.round((row.tokens / max) * 100),
-      note: `${formatCount(row.tokens)} · ${formatCount(row.calls)}`,
+      // Cached tokens ride along with the row so a "cheap" model that is only
+      // cheap because of cache reads is visible as such.
+      note: `${formatCount(row.tokens)} · ${formatCount(row.calls)} · ${t('settings.obs.cached')} ${formatCount(row.cached)}`,
     }))
   }
 
@@ -788,7 +796,7 @@ function ObservabilityPanel({ sample, onNotice }: { sample: boolean; onNotice: (
                 <div className="st-chart-wrap">
                   <div className="st-chart" role="img" aria-label={t('settings.obs.chartAria')} data-testid="settings-audit-chart">
                     {(report?.usage.days ?? []).map((day) => (
-                      <div key={day.date} className="st-chart-col" title={`${day.date} · ${day.input + day.output}`}>
+                      <div key={day.date} className="st-chart-col" title={`${day.date} · ${day.input + day.output} · ${t('settings.obs.cached')} ${day.cached}`}>
                         <b className="st-seg-in" style={{ height: `${Math.round((day.input / maxDay) * 100)}%` }} />
                         <b className="st-seg-out" style={{ height: `${Math.round((day.output / maxDay) * 100)}%` }} />
                       </div>

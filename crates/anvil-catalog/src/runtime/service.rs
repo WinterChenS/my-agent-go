@@ -5,8 +5,8 @@
 //! comes out of the adapter behind [`Registry`].
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::error::{Error, Result};
@@ -212,7 +212,8 @@ impl CatalogService {
         let registered_refs: Vec<&str> = registered.iter().map(String::as_str).collect();
         self.store.forget_unregistered(&registered_refs)?;
         self.store
-            .apply_scan(&registrations, &scanned_ids, &scanned_at)?;        self.failures = failures.clone();
+            .apply_scan(&registrations, &scanned_ids, &scanned_at)?;
+        self.failures = failures.clone();
         self.scanned_at = Some(scanned_at.clone());
         Ok(ScanSummary {
             registrations: registrations.len(),
@@ -680,14 +681,41 @@ impl CatalogService {
             .ok_or_else(|| Error::NotFound(format!("MCP server {name:?} for {runtime_id}")))?;
         let now = clock::now_rfc3339();
         if server.transport != "stdio" {
-            self.store
-                .set_mcp_state(runtime_id, name, "unsupported_transport", &now)?;
-            self.store.set_mcp_tools(runtime_id, name, &[])?;
-            return Ok(McpProbe {
-                ok: false,
-                tools: Vec::new(),
-                detail: Some("remote MCP probing is not implemented in this build".into()),
-            });
+            // Remote servers are probed over HTTP. The stored row carries the
+            // URL but only header *names*, so the values are read from the
+            // runtime's own config for this one request.
+            let Some(url) = server.url.clone().filter(|value| !value.trim().is_empty()) else {
+                self.store
+                    .set_mcp_state(runtime_id, name, "missing_url", &now)?;
+                self.store.set_mcp_tools(runtime_id, name, &[])?;
+                return Ok(McpProbe {
+                    ok: false,
+                    tools: Vec::new(),
+                    detail: Some("remote MCP declaration has no URL".into()),
+                });
+            };
+            let headers = mcp::header_values(runtime_id, &self.home, name);
+            return match mcp::probe_http(&url, &headers, self.timeouts.sync) {
+                Ok(tools) => {
+                    self.store
+                        .set_mcp_state(runtime_id, name, "connected", &now)?;
+                    self.store.set_mcp_tools(runtime_id, name, &tools)?;
+                    Ok(McpProbe {
+                        ok: true,
+                        detail: Some(format!("{} tools", tools.len())),
+                        tools,
+                    })
+                }
+                Err(error) => {
+                    self.store.set_mcp_state(runtime_id, name, "failed", &now)?;
+                    self.store.set_mcp_tools(runtime_id, name, &[])?;
+                    Ok(McpProbe {
+                        ok: false,
+                        tools: Vec::new(),
+                        detail: Some(error.to_wire()),
+                    })
+                }
+            };
         }
         let Some(command) = server.command.clone() else {
             self.store
@@ -722,45 +750,57 @@ impl CatalogService {
         }
     }
 
-/// Add one MCP declaration to a runtime's own config file, then re-read
-/// that runtime's inventory so the new row is on the next snapshot.
-#[allow(clippy::too_many_arguments)]
-pub fn add_mcp_server(
-    &mut self,
-    runtime_id: &str,
-    name: &str,
-    transport: &str,
-    command: Option<&str>,
-    args: &[String],
-    url: Option<&str>,
-    env: &[(String, String)],
-) -> Result<()> {
-    mcp::write_config(runtime_id, &self.home, name, transport, command, args, url, env)?;
-    self.sync_kinds(runtime_id, &[InventoryKind::Mcp], SeedMode::Local)?;
-    Ok(())
-}
-
-/// Probe a declaration before it is saved. Nothing is written to disk.
-pub fn test_mcp_server(
-    &self,
-    transport: &str,
-    command: Option<&str>,
-    args: &[String],
-) -> Result<McpProbe> {
-    match mcp::probe_draft(transport, command, args, self.timeouts.sync) {
-        Ok(tools) => Ok(McpProbe {
-            ok: true,
-            tools,
-            detail: None,
-        }),
-        Err(error) => Ok(McpProbe {
-            ok: false,
-            tools: Vec::new(),
-            detail: Some(error.to_wire()),
-        }),
+    /// Add one MCP declaration to a runtime's own config file, then re-read
+    /// that runtime's inventory so the new row is on the next snapshot.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_mcp_server(
+        &mut self,
+        runtime_id: &str,
+        name: &str,
+        transport: &str,
+        command: Option<&str>,
+        args: &[String],
+        url: Option<&str>,
+        env: &[(String, String)],
+    ) -> Result<()> {
+        mcp::write_config(
+            runtime_id, &self.home, name, transport, command, args, url, env,
+        )?;
+        self.sync_kinds(runtime_id, &[InventoryKind::Mcp], SeedMode::Local)?;
+        Ok(())
     }
-}
 
+    /// Delete a declared server: edit the runtime's config, then rescan.
+    ///
+    /// The rescan is what removes the row from the catalogue, so the page and the
+    /// runtime can never disagree about whether the server exists.
+    pub fn remove_mcp_server(&mut self, runtime_id: &str, name: &str) -> Result<()> {
+        mcp::remove_config(runtime_id, &self.home, name)?;
+        self.sync_kinds(runtime_id, &[InventoryKind::Mcp], SeedMode::Local)?;
+        Ok(())
+    }
+
+    /// Probe a declaration before it is saved. Nothing is written to disk.
+    pub fn test_mcp_server(
+        &self,
+        transport: &str,
+        command: Option<&str>,
+        args: &[String],
+        url: Option<&str>,
+    ) -> Result<McpProbe> {
+        match mcp::probe_draft(transport, command, args, url, self.timeouts.sync) {
+            Ok(tools) => Ok(McpProbe {
+                ok: true,
+                tools,
+                detail: None,
+            }),
+            Err(error) => Ok(McpProbe {
+                ok: false,
+                tools: Vec::new(),
+                detail: Some(error.to_wire()),
+            }),
+        }
+    }
 }
 
 /// What one adapter contributed to a scan.

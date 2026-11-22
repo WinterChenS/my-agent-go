@@ -109,8 +109,7 @@ describe('shared shell', () => {
     renderAt('/settings')
     expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
-    const badge = screen.getByText('运行时未接入')
-    expect(badge).toHaveAttribute('data-runtime-state', 'warn')
+    expect(screen.queryByText('运行时未接入')).toBeNull()
     cleanup()
 
     renderAt('/chat')

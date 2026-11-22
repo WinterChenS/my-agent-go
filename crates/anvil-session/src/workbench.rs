@@ -158,6 +158,10 @@ pub struct WorkbenchStatus {
     pub runtime_label: String,
     pub mcp_connected: u64,
     pub mcp_total: u64,
+    /// Configured connectors (mail / Notion / DingTalk docs). Separate from MCP:
+    /// one is a service account, the other a tool host.
+    pub connector_total: u64,
+    pub connector_connected: u64,
     pub connectors_available: bool,
     pub quota_available: bool,
     /// Enabled schedules and how many fired today, when a scheduler exists.

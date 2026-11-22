@@ -31,6 +31,9 @@ pub const PREFIX_ENV: &str = "ANVIL_RUNTIME_PREFIX";
 /// Generous: a cold npm download of a large CLI can take minutes.
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// A registry metadata read is quick; a hung network must not hang the page.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// One installable runtime: catalog id, npm package, shim name.
 pub struct Spec {
     pub id: &'static str,
@@ -138,8 +141,78 @@ pub fn install(runtime_id: &str) -> Result<InstallReport, String> {
     })
 }
 
-fn output_tail(text: &str, limit: usize) -> String {
-    let trimmed = text.trim();
+/// What npm says about a runtime's package, compared with the installed CLI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheck {
+    pub runtime_id: String,
+    pub package: String,
+    /// The version the installed CLI reports (`--version`), if known.
+    pub installed: Option<String>,
+    /// The version npm publishes for the package right now.
+    pub latest: Option<String>,
+    pub update_available: bool,
+    pub checked_at: String,
+    /// Why the lookup failed, verbatim, so the button can explain itself.
+    pub error: Option<String>,
+}
+
+/// Ask the registry for the latest published version and compare.
+///
+/// This is a network read (`npm view`), so it is explicit: opening settings
+/// must not call out to npm on its own. `installed` comes from the catalog's
+/// last scan, which read it from the CLI itself.
+pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateCheck, String> {
+    use anvil_catalog::runtime::version::Version;
+
+    let spec = spec(runtime_id).ok_or_else(|| format!("不支持的运行时：{runtime_id}"))?;
+    let checked_at = anvil_catalog::clock::now_rfc3339();
+    let mut check = UpdateCheck {
+        runtime_id: runtime_id.to_string(),
+        package: spec.package.to_string(),
+        installed: installed.map(str::to_string),
+        latest: None,
+        update_available: false,
+        checked_at,
+        error: None,
+    };
+    let prefix = prefix()?;
+    let npm = common::shared_npm(&prefix)
+        .ok_or_else(|| "未找到 npm：请先安装 Node.js".to_string())?;
+    let output = process::run(
+        &npm,
+        &["view", spec.package, "version", "--json", "--loglevel=error"],
+        UPDATE_TIMEOUT,
+    )
+    .map_err(|error| format!("查询 npm 失败：{error}"))?;
+    if !output.success() {
+        check.error = Some(output_tail(&output.text(), 400));
+        return Ok(check);
+    }
+    let latest = output
+        .text()
+        .trim()
+        .trim_matches('"')
+        .trim()
+        .to_string();
+    if latest.is_empty() {
+        check.error = Some("npm 没有返回版本号".to_string());
+        return Ok(check);
+    }
+    check.latest = Some(latest.clone());
+    check.update_available = match (
+        installed.and_then(Version::find),
+        Version::find(&latest),
+    ) {
+        (Some(current), Some(remote)) => remote > current,
+        // No installed version means the CLI is missing; installing is the fix,
+        // and the install button already covers that case.
+        _ => false,
+    };
+    Ok(check)
+}
+
+fn output_tail(text: &str, limit: usize) -> String {    let trimmed = text.trim();
     if trimmed.chars().count() <= limit {
         return trimmed.to_string();
     }

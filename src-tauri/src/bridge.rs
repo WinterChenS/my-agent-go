@@ -80,6 +80,11 @@ fn handle(mut stream: TcpStream, app: &AppHandle, browser: &Arc<Browser>) -> std
         },
         ("POST", "/schedule/toggle") => bridge_mutation(app, "toggle", &request.body),
         ("POST", "/schedule/remove") => bridge_mutation(app, "remove", &request.body),
+        // Connectors: what the agent may call, and the call itself. The host
+        // owns the credentials, so the tool never leaves this process except as
+        // an HTTPS/IMAP/SMTP request the connector makes.
+        ("GET", "/connectors") => crate::connectors::list_for_agent(app).to_string(),
+        ("POST", "/connector/call") => connector_call(app, &request.body).to_string(),
         _ => {
             return respond(
                 &mut stream,
@@ -89,6 +94,30 @@ fn handle(mut stream: TcpStream, app: &AppHandle, browser: &Arc<Browser>) -> std
         }
     };
     respond(&mut stream, 200, &body)
+}
+
+/// `POST /connector/call` — `{ connector, tool, params }`.
+fn connector_call(app: &AppHandle, body: &str) -> Value {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return json!({ "ok": false, "error": "bad json" });
+    };
+    let connector = value
+        .get("connector")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let tool = value
+        .get("tool")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if connector.is_empty() || tool.is_empty() {
+        return json!({ "ok": false, "error": "connector and tool are required" });
+    }
+    let params = value.get("params").cloned().unwrap_or(json!({}));
+    crate::connectors::call_tool(app, &connector, &tool, &params)
 }
 
 /// `POST /schedule/toggle` and `/schedule/remove`.
@@ -279,6 +308,8 @@ fn write_render(port: &u16) -> Result<(), String> {
         .map_err(|error| format!("browser bridge: {error}"))?;
     std::fs::write(bin.join("anvil-schedule.mjs"), SCHEDULE_CLI)
         .map_err(|error| format!("schedule bridge: {error}"))?;
+    std::fs::write(bin.join("anvil-connector.mjs"), CONNECTOR_CLI)
+        .map_err(|error| format!("connector bridge: {error}"))?;
     Ok(())
 }
 
@@ -406,6 +437,72 @@ try {
     method: route[0],
     headers: route[0] === 'GET' ? undefined : { 'content-type': 'application/json' },
     body: route[0] === 'GET' ? undefined : JSON.stringify(route[2]),
+  })
+  const data = await response.json()
+  console.log(JSON.stringify(data, null, 2))
+  process.exit(data.ok ? 0 : 1)
+} catch (error) {
+  console.error('the Anvil bridge did not answer: ' + error.message)
+  process.exit(1)
+}
+"##;
+
+/// The command an agent runs to use a connector.
+///
+/// A connector is a service with credentials the app holds, so the agent can
+/// only reach it through the loopback bridge: `list` shows what is connected,
+/// `call` runs one tool. No secret is ever printed.
+const CONNECTOR_CLI: &str = r##"#!/usr/bin/env node
+// Use an Anvil connector (mail / Notion / DingTalk docs).
+//
+//   node anvil-connector.mjs list
+//   node anvil-connector.mjs call '{"connector":"cn-1763...","tool":"mail_list","params":{"count":5}}'
+//
+// The connector id comes from `list`. Tool names and their parameters are
+// printed by `list` as well.
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+function readPort() {
+  for (const name of ['bridge.json', 'browser.json']) {
+    try {
+      return JSON.parse(readFileSync(join(homedir(), '.anvil', name), 'utf8')).port
+    } catch {}
+  }
+  return null
+}
+
+const port = readPort()
+if (!port) {
+  console.error('the Anvil bridge is not running (no ~/.anvil/bridge.json)')
+  process.exit(1)
+}
+
+const [action, ...rest] = process.argv.slice(2)
+if (!action || !['list', 'call'].includes(action)) {
+  console.error('usage: anvil-connector <list|call> [json]')
+  process.exit(2)
+}
+let params = {}
+if (rest.length > 0) {
+  try {
+    params = JSON.parse(rest.join(' '))
+  } catch (error) {
+    console.error('params must be JSON: ' + error.message)
+    process.exit(2)
+  }
+}
+
+const url =
+  action === 'list'
+    ? `http://127.0.0.1:${port}/connectors`
+    : `http://127.0.0.1:${port}/connector/call`
+try {
+  const response = await fetch(url, {
+    method: action === 'list' ? 'GET' : 'POST',
+    headers: action === 'list' ? undefined : { 'content-type': 'application/json' },
+    body: action === 'list' ? undefined : JSON.stringify(params),
   })
   const data = await response.json()
   console.log(JSON.stringify(data, null, 2))

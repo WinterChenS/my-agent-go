@@ -11,6 +11,7 @@
 //!   the four shipped adapters (Pi, Codex, Claude Code, OpenCode).
 
 pub mod clock;
+pub mod connector;
 pub mod error;
 pub mod ids;
 pub mod mcp;

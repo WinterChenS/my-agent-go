@@ -85,9 +85,19 @@ description = "Allows saving an MCP declaration into the runtime's own config an
 commands.allow = ["catalog_add_mcp"]
 
 [[permission]]
+identifier = "allow-catalog-remove-mcp"
+description = "Allows deleting a declared MCP server from the runtime's own config and rescanning."
+commands.allow = ["catalog_remove_mcp"]
+
+[[permission]]
 identifier = "allow-catalog-test-mcp"
 description = "Allows probing an MCP declaration before it is saved."
 commands.allow = ["catalog_test_mcp"]
+
+[[permission]]
+identifier = "allow-runtime-update-check"
+description = "Allows asking npm for the latest version of a runtime package (no install)."
+commands.allow = ["runtime_update_check"]
 
 [[permission]]
 identifier = "allow-runtime-install"
@@ -261,7 +271,7 @@ commands.allow = ["pi_subagent_install"]
 
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install", "allow-schedule-overview", "allow-schedule-save", "allow-schedule-delete", "allow-schedule-toggle", "allow-schedule-run-now", "allow-library-overview", "allow-library-import", "allow-library-export", "allow-library-preview", "allow-library-reveal", "allow-connectors-overview", "allow-connector-verify", "allow-skill-create", "allow-skill-import", "allow-skill-remove"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-catalog-test-mcp", "allow-catalog-remove-mcp", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-runtime-install", "allow-runtime-update-check", "allow-schedule-overview", "allow-schedule-save", "allow-schedule-delete", "allow-schedule-toggle", "allow-schedule-run-now", "allow-library-overview", "allow-library-import", "allow-library-export", "allow-library-preview", "allow-library-reveal", "allow-connectors-overview", "allow-connector-save", "allow-connector-delete", "allow-connector-toggle", "allow-connector-probe", "allow-skill-create", "allow-skill-import", "allow-skill-remove"]
 [[permission]]
 identifier = "allow-browser-open"
 description = "Allows opening a page in the right pane's browser."
@@ -343,9 +353,24 @@ description = "Allows reading connectors (MCP servers), their probed tools and t
 commands.allow = ["connectors_overview"]
 
 [[permission]]
-identifier = "allow-connector-verify"
-description = "Allows probing one MCP connector and recording its state and tools."
-commands.allow = ["connector_verify"]
+identifier = "allow-connector-save"
+description = "Allows creating or editing a connector (mail / Notion / DingTalk docs) with its credentials."
+commands.allow = ["connector_save"]
+
+[[permission]]
+identifier = "allow-connector-delete"
+description = "Allows deleting a connector and its call history."
+commands.allow = ["connector_delete"]
+
+[[permission]]
+identifier = "allow-connector-toggle"
+description = "Allows pausing or resuming a connector."
+commands.allow = ["connector_toggle"]
+
+[[permission]]
+identifier = "allow-connector-probe"
+description = "Allows testing one connector against the real service and recording the outcome."
+commands.allow = ["connector_probe"]
 
 [[permission]]
 identifier = "allow-skill-create"

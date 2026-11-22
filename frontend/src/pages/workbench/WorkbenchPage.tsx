@@ -395,9 +395,9 @@ function liveView(
       {
         label: t('workbench.status.connectors'),
         value: sources.connectors
-          ? t('workbench.status.connectorsValue', { count: count(status.mcpTotal) })
+          ? t('workbench.status.connectorsValue', { count: count(status.connectorTotal) })
           : t('workbench.status.unavailable'),
-        live: sources.connectors && status.mcpTotal > 0,
+        live: sources.connectors && status.connectorTotal > 0,
       },
     ],
     quota: sources.quota ? '—' : t('workbench.status.quotaUnavailable'),

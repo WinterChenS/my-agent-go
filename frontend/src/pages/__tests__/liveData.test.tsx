@@ -6,7 +6,7 @@ import { AppRoutes } from '../../App'
 import type { TauriInternals } from '../../host/tauri'
 import type { ScheduleView } from '../schedules/client'
 import type { LibraryView } from '../library/client'
-import type { ConnectorView } from '../connectors/client'
+import type { ConnectorOverview } from '../connectors/client'
 
 function renderAt(url: string) {
   return render(
@@ -147,40 +147,64 @@ const libraryView: LibraryView = {
   root: 'C:/Users/me/.anvil/library',
 }
 
-const connectorView: ConnectorView = {
+const connectorView: ConnectorOverview = {
+  types: [
+    {
+      id: 'MAIL',
+      name: '邮件',
+      description: 'IMAP + SMTP',
+      capabilities: ['read', 'search', 'send'],
+      fields: [],
+      tools: [
+        { name: 'mail_list', description: '列出最近邮件', write: false, calls: 5, failures: 0 },
+        { name: 'mail_send', description: '发送邮件', write: true, calls: 2, failures: 1 },
+      ],
+      count: 1,
+    },
+  ],
   connectors: [
     {
-      runtimeId: 'pi',
-      name: 'box',
-      transport: 'stdio',
-      endpoint: 'npx @box/mcp --stdio',
+      id: 'cn-1',
+      kind: 'MAIL',
+      kindName: '邮件',
+      name: '工作邮箱',
+      enabled: true,
       state: 'connected',
       probedAt: '2026-11-21T10:00:00Z',
-      tools: ['search_files', 'read_file'],
+      lastError: null,
+      config: { email: 'me@corp.com', imapHost: 'imap.corp.com' },
+      secretsSet: ['password'],
+      capabilities: ['read', 'search', 'send'],
+      tools: [
+        { name: 'mail_list', description: '列出最近邮件', write: false, calls: 5, failures: 0 },
+        { name: 'mail_send', description: '发送邮件', write: true, calls: 2, failures: 1 },
+      ],
       calls: 7,
       failures: 1,
-      lastUsed: '2026-11-21T10:30:00Z',
-      sessions: 2,
-      actions: [
-        { tool: 'search_files', calls: 5, failures: 0 },
-        { tool: 'read_file', calls: 2, failures: 1 },
-      ],
+      lastCallAt: '2026-11-21T10:30:00Z',
     },
   ],
   stats: {
     total: 1,
     connected: 1,
-    actions: 2,
-    weekCalls: 7,
-    weekFailures: 1,
-    successRate: 85.7,
-    lastProbe: '2026-11-21T10:00:00Z',
-    remoteUnprobeable: false,
+    unverified: 0,
+    failed: 0,
+    calls: 7,
+    failures: 1,
+    tools: 2,
   },
   activity: [
-    { at: '2026-11-21T10:30:00Z', connector: 'box', tool: 'read_file', ok: false, sessionId: 'sess-1' },
+    {
+      connectorId: 'cn-1',
+      name: '工作邮箱',
+      kindName: '邮件',
+      tool: 'mail_send',
+      ok: false,
+      at: '2026-11-21T10:30:00Z',
+      detail: 'SMTP 拒绝了这封信',
+    },
   ],
-  ready: true,
+  updatedAt: '2026-11-15T00:00:00Z',
 }
 
 function installHost(responses: Record<string, unknown>) {
@@ -273,18 +297,18 @@ describe('the library lists the files sessions actually wrote', () => {
   })
 })
 
-describe('connectors come from MCP with real call counts', () => {
-  it('shows the probed tools and the week calls', async () => {
+describe('connectors are services with their own tools', () => {
+  it('shows the connector, its tool counts and the recorded calls', async () => {
     const calls = installHost({ connectors_overview: connectorView })
     renderAt('/connectors')
     await waitFor(() => expect(screen.getAllByTestId('connector-card')).toHaveLength(1))
     const card = screen.getByTestId('connector-card')
-    expect(card).toHaveTextContent('box')
-    expect(card).toHaveTextContent('search_files')
+    expect(card).toHaveTextContent('工作邮箱')
+    expect(card).toHaveTextContent('me@corp.com')
     expect(screen.getByTestId('connector-stat-connected')).toHaveTextContent('1')
     expect(screen.getByTestId('connector-stat-actions')).toHaveTextContent('2')
     expect(screen.getByTestId('connector-stat-calls')).toHaveTextContent('7')
-    expect(screen.getByTestId('connector-policy')).toHaveTextContent('search_files')
+    expect(screen.getByTestId('connector-policy')).toHaveTextContent('mail_list')
     expect(screen.getByTestId('connector-activity')).toHaveTextContent('调用失败')
     expect(calls.some((call) => call.command === 'connectors_overview')).toBe(true)
   })

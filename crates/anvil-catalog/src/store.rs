@@ -15,6 +15,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
+use crate::connector::{ConnectorCall, ConnectorCallStat, ConnectorRow};
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
 use crate::model::{
@@ -153,6 +154,34 @@ impl Store {
                 ciphertext BLOB NOT NULL,
                 created_at TEXT NOT NULL
             );
+            -- Connectors are services with their own credentials (mail, Notion,
+            -- DingTalk docs), not MCP servers. They live beside the MCP table
+            -- rather than inside it: nothing about them is a JSON-RPC endpoint.
+            CREATE TABLE IF NOT EXISTS connectors (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                config TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                state TEXT NOT NULL DEFAULT 'declared',
+                probed_at TEXT,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            -- One row per tool call the agent made through a connector. The
+            -- page's call counts are these rows, never a guess from a log line.
+            CREATE TABLE IF NOT EXISTS connector_calls (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                connector_id TEXT NOT NULL,
+                tool TEXT NOT NULL,
+                ok INTEGER NOT NULL,
+                detail TEXT,
+                at TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS connector_calls_at
+                ON connector_calls (connector_id, at);
             "#,
         )?;
         // `CREATE TABLE IF NOT EXISTS` never adds a column to a database that
@@ -1413,6 +1442,157 @@ impl Store {
         Ok(())
     }
 
+    // ---- connectors -------------------------------------------------------
+
+    /// Every configured connector, oldest first.
+    pub fn connectors(&self) -> Result<Vec<ConnectorRow>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, kind, name, config, enabled, state, probed_at, last_error,
+                    created_at, updated_at
+             FROM connectors ORDER BY created_at, id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(ConnectorRow {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                name: row.get(2)?,
+                config: decode_config(&row.get::<_, String>(3)?),
+                enabled: row.get::<_, i64>(4)? != 0,
+                state: row.get(5)?,
+                probed_at: row.get(6)?,
+                last_error: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// One connector by id.
+    pub fn connector(&self, id: &str) -> Result<Option<ConnectorRow>> {
+        Ok(self.connectors()?.into_iter().find(|row| row.id == id))
+    }
+
+    /// Insert or update a connector. `probed_at`/`last_error` are written by the
+    /// probe path, so an edit must not clear them: they stay as they were.
+    pub fn save_connector(&self, row: &ConnectorRow) -> Result<()> {
+        let config = serde_json::to_string(&row.config)?;
+        self.connection.execute(
+            "INSERT INTO connectors (
+                id, kind, name, config, enabled, state, probed_at, last_error,
+                created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind, name = excluded.name, config = excluded.config,
+                enabled = excluded.enabled, state = excluded.state,
+                updated_at = excluded.updated_at",
+            params![
+                row.id,
+                row.kind,
+                row.name,
+                config,
+                i64::from(row.enabled),
+                row.state,
+                row.probed_at,
+                row.last_error,
+                row.created_at,
+                row.updated_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_connector(&self, id: &str) -> Result<()> {
+        self.connection
+            .execute("DELETE FROM connectors WHERE id = ?1", params![id])?;
+        self.connection.execute(
+            "DELETE FROM connector_calls WHERE connector_id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_connector_enabled(&self, id: &str, enabled: bool, at: &str) -> Result<()> {
+        self.connection.execute(
+            "UPDATE connectors SET enabled = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, i64::from(enabled), at],
+        )?;
+        Ok(())
+    }
+
+    /// Record what a probe observed. A successful probe clears the old error;
+    /// a failed one keeps the message so the card can explain itself.
+    pub fn set_connector_state(
+        &self,
+        id: &str,
+        state: &str,
+        probed_at: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        self.connection.execute(
+            "UPDATE connectors SET state = ?2, probed_at = ?3, last_error = ?4 WHERE id = ?1",
+            params![id, state, probed_at, error],
+        )?;
+        Ok(())
+    }
+
+    /// Append a call row; returns its sequence for logs.
+    pub fn record_connector_call(
+        &self,
+        connector_id: &str,
+        tool: &str,
+        ok: bool,
+        detail: Option<&str>,
+        at: &str,
+        duration_ms: i64,
+    ) -> Result<i64> {
+        self.connection.execute(
+            "INSERT INTO connector_calls (connector_id, tool, ok, detail, at, duration_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![connector_id, tool, i64::from(ok), detail, at, duration_ms],
+        )?;
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    /// Calls per connector tool since `since` (RFC 3339, inclusive).
+    pub fn connector_call_stats(&self, since: &str) -> Result<Vec<ConnectorCallStat>> {
+        let mut statement = self.connection.prepare(
+            "SELECT connector_id, tool, COUNT(*), SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END),
+                    MAX(at)
+             FROM connector_calls WHERE at >= ?1
+             GROUP BY connector_id, tool ORDER BY COUNT(*) DESC",
+        )?;
+        let rows = statement.query_map(params![since], |row| {
+            Ok(ConnectorCallStat {
+                connector_id: row.get(0)?,
+                tool: row.get(1)?,
+                calls: row.get::<_, i64>(2)? as u64,
+                failures: row.get::<_, i64>(3)? as u64,
+                last_at: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// The latest calls across every connector, newest first.
+    pub fn recent_connector_calls(&self, limit: usize) -> Result<Vec<ConnectorCall>> {
+        let mut statement = self.connection.prepare(
+            "SELECT connector_id, tool, ok, detail, at, duration_ms
+             FROM connector_calls ORDER BY seq DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit as i64], |row| {
+            Ok(ConnectorCall {
+                connector_id: row.get(0)?,
+                tool: row.get(1)?,
+                ok: row.get::<_, i64>(2)? != 0,
+                detail: row.get(3)?,
+                at: row.get(4)?,
+                duration_ms: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     /// Assemble the payload the UI renders.
     pub fn snapshot(
         &self,
@@ -1497,6 +1677,12 @@ fn decode_names(raw: &str, fallback: &[&str]) -> Vec<String> {
         return fallback.iter().map(|name| (*name).to_string()).collect();
     }
     serde_json::from_str::<Vec<String>>(trimmed).unwrap_or_default()
+}
+
+/// A connector config column is a JSON object of strings. A row written by an
+/// older build (or hand-edited) reads as empty instead of failing the page.
+fn decode_config(raw: &str) -> serde_json::Map<String, serde_json::Value> {
+    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw).unwrap_or_default()
 }
 
 fn encode_names(names: &[String]) -> String {

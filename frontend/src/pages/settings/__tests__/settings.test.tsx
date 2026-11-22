@@ -35,7 +35,8 @@ describe('settings sections', () => {
     expect(screen.getByRole('heading', { level: 1, name: '系统设置' })).toBeInTheDocument()
     expect(screen.getByTestId('settings-workspace')).toBeInTheDocument()
     expect(screen.getByTestId('theme-status')).toBeInTheDocument()
-    expect(screen.getByTestId('language-status')).toBeInTheDocument()
+    // One language control only: the general pane's select is the real one.
+    expect(screen.getAllByLabelText('界面语言')).toHaveLength(1)
     expect(screen.getByTestId('settings-notifications-empty')).toHaveTextContent('通知通道尚未接入（G1）')
     expect(screen.getByLabelText('本地工作区名称')).toBeDisabled()
     expect(screen.queryByTestId('settings-provider-row')).toBeNull()
@@ -80,11 +81,12 @@ describe('settings sections', () => {
     expect(screen.getByTestId('settings-notifications-empty')).toHaveTextContent('Notification channels are not connected')
   })
 
-  it('reports sample notices instead of pretending to save', async () => {
-    const user = userEvent.setup()
+  it('applies settings immediately, so there is no save button', () => {
     renderAt('/settings')
-    await user.click(screen.getByRole('button', { name: '保存更改' }))
-    expect(screen.getByTestId('settings-notice')).toHaveTextContent('样例模式：保存设置未接入')
+    // Every control writes its preference on change; a page-level save would
+    // imply the change had not happened yet.
+    expect(screen.queryByRole('button', { name: '保存更改' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '检查配置' })).toBeNull()
   })
 })
 

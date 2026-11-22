@@ -294,25 +294,46 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   the existing Windows clamp limitation.
 - Sample navigation reuses `sample.nav.*` (MCP 3 个服务 in the tool menu);
   normal `/mcp` renders no fixed service/tool counts or metadata.
+- Live `/mcp` reads the runtime's declared servers and their persisted probe
+  state. 校验/测试连接 is a real connection: stdio servers are spawned and asked
+  `initialize` + `tools/list`; remote servers are probed over **Streamable HTTP**
+  (JSON-RPC `initialize`, `Mcp-Session-Id` carried on follow-ups, JSON or SSE
+  replies) with a legacy HTTP+SSE handshake as a fallback. Header values are read
+  from the runtime's own config for that one request — the catalogue only keeps
+  header names — and the outcome (tool list or the server's error) is persisted.
+- Settings are applied on change: there is no page-level 保存更改/检查配置, and
+  the topbar no longer shows a 「运行时未接入」 badge on this page. The app's own
+  right-click menu is removed in this build; the browser pane keeps its own.
+
 
 ## R0-09 connectors
 
-- Normal `/connectors` reads the catalog's MCP rows through
-  `connectors_overview`. A card is one real server: name, transport
-  (`stdio` / remote), endpoint, probe state, probed tool names, calls and
-  failures in the last seven days. `connected` / `needs re-auth` /
-  `not connected` map from the persisted probe state, not from a fixture.
-- 校验凭证 probes every server in turn (`connector_verify`) and reports
-  已校验 N 个 / 失败 M 个; 校验 in the per-server dialog does the same for one
-  server. A probe writes state and the tool list, so the next read reflects
-  exactly what the server answered. A server that was never probed shows zero
-  actions — the page never guesses a tool count.
-- The policy panel lists connector · tool rows with the real call and failure
-  counts from `tool_call` / `tool_result` events; the activity timeline is the
-  last eight matched calls. The health panel shows probe recency per server.
-- 添加连接器 opens the same MCP add dialog the MCP page uses, so a connector is
-  created where the runtime actually reads it. Editing credentials for a remote
-  server remains the MCP page's job; this page links by state, not by a copy.
+- A connector is **not** an MCP server. MCP is a protocol a runtime speaks to a
+  tool host; a connector is a service the user has an account on, with its own
+  API and credentials. MCP servers live on the MCP page; this page only lists
+  connectors, and the two no longer share a table or a command.
+- Three real connector types: **邮件** (IMAP read + SMTP send), **Notion**
+  (search / read page / create page, `Notion-Version: 2026-03-11`) and
+  **钉钉文档** (enterprise app token + document search / block read). Each type
+  declares its own fields, so the form is generated from the descriptor instead
+  of a hardcoded dialog: text, password, number, select and tags controls, with
+  required/secret flags driving validation and masking.
+- Credentials are stored in the catalog database and **never** travel back to
+  the UI: `connectors_overview` returns each config with secrets blanked plus a
+  `secretsSet` list, and an edit that leaves a secret blank keeps the stored
+  value. Nothing secret is written to the ledger, the audit export or a log.
+- 校验 is a real request: IMAP `LIST` + SMTP `NOOP` for mail, `/v1/users/me` +
+  `/v1/search` for Notion, `accessToken` + doc search for DingTalk. The outcome
+  (message and steps) is what the service answered; the state and probe time are
+  persisted, so the card reflects it after a reload.
+- The policy panel lists connector · tool rows with the call and failure counts
+  recorded in `connector_calls` — one row per tool call the agent actually made.
+  The activity timeline is the last eight of those rows; the health panel shows
+  probe recency per connector.
+- The agent reaches connectors through `anvil-connector.mjs` (`list` / `call`),
+  which posts to the loopback bridge. The host runs the call, records it, and
+  returns the tool's own text; the tool list and parameters are printed by
+  `list`, so the model never has to guess a name.
 - Sample entry (`/?sample=connectors`) keeps the prototype's six connectors,
   policy table and credential-health meters; nothing there touches the host.
 

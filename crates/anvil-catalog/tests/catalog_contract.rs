@@ -517,7 +517,10 @@ fn an_explicit_sync_still_proves_the_seed() {
         .iter()
         .find(|model| model.enabled)
         .expect("one seeded model");
-    assert!(seeded.verified, "a model that answered is recorded as verified");
+    assert!(
+        seeded.verified,
+        "a model that answered is recorded as verified"
+    );
 }
 
 #[test]
@@ -545,24 +548,22 @@ fn a_parked_adapter_disappears_from_the_catalog() {
         Arc::new(
             ScriptedAdapter::new(id)
                 .discover_at(vec![executable.clone()])
-                .with_sync(
-                    InventoryKind::Models,
-                    SyncAnswer::Items(vec!["m-1".into()]),
-                ),
+                .with_sync(InventoryKind::Models, SyncAnswer::Items(vec!["m-1".into()])),
         ) as Arc<dyn RuntimeAdapter>
     };
 
     {
-        let mut service = service_on(
-            &database,
-            &home,
-            vec![adapter("wired"), adapter("parked")],
-        );
+        let mut service = service_on(&database, &home, vec![adapter("wired"), adapter("parked")]);
         service.scan().expect("scan");
         service.sync_models("wired").expect("wired models");
         service.sync_models("parked").expect("parked models");
         let snapshot = service.snapshot().expect("snapshot");
-        assert!(snapshot.models.iter().any(|model| model.runtime_id == "parked"));
+        assert!(
+            snapshot
+                .models
+                .iter()
+                .any(|model| model.runtime_id == "parked")
+        );
     }
 
     // Read path: parked rows are filtered out before the first scan has run.
@@ -571,7 +572,11 @@ fn a_parked_adapter_disappears_from_the_catalog() {
     assert!(
         before.runtimes.iter().all(|row| row.runtime_id == "wired"),
         "a parked runtime must not be listed: {:?}",
-        before.runtimes.iter().map(|row| &row.runtime_id).collect::<Vec<_>>()
+        before
+            .runtimes
+            .iter()
+            .map(|row| &row.runtime_id)
+            .collect::<Vec<_>>()
     );
     assert!(before.models.iter().all(|row| row.runtime_id == "wired"));
 
@@ -580,11 +585,19 @@ fn a_parked_adapter_disappears_from_the_catalog() {
     service.scan().expect("scan");
     let after = service.snapshot().expect("snapshot");
     assert_eq!(
-        after.runtimes.iter().map(|row| row.runtime_id.as_str()).collect::<Vec<_>>(),
+        after
+            .runtimes
+            .iter()
+            .map(|row| row.runtime_id.as_str())
+            .collect::<Vec<_>>(),
         vec!["wired"]
     );
     assert_eq!(
-        after.models.iter().map(|row| row.model_id.as_str()).collect::<Vec<_>>(),
+        after
+            .models
+            .iter()
+            .map(|row| row.model_id.as_str())
+            .collect::<Vec<_>>(),
         vec!["m-1"]
     );
     let agents = &after.agents;
@@ -1526,10 +1539,17 @@ fn added_mcp_server_is_written_and_imported() {
 
     let text = std::fs::read_to_string(home.path().join(".pi/agent/mcp.json")).expect("read");
     let rows = mcp::from_pi_json("pi", &text, "test").expect("import");
-    assert_eq!(rows.len(), 2, "adding a server must preserve the earlier one");
+    assert_eq!(
+        rows.len(),
+        2,
+        "adding a server must preserve the earlier one"
+    );
     let demo = rows.iter().find(|row| row.name == "demo").expect("demo");
     assert_eq!(demo.command.as_deref(), Some("node"));
     assert_eq!(demo.args, vec!["server.mjs".to_string()]);
     assert_eq!(demo.env_keys, vec!["TOKEN".to_string()]);
-    assert!(text.contains("secret-value"), "the value stays in the runtime config");
+    assert!(
+        text.contains("secret-value"),
+        "the value stays in the runtime config"
+    );
 }

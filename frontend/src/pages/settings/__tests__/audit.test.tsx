@@ -23,8 +23,8 @@ const report: AuditReport = {
       { date: '2026-11-20', input: 1200, output: 400, cached: 100, cost: 0.4, calls: 3 },
       { date: '2026-11-21', input: 300, output: 100, cached: 0, cost: 0.1, calls: 1 },
     ],
-    by_model: [{ label: 'claude-sonnet-4', tokens: 2000, calls: 4 }],
-    by_agent: [{ label: 'agent-a', tokens: 2000, calls: 4 }],
+    by_model: [{ label: 'claude-sonnet-4', tokens: 2000, calls: 4, cached: 800 }],
+    by_agent: [{ label: 'agent-a', tokens: 2000, calls: 4, cached: 800 }],
     totals: {
       tokens: 2000,
       input: 1500,
@@ -146,7 +146,8 @@ describe('the observability view reads the real ledger', () => {
     renderAt('/settings#observability')
     const totals = await screen.findByTestId('settings-audit-totals')
     expect(totals.textContent).toContain('运行时未上报 Token 计数')
-    expect(within(totals).getByText('—')).toBeInTheDocument()
+    // Tokens and cache hit rate both have no measurement to show.
+    expect(within(totals).getAllByText('—')).toHaveLength(2)
   })
 
   it('exports through the host and reports where the CSV went', async () => {

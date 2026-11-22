@@ -105,6 +105,10 @@ pub struct UsageShare {
     pub label: String,
     pub tokens: u64,
     pub calls: u64,
+    /// Input tokens the provider served from its prompt cache. Zero is a real
+    /// answer (a provider that does not cache), so callers must look at
+    /// [`UsageTotals::reported`] before drawing a conclusion from it.
+    pub cached: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -238,21 +242,24 @@ pub(crate) fn usage_of(payload: &serde_json::Value) -> Option<UsageNumbers> {
     .unwrap_or(0.0);
     let cache_write = number(
         raw,
-        &[
-            "cacheWrite",
-            "cache_write",
-            "cache_creation_input_tokens",
-        ],
+        &["cacheWrite", "cache_write", "cache_creation_input_tokens"],
     )
     .unwrap_or(0.0);
     let total = number(raw, &["totalTokens", "total_tokens"]);
-    if base.is_none() && output.is_none() && cached == 0.0 && cache_write == 0.0 && total.is_none() {
+    if base.is_none() && output.is_none() && cached == 0.0 && cache_write == 0.0 && total.is_none()
+    {
         return None;
     }
-    let inclusive = ["inputTokens", "input_tokens", "promptTokens", "prompt_tokens"]
-        .iter()
-        .any(|key| raw.get(*key).is_some());
-    let mut input = (base.unwrap_or(0.0) + if inclusive { 0.0 } else { cached + cache_write }) as u64;
+    let inclusive = [
+        "inputTokens",
+        "input_tokens",
+        "promptTokens",
+        "prompt_tokens",
+    ]
+    .iter()
+    .any(|key| raw.get(*key).is_some());
+    let mut input =
+        (base.unwrap_or(0.0) + if inclusive { 0.0 } else { cached + cache_write }) as u64;
     let out = output.unwrap_or(0.0) as u64;
     // A runtime that only reports a total has no split. Put it in input rather
     // than dropping it, and say so through `reported` (a split of 0/0 would be
@@ -323,9 +330,8 @@ pub fn report(connection: &Connection, period: Period, today: &str) -> Result<Au
     // Session labels used to attribute an event to a model or a saved agent.
     let mut labels: HashMap<String, (String, String, String)> = HashMap::new();
     {
-        let mut statement = connection.prepare(
-            "SELECT id, title, model, agent_id FROM sessions WHERE archived = 0",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT id, title, model, agent_id FROM sessions WHERE archived = 0")?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -371,7 +377,9 @@ pub fn report(connection: &Connection, period: Period, today: &str) -> Result<Au
         for row in rows {
             let (session_id, run_id, seq, at, payload) = row?;
             let value: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
-            let Some(numbers) = usage_of(&value) else { continue };
+            let Some(numbers) = usage_of(&value) else {
+                continue;
+            };
             let date = at.get(..10).unwrap_or("").to_string();
             let (_, model, agent) = label(&session_id);
             let key = format!("{session_id}:{run_id}");
@@ -401,11 +409,11 @@ pub fn report(connection: &Connection, period: Period, today: &str) -> Result<Au
             by_model
                 .entry(model.clone())
                 .or_default()
-                .add(model.clone(), tokens);
+                .add(model.clone(), tokens, numbers.cached);
             by_agent
                 .entry(agent.clone())
                 .or_default()
-                .add(agent.clone(), tokens);
+                .add(agent.clone(), tokens, numbers.cached);
             totals.input += numbers.input;
             totals.output += numbers.output;
             totals.cached += numbers.cached;
@@ -565,7 +573,10 @@ pub fn report(connection: &Connection, period: Period, today: &str) -> Result<Au
                 steps,
                 tokens,
                 started_at: started.clone(),
-                duration_ms: ended.as_deref().map(|end| duration(&started, end)).unwrap_or(0),
+                duration_ms: ended
+                    .as_deref()
+                    .map(|end| duration(&started, end))
+                    .unwrap_or(0),
                 state: state.to_string(),
             });
         }
@@ -597,11 +608,12 @@ pub fn report(connection: &Connection, period: Period, today: &str) -> Result<Au
 }
 
 impl UsageShare {
-    fn add(&mut self, label: String, tokens: u64) {
+    fn add(&mut self, label: String, tokens: u64, cached: u64) {
         if self.label.is_empty() {
             self.label = label;
         }
         self.tokens += tokens;
+        self.cached += cached;
         self.calls += 1;
     }
 }
@@ -621,8 +633,16 @@ fn truncate(text: &str, limit: usize) -> String {
 pub fn mask_text(text: &str) -> String {
     let mut out = text.to_string();
     for key in [
-        "api_key", "api-key", "apikey", "token", "password", "secret",
-        "authorization", "bearer", "connection_string", "access_key",
+        "api_key",
+        "api-key",
+        "apikey",
+        "token",
+        "password",
+        "secret",
+        "authorization",
+        "bearer",
+        "connection_string",
+        "access_key",
     ] {
         // Mask `key=value`, `key: value` and `"key":"value"` shapes without a
         // regex dependency; the value runs to the next separator or quote.
@@ -647,7 +667,9 @@ pub fn mask_text(text: &str) -> String {
                 value_at += 1;
             }
             let end = out[value_at..]
-                .find(|ch| ch == ',' || ch == '&' || ch == ' ' || ch == '\n' || ch == '"' || ch == '\r')
+                .find(|ch| {
+                    ch == ',' || ch == '&' || ch == ' ' || ch == '\n' || ch == '"' || ch == '\r'
+                })
                 .map(|offset| value_at + offset)
                 .unwrap_or(out.len());
             if end > value_at {
@@ -702,5 +724,6 @@ pub fn executions_csv(rows: &[ExecutionRow], mask: bool) -> String {
 
 /// Resolve a period label, or explain what was wrong with it.
 pub fn parse_period(label: &str) -> Result<Period> {
-    Period::from_label(label).ok_or_else(|| Error::Rejected(format!("unknown audit period {label:?}")))
+    Period::from_label(label)
+        .ok_or_else(|| Error::Rejected(format!("unknown audit period {label:?}")))
 }

@@ -66,6 +66,17 @@ pub async fn workbench_overview(
                 enabled: row.enabled,
             })
             .collect();
+        // Connectors are rows in the catalog, so their count is real even when
+        // the page has never been opened.
+        if let Some(catalog) = catalog.as_ref() {
+            if let Ok(rows) = catalog.connectors() {
+                status.connector_total = rows.len() as u64;
+                status.connector_connected = rows
+                    .iter()
+                    .filter(|row| row.enabled && row.state == "connected")
+                    .count() as u64;
+            }
+        }
         status.schedules_enabled = schedule_view.stats.enabled;
         status.schedules_today = schedule_view.stats.today_runs;
         status.connectors_available = catalog_ok;

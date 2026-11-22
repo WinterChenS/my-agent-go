@@ -346,6 +346,17 @@ export function probeCatalogMcp(runtimeId: string, name: string): Promise<McpPro
   return hostCall<McpProbeResult>('catalog_probe_mcp', { runtimeId, name })
 }
 
+/**
+ * Delete one declared server.
+ *
+ * This edits the runtime's own MCP config (JSON or TOML) and rescans, so the
+ * server is really gone: a "delete" that only hid the row would come back on
+ * the next sync. The returned snapshot is the catalogue after the removal.
+ */
+export function removeCatalogMcp(runtimeId: string, name: string): Promise<CatalogSnapshot> {
+  return hostCall<CatalogSnapshot>('catalog_remove_mcp', { runtimeId, name })
+}
+
 /** What the add-service form sends to the host. */
 export interface McpDraft {
   runtimeId: string
@@ -368,6 +379,7 @@ export function testCatalogMcp(draft: McpDraft): Promise<McpProbeResult> {
     transport: draft.transport,
     command: draft.command,
     args: draft.args,
+    url: draft.url,
   })
 }
 
@@ -436,4 +448,26 @@ export interface RuntimeInstallResult {
  */
 export function installRuntime(runtimeId: string): Promise<RuntimeInstallResult> {
   return hostCall<RuntimeInstallResult>('runtime_install', { runtimeId })
+}
+
+/** What npm says about a runtime package, compared with the installed CLI. */
+export interface RuntimeUpdateCheck {
+  runtimeId: string
+  package: string
+  installed: string | null
+  latest: string | null
+  updateAvailable: boolean
+  checkedAt: string
+  error: string | null
+}
+
+/**
+ * Ask the registry for the latest published version.
+ *
+ * Read-only and explicit: opening settings never calls npm, so this runs only
+ * when the user asks. The reply says which version is installed, which is
+ * published, and whether the published one is newer.
+ */
+export function checkRuntimeUpdate(runtimeId: string): Promise<RuntimeUpdateCheck> {
+  return hostCall<RuntimeUpdateCheck>('runtime_update_check', { runtimeId })
 }

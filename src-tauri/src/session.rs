@@ -568,7 +568,18 @@ const PANE_TOOLS: &str = r##"## 本应用的浏览器（右侧面板）
 
 cron 为五段式：分 时 日 月 周（例：`0 9 * * 1-5` 工作日 9:00，`30 16 * * *` 每天 16:30）。agent 填当前 Agent 的名字，省略则用默认 Agent。其它子命令：list（看已有任务，创建前先查重）、pause / resume / remove '{"id":"sch-…"}'。
 
-创建成功后，用一句话告诉用户任务名称与下次执行时间；执行结果会出现在「定时任务」页。"##;
+创建成功后，用一句话告诉用户任务名称与下次执行时间；执行结果会出现在「定时任务」页。
+
+## 连接器（邮箱 / Notion / 钉钉文档）
+
+用户在「连接器」页配置好的服务，不在你的工具列表里，要走这条命令：
+
+  node ~/.anvil/bin/anvil-connector.mjs list
+  node ~/.anvil/bin/anvil-connector.mjs call '{"connector":"cn-…","tool":"mail_list","params":{"count":5}}'
+
+先 list 看已连接的连接器和它们的工具名、参数，再 call。邮件用 mail_list / mail_read / mail_send，Notion 用 notion_search / notion_read_page / notion_create_page，钉钉文档用 dingtalk_search_docs / dingtalk_read_doc。
+
+连接器不是 MCP：MCP 是工具服务端，连接器是用用户自己的账号访问一个外部服务。用户说「帮我查邮件 / 读 Notion 页面 / 搜钉钉文档」时用连接器；没有对应连接器就如实说明还没配置，不要编造内容。"##;
 
 /// Append the app's own instructions after whatever the persona says.
 fn with_pane_tools(prompt: String) -> String {

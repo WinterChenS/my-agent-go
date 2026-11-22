@@ -259,7 +259,9 @@ fn config_path(runtime_id: &str, home: &Path) -> Result<PathBuf> {
         "claude" => Ok(home.join(".claude.json")),
         "codex" => Ok(home.join(".codex").join("config.toml")),
         "opencode" => Ok(home.join(".config").join("opencode").join("opencode.json")),
-        other => Err(Error::Rejected(format!("{other} does not support MCP declarations"))),
+        other => Err(Error::Rejected(format!(
+            "{other} does not support MCP declarations"
+        ))),
     }
 }
 
@@ -304,7 +306,9 @@ pub fn write_config(
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
     {
-        return Err(Error::Rejected("server name may only use letters, digits, - and _".into()));
+        return Err(Error::Rejected(
+            "server name may only use letters, digits, - and _".into(),
+        ));
     }
     let remote = transport != "stdio";
     if remote && url.map(|value| value.trim().is_empty()).unwrap_or(true) {
@@ -351,8 +355,11 @@ pub fn write_config(
                 }
             }
             table.insert(name.to_string(), toml::Value::Table(entry));
-            replace_file(&path, &toml::to_string_pretty(&root)
-                .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?)
+            replace_file(
+                &path,
+                &toml::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?,
+            )
         }
         "opencode" => {
             let mut root: serde_json::Value = if read_or_empty(&path)?.trim().is_empty() {
@@ -434,17 +441,89 @@ pub fn write_config(
     }
 }
 
+/// Remove one server from the runtime's own MCP config.
+///
+/// Deleting only the catalogue row would be a lie: the runtime reads its config
+/// file, so the next scan would bring the server straight back. This edits that
+/// file — and nothing else. A name that is not declared anymore is still a
+/// success (the goal state is "absent"), which keeps the button idempotent.
+pub fn remove_config(runtime_id: &str, home: &Path, name: &str) -> Result<()> {
+    let path = config_path(runtime_id, home)?;
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = read_or_empty(&path)?;
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    match runtime_id {
+        "codex" => {
+            let mut root: toml::Value = toml::from_str(&text)
+                .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?;
+            let removed = root
+                .get_mut("mcp_servers")
+                .and_then(|servers| servers.as_table_mut())
+                .and_then(|table| table.remove(name))
+                .is_some();
+            if !removed {
+                return Ok(());
+            }
+            replace_file(
+                &path,
+                &toml::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("codex config.toml: {error}")))?,
+            )
+        }
+        "opencode" => {
+            let mut root: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|error| Error::Format(format!("opencode.json: {error}")))?;
+            let removed = root
+                .get_mut("mcp")
+                .and_then(|servers| servers.as_object_mut())
+                .and_then(|table| table.remove(name))
+                .is_some();
+            if !removed {
+                return Ok(());
+            }
+            replace_file(
+                &path,
+                &serde_json::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("opencode.json: {error}")))?,
+            )
+        }
+        _ => {
+            let mut root: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|error| Error::Format(format!("mcp config: {error}")))?;
+            let removed = root
+                .get_mut("mcpServers")
+                .and_then(|servers| servers.as_object_mut())
+                .and_then(|table| table.remove(name))
+                .is_some();
+            if !removed {
+                return Ok(());
+            }
+            replace_file(
+                &path,
+                &serde_json::to_string_pretty(&root)
+                    .map_err(|error| Error::Format(format!("mcp config: {error}")))?,
+            )
+        }
+    }
+}
+
 /// Probe a declaration the reader has typed but not saved yet.
 pub fn probe_draft(
     transport: &str,
     command: Option<&str>,
     args: &[String],
+    url: Option<&str>,
     timeout: Duration,
 ) -> Result<Vec<String>> {
     if transport != "stdio" {
-        return Err(Error::Rejected(
-            "remote MCP connections are not probed by this build".into(),
-        ));
+        let url = url
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| Error::Rejected("remote MCP servers need a URL".into()))?;
+        return probe_http(url, &[], timeout);
     }
     let command = command
         .filter(|value| !value.trim().is_empty())
@@ -576,6 +655,376 @@ pub fn probe_stdio(command: &str, args: &[String], timeout: Duration) -> Result<
     }
 }
 
+/// The real header values for one declared server.
+///
+/// The catalogue stores header *names* only, on purpose: a synced snapshot must
+/// never carry a token. A remote probe still needs the value, so it is read from
+/// the runtime's own config at probe time and never persisted.
+pub fn header_values(runtime_id: &str, home: &Path, name: &str) -> Vec<(String, String)> {
+    let Ok(path) = config_path(runtime_id, home) else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    if runtime_id == "codex" {
+        let Ok(value) = toml::from_str::<toml::Value>(&text) else {
+            return Vec::new();
+        };
+        let entry = value
+            .get("mcp_servers")
+            .and_then(|servers| servers.get(name));
+        for key in ["http_headers", "headers"] {
+            if let Some(table) = entry
+                .and_then(|entry| entry.get(key))
+                .and_then(|value| value.as_table())
+            {
+                return table
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        value.as_str().map(|value| (key.clone(), value.to_string()))
+                    })
+                    .collect();
+            }
+        }
+        return Vec::new();
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let servers = value
+        .get("mcpServers")
+        .or_else(|| value.get("mcp"))
+        .and_then(|servers| servers.as_object());
+    servers
+        .and_then(|servers| servers.get(name))
+        .and_then(|entry| entry.get("headers"))
+        .and_then(|headers| headers.as_object())
+        .map(|headers| {
+            headers
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Connect to a remote (HTTP) MCP server, run `initialize` + `tools/list`, and
+/// return the tool names.
+///
+/// Two wire shapes are common in the wild and both are handled here:
+///
+/// * **Streamable HTTP** — one POST per JSON-RPC message, answered as JSON or as
+///   a single-server-sent-event body, with an `Mcp-Session-Id` header carried on
+///   every follow-up;
+/// * **legacy HTTP+SSE** — a GET opens the event stream that announces a
+///   `POST` endpoint, and messages go to that endpoint.
+///
+/// The probe is explicit, so the request is a real one: a server that rejects
+/// the credential reports 401/403 here instead of looking healthy.
+pub fn probe_http(
+    url: &str,
+    headers: &[(String, String)],
+    timeout: Duration,
+) -> Result<Vec<String>> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(Error::Rejected(format!("{url:?} is not an http(s) url")));
+    }
+    let mut post_url = url.to_string();
+
+    // Legacy SSE: the stream's first event names the endpoint to post to. A
+    // streamable server answers a GET with 405/400, which is expected and is
+    // not a failure — the POST below still works.
+    if let Ok(stream) = curl(url, "GET", headers, None, timeout) {
+        if let Some(endpoint) = sse_endpoint(&stream.body) {
+            post_url = resolve(url, &endpoint);
+        }
+    }
+
+    let initialize = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": { "name": "anvil", "version": "1" }
+        }
+    });
+    let first = curl(
+        &post_url,
+        "POST",
+        headers,
+        Some(serde_json::to_string(&initialize).map_err(|error| Error::Format(error.to_string()))?),
+        timeout,
+    )?;
+    if first.status >= 400 {
+        return Err(Error::Rejected(format!(
+            "initialize returned HTTP {}: {}",
+            first.status,
+            first.body.chars().take(200).collect::<String>()
+        )));
+    }
+    let session = first
+        .headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("mcp-session-id"))
+        .map(|(_, value)| value.clone());
+    let init_json = rpc_json(&first.body)
+        .ok_or_else(|| Error::Format("initialize did not answer with JSON-RPC".into()))?;
+    if let Some(error) = init_json.get("error") {
+        return Err(Error::Rejected(format!("initialize refused: {error}")));
+    }
+
+    let mut with_session = headers.to_vec();
+    if let Some(session) = &session {
+        with_session.push(("Mcp-Session-Id".to_string(), session.clone()));
+    }
+    // A notification has no id and no reply; servers that require it drop the
+    // connection without one.
+    let _ = curl(
+        &post_url,
+        "POST",
+        &with_session,
+        Some(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_string()),
+        Duration::from_secs(5).min(timeout),
+    );
+
+    let list = curl(
+        &post_url,
+        "POST",
+        &with_session,
+        Some(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#.to_string()),
+        timeout,
+    )?;
+    if list.status >= 400 {
+        return Err(Error::Rejected(format!(
+            "tools/list returned HTTP {}: {}",
+            list.status,
+            list.body.chars().take(200).collect::<String>()
+        )));
+    }
+    let value = rpc_json(&list.body)
+        .ok_or_else(|| Error::Format("tools/list did not answer with JSON-RPC".into()))?;
+    if let Some(error) = value.get("error") {
+        return Err(Error::Rejected(format!("tools/list failed: {error}")));
+    }
+    let tools: Vec<String> = value
+        .get("result")
+        .and_then(|result| result.get("tools"))
+        .and_then(|tools| tools.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(|name| name.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if tools.is_empty() {
+        // An empty list is a real answer (a server with no tools), but it looks
+        // identical to a parse miss, so say which one it is.
+        return Ok(Vec::new());
+    }
+    Ok(tools)
+}
+
+/// Quote one value for curl's config grammar.
+///
+/// Inside double quotes curl reads `\\`, `\"`, `\t`, `\n`, `\r` and `\v` as
+/// escapes and rejects anything else — a Windows temp path is full of
+/// backslashes, so they must be doubled or curl refuses the whole config.
+fn quote_config(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+struct HttpAnswer {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// One request through the system curl. Credentials ride on stdin (`-K -`),
+/// never on the command line.
+fn curl(
+    url: &str,
+    method: &str,
+    headers: &[(String, String)],
+    body: Option<String>,
+    timeout: Duration,
+) -> Result<HttpAnswer> {
+    let mut lines = vec![
+        "silent".to_string(),
+        "show-error".to_string(),
+        "location".to_string(),
+        format!("max-time = {}", timeout.as_secs().max(1)),
+        format!("url = {}", quote_config(url)),
+        "dump-header = \"-\"".to_string(),
+        "write-out = \"\\n__STATUS__%{http_code}\"".to_string(),
+    ];
+    if !method.eq_ignore_ascii_case("GET") {
+        lines.push(format!("request = \"{method}\""));
+    }
+    let accept = headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("accept"));
+    if !accept {
+        lines.push("header = \"Accept: application/json, text/event-stream\"".to_string());
+    }
+    lines.push("header = \"Content-Type: application/json\"".to_string());
+    for (key, value) in headers {
+        lines.push(format!(
+            "header = {}",
+            quote_config(&format!("{key}: {value}"))
+        ));
+    }
+    let mut temp = None;
+    if let Some(body) = &body {
+        let path = std::env::temp_dir().join(format!(
+            "anvil-mcp-{}-{}.body",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        std::fs::write(&path, body).map_err(|error| Error::Io(error.to_string()))?;
+        lines.push(format!(
+            "data-binary = {}",
+            quote_config(&format!("@{}", path.display()))
+        ));
+        temp = Some(path);
+    }
+    let curl = std::env::var("ANVIL_CURL").unwrap_or_else(|_| "curl".to_string());
+    let mut child = Command::new(&curl)
+        .args(["-q", "-sS", "-K", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| Error::Io(format!("run curl: {error}")))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(lines.join("\n").as_bytes())
+            .map_err(|error| Error::Io(error.to_string()))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| Error::Io(error.to_string()))?;
+    if let Some(path) = temp {
+        let _ = std::fs::remove_file(path);
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(Error::Io(if stderr.is_empty() {
+            format!("curl exited {:?}", output.status.code())
+        } else {
+            stderr
+        }));
+    }
+    Ok(split_response(&raw))
+}
+
+/// Split curl's `-i` output into status, headers and body.
+///
+/// `-i` writes headers and body to stdout with no marker between them, and a
+/// redirect adds a block per hop, so the last block is the one that counts.
+fn split_response(raw: &str) -> HttpAnswer {
+    let mut status = 0u16;
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut body_start = 0usize;
+    let mut cursor = 0usize;
+    while let Some(offset) = raw[cursor..].find("\r\n\r\n") {
+        let head_end = cursor + offset;
+        let block = &raw[cursor..head_end];
+        let mut lines = block.lines();
+        if let Some(first) = lines.next() {
+            if let Some(code) = first.split_whitespace().nth(1) {
+                if let Ok(parsed) = code.parse::<u16>() {
+                    status = parsed;
+                    headers.clear();
+                }
+            }
+        }
+        for line in lines {
+            if let Some((key, value)) = line.split_once(':') {
+                headers.push((key.trim().to_string(), value.trim().to_string()));
+            }
+        }
+        body_start = head_end + 4;
+        cursor = body_start;
+        // An SSE body may itself contain blank lines; only treat a block as a
+        // header block while the response has not started.
+        if !raw[body_start..].starts_with("HTTP/") {
+            break;
+        }
+    }
+    let mut body = raw[body_start..].to_string();
+    if let Some(index) = body.rfind("__STATUS__") {
+        let tail = body[index + "__STATUS__".len()..].trim().to_string();
+        if let Ok(parsed) = tail.parse::<u16>() {
+            status = parsed;
+        }
+        body.truncate(index);
+    }
+    HttpAnswer {
+        status,
+        headers,
+        body: body.trim_end().to_string(),
+    }
+}
+
+/// A JSON-RPC answer, whether it arrived as JSON or inside an SSE frame.
+fn rpc_json(body: &str) -> Option<serde_json::Value> {
+    let trimmed = body.trim();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Some(value);
+    }
+    for line in trimmed.lines().rev() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data:") {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data.trim()) {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// The `data: /messages?sessionId=…` frame a legacy SSE server opens with.
+fn sse_endpoint(body: &str) -> Option<String> {
+    for line in body.lines() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data:") {
+            let data = data.trim();
+            if data.starts_with('/') || data.starts_with("http") {
+                return Some(data.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Absolute URL for an endpoint announced relatively.
+fn resolve(base: &str, endpoint: &str) -> String {
+    if endpoint.starts_with("http") {
+        return endpoint.to_string();
+    }
+    let trimmed = base.trim_end_matches('/');
+    match trimmed.find("://") {
+        Some(index) => {
+            let after_scheme = &trimmed[index + 3..];
+            match after_scheme.find('/') {
+                Some(slash) => format!("{}{}", &trimmed[..index + 3 + slash], endpoint),
+                None => format!("{trimmed}{endpoint}"),
+            }
+        }
+        None => format!("{trimmed}{endpoint}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,5 +1127,48 @@ DEMO_REGION = "eu"
     fn malformed_config_is_a_format_error() {
         let error = from_claude_json("claude", "{not json", "s").expect_err("format");
         assert_eq!(error.code(), "format");
+    }
+    #[test]
+    fn removing_a_server_edits_the_runtime_config() {
+        let home = std::env::temp_dir().join(format!(
+            "anvil-mcp-remove-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|value| value.as_nanos())
+                .unwrap_or_default()
+        ));
+        let path = home.join(".pi").join("agent").join("mcp.json");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"keep":{"url":"https://a.example"},"gone":{"command":"node","args":["x"]}}}"#,
+        )
+        .expect("seed");
+
+        remove_config("pi", &home, "gone").expect("remove");
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+        let servers = left
+            .get("mcpServers")
+            .and_then(|value| value.as_object())
+            .expect("servers");
+        assert!(servers.contains_key("keep"));
+        assert!(!servers.contains_key("gone"), "{servers:?}");
+
+        // Removing an unknown name is a no-op, not an error: the button is
+        // idempotent and a second click must not fail.
+        remove_config("pi", &home, "never-there").expect("idempotent");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn config_values_escape_windows_paths() {
+        // A Windows temp path is full of backslashes; curl rejects a single one
+        // inside a quoted config value, so every one of them must be doubled.
+        let quoted = quote_config(r"@C:\Users\A\Temp\body.json");
+        assert!(quoted.contains(r"\\"), "{quoted}");
+        assert!(quoted.starts_with('"') && quoted.ends_with('"'));
+        assert!(quote_config("Bearer \"x\"").contains("\\\""));
     }
 }

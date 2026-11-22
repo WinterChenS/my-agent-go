@@ -130,7 +130,9 @@ describe('system locale', () => {
     stubSystemLocale(['en-US'])
     window.history.replaceState(null, '', '/settings')
     render(<App />)
-    await user.click(await screen.findByRole('radio', { name: 'Chinese' }))
+    // The general pane's select is the one language control (the duplicate
+    // radio card was removed).
+    await user.selectOptions(await screen.findByLabelText('Interface language'), 'zh-CN')
     await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'))
     expect(window.localStorage.getItem('anvil.language')).toBe('zh-CN')
     expect(window.localStorage.getItem('anvil.language.chosen')).toBe('1')
@@ -180,11 +182,11 @@ describe('language UI', () => {
     window.history.replaceState(null, '', '/settings')
     render(<App />)
     await waitFor(() =>
-      expect(screen.getByRole('radio', { name: '简体中文' })).toHaveAttribute('aria-checked', 'true'),
+      expect(screen.getByLabelText('界面语言')).toHaveValue('zh-CN'),
     )
     expect(document.title).toBe('设置 · Anvil')
 
-    await user.click(screen.getByRole('radio', { name: 'English' }))
+    await user.selectOptions(screen.getByLabelText('界面语言'), 'en-US')
     await waitFor(() => expect(document.documentElement.lang).toBe('en-US'))
     expect(document.title).toBe('Settings · Anvil')
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument()
@@ -192,7 +194,7 @@ describe('language UI', () => {
     expect(screen.getByRole('radio', { name: 'Dark' })).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/[一-鿿]/)
 
-    await user.click(screen.getByRole('radio', { name: 'Chinese' }))
+    await user.selectOptions(screen.getByLabelText('Interface language'), 'zh-CN')
     await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'))
     expect(document.title).toBe('设置 · Anvil')
   })

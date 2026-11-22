@@ -93,6 +93,8 @@ const overview: WorkbenchOverview = {
     runtimeLabel: 'pi 1.5.0',
     mcpConnected: 3,
     mcpTotal: 4,
+    connectorTotal: 0,
+    connectorConnected: 0,
     connectorsAvailable: false,
     quotaAvailable: false,
     schedulesEnabled: 0,

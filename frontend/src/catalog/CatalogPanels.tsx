@@ -5,7 +5,9 @@ import Icon from '../shell/Icon'
 import type { MessageKey } from '../i18n/catalogue'
 import {
   addCustomModel,
+  checkRuntimeUpdate,
   installPiSubagent,
+  installRuntime,
   loadCatalog,
   piSubagentStatus,
   probeCatalogMcp,
@@ -14,7 +16,9 @@ import {
   verifyCatalogModel,
   type CatalogModel,
   type CatalogMcp,
+  type CatalogSnapshot,
   type PiSubagentStatus,
+  type RuntimeUpdateCheck,
 } from './client'
 import { byRuntime, modelsFor, syncProblems, type CatalogView } from './useCatalog'
 
@@ -104,13 +108,67 @@ export function CatalogSummary({ view }: { view: CatalogView }) {
 }
 
 /** Runtime rows: status, version, install path, config and snapshot state. */
-export function CatalogRuntimeTable({ view }: { view: CatalogView }) {
+export function CatalogRuntimeTable({
+  view,
+  onNotice,
+}: {
+  view: CatalogView
+  onNotice?: (message: string) => void
+}) {
   const { t } = useI18n()
-  const runtimes = view.snapshot?.runtimes ?? []
-  if (view.status !== 'ready') return null
+  // Installing returns a fresh snapshot; show it immediately instead of
+  // waiting for the shared hook's background re-read.
+  const [override, setOverride] = useState<CatalogSnapshot | null>(null)
+  const [checks, setChecks] = useState<Record<string, RuntimeUpdateCheck>>({})
+  const [busy, setBusy] = useState<string | null>(null)
+  const snapshot = override ?? view.snapshot
+  const runtimes = snapshot?.runtimes ?? []
+  if (view.status !== 'ready' && !override) return null
   if (runtimes.length === 0) {
     return <p className="cat-empty" data-testid="catalog-runtimes-empty">{t('catalog.runtimes.empty')}</p>
   }
+
+  const check = async (runtimeId: string) => {
+    setBusy(runtimeId)
+    try {
+      const result = await checkRuntimeUpdate(runtimeId)
+      setChecks((current) => ({ ...current, [runtimeId]: result }))
+      onNotice?.(
+        result.error
+          ? t('catalog.runtimes.checkFailed', { message: result.error })
+          : result.updateAvailable && result.latest
+            ? t('catalog.runtimes.hasUpdate', { version: result.latest })
+            : t('catalog.runtimes.upToDate', { version: result.installed ?? result.latest ?? '—' }),
+      )
+    } catch (error) {
+      onNotice?.(t('catalog.runtimes.checkFailed', { message: failureText(error) }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const update = async (runtimeId: string, version: string) => {
+    setBusy(runtimeId)
+    try {
+      const result = await installRuntime(runtimeId)
+      if (result.snapshot) setOverride(result.snapshot)
+      setChecks((current) => {
+        const next = { ...current }
+        delete next[runtimeId]
+        return next
+      })
+      onNotice?.(
+        result.report.ok
+          ? t('catalog.runtimes.updated', { version })
+          : t('catalog.runtimes.updateFailed', { message: result.report.output || 'npm failed' }),
+      )
+    } catch (error) {
+      onNotice?.(t('catalog.runtimes.updateFailed', { message: failureText(error) }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="cat-table-wrap">
       <table className="cat-table" aria-label={t('catalog.runtimes.title')} data-testid="catalog-runtimes">
@@ -121,42 +179,77 @@ export function CatalogRuntimeTable({ view }: { view: CatalogView }) {
             <th>{t('catalog.runtimes.version')}</th>
             <th>{t('catalog.runtimes.path')}</th>
             <th>{t('catalog.runtimes.snapshot')}</th>
+            <th>{t('catalog.runtimes.actions')}</th>
           </tr>
         </thead>
         <tbody>
-          {runtimes.map((runtime) => (
-            <tr key={runtime.id} data-testid={`catalog-runtime-${runtime.runtimeId}`}>
-              <td>
-                <span className="cat-name">{runtime.displayName}</span>
-                <span className="cat-sub mono">{runtime.runtimeId}</span>
-              </td>
-              <td>
-                <span className={`cat-badge ${statusTone(runtime.status)}`} data-status={runtime.status}>
-                  <i />{t(runtimeStatusKey(runtime.status))}
-                </span>
-                {runtime.health.detail && (
-                  <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
-                )}
-              </td>
-              <td className="mono">{runtime.version ?? '—'}</td>
-              <td className="cat-path mono" title={runtime.installPath}>
-                {runtime.installPath || '—'}
-              </td>
-              <td>
-                <span className="cat-sub">
-                  {runtime.snapshotState === 'fresh' && t('catalog.snapshot.fresh')}
-                  {runtime.snapshotState === 'stale' && t('catalog.snapshot.stale')}
-                  {runtime.snapshotState === 'never' && t('catalog.snapshot.never')}
-                </span>
-              </td>
-            </tr>
-          ))}
+          {runtimes.map((runtime) => {
+            const result = checks[runtime.runtimeId]
+            const working = busy === runtime.runtimeId
+            return (
+              <tr key={runtime.id} data-testid={`catalog-runtime-${runtime.runtimeId}`}>
+                <td>
+                  <span className="cat-name">{runtime.displayName}</span>
+                  <span className="cat-sub mono">{runtime.runtimeId}</span>
+                </td>
+                <td>
+                  <span className={`cat-badge ${statusTone(runtime.status)}`} data-status={runtime.status}>
+                    <i />{t(runtimeStatusKey(runtime.status))}
+                  </span>
+                  {runtime.health.detail && (
+                    <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
+                  )}
+                </td>
+                <td className="mono">{runtime.version ?? '—'}</td>
+                <td className="cat-path mono" title={runtime.installPath}>
+                  {runtime.installPath || '—'}
+                </td>
+                <td>
+                  <span className="cat-sub">
+                    {runtime.snapshotState === 'fresh' && t('catalog.snapshot.fresh')}
+                    {runtime.snapshotState === 'stale' && t('catalog.snapshot.stale')}
+                    {runtime.snapshotState === 'never' && t('catalog.snapshot.never')}
+                  </span>
+                </td>
+                <td>
+                  <div className="cat-row-actions" data-testid={`catalog-runtime-actions-${runtime.runtimeId}`}>
+                    {result?.updateAvailable && result.latest ? (
+                      <>
+                        <span className="cat-sub mono">{t('catalog.runtimes.latest', { version: result.latest })}</span>
+                        <button
+                          type="button"
+                          className="cat-btn cat-btn-primary"
+                          data-testid={`catalog-runtime-update-${runtime.runtimeId}`}
+                          disabled={working}
+                          onClick={() => void update(runtime.runtimeId, result.latest ?? '')}
+                        >
+                          {working ? t('catalog.runtimes.updating') : t('catalog.runtimes.update')}
+                        </button>
+                      </>
+                    ) : result?.error ? (
+                      <span className="cat-sub" title={result.error}>{t('catalog.runtimes.checkFailedShort')}</span>
+                    ) : result ? (
+                      <span className="cat-sub">{t('catalog.runtimes.upToDateShort')}</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="cat-btn"
+                      data-testid={`catalog-runtime-check-${runtime.runtimeId}`}
+                      disabled={working}
+                      onClick={() => void check(runtime.runtimeId)}
+                    >
+                      {working ? t('catalog.runtimes.checking') : t('catalog.runtimes.check')}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
-
 /** Host failures arrive as `{code,message}` JSON; anything else passes through. */
 function failureText(error: unknown): string {
   if (typeof error === 'string') {

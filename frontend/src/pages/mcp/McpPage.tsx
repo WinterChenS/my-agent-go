@@ -17,6 +17,7 @@ import './mcp.css'
 import { useCatalog } from '../../catalog/useCatalog'
 import {
   probeCatalogMcp,
+  removeCatalogMcp,
   syncCatalogInventory,
   type CatalogMcp,
   type McpProbeResult,
@@ -147,6 +148,31 @@ export default function McpPage() {
     }
   }
 
+  const removeOne = async (server: CatalogMcp) => {
+    try {
+      const fresh = await removeCatalogMcp(server.runtimeId, server.name)
+      catalog.apply(fresh)
+      const key = keyOf(server)
+      setProbeResults((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setLogs((current) => [
+        {
+          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          service: server.name,
+          ok: true,
+          detail: t('mcp.notice.removed', { name: server.name }),
+        },
+        ...current,
+      ].slice(0, 20))
+      announce(t('mcp.notice.removed', { name: server.name }))
+    } catch (cause) {
+      announce(t('mcp.notice.removeFailed', { message: cause instanceof Error ? cause.message : String(cause) }))
+    }
+  }
+
   const closeDialog = () => {
     setDialog(false)
     const trigger = dialogTrigger.current
@@ -235,6 +261,7 @@ export default function McpPage() {
               report={probeResults[keyOf(server)]}
               probing={probing === keyOf(server)}
               onProbe={() => void probeOne(server)}
+              onRemove={() => void removeOne(server)}
             />
           ))}
         </div>
@@ -301,13 +328,16 @@ function LiveMcpCard({
   report,
   probing,
   onProbe,
+  onRemove,
 }: {
   server: CatalogMcp
   report?: McpProbeResult
   probing: boolean
   onProbe: () => void
+  onRemove: () => void
 }) {
   const { t } = useI18n()
+  const [confirming, setConfirming] = useState(false)
   return (
     <section className={`mcp-card is-${server.state}`} data-testid="mcp-card" data-service={`${server.runtimeId}:${server.name}`}>
       <div className="mcp-card-head">
@@ -318,6 +348,15 @@ function LiveMcpCard({
         <div className="mcp-card-actions">
           <span className={`mcp-status is-${report ? (report.ok ? 'connected' : 'disconnected') : 'disconnected'}`} data-state={report ? (report.ok ? 'connected' : 'failed') : server.state}>{report ? (report.ok ? 'connected' : 'failed') : server.state}</span>
           <button type="button" className="mcp-btn mcp-btn-sm" data-testid="mcp-probe" disabled={probing} onClick={onProbe}>{probing ? '…' : t('mcp.action.probe')}</button>
+          <button
+            type="button"
+            className={`mcp-btn mcp-btn-sm${confirming ? ' mcp-btn-danger' : ''}`}
+            data-testid="mcp-remove"
+            onClick={() => (confirming ? onRemove() : setConfirming(true))}
+            onBlur={() => setConfirming(false)}
+          >
+            {confirming ? t('mcp.action.removeConfirm') : t('mcp.action.remove')}
+          </button>
         </div>
       </div>
       <div className="mcp-card-config">

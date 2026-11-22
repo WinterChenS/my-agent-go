@@ -170,8 +170,7 @@
       "chrome": "shell",
       "navKey": "nav.settings",
       "titleKey": "page.settings.title",
-      "breadcrumbKey": "crumb.system",
-      "topbarStatusKey": "topbar.runtime.notConnected"
+      "breadcrumbKey": "crumb.system"
     }
   ]
 }

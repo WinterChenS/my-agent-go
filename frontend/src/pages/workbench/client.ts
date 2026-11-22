@@ -79,6 +79,8 @@ export interface WorkbenchStatus {
   runtimeLabel: string
   mcpConnected: number
   mcpTotal: number
+  connectorTotal: number
+  connectorConnected: number
   connectorsAvailable: boolean
   quotaAvailable: boolean
   schedulesEnabled: number

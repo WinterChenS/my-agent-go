@@ -622,6 +622,8 @@ export interface AuditShare {
   label: string
   tokens: number
   calls: number
+  /** Input tokens the provider served from its prompt cache. */
+  cached: number
 }
 
 export interface AuditTotals {
