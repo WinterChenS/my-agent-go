@@ -7,6 +7,7 @@ import GlobalSearchDialog from './GlobalSearchDialog'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import { resolveRoute, ROUTES_BY_ID, WORKBENCH_ROUTE } from './routes'
+import { useContextMenuGuard } from './useContextMenuGuard'
 import { useHistoryShortcuts } from './useHistoryShortcuts'
 import { useLayoutProbe } from './useLayoutProbe'
 import { reportHostLog } from '../host/tauri'
@@ -39,6 +40,7 @@ export default function Shell() {
   const [searchOpen, setSearchOpen] = useState(false)
   useLayoutProbe()
   useHistoryShortcuts()
+  useContextMenuGuard()
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

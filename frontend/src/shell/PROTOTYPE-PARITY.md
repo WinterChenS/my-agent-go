@@ -380,3 +380,15 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   deleted by this page.
 - Sample entry (`/?sample=library`) keeps the prototype's eight assets and the
   fixture detail preview.
+
+## R0-12 shell surface
+
+- The main window has **no** right-click menu. `useContextMenuGuard` takes
+  `contextmenu` in the capture phase on the document, so WebView2 never draws its
+  own menu (返回/刷新/另存为/打印) over the app. The prototype's custom menu was
+  removed in v67; leaving both gone is deliberate — a desktop surface should not
+  put browser commands on the pointer.
+- The built-in browser pane is a child webview with its own document and keeps
+  its own menu (返回 / 前进 / 重新加载 / 复制页面地址), drawn inside the page so it
+  sits above the native view.
+- Consequence: right-click paste in the composer is gone; Ctrl+V still works.
