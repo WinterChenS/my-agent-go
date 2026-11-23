@@ -1,17 +1,25 @@
-//! Windows system theme detection.
+//! System app theme detection.
 //!
-//! Port of `cmd/anvil/theme_system_windows.go`: the app theme comes from
+//! Windows: port of `cmd/anvil/theme_system_windows.go`. The app theme comes from
 //! `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 //! `AppsUseLightTheme` (0 = dark). Missing key/value or any error means "light",
-//! matching the Go host. The desktop host polls this value and pushes changes to
-//! the frontend as a Tauri event; the browser/jsdom path keeps its own polling
-//! fallback in `frontend/src/preferences/theme.ts`.
+//! matching the Go host.
+//!
+//! macOS: `AppleInterfaceStyle` in the global user defaults (`Dark`, or absent
+//! in light mode). Reading the defaults keeps this callable from the poller
+//! thread, where `NSApp.effectiveAppearance` is illegal.
+//!
+//! The desktop host polls this value and pushes changes to the frontend as a
+//! Tauri event; the browser/jsdom path keeps its own polling fallback in
+//! `frontend/src/preferences/theme.ts`.
 
 use std::time::Duration;
 
 /// Registry key holding the Windows app theme.
+#[cfg(windows)]
 pub const PERSONALIZE_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 /// Registry value: 0 = dark, non-zero = light.
+#[cfg(windows)]
 pub const APPS_USE_LIGHT_THEME: &str = "AppsUseLightTheme";
 /// Host polling interval for system theme changes (the Go host used 1.2 s).
 pub const SYSTEM_THEME_POLL_INTERVAL: Duration = Duration::from_millis(1200);
@@ -74,8 +82,36 @@ pub fn system_dark() -> bool {
     data == 0
 }
 
-/// Non-Windows builds have no Windows app theme; the desktop host is Windows-first.
-#[cfg(not(windows))]
+/// macOS app theme, from the global user defaults.
+///
+/// macOS records the app appearance in `AppleInterfaceStyle`: the string `Dark`
+/// when the system is dark, and *no value at all* in light mode. `standard`
+/// user defaults include the global domain, so this is readable from the poller
+/// thread without touching AppKit (`NSApp.effectiveAppearance` is main-thread
+/// only, and the poller is not).
+///
+/// The previous build returned `false` on every non-Windows platform. That left
+/// `data-theme="light"` inside a window whose titlebar AppKit had already drawn
+/// dark — the "only the border is black" report.
+#[cfg(target_os = "macos")]
+#[must_use]
+pub fn system_dark() -> bool {
+    use objc2::rc::autoreleasepool;
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    autoreleasepool(|_| {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let key = NSString::from_str("AppleInterfaceStyle");
+        match defaults.stringForKey(&key) {
+            // "Dark" and the high-contrast "Dark" variants all contain the word.
+            Some(style) => style.to_string().to_ascii_lowercase().contains("dark"),
+            None => false,
+        }
+    })
+}
+
+/// Everywhere else there is no app theme to follow.
+#[cfg(not(any(windows, target_os = "macos")))]
 #[must_use]
 pub fn system_dark() -> bool {
     false

@@ -217,7 +217,7 @@ fn current_language(app: &tauri::AppHandle) -> String {
 #[tauri::command]
 pub async fn workspace_pick(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<Option<String>, String> {
     #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
@@ -239,7 +239,7 @@ pub async fn workspace_pick(
 #[tauri::command]
 pub async fn workspace_pick_file(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<Option<String>, String> {
     #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
@@ -263,7 +263,7 @@ pub async fn workspace_pick_file(
 #[tauri::command]
 pub async fn workspace_pick_files(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<Vec<String>, String> {
     #[cfg(windows)]
     let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
@@ -522,6 +522,7 @@ fn pick_with_plugin(
     kind: PickKind,
     prompts: &PickPrompts,
 ) -> Result<Option<Vec<String>>, String> {
+    use tauri::Manager;
     use tauri_plugin_dialog::DialogExt;
 
     let title = match kind {
@@ -532,7 +533,13 @@ fn pick_with_plugin(
     // `blocking_*` waits on this worker thread; the plugin opens the panel on
     // the main thread. Calling it on the main thread would wait for the message
     // loop it is blocking, so this must stay a worker.
+    // Parent the panel to the window: on macOS that makes it a sheet of this
+    // window instead of a floating panel that can open behind the app.
     let dialog = app.dialog().file().set_title(title.clone());
+    let dialog = match app.get_webview_window("main") {
+        Some(window) => dialog.set_parent(&window),
+        None => dialog,
+    };
     match kind {
         PickKind::Folder => paths_of(dialog.blocking_pick_folder().map(|one| vec![one])),
         PickKind::File => paths_of(dialog.blocking_pick_file().map(|one| vec![one])),

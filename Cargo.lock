@@ -48,6 +48,8 @@ dependencies = [
  "anvil-catalog",
  "anvil-paths",
  "anvil-session",
+ "objc2",
+ "objc2-foundation",
  "rusqlite",
  "serde",
  "serde_json",

@@ -111,6 +111,13 @@ impl Browser {
                 LogicalSize::new(pw, ph),
             )
             .map_err(|error| format!("open browser: {error}"))?;
+        // wry creates a child view with `NSViewMinYMargin` ("keep the bottom
+        // margin"). That mask is AppKit's licence to move the view by itself on
+        // every window resize, and it acts *after* the page has reported the
+        // pane's rect — so maximising the window slid the page up and left it
+        // there. The rect we place is the only authority; drop the mask.
+        #[cfg(target_os = "macos")]
+        pin_view(&webview);
         *slot = Some(webview);
         // The view was created at whatever rect the pane had reported so far. A
         // report that arrives as the pane settles (the address bar appearing,
@@ -864,6 +871,31 @@ pub async fn browser_action(
         other => return Err(format!("unknown browser action: {other}")),
     };
     browser.run_script(script)
+}
+
+/// Clears a child webview's autoresizing mask (macOS).
+///
+/// wry creates a child view with `NSViewMinYMargin` — "keep the distance from
+/// the bottom of the window". AppKit honours that on every resize, and it does
+/// so *after* the page has reported where the pane is, so growing the window
+/// slid the page upwards and left it there. The rect we place is the only
+/// authority over the frame; `0` (`NSViewNotSizable`) removes AppKit's.
+#[cfg(target_os = "macos")]
+fn pin_view(webview: &Webview<tauri::Wry>) {
+    let _ = webview.with_webview(|platform| {
+        let view = platform.inner();
+        if view.is_null() {
+            return;
+        }
+        // SAFETY: `inner` is wry's live `WKWebView`, an `NSView` subclass, and
+        // `setAutoresizingMask:` takes an `NSUInteger` option set.
+        unsafe {
+            let _: () = objc2::msg_send![
+                view as *mut objc2::runtime::AnyObject,
+                setAutoresizingMask: 0usize
+            ];
+        }
+    });
 }
 
 /// Where the native view goes for a reported rect.

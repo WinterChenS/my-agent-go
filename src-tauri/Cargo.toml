@@ -54,3 +54,12 @@ windows-sys = { workspace = true, features = [
     # The startup failure dialog: a desktop app has no console to read.
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# macOS only. A child webview is created with `NSViewMinYMargin`, which makes
+# AppKit move it on its own whenever the window resizes — after the page has
+# already told us where the pane is. `browser::pin_view` clears that mask so the
+# pane's rect is the only thing that decides the frame.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# `NSUserDefaults` for the macOS app theme (`system_theme::system_dark`).
+objc2-foundation = "0.3"

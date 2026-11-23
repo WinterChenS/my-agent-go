@@ -187,6 +187,11 @@ impl HostState {
             && let Some(window) = guard.as_ref()
         {
             let _ = window.set_background_color(Some(Color(red, green, blue, alpha)));
+            // The frame follows the *app's* theme, not the system's. Without
+            // this macOS kept drawing a dark titlebar around a light page (the
+            // window inherits the system appearance), which is exactly the
+            // "only the border is black" report.
+            let _ = window.set_theme(Some(theme_of(&resolved)));
         }
     }
 
@@ -211,6 +216,15 @@ pub fn sanitize_probe(body: &str) -> String {
     single.trim().chars().take(512).collect()
 }
 
+/// The window chrome that matches a resolved app theme.
+fn theme_of(resolved: &str) -> tauri::Theme {
+    if resolved == "dark" {
+        tauri::Theme::Dark
+    } else {
+        tauri::Theme::Light
+    }
+}
+
 /// Creates the trusted main window after preflight.
 pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let state = app.state::<HostState>();
@@ -232,6 +246,7 @@ pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error
     )
     .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
     .background_color(Color(red, green, blue, alpha))
+    .theme(Some(theme_of(&resolved)))
     .data_directory(state.config.webview_dir.clone())
     .initialization_script(script);
 

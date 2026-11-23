@@ -675,8 +675,15 @@ function LiveBrowser({
     // the reader let go at has to be the width the native view ends at.
     window.addEventListener('pointerup', report, true)
     window.addEventListener('mouseup', report, true)
+    // Not every move has an event. A pane that shifts because a sibling
+    // animates with `transform`, or because a late font changed the chrome's
+    // height, never fires ResizeObserver — and the native view is not part of
+    // the DOM, so nothing else would move it. One layout read every 300 ms is
+    // cheaper than the IPC it avoids, and only a changed rect is reported.
+    const sampler = window.setInterval(report, 300)
     return () => {
       if (frame) cancelAnimationFrame(frame)
+      window.clearInterval(sampler)
       observer?.disconnect()
       window.removeEventListener('resize', report)
       window.removeEventListener('scroll', report, true)
