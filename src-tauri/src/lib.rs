@@ -120,6 +120,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "pi_subagent_status",
     "pi_subagent_install",
     "pi_subagent_update",
+    "pi_extensions",
     "schedule_overview",
     "schedule_save",
     "schedule_delete",

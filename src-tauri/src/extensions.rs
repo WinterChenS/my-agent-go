@@ -10,9 +10,20 @@
 //! sync command would do that on the UI thread.
 
 use anvil_session::extensions::{
-    PiSubagentInstall, PiSubagentStatus, install_pi_subagent, pi_subagent_status as read_status,
-    update_pi_subagent,
+    PiExtension, PiSubagentInstall, PiSubagentStatus, install_pi_subagent, pi_extensions as scan,
+    pi_subagent_status as read_status, update_pi_subagent,
 };
+
+/// Every extension pi would load for this user.
+///
+/// The subagent flag answers one question; this answers "what is actually
+/// installed", which is what a reader asking about their plugins needs. Read on
+/// demand — the list is short and a cached copy would go stale the moment a
+/// file is dropped into the agent directory.
+#[tauri::command]
+pub fn pi_extensions() -> Vec<PiExtension> {
+    scan()
+}
 
 /// Whether the current pi installation has the `subagent` extension, whether
 /// this build can install it, and whether the installed copy is behind the one

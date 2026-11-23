@@ -476,6 +476,49 @@ describe("pi's subagent extension on the runtime page", () => {
     expect(notices).toContain('已安装 subagent 扩展（4 个可用子代理）。')
   })
 
+  it('lists every extension pi loads, not only the subagent one', async () => {
+    installHost({
+      pi_subagent_status: () => installed,
+      pi_extensions: () => [
+        {
+          name: 'subagent',
+          kind: 'dir',
+          scope: 'global',
+          path: '/Users/me/.pi/agent/extensions/subagent',
+          active: true,
+        },
+        {
+          name: 'magpie',
+          kind: 'file',
+          scope: 'global',
+          path: '/Users/me/.pi/agent/extensions/magpie.ts',
+          active: true,
+        },
+        {
+          name: 'hollow',
+          kind: 'dir',
+          scope: 'global',
+          path: '/Users/me/.pi/agent/extensions/hollow',
+          active: false,
+          detail: 'no index.ts/index.js and no package.json manifest',
+        },
+      ],
+    })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <SubagentExtensionPanel view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    const list = await screen.findByTestId('catalog-extensions')
+    await waitFor(() => expect(within(list).getAllByTestId('catalog-extension-row')).toHaveLength(3))
+    const rows = within(list).getAllByTestId('catalog-extension-row')
+    // The count is what pi will actually load, so the broken one is not in it.
+    expect(list).toHaveTextContent('2 个可加载')
+    expect(rows[0]).toHaveTextContent('subagent')
+    expect(rows[0]).toHaveAttribute('data-active', 'true')
+    expect(rows[2]).toHaveAttribute('data-active', 'false')
+  })
+
   it('disables the install when the pi package ships no example', async () => {
     installHost({ pi_subagent_status: () => ({ ...missing, canInstall: false, source: undefined }) })
     render(

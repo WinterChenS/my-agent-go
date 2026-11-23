@@ -132,7 +132,11 @@ where
         prefix.display(),
         spec.package
     ));
-    let output = process::run_streaming(&npm, &args, INSTALL_TIMEOUT, &[], |line| on_line(line))
+    // npm is a Node script with `#!/usr/bin/env node`; on macOS a Finder-launched
+    // app has no node on PATH, so the install would die with "env: node: No such
+    // file or directory" before npm printed anything.
+    let env = process::child_env();
+    let output = process::run_streaming(&npm, &args, INSTALL_TIMEOUT, &env, |line| on_line(line))
         .map_err(|error| format!("运行 npm 失败：{error}"))?;
 
     // A clean exit code is not enough: the shim is what discovery and the
@@ -397,7 +401,7 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
     let prefix = prefix()?;
     let npm =
         common::shared_npm(&prefix).ok_or_else(|| "未找到 npm：请先安装 Node.js".to_string())?;
-    let output = process::run(
+    let output = process::run_with_env(
         &npm,
         &[
             "view",
@@ -407,6 +411,8 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
             "--loglevel=error",
         ],
         UPDATE_TIMEOUT,
+        // Same reason as the install: npm itself is `#!/usr/bin/env node`.
+        &process::child_env(),
     )
     .map_err(|error| format!("查询 npm 失败：{error}"))?;
     if !output.success() {

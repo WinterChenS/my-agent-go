@@ -385,6 +385,81 @@
   color: var(--fg-2);
 }
 
+.cat-subagent-wrap {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* Every extension pi loads. Rows, not cards: this is a list to scan, and the
+   path is the only long value, so it truncates instead of wrapping. */
+.cat-ext-list {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.cat-ext-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-ext-head .cat-btn {
+  margin-left: auto;
+}
+
+.cat-ext-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 5px 0;
+  font-size: var(--text-sm);
+}
+
+.cat-ext-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.cat-ext-dot.is-on {
+  background: var(--success);
+}
+
+.cat-ext-name {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.cat-ext-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  direction: rtl;
+  text-align: left;
+}
+
+.cat-ext-detail {
+  flex: none;
+  color: var(--warn);
+  font-size: var(--text-2xs);
+}
+
 .cat-subagent-copy {
   display: flex;
   flex: 1 1 auto;

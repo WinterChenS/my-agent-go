@@ -31,6 +31,13 @@ pub struct PiAdapter;
 
 impl PiAdapter {
     fn config_dir(home: &Path) -> PathBuf {
+        // pi honours this variable for its whole agent directory; a user who
+        // isolated their config would otherwise get an empty catalog.
+        if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
+            if !dir.is_empty() {
+                return PathBuf::from(dir);
+            }
+        }
         home.join(".pi").join("agent")
     }
 
@@ -50,6 +57,53 @@ impl PiAdapter {
         Self::config_dir(home).join("auth.json")
     }
 
+    fn settings_file(home: &Path) -> PathBuf {
+        Self::config_dir(home).join("settings.json")
+    }
+
+    /// The model pi itself would use for a new session.
+    ///
+    /// `settings.json` carries `defaultProvider` + `defaultModel`; that is the
+    /// only statement of intent the runtime makes. Discovery reports it so the
+    /// app can adopt it instead of presenting an empty, all-disabled picker.
+    fn configured_default(home: &Path) -> Option<(Option<String>, String)> {
+        let settings = common::read_json(&Self::settings_file(home), 1 << 20)?;
+        let model = settings
+            .get("defaultModel")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        let provider = settings
+            .get("defaultProvider")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        Some((provider, model.to_string()))
+    }
+
+    /// Whether any provider in `models.json` carries its own key.
+    ///
+    /// A custom provider is authenticated by the `apiKey` written next to it
+    /// (`~/.pi/agent/models.json`), not by `auth.json` — pi never writes the
+    /// latter for a hand-configured provider. Checking only `auth.json` made a
+    /// working runtime read as "未认证".
+    fn models_have_api_key(home: &Path) -> bool {
+        let Some(value) = common::read_json(&Self::models_file(home), 8 << 20) else {
+            return false;
+        };
+        value
+            .get("providers")
+            .and_then(|value| value.as_object())
+            .is_some_and(|providers| {
+                providers.values().any(|provider| {
+                    provider
+                        .get("apiKey")
+                        .or_else(|| provider.get("api_key"))
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|key| !key.trim().is_empty())
+                })
+            })
+    }
+
     fn install_candidates() -> Vec<PathBuf> {
         let mut paths = Vec::new();
         if let Some(prefix) = common::shared_prefix() {
@@ -67,6 +121,7 @@ impl PiAdapter {
         let Some(providers) = value.get("providers").and_then(|value| value.as_object()) else {
             return Ok(Vec::new());
         };
+        let configured = Self::configured_default(home);
         for (provider_name, provider) in providers {
             let provider_api = provider.get("api").and_then(|value| value.as_str());
             // Without the endpoint nothing can check whether a model answers,
@@ -95,6 +150,11 @@ impl PiAdapter {
                     .and_then(|value| value.as_str())
                     .or(provider_api)
                     .map(str::to_string);
+                let provider_has_key = provider
+                    .get("apiKey")
+                    .or_else(|| provider.get("api_key"))
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|key| !key.trim().is_empty());
                 models.push(ModelRecord {
                     enabled: false,
                     runtime_id: "pi".to_string(),
@@ -107,10 +167,36 @@ impl PiAdapter {
                     verified_at: None,
                     is_default: false,
                     updated_at: now.clone(),
-                    has_credential: false,
+                    has_credential: provider_has_key,
                 });
             }
             let _ = provider_name;
+        }
+        // The runtime names the model it would start with. Marking it is what
+        // lets the catalog adopt it, so a configured pi never lands the reader
+        // on "未启用模型（设置 → 模型 里启用）". When `settings.json` names
+        // something outside `models.json` (a built-in provider), the first
+        // discovered model stands in — an empty picker helps nobody.
+        if let Some((_, default_model)) = configured {
+            let exact = models
+                .iter()
+                .position(|model| model.model_id == default_model)
+                .or_else(|| {
+                    models.iter().position(|model| {
+                        model.model_id.eq_ignore_ascii_case(&default_model)
+                            || default_model.ends_with(&format!("/{}", model.model_id))
+                    })
+                });
+            if let Some(index) = exact {
+                models[index].is_default = true;
+                models[index].enabled = true;
+            }
+        }
+        if !models.iter().any(|model| model.is_default) {
+            if let Some(first) = models.first_mut() {
+                first.is_default = true;
+                first.enabled = true;
+            }
         }
         Ok(models)
     }
@@ -162,12 +248,16 @@ impl RuntimeAdapter for PiAdapter {
         } else {
             None
         };
+        // Two ways a pi install is authenticated: a provider login recorded in
+        // `auth.json`, or an `apiKey` written next to a custom provider in
+        // `models.json`. Checking only the first reported a working setup as
+        // "未认证" and hid it from the pickers.
+        let has_login = common::has_credentials(&Self::auth_file(&context.home));
+        let has_provider_key = Self::models_have_api_key(&context.home);
         let status = match version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
-            Some(_) if !common::has_credentials(&Self::auth_file(&context.home)) => {
-                RuntimeStatus::Unauthenticated
-            }
+            Some(_) if !has_login && !has_provider_key => RuntimeStatus::Unauthenticated,
             Some(_) => RuntimeStatus::Available,
         };
         let detail = match status {
@@ -178,7 +268,11 @@ impl RuntimeAdapter for PiAdapter {
                 MIN_VERSION.minor,
                 MIN_VERSION.patch
             )),
-            RuntimeStatus::Unauthenticated => Some("no credential in ~/.pi/agent/auth.json".into()),
+            RuntimeStatus::Unauthenticated => Some(
+                "no credential found: configure a provider key in ~/.pi/agent/models.json or run \
+                 `pi login`"
+                    .into(),
+            ),
             RuntimeStatus::ProbeFailed if first_line.is_empty() => {
                 Some("--version printed nothing".into())
             }
@@ -287,6 +381,69 @@ mod tests {
                 row.model_id
             );
         }
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// A configured pi must not land the reader on "未启用模型" with a full
+    /// model list underneath: the runtime's own default is what gets adopted.
+    #[test]
+    fn the_configured_default_model_is_marked() {
+        let home = scratch("default-model");
+        let models = serde_json::json!({
+            "providers": {
+                "magpie": {
+                    "api": "openai-completions",
+                    "apiKey": "sk-test",
+                    "baseUrl": "http://127.0.0.1:3425/v1",
+                    "models": [
+                        { "id": "auto/gpt-6.1-sol" },
+                        { "id": "remote-magpie/auto/deepseek-v4.1-flash" }
+                    ]
+                }
+            }
+        });
+        fs::write(
+            home.join(".pi/agent/models.json"),
+            serde_json::to_vec(&models).expect("json"),
+        )
+        .expect("write models");
+        fs::write(
+            home.join(".pi/agent/settings.json"),
+            br#"{"defaultProvider":"magpie","defaultModel":"remote-magpie/auto/deepseek-v4.1-flash"}"#,
+        )
+        .expect("write settings");
+
+        let rows = PiAdapter::read_models(&home).expect("read models");
+        let default = rows
+            .iter()
+            .find(|row| row.is_default)
+            .expect("one model must be the default");
+        assert_eq!(default.model_id, "remote-magpie/auto/deepseek-v4.1-flash");
+        assert!(default.enabled, "the default has to be usable");
+        assert!(default.has_credential, "the provider carries an apiKey");
+        assert_eq!(rows.iter().filter(|row| row.is_default).count(), 1);
+
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// Without a configured default the first discovered model stands in —
+    /// an empty picker helps nobody.
+    #[test]
+    fn a_runtime_without_a_configured_default_still_offers_one() {
+        let home = scratch("default-fallback");
+        let models = serde_json::json!({
+            "providers": {
+                "magpie": { "api": "openai-completions", "models": [{ "id": "auto/a" }, { "id": "auto/b" }] }
+            }
+        });
+        fs::write(
+            home.join(".pi/agent/models.json"),
+            serde_json::to_vec(&models).expect("json"),
+        )
+        .expect("write");
+        let rows = PiAdapter::read_models(&home).expect("read models");
+        assert_eq!(rows.iter().filter(|row| row.is_default).count(), 1);
+        assert!(rows.iter().any(|row| row.enabled));
         let _ = fs::remove_dir_all(&home);
     }
 }

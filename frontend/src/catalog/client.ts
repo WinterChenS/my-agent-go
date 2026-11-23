@@ -433,6 +433,30 @@ export function piSubagentStatus(): Promise<PiSubagentStatus> {
   return hostCall<PiSubagentStatus>('pi_subagent_status')
 }
 
+/**
+ * One extension pi will load, in whatever shape it was installed.
+ *
+ * `kind` follows pi's own discovery rules: `file` (`extensions/x.ts`), `dir`
+ * (`extensions/x/index.ts`), `package` (a `pi.extensions` manifest), `settings`
+ * (a path listed in `settings.json`), `builtin` (`builtin:name`), or `declared`
+ * (installed by `pi install` from npm/git).
+ */
+export interface PiExtension {
+  name: string
+  kind: string
+  scope: string
+  path: string
+  entry?: string
+  /** pi will load it: the entry point resolves. */
+  active: boolean
+  detail?: string
+}
+
+/** Every extension pi would load for this user. */
+export function piExtensions(): Promise<PiExtension[]> {
+  return hostCall<PiExtension[]>('pi_extensions')
+}
+
 export function installPiSubagent(): Promise<PiSubagentInstall> {
   return hostCall<PiSubagentInstall>('pi_subagent_install')
 }

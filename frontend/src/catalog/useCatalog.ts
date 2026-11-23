@@ -302,7 +302,12 @@ export function modelsFor(
 /** Runtimes that expose a usable session surface, for the Agent page. */
 export function runnableRuntimes(snapshot: CatalogSnapshot | null): CatalogRuntime[] {
   if (!snapshot) return []
-  return snapshot.runtimes.filter((runtime) => runtime.status === 'available')
+  // `unauthenticated` still runs: discovery only reads the credential files it
+  // knows, and a key can come from models.json or the environment. Hiding the
+  // runtime made a working pi look absent.
+  return snapshot.runtimes.filter(
+    (runtime) => runtime.status === 'available' || runtime.status === 'unauthenticated',
+  )
 }
 
 /** Group a list by runtime id, keeping the snapshot order. */

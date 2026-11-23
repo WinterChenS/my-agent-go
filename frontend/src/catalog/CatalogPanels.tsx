@@ -9,6 +9,7 @@ import {
   installPiSubagent,
   installRuntime,
   loadCatalog,
+  piExtensions,
   piSubagentStatus,
   probeCatalogMcp,
   updatePiSubagent,
@@ -18,6 +19,7 @@ import {
   type CatalogModel,
   type CatalogMcp,
   type CatalogSnapshot,
+  type PiExtension,
   type PiSubagentStatus,
   type RuntimeUpdateCheck,
 } from './client'
@@ -319,6 +321,15 @@ export function SubagentExtensionPanel({
   const [status, setStatus] = useState<PiSubagentStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Every extension pi loads, not just the subagent one. */
+  const [extensions, setExtensions] = useState<PiExtension[] | null>(null)
+
+  const reloadExtensions = useCallback(() => {
+    setExtensions(null)
+    piExtensions()
+      .then((rows) => setExtensions(rows ?? []))
+      .catch(() => setExtensions([]))
+  }, [])
 
   const check = useCallback(() => {
     setChecking(true)
@@ -326,7 +337,8 @@ export function SubagentExtensionPanel({
       .then((next) => setStatus(next && next.extensionDir ? next : null))
       .catch(() => setStatus(null))
       .finally(() => setChecking(false))
-  }, [])
+    reloadExtensions()
+  }, [reloadExtensions])
 
   // Keyed on the pi build, not the object: a rescan replaces the snapshot object
   // every time, and re-checking on every scan would fight the button's own state.
@@ -388,7 +400,8 @@ export function SubagentExtensionPanel({
         : t('catalog.subagent.noSource')
 
   return (
-    <div className="cat-subagent" data-testid="catalog-subagent">
+    <div className="cat-subagent-wrap">
+      <div className="cat-subagent" data-testid="catalog-subagent">
       <span className="cat-subagent-mark" aria-hidden="true">
         <Icon name="puzzle" size={14} />
       </span>
@@ -447,6 +460,53 @@ export function SubagentExtensionPanel({
             {busy ? t('catalog.subagent.installing') : t('catalog.subagent.install')}
           </button>
         )}
+      </div>
+      </div>
+
+      {/* Everything else pi will load. The subagent row answers one question;
+          this answers "what did I actually install", which is what someone
+          looking at their plugins is asking. */}
+      <div className="cat-ext-list" data-testid="catalog-extensions">
+        <div className="cat-ext-head">
+          <b>{t('catalog.extensions.title')}</b>
+          <span className="cat-sub">
+            {extensions === null
+              ? t('catalog.extensions.loading')
+              : t('catalog.extensions.count', {
+                  count: extensions.filter((row) => row.active).length,
+                })}
+          </span>
+          <button
+            type="button"
+            className="cat-btn"
+            data-testid="catalog-extensions-refresh"
+            disabled={extensions === null}
+            onClick={reloadExtensions}
+          >
+            {t('catalog.subagent.check')}
+          </button>
+        </div>
+        {extensions && extensions.length === 0 ? (
+          <span className="cat-sub" data-testid="catalog-extensions-empty">
+            {t('catalog.extensions.empty', { dir: status?.agentDir ?? '' })}
+          </span>
+        ) : null}
+        {extensions?.map((row) => (
+          <div
+            className="cat-ext-row"
+            key={`${row.kind}:${row.path}`}
+            data-testid="catalog-extension-row"
+            data-active={row.active ? 'true' : 'false'}
+          >
+            <span className={`cat-ext-dot${row.active ? ' is-on' : ''}`} aria-hidden="true" />
+            <span className="cat-ext-name">{row.name}</span>
+            <span className="cat-badge is-muted">{t(`catalog.extensions.kind.${row.kind}` as MessageKey)}</span>
+            <span className="cat-ext-path mono" title={row.entry ?? row.path}>
+              {row.path}
+            </span>
+            {row.detail ? <span className="cat-ext-detail">{row.detail}</span> : null}
+          </div>
+        ))}
       </div>
     </div>
   )

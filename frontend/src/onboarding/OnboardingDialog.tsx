@@ -192,8 +192,20 @@ export default function OnboardingDialog() {
 
   const runtimes = useMemo(() => orderRuntimes(catalog.snapshot?.runtimes ?? []), [catalog.snapshot])
   const models = useMemo(() => catalog.snapshot?.models ?? [], [catalog.snapshot])
-  const available = useMemo(
-    () => runtimes.filter((runtime) => runtime.status === 'available'),
+  /**
+   * Runtimes worth offering.
+   *
+   * `unauthenticated` means discovery could not find a credential in the files
+   * this build reads — not that pi cannot run. A key in `models.json`, an
+   * `apiKey` on the provider, or an environment variable all work, and a
+   * checkbox that cannot be ticked is a worse answer than the runtime's own
+   * message on the first turn.
+   */
+  const usable = useMemo(
+    () =>
+      runtimes.filter(
+        (runtime) => runtime.status === 'available' || runtime.status === 'unauthenticated',
+      ),
     [runtimes],
   )
   const loading = catalog.status === 'idle' || catalog.status === 'loading'
@@ -221,12 +233,12 @@ export default function OnboardingDialog() {
   useEffect(() => {
     if (finished || seeded.current || catalog.status !== 'ready') return
     seeded.current = true
-    const hasPi = available.some((runtime) => runtime.runtimeId === DEFAULT_RUNTIME)
+    const hasPi = usable.some((runtime) => runtime.runtimeId === DEFAULT_RUNTIME)
     setSelected(hasPi ? [DEFAULT_RUNTIME] : [])
     initialEnabled.current = models
       .filter((model) => model.enabled)
       .map((model) => ({ runtimeId: model.runtimeId, modelId: model.modelId }))
-  }, [finished, catalog.status, available, models])
+  }, [finished, catalog.status, usable, models])
 
   useEffect(() => {
     if (finished || !isTauriHost()) return
@@ -268,7 +280,7 @@ export default function OnboardingDialog() {
 
   const complete = useCallback(async () => {
     const chosen = selected.filter((runtimeId) =>
-      available.some((runtime) => runtime.runtimeId === runtimeId),
+      usable.some((runtime) => runtime.runtimeId === runtimeId),
     )
     // One model per checked runtime, the one it leads with. No model picker: a
     // runtime is only useful with something to run, and the composer can
@@ -330,7 +342,7 @@ export default function OnboardingDialog() {
     } finally {
       setBusy(false)
     }
-  }, [available, catalog, finish, models, selected])
+  }, [catalog, finish, models, selected, usable])
 
   const installSubagent = useCallback(async () => {
     setBusy(true)
@@ -498,7 +510,12 @@ export default function OnboardingDialog() {
               ) : (
                 <div className="ob-runtimes">
                   {runtimes.map((runtime) => {
-                    const ready = runtime.status === 'available'
+                    // Found and runnable, even if discovery could not see the
+                    // credential: the checkbox stays usable and the pill says
+                    // which of the two it is.
+                    const ready =
+                      runtime.status === 'available' || runtime.status === 'unauthenticated'
+                    const signedIn = runtime.status === 'available'
                     const checked = selected.includes(runtime.runtimeId)
                     const pick =
                       ready
@@ -533,8 +550,10 @@ export default function OnboardingDialog() {
                               <span className="ob-runtime-ver">v{runtime.version}</span>
                             ) : null}
                           </label>
-                          {ready ? (
+                          {signedIn ? (
                             <span className="ob-pill">已就绪</span>
+                          ) : ready ? (
+                            <span className="ob-pill is-warn">{runtimeStatusLabel(runtime.status)}</span>
                           ) : (
                             <>
                               <span className="ob-pill is-muted">
@@ -557,7 +576,7 @@ export default function OnboardingDialog() {
                             as "not installed": the path and the probe's own
                             reason are the only way to tell a PATH problem from
                             a missing login. */}
-                        {!ready && runtime.status !== 'not_installed' ? (
+                        {runtime.status !== 'available' && runtime.status !== 'not_installed' ? (
                           <p className="ob-hint ob-runtime-detail" data-testid={`onboarding-detail-${runtime.runtimeId}`}>
                             {runtime.health?.detail || '已找到可执行文件，但没有通过启动检查。'}
                             {runtime.installPath ? ` · ${runtime.installPath}` : ''}
@@ -604,7 +623,7 @@ export default function OnboardingDialog() {
                 </pre>
               ) : null}
 
-              {!loading && !failed && available.length === 0 ? (
+              {!loading && !failed && usable.length === 0 ? (
                 <p className="ob-hint">
                   本机还没有可用的运行时。点「一键安装」会按 npm 全局方式装到当前用户目录（不动系统 PATH），装完自动识别并勾选。
                 </p>

@@ -470,6 +470,23 @@ impl Store {
                 ])?;
             }
         }
+        // Adopt the runtime's own default model, but only while this runtime
+        // has no default yet. A discovered model arrives disabled — the reader
+        // must choose — yet a machine that has pi configured landed on a chat
+        // page saying "未启用模型（设置 → 模型 里启用）" with a full, perfectly
+        // usable model list right below it. Once a default exists (adopted here
+        // or chosen by the reader) this never runs again, so it cannot
+        // re-enable a model somebody deliberately turned off.
+        for model in models.iter().filter(|model| model.is_default) {
+            transaction.execute(
+                "UPDATE models SET is_default = 1, enabled = 1
+                  WHERE runtime_id = ?1 AND model_id = ?2
+                    AND NOT EXISTS (
+                        SELECT 1 FROM models WHERE runtime_id = ?1 AND is_default = 1
+                    )",
+                params![runtime_id, model.model_id],
+            )?;
+        }
         finish_sync(
             &transaction,
             runtime_id,

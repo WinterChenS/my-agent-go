@@ -471,6 +471,13 @@
   background: transparent;
 }
 
+/* Found and selectable, but the probe could not confirm a credential. */
+.ob-pill.is-warn {
+  border-color: color-mix(in oklab, var(--warn) 45%, transparent);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
 /* One line under a checked runtime: which model it will use. No picker — the
    wizard only decides runtimes, and the composer switches models later. */
 .ob-model-line {
