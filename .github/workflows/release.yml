@@ -90,6 +90,30 @@ jobs:
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: anvil-${{ matrix.name }}-[bundle]
 
+      # Apple Silicon refuses to start an app bundle that carries no signature
+      # of its own — the only signature a freshly linked arm64 binary has is the
+      # linker's, and Finder reports that app as damaged. An Intel build runs
+      # under Rosetta, which does not enforce this, which is why the same
+      # pipeline can look healthy on one DMG and broken on the other. The bundle
+      # is ad-hoc signed (`signingIdentity: "-"`), and this step refuses to
+      # publish one that is not.
+      - name: Verify the macOS bundle is signed
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          set -euo pipefail
+          app=$(find target -maxdepth 8 -type d -name 'Anvil.app' -path '*bundle/macos/*' | head -1)
+          if [ -z "$app" ]; then
+            echo "::error::no Anvil.app found under target/**/bundle/macos"
+            exit 1
+          fi
+          echo "bundle: $app"
+          codesign -dv --verbose=4 "$app" 2>&1 || true
+          if [ ! -f "$app/Contents/_CodeSignature/CodeResources" ]; then
+            echo "::error::$app has no bundle signature; Apple Silicon will report it as damaged"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+
   release:
     name: Publish release
     needs: build
@@ -119,6 +143,20 @@ jobs:
           tag_name: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
           name: Anvil v${{ steps.version.outputs.value }} (build ${{ github.run_number }})
           generate_release_notes: true
+          append_body: true
+          body: |
+            ### macOS
+
+            The app is ad-hoc signed, not notarized (that needs a paid Apple
+            Developer ID). If macOS says the app "is damaged" or cannot be
+            verified, clear the download quarantine once after installing:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Anvil.app
+            ```
+
+            On Apple Silicon use the `aarch64` DMG; the `x64` DMG runs under
+            Rosetta and is only for Intel Macs.
           draft: false
           prerelease: false
           files: |
