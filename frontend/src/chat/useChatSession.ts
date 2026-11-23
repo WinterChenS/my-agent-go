@@ -205,8 +205,8 @@ export interface ChatSessionView {
   remove: (sessionId: string) => Promise<void>
   /** Branch a session at its last message and open the branch. */
   fork: (sessionId: string) => Promise<string | null>
-  /** Fold all but the last `keepLast` messages into one summary row. */
-  compact: (sessionId: string, keepLast: number) => Promise<void>
+  /** Compact the runtime's context and fold the ledger into one summary row. */
+  compact: (sessionId: string, keepLast: number, instructions?: string) => Promise<boolean>
   /** Re-read pi's context estimate after an external change (e.g. compaction). */
   refreshContext: (sessionId: string) => Promise<void>
 }
@@ -1572,14 +1572,16 @@ export function useChatSession({
   )
 
   const compact = useCallback(
-    async (sessionId: string, keepLast: number) => {
+    async (sessionId: string, keepLast: number, instructions?: string) => {
       try {
-        await compactSession(sessionId, keepLast)
+        await compactSession(sessionId, keepLast, instructions)
         const detail = await loadSession(sessionId)
         if (mounted.current) setCurrent(detail)
         await reloadSessions()
+        return true
       } catch (cause) {
         if (mounted.current) setError(describeSessionError(cause))
+        return false
       }
     },
     [reloadSessions],

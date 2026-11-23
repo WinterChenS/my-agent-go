@@ -53,7 +53,7 @@ impl PiAdapter {
     fn install_candidates() -> Vec<PathBuf> {
         let mut paths = Vec::new();
         if let Some(prefix) = common::shared_prefix() {
-            paths.push(prefix.join(common::shared_shim(&prefix, "pi")));
+            paths.push(common::shared_shim(&prefix, "pi"));
         }
         paths
     }

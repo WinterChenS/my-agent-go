@@ -224,12 +224,17 @@ function installHost(
     install?: Record<string, unknown>
     /** Leave `session_send` unanswered, so only the page's own state is visible. */
     hangSend?: boolean
+    /** Hold compaction long enough for the running card to be asserted. */
+    compactDelay?: number
+    /** What `session_detail` returns after a compaction. */
+    detailAfterCompact?: SessionDetail
   } = {},
 ): Host {
   const calls: string[] = []
   const lastArgs = new Map<string, unknown>()
   let abortCalled = false
   let rescanned = false
+  let compacted = false
   const internals = {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       calls.push(command)
@@ -263,7 +268,13 @@ function installHost(
       if (command === 'session_fork') {
         return { ...summary(), id: 'pi-a-branch', title: 'Alpha chat · branch', parentId: 'pi-a', branchAt: 2 }
       }
-      if (command === 'session_compact') return { collapsed: 4, kept: 6, summarySeq: 1 }
+      if (command === 'session_compact') {
+        if (options.compactDelay) {
+          await new Promise((resolve) => setTimeout(resolve, options.compactDelay))
+        }
+        compacted = true
+        return { collapsed: 4, kept: 6, summarySeq: 1 }
+      }
       if (command === 'session_context_list') {
         return [
           { path: 'D:/work/alpha/src/main.rs', relative: 'src/main.rs', kind: 'file', bytes: 120 },
@@ -301,7 +312,11 @@ function installHost(
         await new Promise((resolve) => setTimeout(resolve, 200))
         return { runId: 'pi-1:r1', status: 'completed', eventCount: 6 }
       }
-      if (command === 'session_detail') return detail('ok')
+      if (command === 'session_detail') {
+        return compacted && options.detailAfterCompact
+          ? options.detailAfterCompact
+          : detail('ok')
+      }
       if (command === 'session_abort') {
         abortCalled = true
         return true
@@ -553,6 +568,47 @@ describe('chat live session', () => {
 
     await userEvent.click(action())
     await waitFor(() => expect(host.aborted()).toBe(true))
+  })
+
+  it('runs /compact through the runtime and shows running and completed dividers', async () => {
+    const compactedDetail = detail('ok')
+    compactedDetail.messages = [
+      {
+        id: 'pi-1:m0',
+        sessionId: 'pi-1',
+        role: 'system',
+        text: '较早的对话已经总结。',
+        seq: 1,
+        createdAt: '2026-11-13T00:00:00Z',
+        meta: { compacted: true, nativeContext: 'compacted' },
+      },
+      ...compactedDetail.messages,
+    ]
+    const host = installHost({ compactDelay: 300, detailAfterCompact: compactedDetail })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'first turn')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('ok'))
+
+    await userEvent.type(composer, '/compact 保留接口决策{enter}')
+    const running = await screen.findByTestId('chat-compacting')
+    expect(running).toHaveTextContent('压缩上下文中')
+    expect(host.args('session_compact')).toMatchObject({
+      sessionId: 'pi-1',
+      keepLast: 2,
+      instructions: '保留接口决策',
+    })
+
+    await waitFor(() => expect(screen.queryByTestId('chat-compacting')).toBeNull())
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-message-compacted')).toHaveTextContent('压缩上下文完成'),
+    )
   })
 
   it('clears the transcript when a new conversation is started', async () => {

@@ -93,6 +93,22 @@ pub fn preferred_node() -> Option<&'static Path> {
         .as_deref()
 }
 
+/// Stop a console child from opening a window over the desktop app.
+///
+/// A GUI-subsystem host still gets a visible console for every console child
+/// (`node`, `curl`, `taskkill`, …) unless `CREATE_NO_WINDOW` is set. Every
+/// spawn in the product goes through this, so one operation cannot flash a
+/// black window while its neighbour stays quiet.
+#[cfg(windows)]
+pub fn hide_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub fn hide_console(_command: &mut Command) {}
+
 /// Run `program` with `args`, killing it at `timeout`.
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> Result<CommandOutput> {
     run_with_env(program, args, timeout, &[])
@@ -138,12 +154,7 @@ where
     for (key, value) in env {
         command.env(key, value);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    hide_console(&mut command);
 
     let started = Instant::now();
     let mut child = command
@@ -321,16 +332,22 @@ pub fn known_install_dirs() -> Vec<PathBuf> {
         }
     };
     push_env("LOCALAPPDATA", "pi-node/current");
+    // Pi's own installer can bundle Node under `pi/node/current` (no hyphen).
+    push_env("LOCALAPPDATA", "pi/node/current");
     push_env("LOCALAPPDATA", "Programs");
     push_env("APPDATA", "npm");
     // macOS and Linux have no `LOCALAPPDATA`: the per-user prefix the installer
     // writes to is `~/.anvil/runtimes`, whose `bin/` is where npm drops shims.
-    // The other entries are the usual per-user npm/bun install locations.
+    // The rest are the usual per-user npm/pnpm/bun/pi install locations.
     for home in ["USERPROFILE", "HOME"] {
         push_env(home, ".anvil/runtimes/bin");
+        push_env(home, ".pi/bin");
+        push_env(home, ".pi/node/current");
         push_env(home, ".local/bin");
+        push_env(home, ".local/share/pnpm");
         push_env(home, ".bun/bin");
         push_env(home, ".npm-global/bin");
+        push_env(home, ".volta/bin");
     }
     dirs
 }

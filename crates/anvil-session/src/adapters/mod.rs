@@ -97,17 +97,22 @@ pub fn is_script(path: &Path) -> bool {
 /// 3. everything else is started as-is.
 #[must_use]
 pub fn command_for(executable: &Path) -> Command {
-    if cfg!(windows) && is_script(executable) {
+    let mut command = if cfg!(windows) && is_script(executable) {
         if let Some((node, script)) = node_shim_target(executable) {
             let mut command = Command::new(node);
             command.arg(script);
-            return command;
+            command
+        } else {
+            let mut command = Command::new("cmd");
+            command.arg("/c").arg(executable);
+            command
         }
-        let mut command = Command::new("cmd");
-        command.arg("/c").arg(executable);
-        return command;
-    }
-    Command::new(executable)
+    } else {
+        Command::new(executable)
+    };
+    // A GUI host otherwise gets a console window for every runtime turn.
+    anvil_catalog::runtime::process::hide_console(&mut command);
+    command
 }
 
 /// Resolve an npm-style shim to the Node script it launches.
@@ -174,10 +179,13 @@ fn node_shim_target(script: &Path) -> Option<(PathBuf, PathBuf)> {
 /// codex app-server its writer lock during development.
 pub fn kill_tree(child: &mut std::process::Child) {
     let pid = child.id().to_string();
-    let killed = Command::new("taskkill")
+    let mut taskkill = Command::new("taskkill");
+    taskkill
         .args(["/PID", &pid, "/T", "/F"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    anvil_catalog::runtime::process::hide_console(&mut taskkill);
+    let killed = taskkill
         .status()
         .map(|status| status.success())
         .unwrap_or(false);

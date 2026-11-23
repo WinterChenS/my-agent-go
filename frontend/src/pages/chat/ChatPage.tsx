@@ -1328,12 +1328,20 @@ export default function ChatPage() {
   // offered only when pi is idle and there is a ledger to compress; while a
   // turn runs the ring stays a read-only gauge.
   const [compactingContext, setCompactingContext] = useState(false)
-  const compactLiveContext = () => {
-    if (!liveSession || live.running || compactingContext) return
+  const compactLiveContext = (instructions?: string) => {
+    if (!liveSession || compactingContext) return
+    if (live.running) {
+      setNotice(t('chat.compact.busy'))
+      return
+    }
     setCompactingContext(true)
     void live
-      .compact(liveSession.id, COMPACT_KEEP_LAST)
-      .then(() => {
+      .compact(liveSession.id, COMPACT_KEEP_LAST, instructions)
+      .then((ok) => {
+        if (!ok) {
+          setNotice(t('chat.compact.failed'))
+          return
+        }
         setNotice(t('chat.live.compacted'))
         return live.refreshContext(liveSession.id)
       })
@@ -1580,15 +1588,15 @@ export default function ChatPage() {
                       className="chat-state-card"
                       data-testid="chat-message-compacted"
                       role="status"
-                      aria-label={t('chat.live.compacted')}
+                      aria-label={t('chat.compact.done')}
                       key={message.id}
                     >
                       <span className="chat-state-icon">
                         <Icon name="archive" size={14} />
                       </span>
                       <div className="chat-state-copy">
-                        <b>{t('chat.live.compacted')}</b>
-                        <span>{message.text}</span>
+                        <b>{t('chat.compact.done')}</b>
+                        <span className="chat-compact-summary">{message.text}</span>
                       </div>
                     </section>
                   ) : (
@@ -1674,6 +1682,22 @@ export default function ChatPage() {
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
                 />
+                {compactingContext ? (
+                  <section
+                    className="chat-compact-status"
+                    data-testid="chat-compacting"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={t('chat.compact.running')}
+                  >
+                    <span className="chat-compact-rule" aria-hidden="true" />
+                    <span className="chat-compact-body">
+                      <b>{t('chat.compact.running')}</b>
+                      <small>{t('chat.compact.runningHint')}</small>
+                    </span>
+                    <span className="chat-compact-rule" aria-hidden="true" />
+                  </section>
+                ) : null}
                 {/* Invisible spacer: sized so "scroll to bottom" pins the
                     newest question at the top and leaves the answer room. */}
                 <div className="chat-thread-tail" data-testid="chat-thread-tail" ref={tailRef} aria-hidden="true" />
@@ -1801,6 +1825,7 @@ export default function ChatPage() {
               )
             }
             draftRequest={draftRequest}
+            onCompact={compactLiveContext}
             contextAside={
               <ContextRing
                 windowSize={contextWindow}
@@ -2657,6 +2682,7 @@ function Composer({
   projectAside,
   queueAside,
   draftRequest,
+  onCompact,
   contextAside,
 }: {
   sample: boolean
@@ -2695,6 +2721,8 @@ function Composer({
   queueAside?: ReactNode
   /** A queued message handed back for editing; the id makes each handoff fire once. */
   draftRequest?: { id: number; text: string; refs: ContextRef[] } | null
+  /** Run the real context compaction; `/compact [instructions]` lands here. */
+  onCompact?: (instructions?: string) => void
   /** Context-window occupancy, below the field. */
   contextAside?: ReactNode
 }) {
@@ -2831,6 +2859,22 @@ function Composer({
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
+    // `/compact` is a command, not a prompt. Intercept it before the turn path
+    // so it triggers the runtime's real compaction and shows its status card
+    // instead of asking the model to interpret the word.
+    const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim())
+    if (compact) {
+      if (sample) {
+        onNotice(t('chat.notice.send'))
+        return
+      }
+      onCompact?.(compact[1]?.trim() || undefined)
+      setText('')
+      setAttachments([])
+      caretTarget.current = 0
+      closeMentions()
+      return
+    }
     if (sample) {
       onNotice(t('chat.notice.send'))
       return

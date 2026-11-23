@@ -1189,11 +1189,17 @@ impl SessionService {
 
     /// Fold everything but the last `keep_last` messages into one summary row.
     ///
-    /// This compacts **our ledger**, which is what the history panel and the
-    /// export read. The runtime's own context is not touched — no runtime in
-    /// this build exposes a context-rewrite call — so the next turn still sees
-    /// the full native conversation. The event payload says exactly that.
-    pub fn compact(&mut self, session_id: &str, keep_last: usize) -> Result<CompactReport> {
+    /// The runtime's own context is compacted first when it exposes a rewrite
+    /// (pi's RPC `compact` command). Only then is the ledger folded, using the
+    /// summary the runtime actually persisted. A runtime with no such call
+    /// keeps the old ledger-only behaviour and the event says the native
+    /// context was untouched, rather than pretending it changed.
+    pub fn compact(
+        &mut self,
+        session_id: &str,
+        keep_last: usize,
+        instructions: Option<&str>,
+    ) -> Result<CompactReport> {
         let summary = self.store.session(session_id)?;
         if summary.status == SessionStatus::Running {
             return Err(Error::Rejected(format!(
@@ -1208,23 +1214,65 @@ impl SessionService {
                 messages.len()
             )));
         }
+
+        // Give the runtime a chance to compact its native context first. If it
+        // fails, stop here: folding only the ledger would look successful while
+        // the next turn still sent the full transcript.
+        let adapter = self.registry.require(&summary.runtime_id)?;
+        let persona = self.store.persona(session_id)?;
+        let opened = OpenedSession {
+            runtime_id: summary.runtime_id.clone(),
+            native_id: summary.native_id.clone(),
+            model: summary.model.clone(),
+            cwd: summary.project_path.clone(),
+            allow_tools: summary.allow_tools,
+            tools: summary.tools.clone(),
+            agent_id: persona.agent_id,
+            thinking: persona.thinking,
+            system_prompt: persona.system_prompt,
+            append_system_prompt: persona.append_prompt,
+            skills: persona.skills,
+            ..OpenedSession::default()
+        };
+        let native = adapter.compact(&self.context, &opened, instructions, &mut |_| {})?;
+
         let split = messages.len() - keep_last;
         let (head, tail) = messages.split_at(split);
         let now = now_rfc3339();
+        let (summary_text, native_context) = match &native {
+            Some(outcome) => (outcome.summary.clone(), "compacted"),
+            None => (compaction_summary(head), "untouched"),
+        };
+        let mut meta = serde_json::json!({
+            "compacted": true,
+            "collapsed": head.len(),
+            "kept": tail.len(),
+            "nativeContext": native_context,
+        });
+        if let Some(outcome) = &native {
+            if let Some(tokens) = outcome.tokens_before {
+                meta["tokensBefore"] = serde_json::json!(tokens);
+            }
+            if let Some(tokens) = outcome.estimated_tokens_after {
+                meta["estimatedTokensAfter"] = serde_json::json!(tokens);
+            }
+            if let Some(id) = &outcome.first_kept_entry_id {
+                meta["firstKeptEntryId"] = serde_json::json!(id);
+            }
+            if let Some(usage) = &outcome.usage {
+                meta["usage"] = usage.clone();
+            }
+        }
         let mut kept: Vec<Message> = Vec::with_capacity(tail.len() + 1);
         kept.push(Message {
             id: format!("{session_id}:m1"),
             session_id: session_id.to_string(),
             run_id: None,
             role: Role::System,
-            text: compaction_summary(head),
+            text: summary_text,
             seq: 1,
             created_at: now.clone(),
-            meta: Some(serde_json::json!({
-                "compacted": true,
-                "collapsed": head.len(),
-                "nativeContext": "untouched",
-            })),
+            meta: Some(meta.clone()),
         });
         for (index, message) in tail.iter().enumerate() {
             kept.push(Message {
@@ -1243,11 +1291,7 @@ impl SessionService {
             session_id,
             "",
             crate::model::EventKind::Compacted,
-            &serde_json::json!({
-                "collapsed": head.len(),
-                "kept": tail.len(),
-                "nativeContext": "untouched",
-            }),
+            &meta,
         )?;
         Ok(CompactReport {
             collapsed: head.len(),
@@ -2188,7 +2232,9 @@ mod tests {
         service.send(&session.id, "second question").expect("send");
         service.send(&session.id, "third question").expect("send");
 
-        let report = service.compact(&session.id, 2).expect("compact");
+        let report = service
+            .compact(&session.id, 2, None)
+            .expect("compact");
         assert_eq!(report.collapsed, 4);
         assert_eq!(report.kept, 2);
         let detail = service.detail(&session.id).expect("detail");
@@ -2210,7 +2256,7 @@ mod tests {
         // silently producing an empty summary.
         assert_eq!(
             service
-                .compact(&session.id, 5)
+                .compact(&session.id, 5, None)
                 .expect_err("nothing left")
                 .code(),
             "rejected"

@@ -49,7 +49,7 @@ impl OpenCodeAdapter {
     fn install_candidates() -> Vec<PathBuf> {
         let mut paths = Vec::new();
         if let Some(prefix) = common::shared_prefix() {
-            paths.push(prefix.join(common::shared_shim(&prefix, "opencode")));
+            paths.push(common::shared_shim(&prefix, "opencode"));
         }
         if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
             paths.push(

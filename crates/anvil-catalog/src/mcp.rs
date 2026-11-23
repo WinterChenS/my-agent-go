@@ -568,11 +568,14 @@ pub fn resolve_trusted(command: &str) -> std::result::Result<PathBuf, String> {
 /// never outlive the probe.
 pub fn probe_stdio(command: &str, args: &[String], timeout: Duration) -> Result<Vec<String>> {
     let executable = resolve_trusted(command).map_err(Error::Rejected)?;
-    let mut child = Command::new(&executable)
+    let mut command_line = Command::new(&executable);
+    command_line
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    crate::runtime::process::hide_console(&mut command_line);
+    let mut child = command_line
         .spawn()
         .map_err(|error| Error::Io(format!("spawn {}: {error}", executable.display())))?;
 
@@ -897,11 +900,14 @@ fn curl(
         temp = Some(path);
     }
     let curl = std::env::var("ANVIL_CURL").unwrap_or_else(|_| "curl".to_string());
-    let mut child = Command::new(&curl)
+    let mut command_line = Command::new(&curl);
+    command_line
         .args(["-q", "-sS", "-K", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::runtime::process::hide_console(&mut command_line);
+    let mut child = command_line
         .spawn()
         .map_err(|error| Error::Io(format!("run curl: {error}")))?;
     if let Some(stdin) = child.stdin.as_mut() {

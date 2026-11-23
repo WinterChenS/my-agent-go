@@ -173,11 +173,14 @@ pub fn send(request: &HttpRequest) -> Result<HttpResponse, String> {
 
     let curl = std::env::var("ANVIL_CURL").unwrap_or_else(|_| "curl".to_string());
     let started = Instant::now();
-    let mut child = Command::new(&curl)
+    let mut command_line = Command::new(&curl);
+    command_line
         .args(["-q", "-sS", "-K", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    anvil_catalog::runtime::process::hide_console(&mut command_line);
+    let mut child = command_line
         .spawn()
         .map_err(|error| format!("无法运行 curl（{curl}）：{error}"))?;
     if let Some(stdin) = child.stdin.as_mut() {

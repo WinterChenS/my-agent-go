@@ -37,7 +37,7 @@ pub mod subagents;
 pub mod ui;
 pub mod workbench;
 
-pub use adapter::{ContextUsage, Registry, SessionAdapter};
+pub use adapter::{CompactOutcome, ContextUsage, Registry, SessionAdapter};
 pub use adapters::default_registry;
 pub use error::{Error, Result};
 pub use model::*;

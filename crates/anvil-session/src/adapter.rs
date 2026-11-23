@@ -32,6 +32,21 @@ pub struct ContextUsage {
     pub percent: Option<f64>,
 }
 
+/// What a runtime's own context compaction produced.
+///
+/// `None` from [`SessionAdapter::compact`] means the runtime has no context
+/// rewrite, and the service may only fold its own ledger. `Some` means the
+/// runtime really replaced its native context, so the ledger must say so and
+/// use the runtime's summary instead of inventing one.
+#[derive(Debug, Clone, Default)]
+pub struct CompactOutcome {
+    pub summary: String,
+    pub first_kept_entry_id: Option<String>,
+    pub tokens_before: Option<u64>,
+    pub estimated_tokens_after: Option<u64>,
+    pub usage: Option<Value>,
+}
+
 /// One event as the adapter observed it, before the service assigns a `seq`.
 #[derive(Debug, Clone)]
 pub struct AdapterEvent {
@@ -201,6 +216,23 @@ pub trait SessionAdapter: Send + Sync {
         sink: &mut dyn FnMut(AdapterEvent),
     ) -> Result<RunOutcome> {
         self.send(context, opened, turn.prompt, cancel, sink)
+    }
+
+    /// Compact the runtime's **own** conversation context.
+    ///
+    /// Default: `None`, meaning this runtime has no context rewrite. The
+    /// service then only folds its ledger (the old behaviour) and records that
+    /// the native context was untouched. A runtime that does implement this
+    /// returns the summary it persisted, so the ledger can mirror the truth
+    /// rather than a local guess.
+    fn compact(
+        &self,
+        _context: &SessionContext,
+        _opened: &OpenedSession,
+        _instructions: Option<&str>,
+        _sink: &mut dyn FnMut(AdapterEvent),
+    ) -> Result<Option<CompactOutcome>> {
+        Ok(None)
     }
 
     /// Read the current context-window occupancy of a session, if the runtime

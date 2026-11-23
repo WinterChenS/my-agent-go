@@ -108,10 +108,14 @@ pub fn read_json(path: &Path, limit: usize) -> Option<serde_json::Value> {
     serde_json::from_str(&text).ok()
 }
 
-/// Find every install of `executable` on `PATH` plus the extra candidate paths.
+/// Find every install of `executable` on `PATH`, in known global npm/Node
+/// prefixes, and at the explicit candidates supplied by the adapter.
 ///
-/// Candidates are deduplicated by normalised path so a shim that is also on
-/// `PATH` and in a known directory is discovered once.
+/// A GUI-launched app does not always inherit the shell's `PATH`, so scanning
+/// `PATH` alone missed perfectly valid npm-global installs (for example a shim
+/// in `%APPDATA%\npm`). Known prefixes are checked even when they are not on
+/// `PATH`, and uniqueness is by normalised path so the same shim is reported
+/// once no matter how many places it was found in.
 pub fn discover_installs(
     runtime_id: &str,
     executable: &str,
@@ -137,19 +141,32 @@ pub fn discover_installs(
         });
     };
 
-    for directory in std::env::var_os("PATH")
+    let path_dirs = std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default()
-    {
-        for extension in executable_extensions() {
-            let candidate = directory.join(format!("{executable}{extension}"));
-            if candidate.is_file() {
-                push(candidate, InstallSource::Path);
-            }
-        }
+        .unwrap_or_default();
+    for candidate in executable_paths(executable, &path_dirs) {
+        push(candidate, InstallSource::Path);
+    }
+    for candidate in executable_paths(executable, &process::known_install_dirs()) {
+        push(candidate, InstallSource::KnownDir);
     }
     for extra in extras {
         push(extra.clone(), InstallSource::KnownDir);
+    }
+    found
+}
+
+/// Expand one executable name into every runnable spelling in each directory.
+fn executable_paths(executable: &str, directories: &[PathBuf]) -> Vec<PathBuf> {
+    let extensions = executable_extensions();
+    let mut found = Vec::new();
+    for directory in directories {
+        for extension in &extensions {
+            let candidate = directory.join(format!("{executable}{extension}"));
+            if candidate.is_file() {
+                found.push(candidate);
+            }
+        }
     }
     found
 }
@@ -161,7 +178,7 @@ fn executable_extensions() -> Vec<String> {
         // npm shim is a POSIX script, so it must not become a candidate.
         raw.split(';')
             .filter(|part| !part.trim().is_empty())
-            .map(str::to_string)
+            .map(|part| part.trim().to_lowercase())
             .collect()
     } else {
         vec![String::new()]
@@ -210,5 +227,29 @@ pub fn has_credentials(path: &Path) -> bool {
     match read_json(path, 1 << 20) {
         Some(serde_json::Value::Object(map)) => !map.is_empty(),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn executable_paths_finds_the_platform_shim_in_a_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "anvil-discover-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create dir");
+        let name = if cfg!(windows) { "pi.cmd" } else { "pi" };
+        let shim = root.join(name);
+        std::fs::write(&shim, "@ECHO off\n").expect("write shim");
+
+        let found = executable_paths("pi", &[root.clone()]);
+        assert!(found.contains(&shim), "missed {}: {found:?}", shim.display());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

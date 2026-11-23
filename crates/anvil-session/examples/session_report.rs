@@ -1055,7 +1055,7 @@ fn history(options: &Options) -> Result<serde_json::Value, String> {
         .messages
         .len();
     let report = service
-        .compact(&renamed, options.keep_last)
+        .compact(&renamed, options.keep_last, None)
         .map_err(|error| error.to_string())?;
     let compacted = service
         .detail(&renamed)

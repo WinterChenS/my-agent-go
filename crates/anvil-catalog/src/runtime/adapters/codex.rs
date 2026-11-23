@@ -58,7 +58,7 @@ impl CodexAdapter {
     fn install_candidates() -> Vec<PathBuf> {
         let mut paths = Vec::new();
         if let Some(prefix) = common::shared_prefix() {
-            paths.push(prefix.join(common::shared_shim(&prefix, "codex")));
+            paths.push(common::shared_shim(&prefix, "codex"));
         }
         paths
     }
@@ -117,11 +117,14 @@ impl CodexAdapter {
 /// Returns the `userAgent`/`codexHome` summary the server reports. The child is
 /// killed on every path.
 pub fn app_server_handshake(executable: &Path, timeout: Duration) -> Result<String> {
-    let mut child = Command::new(executable)
+    let mut command_line = Command::new(executable);
+    command_line
         .arg("app-server")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    crate::runtime::process::hide_console(&mut command_line);
+    let mut child = command_line
         .spawn()
         .map_err(|error| Error::Io(format!("spawn app-server: {error}")))?;
 

@@ -364,8 +364,12 @@ export function forkSession(sessionId: string, uptoSeq?: number): Promise<Sessio
 }
 
 /** Fold all but the last `keepLast` messages into one summary row. */
-export function compactSession(sessionId: string, keepLast: number): Promise<CompactReport> {
-  return hostCall<CompactReport>('session_compact', { sessionId, keepLast })
+export function compactSession(
+  sessionId: string,
+  keepLast: number,
+  instructions?: string,
+): Promise<CompactReport> {
+  return hostCall<CompactReport>('session_compact', { sessionId, keepLast, instructions })
 }
 
 export function loadSession(sessionId: string): Promise<SessionDetail> {

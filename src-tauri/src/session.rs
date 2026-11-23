@@ -1005,18 +1005,32 @@ pub async fn session_fork(
     })
 }
 
-/// Fold all but the last `keep_last` messages into one summary row.
+/// Compact the runtime's context and fold the ledger into one summary row.
+///
+/// The runtime may summarize over the network, so this runs on a blocking
+/// worker instead of the UI thread; the page shows its own progress card while
+/// it waits.
 #[tauri::command]
 pub async fn session_compact(
-    state: State<'_, SessionState>,
+    app: AppHandle,
     session_id: String,
     keep_last: u32,
+    instructions: Option<String>,
 ) -> Result<CompactReport, String> {
-    state.with_writer(|service| {
-        service
-            .compact(&session_id, keep_last as usize)
-            .map_err(|error| error.to_wire().to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<SessionState>();
+        state.with_writer(|service| {
+            service
+                .compact(
+                    &session_id,
+                    keep_last as usize,
+                    instructions.as_deref(),
+                )
+                .map_err(|error| error.to_wire().to_string())
+        })
     })
+    .await
+    .map_err(|error| format!("io: the compaction task ended unexpectedly: {error}"))?
 }
 
 /// Read the observability/audit view out of the session ledger.

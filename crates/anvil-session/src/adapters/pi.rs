@@ -26,7 +26,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::adapter::{AdapterEvent, Cancel, ContextUsage, RunOutcome, SessionAdapter, Turn};
+use crate::adapter::{
+    AdapterEvent, Cancel, CompactOutcome, ContextUsage, RunOutcome, SessionAdapter, Turn,
+};
 use crate::error::{Error, Result};
 use crate::model::{
     EventKind, OpenedSession, RunStatus, SessionCapabilities, SessionContext, SessionSpec,
@@ -629,6 +631,135 @@ impl SessionAdapter for PiAdapter {
         })
     }
 
+    /// Compact the conversation stored inside pi, not just our ledger.
+    ///
+    /// `{"type":"compact"}` makes pi summarize older entries and persist a real
+    /// compaction entry in its session file, so the next turn genuinely sees a
+    /// smaller context. The short-lived child mirrors `context_usage`: open the
+    /// same session, send one command, read the response, exit.
+    fn compact(
+        &self,
+        context: &SessionContext,
+        opened: &OpenedSession,
+        instructions: Option<&str>,
+        _sink: &mut dyn FnMut(AdapterEvent),
+    ) -> Result<Option<CompactOutcome>> {
+        if opened.native_id.trim().is_empty() {
+            return Ok(None);
+        }
+        let mut child = self
+            .command(context, opened, opened.allow_tools, &opened.tools)?
+            .spawn()
+            .map_err(|error| Error::Failed(format!("spawn pi for compact: {error}")))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Io("pi compact stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Io("pi compact stdout was not piped".into()))?;
+        if let Some(stderr) = child.stderr.take() {
+            // Drain it so a chatty summarizer cannot block on a full pipe.
+            std::thread::spawn(move || {
+                for _ in BufReader::new(stderr)
+                    .lines()
+                    .map_while(std::result::Result::ok)
+                {}
+            });
+        }
+        let (sender, receiver) = mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut request = serde_json::json!({ "id": "compact-1", "type": "compact" });
+        if let Some(instructions) = instructions.filter(|value| !value.trim().is_empty()) {
+            request["customInstructions"] = Value::String(instructions.trim().to_string());
+        }
+        write_command(&mut stdin, &request)
+            .map_err(|error| Error::Failed(format!("ask pi to compact: {error}")))?;
+        drop(stdin);
+
+        // A summary is an LLM call; a cold provider can take minutes. The page
+        // shows its own "compacting" card, so waiting here is visible.
+        let deadline = Instant::now() + Duration::from_secs(600);
+        let mut outcome = CompactOutcome::default();
+        let mut failure: Option<String> = None;
+        let mut answered = false;
+        while Instant::now() < deadline {
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(line) => {
+                    let Some(value) = parse_line(&line) else { continue };
+                    match value.get("type").and_then(Value::as_str) {
+                        Some("compaction_end") => {
+                            if value.get("aborted").and_then(Value::as_bool) == Some(true) {
+                                failure = Some("pi aborted the context compaction".into());
+                            } else if let Some(message) =
+                                value.get("errorMessage").and_then(Value::as_str)
+                            {
+                                failure = Some(message.to_string());
+                            } else if let Some(result) = value.get("result") {
+                                outcome = compact_outcome(result);
+                            }
+                        }
+                        Some("response")
+                            if value.get("command").and_then(Value::as_str) == Some("compact") =>
+                        {
+                            if value.get("success").and_then(Value::as_bool) == Some(true) {
+                                if let Some(data) = value.get("data") {
+                                    let from_response = compact_outcome(data);
+                                    if !from_response.summary.is_empty() {
+                                        outcome.summary = from_response.summary;
+                                    }
+                                    if from_response.tokens_before.is_some() {
+                                        outcome.tokens_before = from_response.tokens_before;
+                                    }
+                                    if from_response.estimated_tokens_after.is_some() {
+                                        outcome.estimated_tokens_after =
+                                            from_response.estimated_tokens_after;
+                                    }
+                                    if from_response.first_kept_entry_id.is_some() {
+                                        outcome.first_kept_entry_id =
+                                            from_response.first_kept_entry_id;
+                                    }
+                                    if from_response.usage.is_some() {
+                                        outcome.usage = from_response.usage;
+                                    }
+                                }
+                            } else {
+                                failure = value
+                                    .pointer("/error/message")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string)
+                                    .or_else(|| Some("pi refused the context compaction".into()));
+                            }
+                            answered = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        let _ = wait_briefly(&mut child);
+        if let Some(failure) = failure {
+            return Err(Error::Failed(failure));
+        }
+        if !answered {
+            return Err(Error::Timeout("pi did not answer the compact command".into()));
+        }
+        if outcome.summary.trim().is_empty() {
+            return Err(Error::Failed("pi returned no compaction summary".into()));
+        }
+        Ok(Some(outcome))
+    }
+
     /// Ask pi for the session's own context estimate.
     ///
     /// `get_session_stats` is a read-only RPC command: a short-lived child opens
@@ -859,6 +990,24 @@ fn parse_line(line: &str) -> Option<Value> {
         return None;
     }
     serde_json::from_str(trimmed).ok()
+}
+
+/// Read the fields pi uses for a compaction result (`data` or `result`).
+fn compact_outcome(value: &Value) -> CompactOutcome {
+    CompactOutcome {
+        summary: value
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        first_kept_entry_id: value
+            .get("firstKeptEntryId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        tokens_before: value.get("tokensBefore").and_then(Value::as_u64),
+        estimated_tokens_after: value.get("estimatedTokensAfter").and_then(Value::as_u64),
+        usage: value.get("usage").cloned(),
+    }
 }
 
 /// The answer a fully trusted workspace gives for itself.
@@ -2078,5 +2227,24 @@ mod tests {
     fn a_text_only_turn_carries_no_attachment() {
         let command = prompt_command("turn-1", "hello", &[]);
         assert_eq!(command["message"], "hello");
+    }
+
+    /// The compact response and the compaction event carry the same shape; the
+    /// ledger must keep the runtime's own numbers, not a local estimate.
+    #[test]
+    fn reads_pi_compaction_result() {
+        let value = serde_json::json!({
+            "summary": "Earlier work summarized.",
+            "firstKeptEntryId": "entry-42",
+            "tokensBefore": 150000,
+            "estimatedTokensAfter": 32000,
+            "usage": { "input": 32000, "output": 1200 }
+        });
+        let outcome = compact_outcome(&value);
+        assert_eq!(outcome.summary, "Earlier work summarized.");
+        assert_eq!(outcome.first_kept_entry_id.as_deref(), Some("entry-42"));
+        assert_eq!(outcome.tokens_before, Some(150000));
+        assert_eq!(outcome.estimated_tokens_after, Some(32000));
+        assert!(outcome.usage.is_some());
     }
 }

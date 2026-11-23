@@ -58,12 +58,15 @@ pub fn openai_chat(
     config.push_str("write-out = \"%{http_code}\"\n");
     config.push_str(&format!("max-time = {}\n", timeout.as_secs().max(1)));
 
-    let mut child = Command::new(curl_program())
+    let mut command_line = Command::new(curl_program());
+    command_line
         .arg("--config")
         .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::runtime::process::hide_console(&mut command_line);
+    let mut child = command_line
         .spawn()
         .map_err(|error| Error::Io(format!("spawn curl: {error}")))?;
     if let Some(stdin) = child.stdin.as_mut() {
