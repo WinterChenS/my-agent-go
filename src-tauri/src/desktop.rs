@@ -79,6 +79,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(state)
         .manage(catalog)
         .manage(session)
+        // The native folder/file dialogs (`workspace_pick*`).
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             crate::commands::get_preferences,
             crate::commands::set_preferences,

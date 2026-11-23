@@ -319,8 +319,9 @@ fn run_picker(
         .map_err(|_| "the picker thread did not answer".to_string())?
 }
 
-/// macOS runs the picker as its own process, so it stays on this worker thread:
-/// the window behind the dialog keeps painting and no beachball appears.
+/// Everywhere else the dialog plugin owns the panel and does its own dispatch
+/// to the main thread, so the call stays on this worker: `blocking_*` waits for
+/// an answer that has to be delivered by the thread it would otherwise block.
 #[cfg(not(windows))]
 fn run_picker(
     app: &tauri::AppHandle,
@@ -328,14 +329,8 @@ fn run_picker(
     kind: PickKind,
     prompts: &PickPrompts,
 ) -> Result<Option<Vec<String>>, String> {
-    let _ = (app, owner);
-    match kind {
-        PickKind::Folder => {
-            pick_folder(owner, &prompts.folder).map(|one| one.map(|path| vec![path]))
-        }
-        PickKind::File => pick_file(owner, &prompts.file).map(|one| one.map(|path| vec![path])),
-        PickKind::Files => pick_files(owner, &prompts.files),
-    }
+    let _ = owner;
+    pick_with_plugin(app, kind, prompts)
 }
 
 #[cfg(windows)]
@@ -506,132 +501,62 @@ fn parse_multi_selection(file: &[u16]) -> Result<Option<Vec<String>>, String> {
     ))
 }
 
-/// macOS pickers, driven through `osascript`.
+/// macOS and Linux pickers, through Tauri's dialog plugin.
 ///
-/// Two designs were available: link AppKit (`NSOpenPanel` via `objc2`) or ask
-/// Standard Additions to show the panel. The second needs no new dependency and
-/// no Objective-C plumbing, at the cost of the dialog being owned by
-/// `osascript` — it still looks native, still remembers the last folder, and is
-/// what every Electron-less Mac CLI does. `NSOpenPanel` would additionally let
-/// the panel sheet off the window, which matters less than a picker that exists.
+/// The first attempt drove Standard Additions (`osascript choose folder`). It
+/// needs no dependency, but the panel belongs to a *child process*: it is not
+/// the app's sheet, it does not bring itself forward reliably, and the wait
+/// happens on a worker thread while the user sees nothing. On macOS both the
+/// folder and the file pickers reported "nothing happens".
 ///
-/// The scripts are plain string constants; `script_for` is compiled on every
-/// platform so the shapes and the parsing stay under test off a Mac.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-mod applescript {
-    use super::PickKind;
+/// The plugin is the app's own `NSOpenPanel` (via `rfd`), opened by the plugin
+/// on the main thread and answered here. That is the same arrangement Windows
+/// uses with the shell dialog, so all three platforms place the dialog where the
+/// person expects it.
+///
+/// Everything here is compiled on every platform so the API is checked by the
+/// Windows build too; only the call site is macOS/Linux.
+#[cfg_attr(windows, allow(dead_code))]
+fn pick_with_plugin(
+    app: &tauri::AppHandle,
+    kind: PickKind,
+    prompts: &PickPrompts,
+) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
 
-    /// One AppleScript statement per line, so a test can assert the shape.
-    pub(super) fn script_for(kind: PickKind, prompt: &str) -> String {
-        let prompt = escape(prompt);
-        match kind {
-            PickKind::Folder => format!(
-                "set chosen to choose folder with prompt \"{prompt}\"\n\
-                 return POSIX path of chosen"
-            ),
-            PickKind::File => format!(
-                "set chosen to choose file with prompt \"{prompt}\"\n\
-                 return POSIX path of chosen"
-            ),
-            PickKind::Files => format!(
-                "set chosen to choose file with prompt \"{prompt}\" with multiple selections allowed\n\
-                 set output to \"\"\n\
-                 repeat with one in chosen\n\
-                 set output to output & (POSIX path of one) & linefeed\n\
-                 end repeat\n\
-                 return output"
-            ),
-        }
-    }
-
-    /// AppleScript string literals escape with a backslash, and nothing else.
-    fn escape(text: &str) -> String {
-        text.replace('\\', "\\\\").replace('"', "\\\"")
-    }
-
-    /// Turns osascript's stdout into the paths the host returns.
-    ///
-    /// `POSIX path of` a folder keeps the trailing slash, and the ledger keys
-    /// sessions by the folder's spelling, so `/Users/me/proj/` and
-    /// `/Users/me/proj` must not become two groups. Root keeps its slash.
-    pub(super) fn parse_paths(stdout: &str) -> Vec<String> {
-        stdout
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(|line| {
-                let trimmed = line.trim_end_matches('/');
-                if trimmed.is_empty() {
-                    "/".to_string()
-                } else {
-                    trimmed.to_string()
-                }
-            })
-            .collect()
-    }
-
-    /// Whether osascript's stderr means "the person pressed Cancel".
-    ///
-    /// Cancel surfaces as `(-128)` in every locale; the words around it are
-    /// localized, so only the code is matched.
-    pub(super) fn is_cancel(stderr: &str) -> bool {
-        stderr.contains("-128")
+    let title = match kind {
+        PickKind::Folder => &prompts.folder,
+        PickKind::File => &prompts.file,
+        PickKind::Files => &prompts.files,
+    };
+    // `blocking_*` waits on this worker thread; the plugin opens the panel on
+    // the main thread. Calling it on the main thread would wait for the message
+    // loop it is blocking, so this must stay a worker.
+    let dialog = app.dialog().file().set_title(title.clone());
+    match kind {
+        PickKind::Folder => paths_of(dialog.blocking_pick_folder().map(|one| vec![one])),
+        PickKind::File => paths_of(dialog.blocking_pick_file().map(|one| vec![one])),
+        PickKind::Files => paths_of(dialog.blocking_pick_files()),
     }
 }
 
-#[cfg(target_os = "macos")]
-fn run_osascript(kind: PickKind, prompt: &str) -> Result<Option<Vec<String>>, String> {
-    let script = applescript::script_for(kind, prompt);
-    let output = std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .map_err(|error| format!("cannot start the macOS file dialog: {error}"))?;
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let paths = applescript::parse_paths(&stdout);
-        return Ok(if paths.is_empty() { None } else { Some(paths) });
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if applescript::is_cancel(&stderr) {
+/// Turns what the dialog returned into the strings the host hands back.
+#[cfg_attr(windows, allow(dead_code))]
+fn paths_of(
+    picked: Option<Vec<tauri_plugin_dialog::FilePath>>,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(picked) = picked else {
         return Ok(None);
-    }
-    Err(format!(
-        "the macOS file dialog failed: {}",
-        stderr.trim().to_string()
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn pick_folder(_owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
-    run_osascript(PickKind::Folder, title)
-        .map(|paths| paths.and_then(|list| list.into_iter().next()))
-}
-
-#[cfg(target_os = "macos")]
-fn pick_file(_owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
-    run_osascript(PickKind::File, title).map(|paths| paths.and_then(|list| list.into_iter().next()))
-}
-
-#[cfg(target_os = "macos")]
-fn pick_files(_owner: Option<isize>, title: &str) -> Result<Option<Vec<String>>, String> {
-    run_osascript(PickKind::Files, title)
-}
-
-/// Linux: no dialog was ever implemented, and the app is not shipped there.
-#[cfg(all(not(windows), not(target_os = "macos")))]
-fn pick_folder(_owner: Option<isize>, _title: &str) -> Result<Option<String>, String> {
-    Err("no native folder dialog on this platform; paste the path instead".to_string())
-}
-
-#[cfg(all(not(windows), not(target_os = "macos")))]
-fn pick_file(_owner: Option<isize>, _title: &str) -> Result<Option<String>, String> {
-    Err("no native file dialog on this platform; paste the path instead".to_string())
-}
-
-#[cfg(all(not(windows), not(target_os = "macos")))]
-fn pick_files(_owner: Option<isize>, _title: &str) -> Result<Option<Vec<String>>, String> {
-    Err("no native file dialog on this platform; paste the path instead".to_string())
+    };
+    let paths = picked
+        .into_iter()
+        .map(|file| {
+            file.into_path()
+                .map(|path| path.to_string_lossy().into_owned())
+                .map_err(|error| format!("the dialog returned a path that cannot be used: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(if paths.is_empty() { None } else { Some(paths) })
 }
 
 #[cfg(test)]
@@ -743,58 +668,22 @@ mod tests {
         assert!(error.contains("分两次"), "{error}");
     }
 
-    // The macOS picker is a script handed to `osascript`; these tests keep its
-    // shape and its output parsing honest on a machine without a Mac.
+    // The dialog itself cannot be driven from a test, but what it returns can.
 
     #[test]
-    fn the_folder_script_returns_a_posix_path() {
-        let script = applescript::script_for(PickKind::Folder, "选择工作区文件夹");
-        assert!(script.contains("choose folder with prompt"), "{script}");
-        assert!(script.contains("选择工作区文件夹"), "{script}");
-        assert!(script.contains("POSIX path of chosen"), "{script}");
-        assert!(!script.contains("multiple selections"), "{script}");
-    }
-
-    #[test]
-    fn the_multi_file_script_allows_several_selections() {
-        let script = applescript::script_for(PickKind::Files, "Choose files");
-        assert!(
-            script.contains("with multiple selections allowed"),
-            "{script}"
-        );
-        assert!(script.contains("linefeed"), "{script}");
-    }
-
-    #[test]
-    fn a_quote_in_a_title_cannot_break_the_script() {
-        let script = applescript::script_for(PickKind::File, "say \"hi\"");
-        assert!(script.contains(r#"say \"hi\""#), "{script}");
-    }
-
-    #[test]
-    fn folder_paths_lose_the_trailing_slash_but_root_keeps_it() {
-        let paths = applescript::parse_paths("/Users/me/proj/\n/\n");
-        assert_eq!(paths, vec!["/Users/me/proj".to_string(), "/".to_string()]);
-    }
-
-    #[test]
-    fn several_paths_come_back_one_per_line() {
-        let paths = applescript::parse_paths("/a/one.rs\n/b/two.rs\n");
+    fn a_plain_path_is_handed_back_unchanged() {
+        let picked = Some(vec![tauri_plugin_dialog::FilePath::Path(PathBuf::from(
+            "/Users/me/Projects",
+        ))]);
         assert_eq!(
-            paths,
-            vec!["/a/one.rs".to_string(), "/b/two.rs".to_string()]
+            paths_of(picked).unwrap(),
+            Some(vec!["/Users/me/Projects".to_string()])
         );
     }
 
     #[test]
-    fn cancelling_osascript_is_a_cancel_not_a_failure() {
-        // Localized text around a stable code; only the code is matched.
-        assert!(applescript::is_cancel(
-            "execution error: User canceled. (-128)"
-        ));
-        assert!(applescript::is_cancel(
-            "execution error: 用户已取消。(-128)"
-        ));
-        assert!(!applescript::is_cancel("execution error: x (-1743)"));
+    fn a_cancelled_dialog_is_an_empty_answer_not_a_failure() {
+        assert_eq!(paths_of(None).unwrap(), None);
+        assert_eq!(paths_of(Some(Vec::new())).unwrap(), None);
     }
 }
