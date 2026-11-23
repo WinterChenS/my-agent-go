@@ -1660,8 +1660,8 @@ export default function ChatPage() {
                       <div className="chat-body-with-copy chat-body-user">
                         <div className="chat-bubble-wrap">
                           <div className="chat-bubble">{message.text}</div>
-                          <CopyButton text={message.text} role="user" />
                         </div>
+                        <CopyButton text={message.text} role="user" />
                       </div>
                     </article>
                   ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (

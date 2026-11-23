@@ -168,6 +168,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .setup(|app| {
             create_main_window(app)?;
+            // macOS moves a window's child views itself while the window
+            // resizes, and it does that after the page has already reported the
+            // pane's new rect — so the last word belongs to AppKit and the page
+            // is left where it was before the window changed size. Every resize
+            // re-arms a placement that runs once the window is quiet.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_window("main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::ScaleFactorChanged { .. }
+                    ) {
+                        crate::browser::settle_later(&handle);
+                    }
+                });
+            }
             // The right pane's browser: one child webview, plus the loopback
             // bridge a runtime's shell commands use to drive it.
             let browser = std::sync::Arc::new(crate::browser::Browser::new());

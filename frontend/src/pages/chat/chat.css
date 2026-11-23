@@ -316,10 +316,18 @@ button.chat-badge:hover {
 
 /* Copying a whole bubble: revealed on hover or keyboard focus, never a fixed
    row of icons above the answer. The code block keeps its own button inside
-   the block, so a reader never has to guess which text a button copies. */
+   the block, so a reader never has to guess which text a button copies.
+
+   The button sits in a strip reserved under the body (bottom-right), not
+   floating outside it. Outside meant a dead zone: the button was only
+   interactive while the body was hovered, and the pixels between the text and
+   the button were outside the body, so moving the pointer towards the button
+   un-hovered the body and hid the button before it could be reached. */
 .chat-body-with-copy {
   position: relative;
   min-width: 0;
+  /* Room for the button itself, inside this element's own box. */
+  padding-bottom: 22px;
 }
 
 .chat-body-user {
@@ -338,8 +346,7 @@ button.chat-badge:hover {
    brings long messages back under control, where the bubble wraps. Using
    shrink-to-fit here instead reintroduced the loop: the bubble's own wrapping
    fed back into the wrapper's min-content width and squeezed a short message
-   to a single character per line. The wrapper is positioned so the copy button
-   can sit just left of the bubble. */
+   to a single character per line. */
 .chat-bubble-wrap {
   position: relative;
   width: max-content;
@@ -360,38 +367,39 @@ button.chat-badge:hover {
 .chat-copy-btn {
   position: absolute;
   z-index: 1;
-  top: -6px;
-  right: -6px;
+  right: 2px;
+  bottom: 0;
   display: grid;
   place-items: center;
-  width: 25px;
-  height: 25px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--r-xs);
-  background: var(--surface);
+  background: transparent;
   color: var(--muted);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+  transition:
+    opacity var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
-.chat-body-user .chat-copy-btn {
-  right: auto;
-  left: -30px;
-}
-
-.chat-body-with-copy:hover > .chat-copy-btn,
-.chat-body-with-copy:focus-within > .chat-copy-btn,
-.chat-bubble-wrap:hover > .chat-copy-btn,
-.chat-bubble-wrap:focus-within > .chat-copy-btn {
+/* Revealed while the body — the text *and* the strip under it — is hovered, so
+   the pointer never crosses a gap where the button has already been hidden. */
+.chat-body-with-copy:hover .chat-copy-btn,
+.chat-body-with-copy:focus-within .chat-copy-btn {
   opacity: 1;
   pointer-events: auto;
 }
 
-.chat-copy-btn:hover {
+.chat-copy-btn:hover,
+.chat-copy-btn:focus-visible {
   color: var(--fg);
-  border-color: var(--accent);
+  border-color: var(--border);
+  background: var(--surface);
 }
 
 @media (hover: none) {

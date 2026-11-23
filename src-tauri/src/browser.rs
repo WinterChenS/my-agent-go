@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
 
@@ -112,6 +112,12 @@ impl Browser {
             )
             .map_err(|error| format!("open browser: {error}"))?;
         *slot = Some(webview);
+        // The view was created at whatever rect the pane had reported so far. A
+        // report that arrives as the pane settles (the address bar appearing,
+        // a tab change) updates that rect; this places the view there once the
+        // layout is quiet, so a page is never created over the address bar.
+        #[cfg(target_os = "macos")]
+        settle_later(app);
         Ok(())
     }
 
@@ -163,14 +169,13 @@ impl Browser {
     }
 
     /// Place the view at the last reported rect again, ignoring the "same
-    /// place" shortcut.
+    /// place" shortcut, and report what the native view says its frame is.
     ///
-    /// macOS lays a child view out from its parent's bounds. When the pane and
-    /// the window change in the same run-loop pass, that pass can place the
-    /// view from bounds the web process had not committed yet, and the page
-    /// stays where it was until something else moves it. One extra placement
-    /// after the pass puts it back on the pane.
-    pub fn reapply(&self) -> Result<(), String> {
+    /// The readback is the point: a placement the platform ignored looks
+    /// exactly like a placement that arrived too early, and only the view's own
+    /// frame tells them apart. It travels back to the host log, so "it still
+    /// drifts" can be answered with a number instead of another guess.
+    pub fn reapply(&self) -> Result<String, String> {
         let (x, y, w, h) = *self
             .bounds
             .lock()
@@ -180,13 +185,20 @@ impl Browser {
             .lock()
             .map_err(|_| "browser lock".to_string())?;
         let Some(webview) = slot.as_ref() else {
-            return Ok(());
+            return Ok("no webview".to_string());
         };
+        let (px, py, pw, ph) = placement(x, y, w, h);
         webview
             .set_bounds(rect_of(x, y, w, h))
             .map_err(|error| format!("browser bounds: {error}"))?;
         self.placements.fetch_add(1, Ordering::Relaxed);
-        Ok(())
+        // Read back what the view actually took. A child view the platform
+        // refused to move reports its old frame here and nowhere else.
+        let asked = format!("{px:.0},{py:.0} {pw:.0}x{ph:.0}");
+        match webview.bounds() {
+            Ok(rect) => Ok(format!("asked {asked}; view reports {}", describe(rect))),
+            Err(error) => Ok(format!("asked {asked}; readback failed: {error}")),
+        }
     }
 
     pub fn close(&self) -> Result<(), String> {
@@ -773,27 +785,15 @@ pub async fn browser_bounds(
     h: f64,
 ) -> Result<(), String> {
     let browser = state.get();
-    browser.set_bounds(x, y, w, h)?;
-    // macOS lays a child view out from the parent's bounds; a placement that
-    // lands in the same run-loop pass as a window resize can use the bounds
-    // that were current at its start, leaving the page one layout behind the
-    // pane. One more placement, after that pass, is what keeps the page on the
-    // pane while the divider is dragged and the window is moved.
+    let placed = browser.set_bounds(x, y, w, h);
+    // macOS repositions child views on its own while the window resizes, and it
+    // does so after this call — see `settle_later`. The placement below is the
+    // one that survives; this one keeps the pane following during a drag.
     #[cfg(target_os = "macos")]
-    {
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let Err(error) = browser.reapply() {
-                use tauri::Manager;
-                if let Some(state) = handle.try_state::<crate::state::HostState>() {
-                    state.log_event(&format!("browser: reapply failed: {error}"));
-                }
-            }
-        });
-    }
+    settle_later(&app);
     #[cfg(not(target_os = "macos"))]
-    let _ = (&app, &browser);
-    Ok(())
+    let _ = &app;
+    placed
 }
 
 #[tauri::command]
@@ -845,6 +845,75 @@ fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
     tauri::Rect {
         position: tauri::Position::Logical(LogicalPosition::new(px, py)),
         size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
+    }
+}
+
+/// One line describing where a native view says it is.
+fn describe(rect: tauri::Rect) -> String {
+    let position = match rect.position {
+        tauri::Position::Logical(p) => format!("{:.0},{:.0}", p.x, p.y),
+        tauri::Position::Physical(p) => format!("phys {},{},", p.x, p.y),
+    };
+    let size = match rect.size {
+        tauri::Size::Logical(s) => format!("{:.0}x{:.0}", s.width, s.height),
+        tauri::Size::Physical(s) => format!("phys {}x{}", s.width, s.height),
+    };
+    // The readback is asked for in logical pixels; a physical answer means the
+    // platform handed back what the window manager thinks instead.
+    let position = position.replace("phys ", "physical ").replace(",,", ",");
+    format!("{} {}", position.trim_end_matches(','), size)
+}
+
+/// Places the pane once more after the window (or the divider) stops moving.
+///
+/// Two things happen behind the pane's back while it is being moved:
+///
+/// * AppKit repositions child views itself when the window resizes — the child
+///   carries a `ViewMinYMargin` autoresizing mask, so it stays put and keeps
+///   its old size — and it does that *after* the page has reported the pane's
+///   new rect. The last word is AppKit's, which is why maximising the window
+///   leaves the page visibly behind.
+/// * A pane placed in the same frame as a layout change can be placed from the
+///   bounds that were current when the frame started.
+///
+/// Both are cured by the same thing: wait until the size stops changing, then
+/// place the last reported rect again. One watcher runs at a time; further
+/// resizes just extend its wait.
+pub fn settle_later(app: &AppHandle) {
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    static WATCHING: AtomicBool = AtomicBool::new(false);
+
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+    if WATCHING.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            let before = GENERATION.load(Ordering::Relaxed);
+            std::thread::sleep(std::time::Duration::from_millis(160));
+            if GENERATION.load(Ordering::Relaxed) == before {
+                break;
+            }
+        }
+        WATCHING.store(false, Ordering::Relaxed);
+        place_last(&app, "settled");
+    });
+}
+
+/// Applies the last reported rect and writes what the view answered about it.
+fn place_last(app: &AppHandle, reason: &str) {
+    use tauri::Manager;
+    let Some(browser) = app.try_state::<BrowserHandle>() else {
+        return;
+    };
+    let browser = browser.get();
+    let message = match browser.reapply() {
+        Ok(report) => format!("browser: {reason} {report}"),
+        Err(error) => format!("browser: {reason} failed: {error}"),
+    };
+    if let Some(state) = app.try_state::<crate::state::HostState>() {
+        state.config.log.info(&message);
     }
 }
 
