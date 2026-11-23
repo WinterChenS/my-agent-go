@@ -21,9 +21,9 @@
 //! invisible to a DOM query.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicU16, Ordering};
-use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -80,7 +80,10 @@ impl Browser {
 
     /// Open the pane on `url`, or navigate the one that is already open.
     pub fn open(&self, app: &AppHandle, url: &str) -> Result<(), String> {
-        let mut slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+        let mut slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
         if let Some(webview) = slot.as_ref() {
             let parsed = parse_url(url)?;
             webview
@@ -88,17 +91,24 @@ impl Browser {
                 .map_err(|error| format!("navigate: {error}"))?;
             return Ok(());
         }
-        let (x, y, w, h) = *self.bounds.lock().map_err(|_| "browser bounds".to_string())?;
+        let (x, y, w, h) = *self
+            .bounds
+            .lock()
+            .map_err(|_| "browser bounds".to_string())?;
         let window = app
             .get_window("main")
             .ok_or_else(|| "main window is gone".to_string())?;
         let script = page_runtime(self.port());
+        let (px, py, pw, ph) = placement(x, y, w, h);
         let webview = window
             .add_child(
-                tauri::WebviewBuilder::new("anvil-browser", tauri::WebviewUrl::External(parse_url(url)?))
-                    .initialization_script(&script),
-                LogicalPosition::new(x, y),
-                LogicalSize::new(w.max(1.0), h.max(1.0)),
+                tauri::WebviewBuilder::new(
+                    "anvil-browser",
+                    tauri::WebviewUrl::External(parse_url(url)?),
+                )
+                .initialization_script(&script),
+                LogicalPosition::new(px, py),
+                LogicalSize::new(pw, ph),
             )
             .map_err(|error| format!("open browser: {error}"))?;
         *slot = Some(webview);
@@ -108,42 +118,86 @@ impl Browser {
     /// Move the pane. A closed pane is parked off-screen rather than destroyed:
     /// coming back should not reload the page the agent was in the middle of.
     pub fn set_bounds(&self, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+        let slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
+        let Some(webview) = slot.as_ref() else {
+            // There is no view to place yet; remembering the rect is what makes
+            // `open` create it where the pane already is.
+            *self
+                .bounds
+                .lock()
+                .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
+            return Ok(());
+        };
+        if *self
+            .bounds
+            .lock()
+            .map_err(|_| "browser bounds".to_string())?
+            == (x, y, w, h)
         {
-            let mut bounds = self.bounds.lock().map_err(|_| "browser bounds".to_string())?;
-            if *bounds == (x, y, w, h) {
-                // Same place, same size. Placing a webview makes it lay itself
-                // out again, and a repeated placement is a visible flicker with
-                // nothing to show for it.
-                return Ok(());
-            }
-            *bounds = (x, y, w, h);
+            // Same place, same size. Placing a webview makes it lay itself out
+            // again, and a repeated placement is a visible flicker with nothing
+            // to show for it.
+            return Ok(());
         }
-        let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+        match webview.set_bounds(rect_of(x, y, w, h)) {
+            Ok(()) => {
+                *self
+                    .bounds
+                    .lock()
+                    .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
+                self.placements.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            Err(error) => {
+                // A failed placement must not be remembered. The pane keeps
+                // reporting the same rect, and the check above would swallow
+                // every retry — the native view would sit at its old place for
+                // good, which is exactly what "the page drifted and stayed
+                // there" looks like.
+                Err(format!("browser bounds: {error}"))
+            }
+        }
+    }
+
+    /// Place the view at the last reported rect again, ignoring the "same
+    /// place" shortcut.
+    ///
+    /// macOS lays a child view out from its parent's bounds. When the pane and
+    /// the window change in the same run-loop pass, that pass can place the
+    /// view from bounds the web process had not committed yet, and the page
+    /// stays where it was until something else moves it. One extra placement
+    /// after the pass puts it back on the pane.
+    pub fn reapply(&self) -> Result<(), String> {
+        let (x, y, w, h) = *self
+            .bounds
+            .lock()
+            .map_err(|_| "browser bounds".to_string())?;
+        let slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
         let Some(webview) = slot.as_ref() else {
             return Ok(());
         };
-        let visible = w > 1.0 && h > 1.0;
-        let (px, py, pw, ph) = if visible {
-            (x, y, w, h)
-        } else {
-            (-20_000.0, -20_000.0, 1.0, 1.0)
-        };
-        // One call, not a move followed by a resize: the intermediate frame is
-        // a page drawn at the old size in the new place.
-        let moved = webview.set_bounds(tauri::Rect {
-            position: tauri::Position::Logical(LogicalPosition::new(px, py)),
-            size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
-        });
-        if moved.is_ok() {
-            self.placements.fetch_add(1, Ordering::Relaxed);
-        }
-        moved.map_err(|error| format!("browser bounds: {error}"))
+        webview
+            .set_bounds(rect_of(x, y, w, h))
+            .map_err(|error| format!("browser bounds: {error}"))?;
+        self.placements.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 
     pub fn close(&self) -> Result<(), String> {
-        let mut slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+        let mut slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
         if let Some(webview) = slot.take() {
-            webview.close().map_err(|error| format!("close browser: {error}"))?;
+            webview
+                .close()
+                .map_err(|error| format!("close browser: {error}"))?;
         }
         Ok(())
     }
@@ -172,7 +226,10 @@ impl Browser {
     /// shot lands in the system temp folder, which every reader can reach.
     pub fn capture(&self, target: Option<&str>) -> Result<Value, String> {
         let webview = {
-            let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+            let slot = self
+                .webview
+                .lock()
+                .map_err(|_| "browser lock".to_string())?;
             slot.as_ref()
                 .cloned()
                 .ok_or_else(|| "the browser pane is not open".to_string())?
@@ -203,16 +260,24 @@ impl Browser {
     /// Navigation verbs are fire-and-forget: the page that would answer is
     /// gone by the time it could, so waiting would only time out.
     pub fn run_script(&self, script: &str) -> Result<(), String> {
-        let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+        let slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
         let Some(webview) = slot.as_ref() else {
             return Err("the browser pane is not open".to_string());
         };
-        webview.eval(script).map_err(|error| format!("eval: {error}"))
+        webview
+            .eval(script)
+            .map_err(|error| format!("eval: {error}"))
     }
 
     /// Run one command in the page and wait for the page's own answer.
     pub fn call(&self, method: &str, params: &Value) -> Reply {
-        let slot = self.webview.lock().map_err(|_| "browser lock".to_string())?;
+        let slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
         let Some(webview) = slot.as_ref() else {
             return Err("the browser pane is not open".to_string());
         };
@@ -700,13 +765,35 @@ pub async fn browser_open(
 /// off-screen without losing the page.
 #[tauri::command]
 pub async fn browser_bounds(
+    app: AppHandle,
     state: tauri::State<'_, BrowserHandle>,
     x: f64,
     y: f64,
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    state.get().set_bounds(x, y, w, h)
+    let browser = state.get();
+    browser.set_bounds(x, y, w, h)?;
+    // macOS lays a child view out from the parent's bounds; a placement that
+    // lands in the same run-loop pass as a window resize can use the bounds
+    // that were current at its start, leaving the page one layout behind the
+    // pane. One more placement, after that pass, is what keeps the page on the
+    // pane while the divider is dragged and the window is moved.
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Err(error) = browser.reapply() {
+                use tauri::Manager;
+                if let Some(state) = handle.try_state::<crate::state::HostState>() {
+                    state.log_event(&format!("browser: reapply failed: {error}"));
+                }
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (&app, &browser);
+    Ok(())
 }
 
 #[tauri::command]
@@ -737,6 +824,30 @@ pub async fn browser_action(
     browser.run_script(script)
 }
 
+/// Where the native view goes for a reported rect.
+///
+/// A pane that is not on screen reports a zero size. The view is parked far
+/// off-screen instead of being hidden: hiding and showing it again reloads
+/// nothing but does drop the page's focus and any playing media, while a page
+/// at (-20000, -20000) keeps running and comes back exactly as it was.
+fn placement(x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
+    if w > 1.0 && h > 1.0 {
+        (x, y, w, h)
+    } else {
+        (-20_000.0, -20_000.0, 1.0, 1.0)
+    }
+}
+
+/// One call, not a move followed by a resize: the intermediate frame is a page
+/// drawn at the old size in the new place.
+fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
+    let (px, py, pw, ph) = placement(x, y, w, h);
+    tauri::Rect {
+        position: tauri::Position::Logical(LogicalPosition::new(px, py)),
+        size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
+    }
+}
+
 /// Where a screenshot goes when the caller did not say.
 fn shot_path(target: Option<&str>) -> std::path::PathBuf {
     match target.map(str::trim).filter(|value| !value.is_empty()) {
@@ -758,9 +869,8 @@ fn png_size(bytes: &[u8]) -> (u32, u32) {
     if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
         return (0, 0);
     }
-    let read = |at: usize| {
-        u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
-    };
+    let read =
+        |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
     (read(16), read(20))
 }
 
@@ -770,11 +880,13 @@ mod platform {
     use std::time::Duration;
 
     use tauri::webview::Webview;
-    use webview2_com::Microsoft::Web::WebView2::Win32 as wv2;
     use webview2_com::CapturePreviewCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32 as wv2;
     use windows::Win32::Foundation::HGLOBAL;
-    use windows::Win32::System::Com::StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream};
     use windows::Win32::System::Com::IStream;
+    use windows::Win32::System::Com::StructuredStorage::{
+        CreateStreamOnHGlobal, GetHGlobalFromStream,
+    };
     use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 
     /// Ask WebView2 to rasterise the page, and wait for the pixels.
@@ -857,5 +969,47 @@ mod platform {
 
     pub fn capture_png(_webview: &Webview<tauri::Wry>) -> Result<Vec<u8>, String> {
         Err("this build cannot capture the browser pane on this platform".to_string())
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn a_visible_pane_is_placed_where_it_is() {
+        assert_eq!(
+            placement(540.0, 120.0, 420.0, 600.0),
+            (540.0, 120.0, 420.0, 600.0)
+        );
+    }
+
+    #[test]
+    fn a_hidden_pane_is_parked_off_screen_rather_than_hidden() {
+        // Hiding the view would drop focus and stop media; parking keeps the
+        // page exactly as it was.
+        assert_eq!(
+            placement(0.0, 0.0, 0.0, 0.0),
+            (-20_000.0, -20_000.0, 1.0, 1.0)
+        );
+        // A sliver (a pane mid-collapse) counts as hidden.
+        assert_eq!(
+            placement(10.0, 10.0, 1.0, 400.0),
+            (-20_000.0, -20_000.0, 1.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn a_rect_carries_the_same_numbers_in_one_call() {
+        match rect_of(540.0, 120.0, 420.0, 600.0) {
+            tauri::Rect {
+                position: tauri::Position::Logical(position),
+                size: tauri::Size::Logical(size),
+            } => {
+                assert_eq!((position.x, position.y), (540.0, 120.0));
+                assert_eq!((size.width, size.height), (420.0, 600.0));
+            }
+            _ => panic!("the pane is placed in logical pixels"),
+        }
     }
 }

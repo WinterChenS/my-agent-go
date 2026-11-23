@@ -34,7 +34,6 @@ pub fn projects_root() -> PathBuf {
     default_workspace().join("Projects")
 }
 
-
 /// Render a path the way the user expects to see it.
 ///
 /// On Windows `canonicalize` returns extended-length paths such as
@@ -138,26 +137,83 @@ pub fn workspace_create(name: String) -> Result<String, String> {
 }
 
 /// Which shell dialog to show.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PickKind {
     Folder,
     File,
     Files,
 }
 
-/// Ask Windows for a folder.
+/// Dialog titles in the app's current language.
 ///
-/// The app has no dialog plugin, and the shell's own folder picker needs no
-/// extra dependency: `SHBrowseForFolderW` is part of shell32, which the host
-/// already links. `None` means the user cancelled.
+/// The pickers are native dialogs, so they cannot read the React translations.
+/// Passing the title in makes an English UI stop showing a Chinese file dialog.
+struct PickPrompts {
+    folder: String,
+    file: String,
+    files: String,
+}
+
+/// Titles for one language.
 ///
-/// Both pickers run on the *window's* thread, via `run_on_main_thread`. A Tauri
-/// command executes on a runtime worker that never pumps a Windows message
-/// queue; a modal shell dialog created there is either invisible or returns
-/// immediately, which is exactly what the app log showed (`workspace: browse`
-/// with nothing after it). The main thread owns the webview's message pump, and
-/// the modal loop nested inside it still dispatches messages, so the window
-/// keeps painting while the dialog is up.
+/// The multi-select hint names the platform's own modifier key, because that is
+/// the key the person actually has to hold down.
+fn pick_prompts(language: &str) -> PickPrompts {
+    let english = language.to_ascii_lowercase().starts_with("en");
+    #[cfg(target_os = "macos")]
+    let (many_zh, many_en) = (
+        "（可多选，按住 ⌘ 或 Shift 连续选择）",
+        " (hold Cmd or Shift to select several)",
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (many_zh, many_en) = (
+        "（可多选，Ctrl / Shift 连续选择）",
+        " (hold Ctrl or Shift to select several)",
+    );
+
+    if english {
+        PickPrompts {
+            folder: "Choose a workspace folder".to_string(),
+            file: "Choose a file (its folder becomes the workspace)".to_string(),
+            files: format!("Choose files{many_en}"),
+        }
+    } else if cfg!(target_os = "macos") {
+        PickPrompts {
+            folder: "选择工作区文件夹".to_string(),
+            file: "选择文件（将使用所在目录）".to_string(),
+            files: format!("选择文件{many_zh}"),
+        }
+    } else {
+        PickPrompts {
+            folder: "选择项目目录".to_string(),
+            file: "选择文件（将使用所在目录）".to_string(),
+            files: format!("选择文件{many_zh}"),
+        }
+    }
+}
+
+/// The language the user picked in 设置, for dialog titles.
+fn current_language(app: &tauri::AppHandle) -> String {
+    use tauri::Manager;
+    app.try_state::<crate::state::HostState>()
+        .map(|state| state.snapshot().language)
+        .unwrap_or_else(|| crate::prefs::LANGUAGE_ZH_CN.to_string())
+}
+
+/// Ask the platform for a folder.
+///
+/// `None` means the user cancelled.
+///
+/// On Windows the pickers run on the *window's* thread, via
+/// `run_on_main_thread`. A Tauri command executes on a runtime worker that never
+/// pumps a Windows message queue; a modal shell dialog created there is either
+/// invisible or returns immediately, which is exactly what the app log showed
+/// (`workspace: browse` with nothing after it). The main thread owns the
+/// webview's message pump, and the modal loop nested inside it still dispatches
+/// messages, so the window keeps painting while the dialog is up.
+///
+/// macOS needs the opposite: the dialog is a *separate process* (`osascript`),
+/// so blocking the main thread would only beachball the window behind it.
 #[tauri::command]
 pub async fn workspace_pick(
     app: tauri::AppHandle,
@@ -170,15 +226,16 @@ pub async fn workspace_pick(
         let _ = &window;
         None
     };
+    let prompts = pick_prompts(&current_language(&app));
     log_pick(&app, "folder: opening");
-    let outcome = pick_on_main_thread(&app, owner, PickKind::Folder);
+    let outcome = run_picker(&app, owner, PickKind::Folder, &prompts);
     log_pick(&app, &format!("folder: {outcome:?}"));
     outcome.map(|picked| picked.and_then(|paths| paths.into_iter().next()))
 }
 
-/// Ask Windows for a *file*. A workspace is a directory, so the file's parent
-/// becomes the selection; the picker exists because people describe a project
-/// by one of its files ("open the folder that has this spec in it").
+/// Ask for a *file*. A workspace is a directory, so the file's parent becomes
+/// the selection; the picker exists because people describe a project by one of
+/// its files ("open the folder that has this spec in it").
 #[tauri::command]
 pub async fn workspace_pick_file(
     app: tauri::AppHandle,
@@ -191,13 +248,14 @@ pub async fn workspace_pick_file(
         let _ = &window;
         None
     };
+    let prompts = pick_prompts(&current_language(&app));
     log_pick(&app, "file: opening");
-    let outcome = pick_on_main_thread(&app, owner, PickKind::File);
+    let outcome = run_picker(&app, owner, PickKind::File, &prompts);
     log_pick(&app, &format!("file: {outcome:?}"));
     outcome.map(|picked| picked.and_then(|paths| paths.into_iter().next()))
 }
 
-/// Ask Windows for one or more *files* to attach as context.
+/// Ask for one or more *files* to attach as context.
 ///
 /// This is the composer's "文件" entry, not the project picker: several files
 /// are the normal case for a turn ("these three configs"), and selecting them
@@ -214,8 +272,9 @@ pub async fn workspace_pick_files(
         let _ = &window;
         None
     };
+    let prompts = pick_prompts(&current_language(&app));
     log_pick(&app, "files: opening");
-    let outcome = pick_on_main_thread(&app, owner, PickKind::Files);
+    let outcome = run_picker(&app, owner, PickKind::Files, &prompts);
     log_pick(&app, &format!("files: {outcome:?}"));
     Ok(outcome?.unwrap_or_default())
 }
@@ -229,20 +288,26 @@ fn log_pick(app: &tauri::AppHandle, message: &str) {
     }
 }
 
-/// Runs one blocking picker on the thread that owns the window message pump and
-/// waits for its answer here. Blocking this runtime worker is intended: a modal
-/// dialog is up, and only one can exist at a time.
-fn pick_on_main_thread(
+/// Runs one picker where the platform needs it to run, and returns its answer.
+#[cfg(windows)]
+fn run_picker(
     app: &tauri::AppHandle,
     owner: Option<isize>,
     kind: PickKind,
+    prompts: &PickPrompts,
 ) -> Result<Option<Vec<String>>, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
+    let titles = (
+        prompts.folder.clone(),
+        prompts.file.clone(),
+        prompts.files.clone(),
+    );
     app.run_on_main_thread(move || {
+        let (folder, file, files) = &titles;
         let outcome = match kind {
-            PickKind::Folder => pick_folder(owner).map(|one| one.map(|path| vec![path])),
-            PickKind::File => pick_file(owner).map(|one| one.map(|path| vec![path])),
-            PickKind::Files => pick_files(owner),
+            PickKind::Folder => pick_folder(owner, folder).map(|one| one.map(|path| vec![path])),
+            PickKind::File => pick_file(owner, file).map(|one| one.map(|path| vec![path])),
+            PickKind::Files => pick_files(owner, files),
         };
         let _ = sender.send(outcome);
     })
@@ -254,8 +319,27 @@ fn pick_on_main_thread(
         .map_err(|_| "the picker thread did not answer".to_string())?
 }
 
+/// macOS runs the picker as its own process, so it stays on this worker thread:
+/// the window behind the dialog keeps painting and no beachball appears.
+#[cfg(not(windows))]
+fn run_picker(
+    app: &tauri::AppHandle,
+    owner: Option<isize>,
+    kind: PickKind,
+    prompts: &PickPrompts,
+) -> Result<Option<Vec<String>>, String> {
+    let _ = (app, owner);
+    match kind {
+        PickKind::Folder => {
+            pick_folder(owner, &prompts.folder).map(|one| one.map(|path| vec![path]))
+        }
+        PickKind::File => pick_file(owner, &prompts.file).map(|one| one.map(|path| vec![path])),
+        PickKind::Files => pick_files(owner, &prompts.files),
+    }
+}
+
 #[cfg(windows)]
-fn pick_folder(owner: Option<isize>) -> Result<Option<String>, String> {
+fn pick_folder(owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
     use windows_sys::Win32::System::Com::{
         COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoTaskMemFree,
     };
@@ -264,7 +348,7 @@ fn pick_folder(owner: Option<isize>) -> Result<Option<String>, String> {
         SHGetPathFromIDListW,
     };
 
-    let title: Vec<u16> = "选择项目目录\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
     let info = BROWSEINFOW {
         hwndOwner: owner.unwrap_or(0) as *mut core::ffi::c_void,
         lpszTitle: title.as_ptr(),
@@ -300,14 +384,14 @@ fn pick_folder(owner: Option<isize>) -> Result<Option<String>, String> {
 }
 
 #[cfg(windows)]
-fn pick_file(owner: Option<isize>) -> Result<Option<String>, String> {
+fn pick_file(owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
     use windows_sys::Win32::UI::Controls::Dialogs::{
         GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST, OPENFILENAMEW,
     };
 
     let mut file = [0u16; 2048];
     let filter: Vec<u16> = "All files\0*.*\0\0".encode_utf16().collect();
-    let title: Vec<u16> = "选择文件（将使用所在目录）\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
 
     let mut options = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
@@ -343,7 +427,7 @@ fn pick_file(owner: Option<isize>) -> Result<Option<String>, String> {
 /// entry. Both shapes are handled below, because getting this wrong silently
 /// produces paths like `C:\proj\a.rs b.rs`.
 #[cfg(windows)]
-fn pick_files(owner: Option<isize>) -> Result<Option<Vec<String>>, String> {
+fn pick_files(owner: Option<isize>, title: &str) -> Result<Option<Vec<String>>, String> {
     use windows_sys::Win32::UI::Controls::Dialogs::{
         GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST,
         OPENFILENAMEW,
@@ -354,9 +438,7 @@ fn pick_files(owner: Option<isize>) -> Result<Option<Vec<String>>, String> {
     // anyone clicks in one dialog.
     let mut file = vec![0u16; 32 * 1024];
     let filter: Vec<u16> = "All files\0*.*\0\0".encode_utf16().collect();
-    let title: Vec<u16> = "选择文件（可多选，Ctrl / Shift 连续选择）\0"
-        .encode_utf16()
-        .collect();
+    let title: Vec<u16> = format!("{title}\0").encode_utf16().collect();
 
     let mut options = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
@@ -424,19 +506,132 @@ fn parse_multi_selection(file: &[u16]) -> Result<Option<Vec<String>>, String> {
     ))
 }
 
-#[cfg(not(windows))]
-fn pick_folder(_owner: Option<isize>) -> Result<Option<String>, String> {
-    Err("the folder picker is only implemented on Windows".to_string())
+/// macOS pickers, driven through `osascript`.
+///
+/// Two designs were available: link AppKit (`NSOpenPanel` via `objc2`) or ask
+/// Standard Additions to show the panel. The second needs no new dependency and
+/// no Objective-C plumbing, at the cost of the dialog being owned by
+/// `osascript` — it still looks native, still remembers the last folder, and is
+/// what every Electron-less Mac CLI does. `NSOpenPanel` would additionally let
+/// the panel sheet off the window, which matters less than a picker that exists.
+///
+/// The scripts are plain string constants; `script_for` is compiled on every
+/// platform so the shapes and the parsing stay under test off a Mac.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod applescript {
+    use super::PickKind;
+
+    /// One AppleScript statement per line, so a test can assert the shape.
+    pub(super) fn script_for(kind: PickKind, prompt: &str) -> String {
+        let prompt = escape(prompt);
+        match kind {
+            PickKind::Folder => format!(
+                "set chosen to choose folder with prompt \"{prompt}\"\n\
+                 return POSIX path of chosen"
+            ),
+            PickKind::File => format!(
+                "set chosen to choose file with prompt \"{prompt}\"\n\
+                 return POSIX path of chosen"
+            ),
+            PickKind::Files => format!(
+                "set chosen to choose file with prompt \"{prompt}\" with multiple selections allowed\n\
+                 set output to \"\"\n\
+                 repeat with one in chosen\n\
+                 set output to output & (POSIX path of one) & linefeed\n\
+                 end repeat\n\
+                 return output"
+            ),
+        }
+    }
+
+    /// AppleScript string literals escape with a backslash, and nothing else.
+    fn escape(text: &str) -> String {
+        text.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    /// Turns osascript's stdout into the paths the host returns.
+    ///
+    /// `POSIX path of` a folder keeps the trailing slash, and the ledger keys
+    /// sessions by the folder's spelling, so `/Users/me/proj/` and
+    /// `/Users/me/proj` must not become two groups. Root keeps its slash.
+    pub(super) fn parse_paths(stdout: &str) -> Vec<String> {
+        stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let trimmed = line.trim_end_matches('/');
+                if trimmed.is_empty() {
+                    "/".to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            })
+            .collect()
+    }
+
+    /// Whether osascript's stderr means "the person pressed Cancel".
+    ///
+    /// Cancel surfaces as `(-128)` in every locale; the words around it are
+    /// localized, so only the code is matched.
+    pub(super) fn is_cancel(stderr: &str) -> bool {
+        stderr.contains("-128")
+    }
 }
 
-#[cfg(not(windows))]
-fn pick_file(_owner: Option<isize>) -> Result<Option<String>, String> {
-    Err("the file picker is only implemented on Windows".to_string())
+#[cfg(target_os = "macos")]
+fn run_osascript(kind: PickKind, prompt: &str) -> Result<Option<Vec<String>>, String> {
+    let script = applescript::script_for(kind, prompt);
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|error| format!("cannot start the macOS file dialog: {error}"))?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let paths = applescript::parse_paths(&stdout);
+        return Ok(if paths.is_empty() { None } else { Some(paths) });
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if applescript::is_cancel(&stderr) {
+        return Ok(None);
+    }
+    Err(format!(
+        "the macOS file dialog failed: {}",
+        stderr.trim().to_string()
+    ))
 }
 
-#[cfg(not(windows))]
-fn pick_files(_owner: Option<isize>) -> Result<Option<Vec<String>>, String> {
-    Err("the file picker is only implemented on Windows".to_string())
+#[cfg(target_os = "macos")]
+fn pick_folder(_owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
+    run_osascript(PickKind::Folder, title)
+        .map(|paths| paths.and_then(|list| list.into_iter().next()))
+}
+
+#[cfg(target_os = "macos")]
+fn pick_file(_owner: Option<isize>, title: &str) -> Result<Option<String>, String> {
+    run_osascript(PickKind::File, title).map(|paths| paths.and_then(|list| list.into_iter().next()))
+}
+
+#[cfg(target_os = "macos")]
+fn pick_files(_owner: Option<isize>, title: &str) -> Result<Option<Vec<String>>, String> {
+    run_osascript(PickKind::Files, title)
+}
+
+/// Linux: no dialog was ever implemented, and the app is not shipped there.
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn pick_folder(_owner: Option<isize>, _title: &str) -> Result<Option<String>, String> {
+    Err("no native folder dialog on this platform; paste the path instead".to_string())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn pick_file(_owner: Option<isize>, _title: &str) -> Result<Option<String>, String> {
+    Err("no native file dialog on this platform; paste the path instead".to_string())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn pick_files(_owner: Option<isize>, _title: &str) -> Result<Option<Vec<String>>, String> {
+    Err("no native file dialog on this platform; paste the path instead".to_string())
 }
 
 #[cfg(test)]
@@ -519,7 +714,8 @@ mod tests {
 
     #[test]
     fn several_selected_files_are_joined_to_their_directory() {
-        let parsed = parse_multi_selection(&buffer(&[r"C:\proj\src", "main.rs", "lib.rs"])).unwrap();
+        let parsed =
+            parse_multi_selection(&buffer(&[r"C:\proj\src", "main.rs", "lib.rs"])).unwrap();
         assert_eq!(
             parsed,
             Some(vec![
@@ -545,5 +741,60 @@ mod tests {
         }
         let error = parse_multi_selection(&filled).unwrap_err();
         assert!(error.contains("分两次"), "{error}");
+    }
+
+    // The macOS picker is a script handed to `osascript`; these tests keep its
+    // shape and its output parsing honest on a machine without a Mac.
+
+    #[test]
+    fn the_folder_script_returns_a_posix_path() {
+        let script = applescript::script_for(PickKind::Folder, "选择工作区文件夹");
+        assert!(script.contains("choose folder with prompt"), "{script}");
+        assert!(script.contains("选择工作区文件夹"), "{script}");
+        assert!(script.contains("POSIX path of chosen"), "{script}");
+        assert!(!script.contains("multiple selections"), "{script}");
+    }
+
+    #[test]
+    fn the_multi_file_script_allows_several_selections() {
+        let script = applescript::script_for(PickKind::Files, "Choose files");
+        assert!(
+            script.contains("with multiple selections allowed"),
+            "{script}"
+        );
+        assert!(script.contains("linefeed"), "{script}");
+    }
+
+    #[test]
+    fn a_quote_in_a_title_cannot_break_the_script() {
+        let script = applescript::script_for(PickKind::File, "say \"hi\"");
+        assert!(script.contains(r#"say \"hi\""#), "{script}");
+    }
+
+    #[test]
+    fn folder_paths_lose_the_trailing_slash_but_root_keeps_it() {
+        let paths = applescript::parse_paths("/Users/me/proj/\n/\n");
+        assert_eq!(paths, vec!["/Users/me/proj".to_string(), "/".to_string()]);
+    }
+
+    #[test]
+    fn several_paths_come_back_one_per_line() {
+        let paths = applescript::parse_paths("/a/one.rs\n/b/two.rs\n");
+        assert_eq!(
+            paths,
+            vec!["/a/one.rs".to_string(), "/b/two.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn cancelling_osascript_is_a_cancel_not_a_failure() {
+        // Localized text around a stable code; only the code is matched.
+        assert!(applescript::is_cancel(
+            "execution error: User canceled. (-128)"
+        ));
+        assert!(applescript::is_cancel(
+            "execution error: 用户已取消。(-128)"
+        ));
+        assert!(!applescript::is_cancel("execution error: x (-1743)"));
     }
 }

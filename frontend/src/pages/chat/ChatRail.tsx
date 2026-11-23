@@ -628,11 +628,12 @@ function LiveBrowser({
   // and when the tab changes. A closed pane reports a zero size, which parks the
   // native view off-screen without losing the page.
   useEffect(() => {
+    if (!browser) return
     // Scroll fires this many times a second; only a changed rect is worth an
     // IPC round trip.
     let last = ''
-    const report = () => {
-      if (!browser) return
+    let frame = 0
+    const measure = () => {
       const box = viewRef.current?.getBoundingClientRect()
       const rect =
         !box || box.width < 2 || box.height < 2
@@ -643,21 +644,45 @@ function LiveBrowser({
               w: Math.round(box.width),
               h: Math.round(box.height),
             }
-      const key = `${rect.x}:${rect.y}:${rect.w}:${rect.h}`
-      if (key === last) return
+      return { rect, key: `${rect.x}:${rect.y}:${rect.w}:${rect.h}` }
+    }
+    const send = (rect: { x: number; y: number; w: number; h: number }, key: string) => {
       last = key
       browser.bounds(rect)
+    }
+    const report = () => {
+      const { rect, key } = measure()
+      if (key === last) return
+      send(rect, key)
+      // The native view is placed from the rect as it was when this frame's
+      // layout started. When the pane and the window change together, that
+      // rect is one layout behind and the page is left at the old place — the
+      // drift this pane used to show on macOS. Re-measuring on the next frame
+      // costs one `getBoundingClientRect` and corrects it.
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const next = measure()
+        if (next.key !== last) send(next.rect, next.key)
+      })
     }
     report()
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(report) : null
     if (observer && viewRef.current) observer.observe(viewRef.current)
     window.addEventListener('resize', report)
     window.addEventListener('scroll', report, true)
+    // A divider drag ends with a pointerup that no observer reports: the width
+    // the reader let go at has to be the width the native view ends at.
+    window.addEventListener('pointerup', report, true)
+    window.addEventListener('mouseup', report, true)
     return () => {
+      if (frame) cancelAnimationFrame(frame)
       observer?.disconnect()
       window.removeEventListener('resize', report)
       window.removeEventListener('scroll', report, true)
-      browser?.bounds({ x: 0, y: 0, w: 0, h: 0 })
+      window.removeEventListener('pointerup', report, true)
+      window.removeEventListener('mouseup', report, true)
+      browser.bounds({ x: 0, y: 0, w: 0, h: 0 })
     }
   }, [browser])
 
