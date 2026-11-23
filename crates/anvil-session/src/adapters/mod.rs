@@ -34,47 +34,16 @@ fn locate(name: &str) -> Option<PathBuf> {
 
 /// Locate an executable on `PATH`, honouring `PATHEXT`.
 ///
-/// On Windows only files with a real executable extension are accepted. This
-/// machine ships extension-less POSIX shims (`pi`, `codex`) that `PATH` resolves
-/// first; handing one to the process API fails with "not a valid Win32
-/// application", which is exactly the bug the catalog hit in R1.
+/// Uses the catalog's search list, not the raw environment: on macOS an app
+/// started from Finder inherits launchd's minimal `PATH`, so a Homebrew or nvm
+/// install would be invisible here even though the catalog had just discovered
+/// it. On Windows only files with a real executable extension are accepted —
+/// this machine ships extension-less POSIX shims (`pi`, `codex`) that `PATH`
+/// resolves first, and handing one to the process API fails with "not a valid
+/// Win32 application".
 #[must_use]
 pub fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    let extensions = path_extensions();
-
-    for directory in std::env::split_paths(&path) {
-        if directory.as_os_str().is_empty() {
-            continue;
-        }
-        if !cfg!(windows) {
-            let direct = directory.join(name);
-            if direct.is_file() {
-                return Some(direct);
-            }
-            continue;
-        }
-        for extension in &extensions {
-            let candidate = directory.join(format!("{name}{extension}"));
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
-}
-
-fn path_extensions() -> Vec<String> {
-    if cfg!(windows) {
-        std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
-            .split(';')
-            .filter(|extension| !extension.trim().is_empty())
-            .map(|extension| extension.to_ascii_lowercase())
-            .collect()
-    } else {
-        Vec::new()
-    }
+    anvil_catalog::runtime::process::which(name)
 }
 
 /// Whether a path is a batch wrapper that needs a shell to start.
@@ -110,6 +79,13 @@ pub fn command_for(executable: &Path) -> Command {
     } else {
         Command::new(executable)
     };
+    // The child has to run in the same PATH discovery searched. A macOS npm
+    // shim starts with `#!/usr/bin/env node`, and an app launched from Finder
+    // has no Node on its inherited PATH: the shim would exit with "env: node:
+    // No such file or directory" right after being discovered successfully.
+    for (key, value) in anvil_catalog::runtime::process::child_env() {
+        command.env(key, value);
+    }
     // A GUI host otherwise gets a console window for every runtime turn.
     anvil_catalog::runtime::process::hide_console(&mut command);
     command

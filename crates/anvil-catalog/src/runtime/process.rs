@@ -61,7 +61,7 @@ pub fn preferred_node() -> Option<&'static Path> {
             if let Some(found) = which("node") {
                 candidates.push(found);
             }
-            for directory in path_entries() {
+            for directory in search_dirs() {
                 for name in ["node.exe", "node"] {
                     candidates.push(directory.join(name));
                 }
@@ -258,7 +258,7 @@ fn stream_lines<R: Read>(reader: Option<R>, sender: mpsc::Sender<StreamLine>, is
 /// First `name` found on `PATH`, honouring `PATHEXT` on Windows.
 pub fn which(name: &str) -> Option<PathBuf> {
     let extensions = executable_extensions();
-    for directory in path_entries() {
+    for directory in search_dirs() {
         if let Some(found) = find_in_dir(&directory, name, &extensions) {
             return Some(found);
         }
@@ -270,6 +270,279 @@ fn path_entries() -> Vec<PathBuf> {
     std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect())
         .unwrap_or_default()
+}
+
+/// The directories the process actually inherited, in order.
+///
+/// Discovery labels a hit from here as coming from `PATH`; everything found in
+/// [`known_install_dirs`] is a known-directory install. Keeping the two apart is
+/// what makes the settings page able to answer "where did this come from?".
+pub fn env_path_dirs() -> Vec<PathBuf> {
+    path_entries()
+}
+
+/// A directory list key that respects the filesystem's case rules.
+fn dir_key(path: &Path) -> String {
+    let raw = path.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        raw.to_lowercase()
+    } else {
+        raw
+    }
+}
+
+/// `PATH` plus the directories a GUI-launched app never inherits.
+///
+/// This is the single search list: discovery, the Node pick and every runtime
+/// child go through it, so "we installed it but cannot see it" cannot happen in
+/// one place and not another.
+pub fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    // `PATH` itself can repeat an entry (an installer appending twice); the
+    // search must not probe the same directory twice either way.
+    for dir in path_entries() {
+        if seen.insert(dir_key(&dir)) {
+            dirs.push(dir);
+        }
+    }
+    for dir in platform_dirs() {
+        if seen.insert(dir_key(dir)) {
+            dirs.push(dir.clone());
+        }
+    }
+    dirs
+}
+
+/// Directories a runtime can live in without being on `PATH`.
+///
+/// Kept as its own function because discovery reports *where* a hit came from:
+/// a shim found here is registered as a known-directory install.
+pub fn known_install_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    // The installer honours `ANVIL_RUNTIME_PREFIX`; lookups must follow it,
+    // otherwise a portable prefix installs fine but is never discovered.
+    if let Some(value) = std::env::var_os("ANVIL_RUNTIME_PREFIX") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            dirs.push(path);
+        }
+    }
+    dirs.extend(platform_dirs().iter().cloned());
+    dirs
+}
+
+/// Extra search directories for this platform, computed once.
+static PLATFORM_DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+
+fn platform_dirs() -> &'static [PathBuf] {
+    PLATFORM_DIRS.get_or_init(build_platform_dirs)
+}
+
+#[cfg(not(windows))]
+fn home_dir() -> PathBuf {
+    for name in ["USERPROFILE", "HOME"] {
+        if let Some(value) = std::env::var_os(name) {
+            if !value.is_empty() {
+                return PathBuf::from(value);
+            }
+        }
+    }
+    PathBuf::from(".")
+}
+
+/// `root/<version>/<tail…>` for every installed version, newest name first.
+///
+/// Version managers (nvm, fnm, mise, asdf, nodenv) hide the binaries one level
+/// below a version number, so a fixed list of directories can never name them.
+fn version_dirs(root: &Path, tail: &[&str]) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut versions: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    // Newest last-listed first: `v22` must win over `v18` when both are present.
+    versions.sort();
+    versions.reverse();
+    versions
+        .into_iter()
+        .map(|version| {
+            let mut path = root.join(version);
+            for part in tail {
+                path.push(part);
+            }
+            path
+        })
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
+fn build_platform_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    #[cfg(windows)]
+    {
+        let mut env_dir = |name: &str, suffix: &str| {
+            if let Some(base) = std::env::var_os(name) {
+                let mut path = PathBuf::from(base);
+                for part in suffix.split('/').filter(|part| !part.is_empty()) {
+                    path.push(part);
+                }
+                dirs.push(path);
+            }
+        };
+        // The prefix this app installs into, plus the layout pi's own installer
+        // uses, and the per-user npm/pnpm/volta prefixes that never reach PATH.
+        env_dir("LOCALAPPDATA", "pi-node/current");
+        env_dir("LOCALAPPDATA", "pi/node/current");
+        env_dir("LOCALAPPDATA", "Programs");
+        env_dir("LOCALAPPDATA", "Volta/bin");
+        env_dir("LOCALAPPDATA", "pnpm");
+        env_dir("APPDATA", "npm");
+        env_dir("APPDATA", "fnm");
+        env_dir("USERPROFILE", ".bun/bin");
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let appdata = PathBuf::from(appdata);
+            dirs.extend(version_dirs(
+                &appdata.join("fnm").join("node-versions"),
+                &["installation"],
+            ));
+        }
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let local = PathBuf::from(local);
+            dirs.extend(version_dirs(
+                &local.join("fnm").join("node-versions"),
+                &["installation"],
+            ));
+            dirs.extend(version_dirs(&local.join("Volta").join("tools"), &["bin"]));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let home = home_dir();
+        // Package-manager roots. A macOS app started from Finder gets
+        // `/usr/bin:/bin:/usr/sbin:/sbin` from launchd, so Homebrew's prefix
+        // (where `npm -g` puts the shim on Apple silicon) is invisible.
+        for fixed in [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+            "/usr/local/opt/node/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+            "/snap/bin",
+        ] {
+            dirs.push(PathBuf::from(fixed));
+        }
+        for suffix in [
+            ".local/bin",
+            ".anvil/runtimes/bin",
+            ".pi/bin",
+            ".pi/node/current/bin",
+            "Library/pnpm",
+            ".yarn/bin",
+            ".bun/bin",
+            ".npm-global/bin",
+            ".volta/bin",
+            ".asdf/shims",
+            ".local/share/pnpm",
+            "bin",
+        ] {
+            dirs.push(home.join(suffix));
+        }
+        dirs.extend(version_dirs(&home.join(".nvm/versions/node"), &["bin"]));
+        dirs.extend(version_dirs(
+            &home.join("Library/Application Support/fnm/node-versions"),
+            &["installation", "bin"],
+        ));
+        dirs.extend(version_dirs(
+            &home.join(".local/share/fnm/node-versions"),
+            &["installation", "bin"],
+        ));
+        dirs.extend(version_dirs(&home.join(".nodenv/versions"), &["bin"]));
+        dirs.extend(version_dirs(
+            &home.join(".local/share/mise/installs/node"),
+            &["bin"],
+        ));
+        dirs.extend(version_dirs(&home.join(".asdf/installs/nodejs"), &["bin"]));
+    }
+    dirs.extend(shell_path_dirs().iter().cloned());
+    dirs
+}
+
+/// The login shell's own `PATH`, asked once.
+///
+/// Users configure Node through `.zshrc` (nvm, pnpm, asdf, a custom npm
+/// prefix). A Finder-launched app never reads those files, so the only way to
+/// see the same binaries Terminal sees is to ask the shell. Bounded (3s) and
+/// cached: at most one shell process per app start, and nothing at all when the
+/// shell is slow or missing. Set `ANVIL_NO_SHELL_PATH=1` to skip it.
+static SHELL_PATH_DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+
+fn shell_path_dirs() -> &'static [PathBuf] {
+    SHELL_PATH_DIRS.get_or_init(|| {
+        if std::env::var_os("ANVIL_NO_SHELL_PATH").is_some() {
+            return Vec::new();
+        }
+        #[cfg(windows)]
+        {
+            Vec::new()
+        }
+        #[cfg(not(windows))]
+        {
+            let shell = std::env::var_os("SHELL")
+                .map(PathBuf::from)
+                .filter(|path| path.is_file())
+                .unwrap_or_else(|| PathBuf::from("/bin/zsh"));
+            if !shell.is_file() {
+                return Vec::new();
+            }
+            // `-i` runs `.zshrc` (where the version managers live), `-l`
+            // reads `.zprofile`, `-c` prints and exits. Startup files can be
+            // chatty, so the last line that looks like a path list wins.
+            let Ok(output) = run(
+                &shell,
+                &["-ilc", "printf %s \"$PATH\""],
+                Duration::from_secs(3),
+            ) else {
+                return Vec::new();
+            };
+            let text = output.text();
+            let line = text
+                .lines()
+                .rev()
+                .find(|line| line.split(':').any(|part| part.starts_with('/')))
+                .unwrap_or("");
+            std::env::split_paths(line)
+                .filter(|path| path.is_dir())
+                .collect()
+        }
+    })
+}
+
+/// Environment for a runtime child, with the same search list discovery used.
+///
+/// An npm shim on macOS starts with `#!/usr/bin/env node`; launched from Finder
+/// the inherited PATH has no Node, so the shim dies with "env: node: No such
+/// file or directory" even though discovery found it seconds earlier.
+pub fn child_env() -> Vec<(String, String)> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(node) = preferred_node() {
+        if let Some(parent) = node.parent() {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    dirs.extend(search_dirs());
+    let mut seen: HashSet<String> = HashSet::new();
+    let kept: Vec<PathBuf> = dirs
+        .into_iter()
+        .filter(|dir| seen.insert(dir_key(dir)))
+        .collect();
+    match std::env::join_paths(kept) {
+        Ok(value) => vec![("PATH".to_string(), value.to_string_lossy().into_owned())],
+        Err(_) => Vec::new(),
+    }
 }
 
 fn executable_extensions() -> Vec<String> {
@@ -310,51 +583,36 @@ fn find_in_dir(directory: &Path, name: &str, extensions: &[String]) -> Option<Pa
     None
 }
 
-/// Directories a runtime can be installed into without being on `PATH`.
-pub fn known_install_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    // The installer honours `ANVIL_RUNTIME_PREFIX`; lookups must follow it,
-    // otherwise a portable prefix installs fine but is never discovered. Pushed
-    // first so it wins over the per-user default.
-    if let Some(value) = std::env::var_os("ANVIL_RUNTIME_PREFIX") {
-        let path = PathBuf::from(value);
-        if !path.as_os_str().is_empty() {
-            dirs.push(path);
-        }
-    }
-    let mut push_env = |name: &str, suffix: &str| {
-        if let Some(base) = std::env::var_os(name) {
-            let mut path = PathBuf::from(base);
-            for part in suffix.split('/').filter(|part| !part.is_empty()) {
-                path.push(part);
-            }
-            dirs.push(path);
-        }
-    };
-    push_env("LOCALAPPDATA", "pi-node/current");
-    // Pi's own installer can bundle Node under `pi/node/current` (no hyphen).
-    push_env("LOCALAPPDATA", "pi/node/current");
-    push_env("LOCALAPPDATA", "Programs");
-    push_env("APPDATA", "npm");
-    // macOS and Linux have no `LOCALAPPDATA`: the per-user prefix the installer
-    // writes to is `~/.anvil/runtimes`, whose `bin/` is where npm drops shims.
-    // The rest are the usual per-user npm/pnpm/bun/pi install locations.
-    for home in ["USERPROFILE", "HOME"] {
-        push_env(home, ".anvil/runtimes/bin");
-        push_env(home, ".pi/bin");
-        push_env(home, ".pi/node/current");
-        push_env(home, ".local/bin");
-        push_env(home, ".local/share/pnpm");
-        push_env(home, ".bun/bin");
-        push_env(home, ".npm-global/bin");
-        push_env(home, ".volta/bin");
-    }
-    dirs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_dirs_cover_the_platform_and_never_repeat() {
+        let dirs = search_dirs();
+        assert!(!dirs.is_empty(), "a machine always has somewhere to look");
+        let mut seen = HashSet::new();
+        for dir in &dirs {
+            assert!(seen.insert(dir_key(dir)), "duplicate {}", dir.display());
+        }
+        if cfg!(target_os = "macos") {
+            // Finder-launched apps never see Homebrew's prefix on PATH.
+            for fixed in ["/opt/homebrew/bin", "/usr/local/bin"] {
+                assert!(
+                    dirs.iter().any(|dir| dir == Path::new(fixed)),
+                    "missing {fixed}: {dirs:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn known_dirs_follow_the_install_prefix_override() {
+        // The installer honours ANVIL_RUNTIME_PREFIX; discovery has to look
+        // there first or a portable install would be invisible.
+        let dirs = known_install_dirs();
+        assert!(!dirs.is_empty());
+    }
 
     #[test]
     fn which_finds_a_shell_command() {

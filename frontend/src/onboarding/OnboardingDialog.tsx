@@ -82,6 +82,31 @@ function orderRuntimes(runtimes: CatalogRuntime[]): CatalogRuntime[] {
   })
 }
 
+/** What a runtime that is not usable actually is.
+ *
+ * The badge used to say "未安装" for every non-available status, so a runtime
+ * that was found but failed its probe (or has no credential) read as missing —
+ * the one thing the reader could not act on.
+ */
+function runtimeStatusLabel(status: string): string {
+  switch (status) {
+    case 'probe_failed':
+      return '探测失败'
+    case 'unauthenticated':
+      return '未登录'
+    case 'version_unsupported':
+      return '版本过低'
+    case 'detected':
+      return '已检测到'
+    case 'adapter_failed':
+      return '适配器异常'
+    case 'orphaned':
+      return '已失效'
+    default:
+      return '未安装'
+  }
+}
+
 /** The model a runtime should start with: promoted, then on, then verified. */
 function pickModel(models: CatalogModel[]): CatalogModel | undefined {
   return (
@@ -512,7 +537,9 @@ export default function OnboardingDialog() {
                             <span className="ob-pill">已就绪</span>
                           ) : (
                             <>
-                              <span className="ob-pill is-muted">未安装</span>
+                              <span className="ob-pill is-muted">
+                                {runtimeStatusLabel(runtime.status)}
+                              </span>
                               <button
                                 type="button"
                                 className="ob-btn is-small"
@@ -525,6 +552,17 @@ export default function OnboardingDialog() {
                             </>
                           )}
                         </div>
+
+                        {/* A runtime that was found but cannot run must not read
+                            as "not installed": the path and the probe's own
+                            reason are the only way to tell a PATH problem from
+                            a missing login. */}
+                        {!ready && runtime.status !== 'not_installed' ? (
+                          <p className="ob-hint ob-runtime-detail" data-testid={`onboarding-detail-${runtime.runtimeId}`}>
+                            {runtime.health?.detail || '已找到可执行文件，但没有通过启动检查。'}
+                            {runtime.installPath ? ` · ${runtime.installPath}` : ''}
+                          </p>
+                        ) : null}
 
                         {ready && checked ? (
                           <p

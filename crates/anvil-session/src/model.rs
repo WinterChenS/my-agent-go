@@ -484,6 +484,10 @@ pub struct CompactReport {
     pub kept: usize,
     /// `seq` of the summary message, so the UI can scroll to it.
     pub summary_seq: i64,
+    /// The runtime had nothing to compact (small session, or just compacted).
+    /// The ledger is untouched and `summary_seq` points at a status row.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// What one turn consists of: the user's words plus the context they pointed at.
@@ -970,13 +974,20 @@ mod tests {
         assert!(!medium.read_only, "medium keeps the session's tools");
         assert!(!high.read_only, "high keeps the session's tools");
 
-        assert_eq!(medium.project_trust, Some(false), "medium skips a folder's .pi");
+        assert_eq!(
+            medium.project_trust,
+            Some(false),
+            "medium skips a folder's .pi"
+        );
         assert_eq!(high.project_trust, Some(true), "high loads it");
         assert_eq!(full.project_trust, Some(true));
 
         assert!(!readonly.trusts_workspace);
         assert!(!medium.trusts_workspace);
-        assert!(!high.trusts_workspace, "only full stops asking about outside paths");
+        assert!(
+            !high.trusts_workspace,
+            "only full stops asking about outside paths"
+        );
         assert!(full.trusts_workspace);
 
         // All four are distinct, which is the whole point.
@@ -991,12 +1002,19 @@ mod tests {
     #[test]
     fn an_unknown_permission_falls_back_to_asking() {
         for value in [None, Some(""), Some("  "), Some("superuser")] {
-            assert_eq!(permission_plan(value), PermissionPlan::default(), "{value:?}");
+            assert_eq!(
+                permission_plan(value),
+                PermissionPlan::default(),
+                "{value:?}"
+            );
             assert!(!permission_plan(value).trusts_workspace);
             assert!(!permission_plan(value).read_only);
         }
         // Case and stray spaces are the picker's problem, not the runtime's.
-        assert_eq!(permission_plan(Some(" FULL ")), permission_plan(Some("full")));
+        assert_eq!(
+            permission_plan(Some(" FULL ")),
+            permission_plan(Some("full"))
+        );
     }
 
     #[test]

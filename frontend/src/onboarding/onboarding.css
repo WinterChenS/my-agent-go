@@ -488,6 +488,16 @@
   line-height: 1.6;
 }
 
+/* Why a found runtime is not usable, plus where it was found. Long paths must
+   wrap instead of pushing the row wider than the dialog. */
+.ob-runtime-detail {
+  margin: 6px 0 0 28px;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 .ob-notice {
   margin: 12px 0 0;
   font-size: var(--text-sm);

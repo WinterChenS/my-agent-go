@@ -228,6 +228,8 @@ function installHost(
     compactDelay?: number
     /** What `session_detail` returns after a compaction. */
     detailAfterCompact?: SessionDetail
+    /** Answer compaction as a no-op, the way pi does for a small session. */
+    compactSkipped?: boolean
   } = {},
 ): Host {
   const calls: string[] = []
@@ -273,6 +275,9 @@ function installHost(
           await new Promise((resolve) => setTimeout(resolve, options.compactDelay))
         }
         compacted = true
+        if (options.compactSkipped) {
+          return { collapsed: 0, kept: 2, summarySeq: 2, skipped: true }
+        }
         return { collapsed: 4, kept: 6, summarySeq: 1 }
       }
       if (command === 'session_context_list') {
@@ -609,6 +614,44 @@ describe('chat live session', () => {
     await waitFor(() =>
       expect(screen.getByTestId('chat-message-compacted')).toHaveTextContent('压缩上下文完成'),
     )
+  })
+
+  it('reports a no-op compaction as "nothing to compact" instead of a failure', async () => {
+    // pi refuses a manual compaction while the context is below its retention
+    // budget. The command still ran, so the page must say so and keep every
+    // message — it used to render a red failure banner for this.
+    const skippedDetail = detail('ok')
+    skippedDetail.messages = [
+      ...skippedDetail.messages,
+      {
+        id: 'pi-1:m9',
+        sessionId: 'pi-1',
+        role: 'system',
+        text: 'compaction skipped: too_small',
+        seq: 9,
+        createdAt: '2026-11-13T00:00:00Z',
+        meta: { compaction: 'skipped', reason: 'too_small', kept: 2 },
+      },
+    ]
+    installHost({ compactSkipped: true, detailAfterCompact: skippedDetail })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    const composer = screen.getByTestId('chat-composer')
+    await waitFor(() => expect(composer).not.toBeDisabled())
+    await userEvent.type(composer, 'first turn')
+    await userEvent.click(screen.getByTestId('chat-send'))
+    await waitFor(() => expect(screen.getByTestId('chat-message-agent')).toHaveTextContent('ok'))
+
+    await userEvent.type(composer, '/compact{enter}')
+    const card = await screen.findByTestId('chat-message-compact-skipped')
+    expect(card).toHaveTextContent('无需压缩')
+    expect(card).toHaveTextContent('当前上下文还不到需要压缩的体量')
+    // The transcript is intact: a skip never folds messages.
+    expect(screen.getAllByTestId('chat-message-user').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('chat-message-agent').length).toBeGreaterThan(0)
   })
 
   it('clears the transcript when a new conversation is started', async () => {
@@ -1497,7 +1540,7 @@ describe('chat context and approvals', () => {
     )
   })
 
-  it('opens a skill-only palette with / and filters it as you type', async () => {
+  it('opens the slash palette with commands and skills, then filters it', async () => {
     const host = installInventoryHost()
     render(
       <MemoryRouter initialEntries={['/chat']}>
@@ -1511,16 +1554,51 @@ describe('chat context and approvals', () => {
     await userEvent.clear(composer)
     await userEvent.type(composer, '/')
     const entries = await screen.findAllByTestId('chat-mention-entry')
-    // A `/` palette is skills only: project files never join this list.
-    expect(entries).toHaveLength(1)
-    expect(entries.every((entry) => entry.getAttribute('data-mention-kind') === 'skill')).toBe(true)
-    expect(screen.getByRole('listbox', { name: 'Skill 列表' })).toHaveAttribute('data-mode', 'slash')
+    const kinds = entries.map((entry) => entry.getAttribute('data-mention-kind'))
+    // The conversation's own commands lead, the runtime's skills follow, and a
+    // project file never joins this list.
+    expect(kinds[0]).toBe('command')
+    expect(kinds).toContain('skill')
+    expect(kinds.every((kind) => kind === 'command' || kind === 'skill')).toBe(true)
+    const names = entries.map((entry) => entry.querySelector('.chat-mention-name')?.textContent)
+    expect(names).toContain('/compact')
+    expect(names).toContain('/new')
+    expect(screen.getByRole('listbox', { name: '命令与 Skill' })).toHaveAttribute('data-mode', 'slash')
     expect(host.calls).not.toContain('session_context_list')
 
     await userEvent.type(composer, 'zzz')
     await waitFor(() =>
-      expect(screen.getByTestId('chat-mention-empty')).toHaveTextContent('没有匹配的 Skill'),
+      expect(screen.getByTestId('chat-mention-empty')).toHaveTextContent('没有匹配的命令或 Skill'),
     )
+  })
+
+  it('runs /compact from the draft and shows the compaction card', async () => {
+    const host = installInventoryHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await sendOnce('first turn')
+    const composer = screen.getByTestId('chat-composer')
+    await userEvent.clear(composer)
+
+    // Picking the command from `/` inserts it; the reader then presses Enter.
+    await userEvent.type(composer, '/comp')
+    const entry = await screen.findByTestId('chat-mention-entry')
+    expect(entry.querySelector('.chat-mention-name')).toHaveTextContent('/compact')
+    await userEvent.tab()
+    expect(composer).toHaveValue('/compact ')
+    await userEvent.type(composer, 'keep the API notes')
+    await userEvent.keyboard('{Enter}')
+
+    await waitFor(() =>
+      expect(host.args('session_compact')).toMatchObject({
+        keepLast: 2,
+        instructions: 'keep the API notes',
+      }),
+    )
+    expect(composer).toHaveValue('')
   })
 
   it('accepts a / skill with Tab and drops the slash token', async () => {
@@ -1589,11 +1667,16 @@ describe('chat context and approvals', () => {
     await userEvent.type(composer, '/')
 
     const entries = await screen.findAllByTestId('chat-mention-entry')
-    expect(entries).toHaveLength(2)
-    // The running runtime's skill sorts first, and that row starts selected.
+    // Commands lead, then the skills; the last row is the codex skill, which
+    // sorts after the running runtime's own.
     expect(entries[0]).toHaveAttribute('aria-selected', 'true')
-    await userEvent.keyboard('{ArrowDown}')
-    expect(screen.getAllByTestId('chat-mention-entry')[1]).toHaveAttribute('aria-selected', 'true')
+    expect(entries[0]).toHaveAttribute('data-mention-kind', 'command')
+    for (let step = 1; step < entries.length; step += 1) {
+      await userEvent.keyboard('{ArrowDown}')
+    }
+    const rows = screen.getAllByTestId('chat-mention-entry')
+    expect(rows[rows.length - 1]).toHaveAttribute('aria-selected', 'true')
+    expect(rows[rows.length - 1]).toHaveAttribute('data-mention-kind', 'skill')
 
     await userEvent.tab()
     expect(composer).toHaveValue('@release-notes ')

@@ -141,10 +141,10 @@ pub fn discover_installs(
         });
     };
 
-    let path_dirs = std::env::var_os("PATH")
-        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for candidate in executable_paths(executable, &path_dirs) {
+    // Two passes so the reported source stays truthful: what the process
+    // actually inherited is `Path`, everything the platform knows about but the
+    // GUI app never got is `KnownDir`.
+    for candidate in executable_paths(executable, &process::env_path_dirs()) {
         push(candidate, InstallSource::Path);
     }
     for candidate in executable_paths(executable, &process::known_install_dirs()) {
@@ -189,26 +189,12 @@ fn executable_extensions() -> Vec<String> {
 ///
 /// npm shims call `node` by name. Windows boxes often have an old Node from a
 /// development tool ahead of the real one, which makes `pi --version` fail
-/// after a perfectly successful install. Prepending the newest working Node we
-/// can start keeps probes and sessions on the same interpreter npm used.
+/// after a perfectly successful install. On macOS a Finder-launched app has no
+/// Node on `PATH` at all. Prepending the newest working Node we can start, and
+/// keeping the directories discovery searched, makes the probe see exactly what
+/// the installer saw.
 pub fn node_env() -> Vec<(String, String)> {
-    let Some(node) = process::preferred_node() else {
-        return Vec::new();
-    };
-    let Some(directory) = node.parent() else {
-        return Vec::new();
-    };
-    let original = std::env::var_os("PATH").unwrap_or_default();
-    let mut entries = vec![directory.to_path_buf()];
-    for path in std::env::split_paths(&original) {
-        if path != directory {
-            entries.push(path);
-        }
-    }
-    match std::env::join_paths(entries) {
-        Ok(value) => vec![("PATH".to_string(), value.to_string_lossy().into_owned())],
-        Err(_) => Vec::new(),
-    }
+    process::child_env()
 }
 
 /// Run `--version` and return the parsed version plus the raw first line.
@@ -248,7 +234,11 @@ mod tests {
         std::fs::write(&shim, "@ECHO off\n").expect("write shim");
 
         let found = executable_paths("pi", &[root.clone()]);
-        assert!(found.contains(&shim), "missed {}: {found:?}", shim.display());
+        assert!(
+            found.contains(&shim),
+            "missed {}: {found:?}",
+            shim.display()
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

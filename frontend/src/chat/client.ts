@@ -254,6 +254,8 @@ export interface CompactReport {
   collapsed: number
   kept: number
   summarySeq: number
+  /** The runtime had nothing to fold (small context, or just compacted). */
+  skipped?: boolean
 }
 
 export interface SessionMessage {

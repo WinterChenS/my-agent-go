@@ -280,7 +280,9 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       run(
         () => compactSession(id, keepLast),
         (report) =>
-          t('chat.history.compacted', { folded: report.collapsed, kept: report.kept }),
+          report.skipped
+            ? t('chat.compact.skipped')
+            : t('chat.history.compacted', { folded: report.collapsed, kept: report.kept }),
       ),
     [run, t],
   )

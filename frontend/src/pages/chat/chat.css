@@ -1501,6 +1501,18 @@ button.chat-badge:hover {
   background: var(--warn-soft);
 }
 
+/* A no-op compaction: the command ran, nothing changed. Quieter than the
+   success card so it never reads as "your context was rewritten". */
+.chat-state-card.is-quiet {
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+}
+
+.chat-state-card.is-quiet .chat-state-icon {
+  color: var(--muted);
+}
+
 .chat-state-icon {
   display: grid;
   place-items: center;

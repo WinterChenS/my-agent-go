@@ -52,7 +52,6 @@ struct LiveRun {
     feed: mpsc::Sender<Feed>,
 }
 
-
 /// Pick the directory that holds this conversation's pi transcript.
 ///
 /// The default per-conversation directory (`<state_dir>/<session-id>`) is
@@ -113,10 +112,7 @@ fn tool_flags(tools: &[String]) -> Vec<String> {
             .all(|builtin| tools.iter().any(|tool| tool == builtin))
         && !extras.iter().any(|tool| tool.as_str() == HEADLESS_EXCLUDE);
     if widened {
-        vec![
-            "--exclude-tools".to_string(),
-            HEADLESS_EXCLUDE.to_string(),
-        ]
+        vec!["--exclude-tools".to_string(), HEADLESS_EXCLUDE.to_string()]
     } else {
         vec!["--tools".to_string(), tools.join(",")]
     }
@@ -586,10 +582,7 @@ impl SessionAdapter for PiAdapter {
         } else if steered {
             turns_text.join("\n\n")
         } else {
-            turns_text
-                .last()
-                .cloned()
-                .unwrap_or_else(|| deltas.clone())
+            turns_text.last().cloned().unwrap_or_else(|| deltas.clone())
         };
         let stderr_tail = diagnostics
             .lock()
@@ -659,18 +652,33 @@ impl SessionAdapter for PiAdapter {
             .stdout
             .take()
             .ok_or_else(|| Error::Io("pi compact stdout was not piped".into()))?;
+        // pi says on stderr when it cannot find the session it was pointed at
+        // and opens a fresh one instead. A compaction of that empty session is
+        // refused as "too small", which would read as a no-op even though the
+        // real transcript was never seen — so keep the warning.
+        let stderr_lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         if let Some(stderr) = child.stderr.take() {
+            let sink = stderr_lines.clone();
             // Drain it so a chatty summarizer cannot block on a full pipe.
             std::thread::spawn(move || {
-                for _ in BufReader::new(stderr)
+                for line in BufReader::new(stderr)
                     .lines()
                     .map_while(std::result::Result::ok)
-                {}
+                {
+                    if let Ok(mut kept) = sink.lock() {
+                        if kept.len() < 40 {
+                            kept.push(line);
+                        }
+                    }
+                }
             });
         }
         let (sender, receiver) = mpsc::channel::<String>();
         std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+            for line in BufReader::new(stdout)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
                 if sender.send(line).is_err() {
                     break;
                 }
@@ -693,7 +701,9 @@ impl SessionAdapter for PiAdapter {
         while Instant::now() < deadline {
             match receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(line) => {
-                    let Some(value) = parse_line(&line) else { continue };
+                    let Some(value) = parse_line(&line) else {
+                        continue;
+                    };
                     match value.get("type").and_then(Value::as_str) {
                         Some("compaction_end") => {
                             if value.get("aborted").and_then(Value::as_bool) == Some(true) {
@@ -701,7 +711,13 @@ impl SessionAdapter for PiAdapter {
                             } else if let Some(message) =
                                 value.get("errorMessage").and_then(Value::as_str)
                             {
-                                failure = Some(message.to_string());
+                                // "Nothing to compact" is pi's normal answer for a
+                                // session under its retention budget, not a fault.
+                                if let Some(reason) = nothing_to_compact(message) {
+                                    outcome.skipped = Some(reason);
+                                } else {
+                                    failure = Some(message.to_string());
+                                }
                             } else if let Some(result) = value.get("result") {
                                 outcome = compact_outcome(result);
                             }
@@ -731,11 +747,14 @@ impl SessionAdapter for PiAdapter {
                                     }
                                 }
                             } else {
-                                failure = value
+                                let message = value
                                     .pointer("/error/message")
                                     .and_then(Value::as_str)
-                                    .map(str::to_string)
-                                    .or_else(|| Some("pi refused the context compaction".into()));
+                                    .unwrap_or("pi refused the context compaction");
+                                match nothing_to_compact(message) {
+                                    Some(reason) => outcome.skipped = Some(reason),
+                                    None => failure = Some(message.to_string()),
+                                }
                             }
                             answered = true;
                             break;
@@ -752,7 +771,30 @@ impl SessionAdapter for PiAdapter {
             return Err(Error::Failed(failure));
         }
         if !answered {
-            return Err(Error::Timeout("pi did not answer the compact command".into()));
+            return Err(Error::Timeout(
+                "pi did not answer the compact command".into(),
+            ));
+        }
+        if outcome.skipped.is_some() {
+            // The refusal only means "nothing to compact" if pi actually opened
+            // the conversation. When it could not find the file it silently
+            // starts an empty one, and saying "nothing to compact" would hide a
+            // session that was never read.
+            let missed = stderr_lines
+                .lock()
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .any(|line| line.contains("No project session found"))
+                })
+                .unwrap_or(false);
+            if missed {
+                return Err(Error::Failed(
+                    "pi could not open this session's own transcript, so nothing was compacted"
+                        .into(),
+                ));
+            }
+            return Ok(Some(outcome));
         }
         if outcome.summary.trim().is_empty() {
             return Err(Error::Failed("pi returned no compaction summary".into()));
@@ -788,7 +830,10 @@ impl SessionAdapter for PiAdapter {
             .ok_or_else(|| Error::Io("pi stats stdout was not piped".into()))?;
         let (sender, receiver) = mpsc::channel::<String>();
         std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+            for line in BufReader::new(stdout)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
                 if sender.send(line).is_err() {
                     break;
                 }
@@ -806,7 +851,9 @@ impl SessionAdapter for PiAdapter {
         while Instant::now() < deadline {
             match receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(line) => {
-                    let Some(value) = parse_line(&line) else { continue };
+                    let Some(value) = parse_line(&line) else {
+                        continue;
+                    };
                     if value.get("type").and_then(Value::as_str) != Some("response")
                         || value.get("command").and_then(Value::as_str) != Some("get_session_stats")
                     {
@@ -828,15 +875,12 @@ impl SessionAdapter for PiAdapter {
                     found = Some(ContextUsage {
                         tokens: usage.get("tokens").and_then(Value::as_u64),
                         context_window: window,
-                        percent: usage
-                            .get("percent")
-                            .and_then(Value::as_f64)
-                            .or_else(|| {
-                                usage
-                                    .get("tokens")
-                                    .and_then(Value::as_u64)
-                                    .map(|tokens| tokens as f64 * 100.0 / window as f64)
-                            }),
+                        percent: usage.get("percent").and_then(Value::as_f64).or_else(|| {
+                            usage
+                                .get("tokens")
+                                .and_then(Value::as_u64)
+                                .map(|tokens| tokens as f64 * 100.0 / window as f64)
+                        }),
                     });
                     break;
                 }
@@ -993,6 +1037,25 @@ fn parse_line(line: &str) -> Option<Value> {
 }
 
 /// Read the fields pi uses for a compaction result (`data` or `result`).
+/// pi's "nothing to do" compaction answers.
+///
+/// A manual compaction is refused when the session is still under pi's
+/// `keepRecentTokens` budget ("Nothing to compact (session too small)") and when
+/// a compaction is already the newest entry ("Already compacted"). Neither is a
+/// failure the reader should be asked to fix; the caller reports them as a
+/// no-op. The returned code is what the page localises.
+fn nothing_to_compact(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("nothing to compact") {
+        return Some("too_small".to_string());
+    }
+    if lower.contains("already compacted") {
+        return Some("already_compacted".to_string());
+    }
+    None
+}
+
+/// Translate pi's compaction result into the runtime-neutral outcome.
 fn compact_outcome(value: &Value) -> CompactOutcome {
     CompactOutcome {
         summary: value
@@ -1007,6 +1070,7 @@ fn compact_outcome(value: &Value) -> CompactOutcome {
         tokens_before: value.get("tokensBefore").and_then(Value::as_u64),
         estimated_tokens_after: value.get("estimatedTokensAfter").and_then(Value::as_u64),
         usage: value.get("usage").cloned(),
+        skipped: None,
     }
 }
 
@@ -1168,7 +1232,8 @@ fn translate(value: &Value) -> Vec<AdapterEvent> {
                 // Keep the tool's output and pictures on the *result* event:
                 // that is where the turn produced them, so the page can draw
                 // an image between the two messages that surround the call.
-                let (text, images) = content_parts(value.get("result").and_then(|r| r.get("content")));
+                let (text, images) =
+                    content_parts(value.get("result").and_then(|r| r.get("content")));
                 let mut payload = serde_json::json!({
                     "tool": value.get("toolName").cloned().unwrap_or(Value::Null),
                     "ok": value.get("isError").map(|flag| !flag.as_bool().unwrap_or(false)),
@@ -1651,7 +1716,8 @@ mod tests {
     /// A question the runtime asked has to reach the page: the run is blocked
     /// on the answer, so dropping it would hang the turn forever.
     #[test]
-    fn an_extension_question_becomes_its_own_event() {        let value = serde_json::json!({
+    fn an_extension_question_becomes_its_own_event() {
+        let value = serde_json::json!({
             "type": "extension_ui_request",
             "id": "uuid-1",
             "method": "confirm",
@@ -1741,7 +1807,8 @@ mod tests {
     /// The receipt of an RPC command is protocol bookkeeping. It must not
     /// show up in the transcript, but a refused command is worth seeing.
     #[test]
-    fn a_command_receipt_is_not_a_transcript_event() {        let ok = translate(&serde_json::json!({
+    fn a_command_receipt_is_not_a_transcript_event() {
+        let ok = translate(&serde_json::json!({
             "type": "response",
             "id": "ctx-1",
             "command": "get_session_stats",
@@ -1758,10 +1825,12 @@ mod tests {
         }));
         assert_eq!(refused.len(), 1);
         assert_eq!(refused[0].kind, EventKind::Error);
-        assert!(refused[0].payload["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("model is not enabled"));
+        assert!(
+            refused[0].payload["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("model is not enabled")
+        );
     }
 
     /// A parallel delegation has to become N cards, not one: the extension
@@ -2125,7 +2194,14 @@ mod tests {
     #[test]
     fn an_explicit_ask_question_is_not_silently_excluded() {
         let tools: Vec<String> = [
-            "read", "write", "edit", "bash", "grep", "find", "ls", "ask_question",
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "grep",
+            "find",
+            "ls",
+            "ask_question",
         ]
         .iter()
         .map(|name| (*name).to_string())
@@ -2163,8 +2239,15 @@ mod tests {
             .position(|arg| arg == "--tools")
             .and_then(|index| read_only.get(index + 1))
             .cloned();
-        assert_eq!(allowed.as_deref(), Some("read,grep,find,ls"), "{read_only:?}");
-        assert!(read_only.iter().any(|arg| arg == "--no-approve"), "{read_only:?}");
+        assert_eq!(
+            allowed.as_deref(),
+            Some("read,grep,find,ls"),
+            "{read_only:?}"
+        );
+        assert!(
+            read_only.iter().any(|arg| arg == "--no-approve"),
+            "{read_only:?}"
+        );
 
         let trusted = argv(
             OpenedSession {
@@ -2175,12 +2258,17 @@ mod tests {
             &[],
         );
         assert!(trusted.iter().any(|arg| arg == "--approve"), "{trusted:?}");
-        assert!(!trusted.iter().any(|arg| arg == "--no-approve"), "{trusted:?}");
+        assert!(
+            !trusted.iter().any(|arg| arg == "--no-approve"),
+            "{trusted:?}"
+        );
 
         // No decision means no flag: the runtime keeps its own default.
         let untouched = argv(OpenedSession::default(), true, &[]);
         assert!(
-            !untouched.iter().any(|arg| arg == "--approve" || arg == "--no-approve"),
+            !untouched
+                .iter()
+                .any(|arg| arg == "--approve" || arg == "--no-approve"),
             "{untouched:?}"
         );
     }

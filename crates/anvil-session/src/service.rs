@@ -295,7 +295,12 @@ impl Steers {
         Self::default()
     }
 
-    pub fn register(&self, session_id: &str, adapter: Arc<dyn SessionAdapter>, opened: &OpenedSession) {
+    pub fn register(
+        &self,
+        session_id: &str,
+        adapter: Arc<dyn SessionAdapter>,
+        opened: &OpenedSession,
+    ) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.insert(session_id.to_string(), (adapter, opened.clone()));
         }
@@ -765,8 +770,7 @@ impl SessionService {
 
         // Registered before the first byte is read, so the page can steer the
         // run from the moment it starts.
-        self.steers
-            .register(session_id, adapter.clone(), &opened);
+        self.steers.register(session_id, adapter.clone(), &opened);
 
         let mut event_count = 0usize;
         let mut deltas = String::new();
@@ -1208,12 +1212,6 @@ impl SessionService {
         }
         let keep_last = keep_last.max(1);
         let messages = self.store.messages(session_id)?;
-        if messages.len() <= keep_last {
-            return Err(Error::Rejected(format!(
-                "session {session_id:?} has {} message(s); nothing to compact with keep_last={keep_last}",
-                messages.len()
-            )));
-        }
 
         // Give the runtime a chance to compact its native context first. If it
         // fails, stop here: folding only the ledger would look successful while
@@ -1235,6 +1233,43 @@ impl SessionService {
             ..OpenedSession::default()
         };
         let native = adapter.compact(&self.context, &opened, instructions, &mut |_| {})?;
+
+        // "Nothing to compact" is pi's answer for a session that is still
+        // small, or one that was just compacted. Reporting it as a failure made
+        // a working command look broken, so it becomes a no-op with its own row:
+        // the reader sees that the command ran, and the transcript still holds
+        // every message.
+        if let Some(reason) = native.as_ref().and_then(|outcome| outcome.skipped.clone()) {
+            let now = now_rfc3339();
+            let meta = serde_json::json!({
+                "compaction": "skipped",
+                "reason": reason,
+                "kept": messages.len(),
+            });
+            let seq = self.store.append_message(
+                session_id,
+                None,
+                Role::System,
+                &format!("compaction skipped: {reason}"),
+                &now,
+                Some(&meta),
+            )?;
+            self.store
+                .append_event(session_id, "", crate::model::EventKind::Compacted, &meta)?;
+            return Ok(CompactReport {
+                collapsed: 0,
+                kept: messages.len(),
+                summary_seq: seq,
+                skipped: true,
+            });
+        }
+
+        if messages.len() <= keep_last {
+            return Err(Error::Rejected(format!(
+                "session {session_id:?} has {} message(s); nothing to compact with keep_last={keep_last}",
+                messages.len()
+            )));
+        }
 
         let split = messages.len() - keep_last;
         let (head, tail) = messages.split_at(split);
@@ -1287,16 +1322,13 @@ impl SessionService {
             });
         }
         self.store.replace_messages(session_id, &kept)?;
-        self.store.append_event(
-            session_id,
-            "",
-            crate::model::EventKind::Compacted,
-            &meta,
-        )?;
+        self.store
+            .append_event(session_id, "", crate::model::EventKind::Compacted, &meta)?;
         Ok(CompactReport {
             collapsed: head.len(),
             kept: tail.len(),
             summary_seq: 1,
+            skipped: false,
         })
     }
 
@@ -2232,9 +2264,7 @@ mod tests {
         service.send(&session.id, "second question").expect("send");
         service.send(&session.id, "third question").expect("send");
 
-        let report = service
-            .compact(&session.id, 2, None)
-            .expect("compact");
+        let report = service.compact(&session.id, 2, None).expect("compact");
         assert_eq!(report.collapsed, 4);
         assert_eq!(report.kept, 2);
         let detail = service.detail(&session.id).expect("detail");

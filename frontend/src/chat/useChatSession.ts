@@ -47,6 +47,7 @@ import {
   type ApprovalRequest,
   type ContextEntry,
   type ContextUsage,
+  type CompactReport,
   type PiImage,
   type ContextRef,
   type ExportReport,
@@ -206,7 +207,7 @@ export interface ChatSessionView {
   /** Branch a session at its last message and open the branch. */
   fork: (sessionId: string) => Promise<string | null>
   /** Compact the runtime's context and fold the ledger into one summary row. */
-  compact: (sessionId: string, keepLast: number, instructions?: string) => Promise<boolean>
+  compact: (sessionId: string, keepLast: number, instructions?: string) => Promise<CompactReport | null>
   /** Re-read pi's context estimate after an external change (e.g. compaction). */
   refreshContext: (sessionId: string) => Promise<void>
 }
@@ -1574,14 +1575,14 @@ export function useChatSession({
   const compact = useCallback(
     async (sessionId: string, keepLast: number, instructions?: string) => {
       try {
-        await compactSession(sessionId, keepLast, instructions)
+        const report = await compactSession(sessionId, keepLast, instructions)
         const detail = await loadSession(sessionId)
         if (mounted.current) setCurrent(detail)
         await reloadSessions()
-        return true
+        return report
       } catch (cause) {
         if (mounted.current) setError(describeSessionError(cause))
-        return false
+        return null
       }
     },
     [reloadSessions],

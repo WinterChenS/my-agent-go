@@ -99,15 +99,46 @@ type Attachment = {
   size?: string
 }
 
-/** One row of the `@` picker: a project file or an installed skill. */
+/** One row of the `@` picker: a project file, an installed skill, or a
+ *  command the page itself runs. */
 type MentionHit = {
   id: string
   name: string
-  kind: Attachment['kind']
+  kind: Attachment['kind'] | 'command'
   path: string
   detail: string
   bytes: number
 }
+
+/**
+ * A slash command the composer can run without asking the model.
+ *
+ * These are the operations this page actually implements, in the same shape pi
+ * exposes them (`/compact [instructions]`). Keeping the list here — next to the
+ * code that executes it — means the palette can never offer a command that
+ * does nothing.
+ */
+type SlashCommand = {
+  name: string
+  /** Argument hint appended after the name when it is inserted. */
+  args?: string
+  labelKey: MessageKey
+  descKey: MessageKey
+  /** Only offered while a turn is streaming. */
+  whileRunning?: boolean
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    name: 'compact',
+    args: '[说明]',
+    labelKey: 'chat.cmd.compact',
+    descKey: 'chat.cmd.compactDesc',
+  },
+  { name: 'new', labelKey: 'chat.cmd.new', descKey: 'chat.cmd.newDesc' },
+  { name: 'stop', labelKey: 'chat.cmd.stop', descKey: 'chat.cmd.stopDesc', whileRunning: true },
+  { name: 'export', labelKey: 'chat.cmd.export', descKey: 'chat.cmd.exportDesc' },
+]
 
 /**
  * What opened the context picker: `@` lists project files and skills, the "+"
@@ -971,18 +1002,41 @@ export default function ChatPage() {
   // Opening a thread lands on its newest message. This is a placement, not a
   // preference: the reader can scroll up immediately afterwards and keep that
   // position for as long as the turn runs.
+  //
+  // The messages of a history row arrive a beat after the id changes, so
+  // scrolling on the id alone lands on an empty column and leaves the reader at
+  // the top of the conversation. Instead the id only *arms* the placement, and
+  // the effect below commits it once the transcript in hand belongs to that id.
+  const placedIdRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    placedIdRef.current = null
+  }, [currentId])
+
   useLayoutEffect(() => {
     const node = threadRef.current
-    if (!node) return
+    if (!node || sample || !currentId) return
+    if (placedIdRef.current === currentId) return
+    // Wait until the detail on screen is this session's; measuring the previous
+    // thread's height would place the scroll in the wrong column.
+    if (live.current?.session.id !== currentId) return
+    placedIdRef.current = currentId
     followRef.current = true
     skipFollowRef.current = true
     // Seed the signature from the messages already in the thread, so the next
     // send counts as new (otherwise the first send would look like "first
     // render" and skip the pin-to-top entirely).
     lastUserIdRef.current = lastUserKey
-    expectedScrollRef.current = bottomOffset(node)
-    node.scrollTop = expectedScrollRef.current
-  }, [currentId])
+    const bottom = bottomOffset(node)
+    expectedScrollRef.current = bottom
+    node.scrollTop = bottom
+    // Images, code blocks and fonts can still grow the column after this frame;
+    // one more pass lands on the real tail instead of a short first guess.
+    requestAnimationFrame(() => {
+      if (placedIdRef.current !== currentId) return
+      const again = threadRef.current
+      if (again) again.scrollTop = bottomOffset(again)
+    })
+  })
 
   // A new turn re-arms the follow, even if the last one ended while the reader
   // was reading an earlier message.
@@ -1030,6 +1084,29 @@ export default function ChatPage() {
     expectedScrollRef.current = bottom
     node.scrollTop = bottom
   })
+
+  // A turn ending swaps the streaming timeline for the stored message. When
+  // the replacement is shorter — always the case after a stop, where the
+  // partial answer is far smaller than the tool cards above it — the browser
+  // clamps `scrollTop` and the reader lands at the top of the conversation,
+  // which is the last place they asked for. If they were following the tail,
+  // stay on it.
+  const wasRunningRef = useRef(false)
+  useLayoutEffect(() => {
+    const ended = wasRunningRef.current && !live.running
+    wasRunningRef.current = live.running
+    if (!ended || sample || !followRef.current) return
+    const node = threadRef.current
+    if (!node) return
+    const bottom = bottomOffset(node)
+    expectedScrollRef.current = bottom
+    node.scrollTop = bottom
+    // The final message and its images can lay out one frame later.
+    requestAnimationFrame(() => {
+      const again = threadRef.current
+      if (again && followRef.current) again.scrollTop = bottomOffset(again)
+    })
+  }, [live.running, sample])
 
   const onThreadScroll = () => {
     const node = threadRef.current
@@ -1337,19 +1414,23 @@ export default function ChatPage() {
     setCompactingContext(true)
     void live
       .compact(liveSession.id, COMPACT_KEEP_LAST, instructions)
-      .then((ok) => {
-        if (!ok) {
+      .then((report) => {
+        if (!report) {
           setNotice(t('chat.compact.failed'))
           return
         }
-        setNotice(t('chat.live.compacted'))
+        // pi answers "nothing to compact" for a session that is still small or
+        // was just compacted. That is not a failure, and claiming "compacted"
+        // would be a lie: say what happened and still refresh the transcript so
+        // the status row is visible.
+        setNotice(report.skipped ? t('chat.compact.skipped') : t('chat.live.compacted'))
         return live.refreshContext(liveSession.id)
       })
       .finally(() => setCompactingContext(false))
   }
 
-  const openDialog = (kind: ChatDialogKind, trigger: HTMLElement) => {
-    dialogTrigger.current = trigger
+  const openDialog = (kind: ChatDialogKind, trigger?: HTMLElement | null) => {
+    dialogTrigger.current = trigger ?? null
     setDialog(kind)
   }
   const closeDialog = () => {
@@ -1599,6 +1680,26 @@ export default function ChatPage() {
                         <span className="chat-compact-summary">{message.text}</span>
                       </div>
                     </section>
+                  ) : message.meta && (message.meta as { compaction?: string }).compaction === 'skipped' ? (
+                    <section
+                      className="chat-state-card is-quiet"
+                      data-testid="chat-message-compact-skipped"
+                      role="status"
+                      aria-label={t('chat.compact.skipped')}
+                      key={message.id}
+                    >
+                      <span className="chat-state-icon">
+                        <Icon name="archive" size={14} />
+                      </span>
+                      <div className="chat-state-copy">
+                        <b>{t('chat.compact.skipped')}</b>
+                        <span>
+                          {(message.meta as { reason?: string }).reason === 'already_compacted'
+                            ? t('chat.compact.skippedAgain')
+                            : t('chat.compact.skippedSmall')}
+                        </span>
+                      </div>
+                    </section>
                   ) : (
                     <article
                       className={`chat-msg${focusRing(message.runId)}`}
@@ -1826,6 +1927,11 @@ export default function ChatPage() {
             }
             draftRequest={draftRequest}
             onCompact={compactLiveContext}
+            onNewSession={() => {
+              history.startNew()
+              live.startNew()
+            }}
+            onExport={() => openDialog('export')}
             contextAside={
               <ContextRing
                 windowSize={contextWindow}
@@ -2683,6 +2789,8 @@ function Composer({
   queueAside,
   draftRequest,
   onCompact,
+  onNewSession,
+  onExport,
   contextAside,
 }: {
   sample: boolean
@@ -2723,6 +2831,10 @@ function Composer({
   draftRequest?: { id: number; text: string; refs: ContextRef[] } | null
   /** Run the real context compaction; `/compact [instructions]` lands here. */
   onCompact?: (instructions?: string) => void
+  /** `/new`: start a fresh conversation with the same runtime and model. */
+  onNewSession?: () => void
+  /** `/export`: open the export dialog for the open conversation. */
+  onExport?: () => void
   /** Context-window occupancy, below the field. */
   contextAside?: ReactNode
 }) {
@@ -2859,20 +2971,35 @@ function Composer({
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
-    // `/compact` is a command, not a prompt. Intercept it before the turn path
-    // so it triggers the runtime's real compaction and shows its status card
-    // instead of asking the model to interpret the word.
-    const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim())
-    if (compact) {
+    // A leading `/` is a command, not a prompt. Commands are intercepted before
+    // the turn path so `/compact` triggers the runtime's real compaction (and
+    // shows its status card) instead of asking the model to interpret the word.
+    const slash = /^\/([a-zA-Z][\w-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
+    if (slash && SLASH_COMMANDS.some((command) => command.name === slash[1].toLowerCase())) {
       if (sample) {
         onNotice(t('chat.notice.send'))
         return
       }
-      onCompact?.(compact[1]?.trim() || undefined)
+      const name = slash[1].toLowerCase()
+      const rest = (slash[2] ?? '').trim()
       setText('')
       setAttachments([])
       caretTarget.current = 0
       closeMentions()
+      if (name === 'compact') {
+        if (runtimeId && runtimeId !== 'pi') {
+          onNotice(t('chat.cmd.compactUnsupported'))
+          return
+        }
+        onCompact?.(rest || undefined)
+      } else if (name === 'new') {
+        onNewSession?.()
+      } else if (name === 'stop') {
+        if (live?.running) live.onStop()
+        else onNotice(t('chat.cmd.idle'))
+      } else if (name === 'export') {
+        onExport?.()
+      }
       return
     }
     if (sample) {
@@ -2936,6 +3063,33 @@ function Composer({
         bytes: 0,
       }))
 
+  /**
+   * The commands `/` offers before any skill.
+   *
+   * Skills are the runtime's add-ons; these are the operations of the
+   * conversation itself (compact, new, stop, export). They lead the list
+   * because `/compact` is the one a reader types most and it must not be buried
+   * under dozens of skill names.
+   */
+  const commandHits = (query: string): MentionHit[] =>
+    SLASH_COMMANDS.filter((command) => {
+      if (command.whileRunning && !live?.running) return false
+      // Only pi exposes a context rewrite; offering `/compact` on a runtime
+      // that has none would fold this page's ledger while the model kept the
+      // whole conversation — the exact lie the compaction work was meant to
+      // remove.
+      if (command.name === 'compact' && runtimeId && runtimeId !== 'pi') return false
+      const haystack = `${command.name} ${t(command.labelKey)} ${t(command.descKey)}`.toLowerCase()
+      return haystack.includes(query.toLowerCase())
+    }).map((command) => ({
+      id: `command:${command.name}`,
+      name: command.name,
+      kind: 'command' as const,
+      path: command.args ? `/${command.name} ${command.args}` : `/${command.name}`,
+      detail: t(command.descKey),
+      bytes: 0,
+    }))
+
   const closeMentions = () => {
     setMentionOpen(false)
     setMentionHits([])
@@ -2953,6 +3107,13 @@ function Composer({
     setMentionOpen(true)
     setMentionMode(mode)
     const matchedSkills = skillHits(query ?? '')
+    // `/` opens with the conversation's own commands, then the runtime's
+    // skills. `@` stays skills-and-files: a command is not something to attach.
+    if (mode === 'slash') {
+      setMentionHits([...commandHits(query ?? ''), ...matchedSkills])
+      setMentionIndex(0)
+      return
+    }
     // `@` from the drawer and `/` are skill-only; only a plain `@` asks the
     // host for project files.
     if (mode !== 'all' || !onMention) {
@@ -3043,6 +3204,18 @@ function Composer({
    * chip above the field, because a path is not something you type into prose.
    */
   const acceptHit = (hit: MentionHit) => {
+    if (hit.kind === 'command') {
+      // Insert the command with its argument hint when it takes one. A command
+      // that needs no arguments is inserted bare, so the next Enter runs it.
+      const spec = SLASH_COMMANDS.find((command) => command.name === hit.name)
+      const inserted = spec?.args ? `/${hit.name} ` : `/${hit.name}`
+      const next = text.replace(/\/[^\s]*$/, inserted)
+      setText(next)
+      caretTarget.current = next.length
+      closeMentions()
+      textareaRef.current?.focus()
+      return
+    }
     if (hit.kind === 'skill') {
       const { value, caret } = insertSkill(
         text,
@@ -3076,9 +3249,13 @@ function Composer({
     const composing = event.nativeEvent.isComposing || event.keyCode === 229
     const modifier = event.metaKey || event.ctrlKey
     const paletteOpen = mentionOpen && !sample && mentionHits.length > 0
+    // A draft that already spells a whole command runs it: `/compact` + Enter
+    // is how a reader who knows the command types it, and accepting the row
+    // into the same text would leave them pressing Enter a second time.
+    const exactCommand = SLASH_COMMANDS.some((command) => `/${command.name}` === text.trim())
     const wantsSend =
       !composing &&
-      !paletteOpen &&
+      (!paletteOpen || exactCommand) &&
       event.key === 'Enter' &&
       (sendShortcut === 'enter' ? !modifier && !event.shiftKey : modifier)
     if (wantsSend) {
@@ -3337,15 +3514,15 @@ function Composer({
             role="listbox"
             data-mode={mentionMode}
             aria-label={
-              mentionMode === 'slash' ? t('chat.composer.skillPicker') : t('chat.composer.mention')
+              mentionMode === 'slash' ? t('chat.composer.commandPicker') : t('chat.composer.mention')
             }
             onWheel={(event) => event.stopPropagation()}
           >
             <div className="chat-pick-head">
-              <Icon name={mentionMode === 'slash' ? 'puzzle' : 'sparkle'} size={13} />
+              <Icon name={mentionMode === 'slash' ? 'terminal' : 'sparkle'} size={13} />
               <b>
                 {mentionMode === 'slash'
-                  ? t('chat.composer.skillPicker')
+                  ? t('chat.composer.commandPicker')
                   : t('chat.composer.mention')}
               </b>
               <span className="chat-pick-hint">{t('chat.composer.pickerHint')}</span>
@@ -3353,7 +3530,7 @@ function Composer({
             {mentionHits.length === 0 ? (
               <span className="chat-mention-empty" data-testid="chat-mention-empty">
                 {mentionMode === 'slash'
-                  ? t('chat.composer.skillEmpty')
+                  ? t('chat.composer.commandEmpty')
                   : t('chat.composer.mentionEmpty')}
               </span>
             ) : (
@@ -3372,9 +3549,22 @@ function Composer({
                     onClick={() => acceptHit(hit)}
                   >
                     <span className={`chat-pick-icon is-${hit.kind}`}>
-                      <Icon name={hit.kind === 'skill' ? 'puzzle' : hit.kind === 'dir' ? 'folder' : 'file'} size={13} />
+                      <Icon
+                        name={
+                          hit.kind === 'command'
+                            ? 'terminal'
+                            : hit.kind === 'skill'
+                              ? 'puzzle'
+                              : hit.kind === 'dir'
+                                ? 'folder'
+                                : 'file'
+                        }
+                        size={13}
+                      />
                     </span>
-                    <span className="chat-mention-name">{hit.name}</span>
+                    <span className="chat-mention-name">
+                      {hit.kind === 'command' ? `/${hit.name}` : hit.name}
+                    </span>
                     <small>{hit.detail}</small>
                   </button>
                 ))}

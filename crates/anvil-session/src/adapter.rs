@@ -45,6 +45,14 @@ pub struct CompactOutcome {
     pub tokens_before: Option<u64>,
     pub estimated_tokens_after: Option<u64>,
     pub usage: Option<Value>,
+    /// Set when the runtime declined because there was nothing to compact.
+    ///
+    /// pi refuses a manual compaction below its retention budget ("Nothing to
+    /// compact (session too small)") and after one has already happened
+    /// ("Already compacted"). That is a normal answer, not a failure: the caller
+    /// must report it as "nothing to do" instead of an error the reader has to
+    /// interpret, and must not pretend the context changed.
+    pub skipped: Option<String>,
 }
 
 /// One event as the adapter observed it, before the service assigns a `seq`.
@@ -264,7 +272,9 @@ pub trait SessionAdapter: Send + Sync {
         _request_id: &str,
         _answer: &crate::model::UiAnswer,
     ) -> Result<()> {
-        Err(Error::Failed("this runtime cannot ask the user anything".into()))
+        Err(Error::Failed(
+            "this runtime cannot ask the user anything".into(),
+        ))
     }
 
     /// Stop a run started by `send`. Default: rely on `Cancel`.
