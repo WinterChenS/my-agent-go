@@ -190,6 +190,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             // bridge a runtime's shell commands use to drive it.
             let browser = std::sync::Arc::new(crate::browser::Browser::new());
             app.manage(crate::browser::BrowserHandle(browser.clone()));
+            // A platform can move a child view without telling anyone; this
+            // reads the frame back and corrects it.
+            #[cfg(target_os = "macos")]
+            crate::browser::spawn_watchdog(app.handle().clone());
             match crate::bridge::start(app.handle().clone(), browser) {
                 Ok(port) => app
                     .state::<HostState>()

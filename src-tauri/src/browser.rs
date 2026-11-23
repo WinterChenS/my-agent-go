@@ -201,6 +201,48 @@ impl Browser {
         }
     }
 
+    /// Puts the view back if it is not where the pane says it should be.
+    ///
+    /// The last resort against a platform that moves a child view behind the
+    /// app's back: one readback every second and a half, and a placement only
+    /// when the numbers disagree. A parked pane (no size) is left alone — it is
+    /// off-screen on purpose.
+    pub fn check(&self) -> Result<Option<String>, String> {
+        let want = *self
+            .bounds
+            .lock()
+            .map_err(|_| "browser bounds".to_string())?;
+        if want.2 <= 1.0 || want.3 <= 1.0 {
+            return Ok(None);
+        }
+        let slot = self
+            .webview
+            .lock()
+            .map_err(|_| "browser lock".to_string())?;
+        let Some(webview) = slot.as_ref() else {
+            return Ok(None);
+        };
+        let Some(actual) = webview.bounds().ok().and_then(logical_of) else {
+            return Ok(None);
+        };
+        let close_enough = (actual.0 - want.0).abs() <= 1.5
+            && (actual.1 - want.1).abs() <= 1.5
+            && (actual.2 - want.2).abs() <= 1.5
+            && (actual.3 - want.3).abs() <= 1.5;
+        if close_enough {
+            return Ok(None);
+        }
+        let found = format!(
+            "{:.0},{:.0} {:.0}x{:.0}",
+            actual.0, actual.1, actual.2, actual.3
+        );
+        webview
+            .set_bounds(rect_of(want.0, want.1, want.2, want.3))
+            .map_err(|error| format!("browser bounds: {error}"))?;
+        self.placements.fetch_add(1, Ordering::Relaxed);
+        Ok(Some(format!("was at {found}, put back on the pane")))
+    }
+
     pub fn close(&self) -> Result<(), String> {
         let mut slot = self
             .webview
@@ -850,18 +892,24 @@ fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
 
 /// One line describing where a native view says it is.
 fn describe(rect: tauri::Rect) -> String {
-    let position = match rect.position {
-        tauri::Position::Logical(p) => format!("{:.0},{:.0}", p.x, p.y),
-        tauri::Position::Physical(p) => format!("phys {},{},", p.x, p.y),
-    };
-    let size = match rect.size {
-        tauri::Size::Logical(s) => format!("{:.0}x{:.0}", s.width, s.height),
-        tauri::Size::Physical(s) => format!("phys {}x{}", s.width, s.height),
-    };
-    // The readback is asked for in logical pixels; a physical answer means the
-    // platform handed back what the window manager thinks instead.
-    let position = position.replace("phys ", "physical ").replace(",,", ",");
-    format!("{} {}", position.trim_end_matches(','), size)
+    match logical_of(rect) {
+        Some((x, y, w, h)) => format!("{x:.0},{y:.0} {w:.0}x{h:.0}"),
+        None => "physical units (unreadable here)".to_string(),
+    }
+}
+
+/// The logical rect a platform reports, if it reported one.
+///
+/// The readback is asked for in logical pixels; a physical answer means the
+/// platform handed back what the window manager thinks instead, and comparing
+/// it with the requested rect would be comparing two different units.
+fn logical_of(rect: tauri::Rect) -> Option<(f64, f64, f64, f64)> {
+    match (rect.position, rect.size) {
+        (tauri::Position::Logical(p), tauri::Size::Logical(s)) => {
+            Some((p.x, p.y, s.width, s.height))
+        }
+        _ => None,
+    }
 }
 
 /// Places the pane once more after the window (or the divider) stops moving.
@@ -915,6 +963,52 @@ fn place_last(app: &AppHandle, reason: &str) {
     if let Some(state) = app.try_state::<crate::state::HostState>() {
         state.config.log.info(&message);
     }
+}
+
+/// Keeps the page on its pane, once every beat.
+///
+/// Every other placement in this file reacts to something: a reported rect, a
+/// window resize, a pane opening. This one reacts to nothing, which is the
+/// point — a platform can move a child view without telling anyone (AppKit's
+/// autoresizing mask does exactly that), and no event follows. One readback
+/// every 1.5 s costs nothing visible and puts the view back when the numbers
+/// disagree.
+pub fn spawn_watchdog(app: AppHandle) {
+    use tauri::Manager;
+    std::thread::spawn(move || {
+        let mut reported = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let Some(host) = app.try_state::<crate::state::HostState>() else {
+                return;
+            };
+            if !host.running.load(Ordering::Relaxed) {
+                return;
+            }
+            let Some(browser) = app.try_state::<BrowserHandle>() else {
+                continue;
+            };
+            match browser.get().check() {
+                Ok(None) => {}
+                Ok(Some(note)) => {
+                    // A pane that is being fixed every beat is a bug worth
+                    // reading about; a pane that is fixed once is not.
+                    if reported < 5 {
+                        reported += 1;
+                        host.config.log.info(&format!("browser: watchdog {note}"));
+                    }
+                }
+                Err(error) => {
+                    if reported < 5 {
+                        reported += 1;
+                        host.config
+                            .log
+                            .info(&format!("browser: watchdog failed: {error}"));
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Where a screenshot goes when the caller did not say.
