@@ -30,20 +30,16 @@ use serde_json::Value;
 use tauri::webview::Webview;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
-/// Place the pane's child webview, on every platform, through Tauri's own
-/// `set_bounds`. The page reports a DOM rect (top-left origin, y down) in the
-/// main webview's viewport; wry's macOS backend feeds that same rect to its
-/// `window_position`, which flips y against the superview's `isFlipped`. That
-/// is the one conversion Tauri already gets right on all four platforms.
+/// Place the pane's child webview through Tauri's own `set_bounds`.
 ///
-/// A previous attempt replaced this with an AppKit `convertRect:fromView:`
-/// using the main webview as `fromView`. It was wrong twice over: a DOM rect is
-/// not an NSView *bounds* rect (different origin and y direction), and every
-/// placement needed three `with_webview` hops to the main thread with a 3s
-/// timeout. Under the pane's high-frequency rect reports those hops timed out,
-/// the errors were swallowed, and the view stopped following the pane entirely
-/// — "it just sits there, resize and close do nothing".
-fn place_view(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
+/// This is the Windows/Linux path, and the macOS fallback when the view pair
+/// could not be captured at creation. On macOS the native path is subtly wrong
+/// for this pane: `window_position` flips the DOM rect against the *superview*
+/// height, assuming the pane's top-left and the superview's top-left are the
+/// same point. They are not — the main webview sits a title-bar's height below
+/// the superview's origin, so the child lands that much too high, on the
+/// address bar. `apply_place` uses the AppKit conversion on macOS instead.
+fn place_native(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
     let webview = app
         .get_webview("anvil-browser")
         .ok_or_else(|| "browser webview not found".to_string())?;
@@ -54,17 +50,155 @@ fn place_view(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f
             size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
         })
         .map_err(|error| format!("browser bounds: {error}"))?;
-    // macOS may refuse to move an off-screen/animating view; read back what the
-    // platform actually took so the watchdog can compare like with like.
+    // Read back what the platform actually took so a drift check compares like
+    // with like.
     let read = webview.bounds().ok().and_then(logical_of).unwrap_or((x, y, w, h));
     Ok(read)
 }
 
 /// Read the pane's frame back in the same coordinates `getBoundingClientRect`
 /// reports, so a drift check compares like with like.
-fn read_view(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+fn read_native(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
     let webview = app.get_webview("anvil-browser")?;
     webview.bounds().ok().and_then(logical_of)
+}
+
+/// Pin the child view and capture the two AppKit views placement needs.
+///
+/// Pinning clears wry's `NSViewMinYMargin` mask (otherwise AppKit moves the
+/// child on its own on every window resize, after the pane has already
+/// reported) and re-adds the view so a theme switch cannot bury it. Capturing
+/// returns `(main, child)` as addresses — a raw pointer is not `Send` — and is
+/// done once here, so every later placement is a single main-thread hop
+/// instead of three. Both happen in the child's one `with_webview` closure.
+#[cfg(target_os = "macos")]
+fn capture_views(app: &AppHandle, child: &Webview<tauri::Wry>) -> Option<(usize, usize)> {
+    use objc2::msg_send;
+
+    let (tx, rx) = channel::<usize>();
+    child
+        .with_webview(move |platform| {
+            let view = platform.inner() as *mut objc2::runtime::AnyObject;
+            // SAFETY: `inner` is wry's live `WKWebView`; both messages are the
+            // ordinary `NSView` ones for clearing a mask and raising a subview.
+            unsafe {
+                let _: () = msg_send![view, setAutoresizingMask: 0usize];
+                let sup: *mut objc2::runtime::AnyObject = msg_send![view, superview];
+                if !sup.is_null() {
+                    let _: () = msg_send![sup, addSubview: view];
+                }
+            }
+            let _ = tx.send(view as usize);
+        })
+        .ok()?;
+    let child_addr = rx.recv_timeout(Duration::from_secs(2)).ok()?;
+
+    let main = app.get_webview("main")?;
+    let (tx, rx) = channel::<usize>();
+    main.with_webview(move |platform| {
+        let _ = tx.send(platform.inner() as usize);
+    })
+    .ok()?;
+    let main_addr = rx.recv_timeout(Duration::from_secs(2)).ok()?;
+    Some((main_addr, child_addr))
+}
+
+/// macOS placement: convert the DOM rect from the main webview's viewport into
+/// the views' shared superview, then set the child's frame there.
+///
+/// The conversion is AppKit's own `convertRect:fromView:` rather than hand
+/// arithmetic, because it alone accounts for the main view's origin inside the
+/// superview (the title-bar offset), `isFlipped` on each side, and Retina
+/// scaling. One `run_on_main_thread` hop, one `setFrame:` — the previous
+/// version looked the pointers up on every call (three hops, 3 s each) and
+/// timed out under the pane's high-frequency reports.
+#[cfg(target_os = "macos")]
+fn macos_place(
+    main: usize,
+    child: usize,
+    app: &AppHandle,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(f64, f64, f64, f64), String> {
+    use objc2::msg_send;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let (tx, rx) = channel::<Result<(f64, f64, f64, f64), String>>();
+    app.run_on_main_thread(move || {
+        // SAFETY: both addresses are live views for the child's lifetime, and
+        // every message is a plain NSView geometry call.
+        let result = unsafe {
+            let main = main as *mut objc2::runtime::AnyObject;
+            let child = child as *mut objc2::runtime::AnyObject;
+            let sup: *mut objc2::runtime::AnyObject = msg_send![child, superview];
+            if sup.is_null() {
+                Err("browser view has no superview".to_string())
+            } else {
+                let flipped: bool = msg_send![main, isFlipped];
+                let bounds: NSRect = msg_send![main, bounds];
+                // The page reports y from the viewport's top. A flipped view
+                // shares that origin; an unflipped one counts from the bottom.
+                let in_main_y = if flipped { y } else { bounds.size.height - y - h };
+                let wanted = NSRect {
+                    origin: NSPoint::new(x, in_main_y),
+                    size: NSSize::new(w, h),
+                };
+                let frame: NSRect = msg_send![sup, convertRect: wanted, fromView: main];
+                let _: () = msg_send![child, setFrame: frame];
+                // Raise: a theme switch or wry relayout can bury the child
+                // under the app's own webview, which reads as a blank pane.
+                let _: () = msg_send![sup, addSubview: child];
+                let actual: NSRect = msg_send![child, frame];
+                let back: NSRect = msg_send![sup, convertRect: actual, toView: main];
+                let dom_y = if flipped {
+                    back.origin.y
+                } else {
+                    bounds.size.height - back.origin.y - back.size.height
+                };
+                Ok((back.origin.x, dom_y, back.size.width, back.size.height))
+            }
+        };
+        let _ = tx.send(result);
+    })
+    .map_err(|error| format!("browser dispatch: {error}"))?;
+    rx.recv_timeout(Duration::from_secs(2))
+        .map_err(|_| "browser placement timed out".to_string())?
+}
+
+/// macOS readback, in the same top-left coordinates the page reported.
+#[cfg(target_os = "macos")]
+fn macos_read(main: usize, child: usize, app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    use objc2::msg_send;
+    use objc2_foundation::NSRect;
+    let (tx, rx) = channel::<(f64, f64, f64, f64)>();
+    app.run_on_main_thread(move || {
+        // SAFETY: same as `macos_place` — live views, plain geometry calls.
+        let rect = unsafe {
+            let main = main as *mut objc2::runtime::AnyObject;
+            let child = child as *mut objc2::runtime::AnyObject;
+            let sup: *mut objc2::runtime::AnyObject = msg_send![child, superview];
+            if sup.is_null() {
+                None
+            } else {
+                let flipped: bool = msg_send![main, isFlipped];
+                let bounds: NSRect = msg_send![main, bounds];
+                let actual: NSRect = msg_send![child, frame];
+                let back: NSRect = msg_send![sup, convertRect: actual, toView: main];
+                let dom_y = if flipped {
+                    back.origin.y
+                } else {
+                    bounds.size.height - back.origin.y - back.size.height
+                };
+                Some((back.origin.x, dom_y, back.size.width, back.size.height))
+            }
+        };
+        if let Some(rect) = rect {
+            let _ = tx.send(rect);
+        }
+    })
+    .ok()?;
+    rx.recv_timeout(Duration::from_secs(2)).ok()
 }
 
 /// How long a command may take before the caller is told nobody answered.
@@ -99,6 +233,15 @@ pub struct Browser {
     /// be asked for, because "it keeps flickering" needs a count and not an
     /// opinion.
     placements: AtomicU64,
+    /// macOS: the main webview's `NSView` and the child's, captured once when
+    /// the child is created. Placement needs both — the page reports a rect in
+    /// the main webview's viewport, and the child is framed in their shared
+    /// superview, whose origin the main view usually does not sit on (title bar
+    /// area). Converting between the two with AppKit needs the pair; holding
+    /// them here makes each placement a *single* main-thread hop instead of
+    /// three, which is what the timeout-prone version got wrong.
+    #[cfg(target_os = "macos")]
+    views: Mutex<Option<(usize, usize)>>,
 }
 
 impl Browser {
@@ -111,7 +254,38 @@ impl Browser {
             port: AtomicU16::new(0),
             bounds: Mutex::new((0.0, 0.0, 0.0, 0.0)),
             placements: AtomicU64::new(0),
+            #[cfg(target_os = "macos")]
+            views: Mutex::new(None),
         }
+    }
+
+    /// Place the view, using whichever path this platform needs. On macOS the
+    /// cached view pair lets placement convert through AppKit's geometry; if
+    /// the pair is missing (capture failed), native `set_bounds` still moves
+    /// the view, just without the title-bar correction.
+    fn apply_place(&self, app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let pair = self.views.lock().ok().and_then(|slot| *slot);
+            if let Some((main, child)) = pair {
+                let (px, py, pw, ph) = placement(x, y, w, h);
+                return macos_place(main, child, app, px, py, pw, ph);
+            }
+        }
+        place_native(app, x, y, w, h)
+    }
+
+    fn apply_read(&self, app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+        #[cfg(target_os = "macos")]
+        {
+            let pair = self.views.lock().ok().and_then(|slot| *slot);
+            if let Some((main, child)) = pair {
+                if let Some(rect) = macos_read(main, child, app) {
+                    return Some(rect);
+                }
+            }
+        }
+        read_native(app)
     }
 
     pub fn set_port(&self, port: u16) {
@@ -184,13 +358,34 @@ impl Browser {
                 LogicalSize::new(pw, ph),
             )
             .map_err(|error| format!("open browser: {error}"))?;
-        // wry creates a child view with `NSViewMinYMargin` ("keep the bottom
-        // margin"). That mask is AppKit's licence to move the view by itself on
-        // every window resize, and it acts *after* the page has reported the
-        // pane's rect — so maximising the window slid the page up and left it
-        // there. The rect we place is the only authority; drop the mask.
+        // Clear wry's autoresizing mask (AppKit would otherwise move the child
+        // on its own after the pane has reported) and capture the view pair
+        // every later placement converts through — both in one main-thread hop.
+        // A failed capture is not fatal: placement falls back to native
+        // `set_bounds`, which moves the view but without the title-bar
+        // correction, so say so in the log rather than failing silently.
         #[cfg(target_os = "macos")]
-        pin_view(&webview);
+        {
+            match capture_views(app, &webview) {
+                Some(pair) => {
+                    if let Ok(mut views) = self.views.lock() {
+                        *views = Some(pair);
+                    }
+                    // `add_child` framed the view from the raw DOM rect, which
+                    // ignores the main view's title-bar offset. Re-place it now,
+                    // through the AppKit conversion, so the page is born on the
+                    // pane instead of over the address bar.
+                    let _ = macos_place(pair.0, pair.1, app, px, py, pw, ph);
+                }
+                None => {
+                    if let Some(host) = app.try_state::<crate::state::HostState>() {
+                        host.config
+                            .log
+                            .info("browser: could not capture views; placement falls back to set_bounds");
+                    }
+                }
+            }
+        }
         *slot = Some(webview);
         // The view was created at whatever rect the pane had reported so far. A
         // report that arrives as the pane settles (the address bar appearing,
@@ -221,7 +416,7 @@ impl Browser {
                 // to show for it.
                 return Ok(());
             }
-            return match place_view(app, x, y, w, h) {
+            return match self.apply_place(app, x, y, w, h) {
                 Ok(_) => {
                     *self
                         .bounds
@@ -281,7 +476,7 @@ impl Browser {
         let (px, py, pw, ph) = placement(x, y, w, h);
         // On macOS the placement also brings the view to the front, so a
         // theme switch cannot bury the page under the app's own webview.
-        let read = place_view(app, x, y, w, h)?;
+        let read = self.apply_place(app, x, y, w, h)?;
         self.placements.fetch_add(1, Ordering::Relaxed);
         let asked = format!("{px:.0},{py:.0} {pw:.0}x{ph:.0}");
         Ok(format!(
@@ -304,7 +499,7 @@ impl Browser {
         if want.2 <= 1.0 || want.3 <= 1.0 || !self.is_open() {
             return Ok(None);
         }
-        let Some(actual) = read_view(app) else {
+        let Some(actual) = self.apply_read(app) else {
             return Ok(None);
         };
         let close_enough = (actual.0 - want.0).abs() <= 1.5
@@ -318,7 +513,7 @@ impl Browser {
             "{:.0},{:.0} {:.0}x{:.0}",
             actual.0, actual.1, actual.2, actual.3
         );
-        place_view(app, want.0, want.1, want.2, want.3)?;
+        self.apply_place(app, want.0, want.1, want.2, want.3)?;
         self.placements.fetch_add(1, Ordering::Relaxed);
         Ok(Some(format!(
             "was at {found}, put back on {:.0},{:.0} {:.0}x{:.0}",
@@ -342,6 +537,15 @@ impl Browser {
             .pending
             .lock()
             .map_err(|_| "browser pending".to_string())? = None;
+        // The captured pair points at the view that just died. Dropping it
+        // makes the next spawn capture fresh ones; placement meanwhile falls
+        // back to native `set_bounds` instead of messaging a freed view.
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(mut views) = self.views.lock() {
+                *views = None;
+            }
+        }
         Ok(())
     }
 
@@ -989,54 +1193,6 @@ pub async fn browser_action(
         other => return Err(format!("unknown browser action: {other}")),
     };
     browser.run_script(script)
-}
-
-/// Clears a child webview's autoresizing mask (macOS) and puts it in front.
-///
-/// wry creates a child view with `NSViewMinYMargin` — "keep the distance from
-/// the bottom of the window". AppKit honours that on every resize, and it does
-/// so *after* the page has reported where the pane is, so growing the window
-/// slid the page upwards and left it there. The rect we place is the only
-/// authority over the frame; `0` (`NSViewNotSizable`) removes AppKit's.
-///
-/// The view is also re-added to its superview, which moves it to the front: a
-/// theme switch or a wry relayout can push it beneath the app's own webview,
-/// and a page that renders where nobody can see it reads as a blank pane.
-#[cfg(target_os = "macos")]
-fn pin_view(webview: &Webview<tauri::Wry>) {
-    let _ = webview.with_webview(|platform| {
-        let view = platform.inner();
-        if view.is_null() {
-            return;
-        }
-        // SAFETY: `inner` is wry's live `WKWebView`, an `NSView` subclass, and
-        // `setAutoresizingMask:` takes an `NSUInteger` option set; `raise_raw`
-        // re-adds that same live view to its own superview.
-        unsafe {
-            let _: () = objc2::msg_send![
-                view as *mut objc2::runtime::AnyObject,
-                setAutoresizingMask: 0usize
-            ];
-            raise_raw(view as *mut objc2::runtime::AnyObject);
-        }
-    });
-}
-
-/// Re-adding a subview already in the hierarchy moves it to the end — the
-/// front — without reloading or resetting anything.
-///
-/// SAFETY: `view` is a live `NSView` and `superview`/`addSubview:` take and
-/// return `NSView` pointers.
-#[cfg(target_os = "macos")]
-unsafe fn raise_raw(view: *mut objc2::runtime::AnyObject) {
-    let superview: *mut objc2::runtime::AnyObject =
-        unsafe { objc2::msg_send![view, superview] };
-    if superview.is_null() {
-        return;
-    }
-    unsafe {
-        let _: () = objc2::msg_send![superview, addSubview: view];
-    }
 }
 
 /// Where the native view goes for a reported rect.

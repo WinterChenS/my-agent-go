@@ -52,6 +52,14 @@
   flex: none;
 }
 
+/* The artwork's ink is dark navy, which vanishes on the dark theme's sidebar.
+   Inverting turns that ink light; the hue rotation restores the orange spark
+   (inverted orange is blue; rotating 180 degrees brings it back). */
+[data-theme='dark'] .brand-logo,
+[data-theme='dark'] .brand-mark-img {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 .brand-sub {
   display: block;
   font-size: var(--text-2xs);
