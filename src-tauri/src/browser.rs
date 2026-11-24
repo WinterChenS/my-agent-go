@@ -30,156 +30,41 @@ use serde_json::Value;
 use tauri::webview::Webview;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
-#[cfg(target_os = "macos")]
-use std::ffi::c_void;
-
-/// The page reports a DOM rect in the main webview's viewport coordinates. A
-/// Tauri child webview is placed in its superview's coordinates, and on macOS
-/// those two views do not share an origin (title bar, traffic-light inset, a
-/// transparent full-size content view). Treating one as the other shifts the
-/// page upward — far enough to sit on top of the address bar. Ask AppKit to
-/// convert between the two instead of guessing the offset; this is the one
-/// conversion that is right for flipped views, Retina scaling and insets alike.
+/// Place the pane's child webview, on every platform, through Tauri's own
+/// `set_bounds`. The page reports a DOM rect (top-left origin, y down) in the
+/// main webview's viewport; wry's macOS backend feeds that same rect to its
+/// `window_position`, which flips y against the superview's `isFlipped`. That
+/// is the one conversion Tauri already gets right on all four platforms.
 ///
-/// Returns the rect as the view reports it, back in the main webview's
-/// coordinates, so callers can compare it with the rect the page asked for.
-/// The three AppKit views involved in placing the browser pane: the main
-/// webview (whose viewport the page measures in), the child webview (the pane),
-/// and their shared superview (whose coordinates a frame is expressed in).
-#[cfg(target_os = "macos")]
-struct AppkitViews {
-    main: *mut objc2_app_kit::NSView,
-    child: *mut objc2_app_kit::NSView,
-    superview: *mut objc2_app_kit::NSView,
-}
-
-/// `with_webview` dispatches to the main thread, so hand the raw pointer back
-/// through a channel. It is a stable object for the view's lifetime.
-#[cfg(target_os = "macos")]
-fn appkit_view_of(app: &AppHandle, label: &str) -> Result<*mut c_void, String> {
-    use std::sync::mpsc::channel;
-    let webview = app
-        .get_webview(label)
-        .ok_or_else(|| format!("webview {label} not found"))?;
-    // A raw pointer is not `Send`; the address is. Send the usize and turn it
-    // back into a pointer on this thread. The view outlives this call.
-    let (tx, rx) = channel::<usize>();
-    webview
-        .with_webview(move |platform| {
-            let _ = tx.send(platform.inner() as usize);
-        })
-        .map_err(|error| format!("read {label}: {error}"))?;
-    let addr = rx
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|_| format!("read {label}: timed out"))?;
-    Ok(addr as *mut c_void)
-}
-
-#[cfg(target_os = "macos")]
-fn appkit_views(app: &AppHandle) -> Result<AppkitViews, String> {
-    use objc2::msg_send;
-    use objc2_app_kit::NSView;
-    let main = appkit_view_of(app, "main")? as *mut NSView;
-    let child = appkit_view_of(app, "anvil-browser")? as *mut NSView;
-    let superview: *mut NSView = unsafe { msg_send![child, superview] };
-    if superview.is_null() {
-        return Err("browser view has no superview".to_string());
-    }
-    Ok(AppkitViews {
-        main,
-        child,
-        superview,
-    })
-}
-
-/// Place the pane's child webview at a rect in the main webview's viewport
-/// coordinates, then read its frame back through the same pair of views. The
-/// readback is therefore in the same coordinates the page reported, so a drift
-/// check compares like with like.
-#[cfg(target_os = "macos")]
-fn appkit_place(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
-    use objc2::msg_send;
-    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
-    let views = appkit_views(app)?;
-    unsafe {
-        let wanted = CGRect {
-            origin: CGPoint::new(x, y),
-            size: CGSize::new(w, h),
-        };
-        // DOM viewport (main webview) -> superview. A child view's frame is in
-        // its superview's coordinates; convertRect handles flipped views,
-        // Retina scaling and title-bar insets without us guessing an offset.
-        let frame: CGRect = msg_send![views.superview, convertRect: wanted, fromView: views.main];
-        let _: () = msg_send![views.child, setFrame: frame];
-        // A theme switch or a wry relayout can push the child beneath the app's
-        // own webview; re-adding it moves it back to the front of its siblings.
-        let _: () = msg_send![views.superview, addSubview: views.child];
-        let actual: CGRect = msg_send![views.child, frame];
-        let back: CGRect = msg_send![views.superview, convertRect: actual, toView: views.main];
-        Ok((
-            back.origin.x,
-            back.origin.y,
-            back.size.width,
-            back.size.height,
-        ))
-    }
-}
-
-/// Read the pane's frame back in the main webview's viewport coordinates,
-/// without moving it.
-#[cfg(target_os = "macos")]
-fn appkit_read(app: &AppHandle) -> Result<(f64, f64, f64, f64), String> {
-    use objc2::msg_send;
-    use objc2_core_foundation::CGRect;
-    let views = appkit_views(app)?;
-    unsafe {
-        let actual: CGRect = msg_send![views.child, frame];
-        let back: CGRect = msg_send![views.superview, convertRect: actual, toView: views.main];
-        Ok((
-            back.origin.x,
-            back.origin.y,
-            back.size.width,
-            back.size.height,
-        ))
-    }
-}
-
-/// Cross-platform placement. Windows and Linux keep Tauri's own `set_bounds`
-/// (they were never affected); macOS converts through AppKit because its main
-/// and child views do not share an origin. Returns the readback so callers can
-/// verify the view went where it was asked.
+/// A previous attempt replaced this with an AppKit `convertRect:fromView:`
+/// using the main webview as `fromView`. It was wrong twice over: a DOM rect is
+/// not an NSView *bounds* rect (different origin and y direction), and every
+/// placement needed three `with_webview` hops to the main thread with a 3s
+/// timeout. Under the pane's high-frequency rect reports those hops timed out,
+/// the errors were swallowed, and the view stopped following the pane entirely
+/// — "it just sits there, resize and close do nothing".
 fn place_view(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
-    #[cfg(target_os = "macos")]
-    {
-        return appkit_place(app, x, y, w, h);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let webview = app
-            .get_webview("anvil-browser")
-            .ok_or_else(|| "browser webview not found".to_string())?;
-        webview
-            .set_bounds(rect_of(x, y, w, h))
-            .map_err(|error| format!("browser bounds: {error}"))?;
-        return Ok(webview
-            .bounds()
-            .ok()
-            .and_then(logical_of)
-            .unwrap_or((x, y, w, h)));
-    }
+    let webview = app
+        .get_webview("anvil-browser")
+        .ok_or_else(|| "browser webview not found".to_string())?;
+    let (px, py, pw, ph) = placement(x, y, w, h);
+    webview
+        .set_bounds(tauri::Rect {
+            position: tauri::Position::Logical(LogicalPosition::new(px, py)),
+            size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
+        })
+        .map_err(|error| format!("browser bounds: {error}"))?;
+    // macOS may refuse to move an off-screen/animating view; read back what the
+    // platform actually took so the watchdog can compare like with like.
+    let read = webview.bounds().ok().and_then(logical_of).unwrap_or((x, y, w, h));
+    Ok(read)
 }
 
-/// Cross-platform readback, in the same coordinates the page reported.
+/// Read the pane's frame back in the same coordinates `getBoundingClientRect`
+/// reports, so a drift check compares like with like.
 fn read_view(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
-    #[cfg(target_os = "macos")]
-    {
-        return appkit_read(app).ok();
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let webview = app.get_webview("anvil-browser")?;
-        return webview.bounds().ok().and_then(logical_of);
-    }
+    let webview = app.get_webview("anvil-browser")?;
+    webview.bounds().ok().and_then(logical_of)
 }
 
 /// How long a command may take before the caller is told nobody answered.
@@ -435,7 +320,10 @@ impl Browser {
         );
         place_view(app, want.0, want.1, want.2, want.3)?;
         self.placements.fetch_add(1, Ordering::Relaxed);
-        Ok(Some(format!("was at {found}, put back on the pane")))
+        Ok(Some(format!(
+            "was at {found}, put back on {:.0},{:.0} {:.0}x{:.0}",
+            want.0, want.1, want.2, want.3
+        )))
     }
 
     pub fn close(&self) -> Result<(), String> {
@@ -1048,6 +936,23 @@ pub async fn browser_bounds(
 ) -> Result<(), String> {
     let browser = state.get();
     let placed = browser.set_bounds(&app, x, y, w, h);
+    // The page swallows this command's error (a placement hint must not raise
+    // into the chat UI), so a failing platform would otherwise be invisible —
+    // exactly why three reports of "it just sits there" carried no cause. Log
+    // the first failure with the rect, then stay quiet while it keeps failing.
+    if placed.is_err() {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        static LOGGED: AtomicU8 = AtomicU8::new(0);
+        if LOGGED.fetch_add(1, Ordering::Relaxed) < 3 {
+            if let Some(host) = app.try_state::<crate::state::HostState>() {
+                host.config.log.info(&format!(
+                    "browser: place {:.0},{:.0} {:.0}x{:.0} failed: {}",
+                    x, y, w, h,
+                    placed.as_ref().err().map(String::as_str).unwrap_or("")
+                ));
+            }
+        }
+    }
     // macOS repositions child views on its own while the window resizes, and it
     // does so after this call — see `settle_later`. The placement below is the
     // one that survives; this one keeps the pane following during a drag.
@@ -1148,23 +1053,11 @@ fn placement(x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
     }
 }
 
-/// One call, not a move followed by a resize: the intermediate frame is a page
-/// drawn at the old size in the new place.
-#[cfg(not(target_os = "macos"))]
-fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
-    let (px, py, pw, ph) = placement(x, y, w, h);
-    tauri::Rect {
-        position: tauri::Position::Logical(LogicalPosition::new(px, py)),
-        size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
-    }
-}
-
 /// The logical rect a platform reports, if it reported one.
 ///
 /// The readback is asked for in logical pixels; a physical answer means the
 /// platform handed back what the window manager thinks instead, and comparing
 /// it with the requested rect would be comparing two different units.
-#[cfg(not(target_os = "macos"))]
 fn logical_of(rect: tauri::Rect) -> Option<(f64, f64, f64, f64)> {
     match (rect.position, rect.size) {
         (tauri::Position::Logical(p), tauri::Size::Logical(s)) => {
