@@ -973,14 +973,15 @@ fn pin_view(webview: &Webview<tauri::Wry>) {
             return;
         }
         // SAFETY: `inner` is wry's live `WKWebView`, an `NSView` subclass, and
-        // `setAutoresizingMask:` takes an `NSUInteger` option set.
+        // `setAutoresizingMask:` takes an `NSUInteger` option set; `raise_raw`
+        // re-adds that same live view to its own superview.
         unsafe {
             let _: () = objc2::msg_send![
                 view as *mut objc2::runtime::AnyObject,
                 setAutoresizingMask: 0usize
             ];
+            raise_raw(view as *mut objc2::runtime::AnyObject);
         }
-        raise_raw(view as *mut objc2::runtime::AnyObject);
     });
 }
 
@@ -992,7 +993,9 @@ fn raise_view(webview: &Webview<tauri::Wry>) {
         if view.is_null() {
             return;
         }
-        raise_raw(view as *mut objc2::runtime::AnyObject);
+        // SAFETY: `raise_raw` only re-adds the live `WKWebView` to its own
+        // superview, moving it to the front of its siblings.
+        unsafe { raise_raw(view as *mut objc2::runtime::AnyObject) };
     });
 }
 
