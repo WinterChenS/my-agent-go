@@ -187,6 +187,27 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     ) {
                         crate::browser::settle_later(&handle);
                     }
+                    // macOS hides its title bar in fullscreen, and with it the
+                    // strip the page reserves for the traffic lights. Only tell
+                    // the page when the answer actually changed: a live resize
+                    // fires this dozens of times a second.
+                    #[cfg(target_os = "macos")]
+                    if matches!(event, tauri::WindowEvent::Resized(_)) {
+                        use std::sync::atomic::{AtomicBool, Ordering};
+                        static WAS_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+                        let Some(view) = handle.get_webview_window("main") else {
+                            return;
+                        };
+                        let fullscreen = view.is_fullscreen().unwrap_or(false);
+                        if WAS_FULLSCREEN.swap(fullscreen, Ordering::Relaxed) != fullscreen {
+                            let inset = if fullscreen {
+                                0
+                            } else {
+                                crate::inject::TITLEBAR_INSET
+                            };
+                            let _ = view.eval(&crate::inject::top_inset_script(inset));
+                        }
+                    }
                 });
             }
             // The right pane's browser: one child webview, plus the loopback

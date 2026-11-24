@@ -33,13 +33,12 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 /// Place the pane's child webview through Tauri's own `set_bounds`.
 ///
 /// This is the Windows/Linux path, and the macOS fallback when the view pair
-/// could not be captured at creation. On macOS it is subtly wrong for this pane:
-/// `window_position` flips the DOM rect against the *superview* height, i.e. it
-/// assumes the layout viewport's top and the superview's top are the same point.
-/// They are not — the window is a full-size-content window, so a DOM `y` of 0 is
-/// one title bar below both tops, and the child lands that much too high, on the
-/// address bar. `apply_place` uses the AppKit conversion (with the layout
-/// viewport inset) on macOS instead.
+/// could not be captured at creation. On macOS `window_position` flips the DOM
+/// rect against the *superview* height, i.e. it assumes the page starts at the
+/// view's own top edge. That holds with the transparent title bar this build
+/// uses, and does not hold for a title bar AppKit draws (the page then starts a
+/// title bar lower, and the child lands that much too high). `apply_place` uses
+/// the AppKit conversion, which takes the inset into account either way.
 fn place_native(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
     let webview = app
         .get_webview("anvil-browser")
@@ -176,17 +175,22 @@ fn capture_views(app: &AppHandle, child: &Webview<tauri::Wry>) -> Option<(usize,
 /// How far the top of the page's layout viewport sits below the top of the main
 /// webview's frame, in points.
 ///
-/// The main window is a full-size-content-view window: its content view — and the
-/// main webview that fills it — reaches up under the title bar, while WebKit lays
-/// the page out only in the unobscured part the window reports as
-/// `contentLayoutRect`. So `getBoundingClientRect().y == 0` is *not* the
-/// webview's frame top; it is one title bar lower.
+/// With a title bar that AppKit draws, the content view (and the main webview
+/// that fills it) reaches up under it, while WebKit lays the page out only in the
+/// unobscured part the window reports as `contentLayoutRect`. So
+/// `getBoundingClientRect().y == 0` is *not* the webview's frame top; it is one
+/// title bar lower.
 ///
-/// Measured on macOS 15 (Mac mini, 1180x820 window): content view 820 pt,
-/// `contentLayoutRect` 792 pt, `window.innerHeight` 792 — a 28 pt inset. Treating
-/// a DOM `y` as if it started at the frame top puts the pane 28 pt too high, over
-/// its own address bar, and a read-back that omits the same inset agrees with
-/// itself while the picture on screen is wrong.
+/// Measured on macOS 15 (Mac mini, 1180x820 window, `TitleBarStyle::Visible`):
+/// content view 820 pt, `contentLayoutRect` 792 pt, `window.innerHeight` 792 — a
+/// 28 pt inset. Treating a DOM `y` as if it started at the frame top puts the
+/// pane 28 pt too high, over its own address bar, and a read-back that omits the
+/// same inset agrees with itself while the picture on screen is wrong.
+///
+/// A *transparent* title bar is the other case, and WebKit does not inset at all:
+/// with `TitleBarStyle::Overlay` the same window reported `window.innerHeight`
+/// 820 — the whole content view — although `contentLayoutRect` was still 792. The
+/// page draws its own top then, so the gap is zero.
 #[cfg(target_os = "macos")]
 unsafe fn viewport_inset(
     main: *mut objc2::runtime::AnyObject,
@@ -200,6 +204,11 @@ unsafe fn viewport_inset(
         let window: *mut objc2::runtime::AnyObject = msg_send![sup, window];
         if window.is_null() {
             // Not in a window: no obscuring view to account for.
+            return 0.0;
+        }
+        // The page paints under a transparent title bar, so nothing is obscured.
+        let transparent: bool = msg_send![window, titlebarAppearsTransparent];
+        if transparent {
             return 0.0;
         }
         // `contentLayoutRect` is in window base coordinates; `fromView:nil`
@@ -403,7 +412,7 @@ impl Browser {
     /// Place the view, using whichever path this platform needs. On macOS the
     /// cached view pair lets placement convert through AppKit's geometry; if
     /// the pair is missing (capture failed), native `set_bounds` still moves
-    /// the view, just without the title-bar correction.
+    /// the view, just without the layout-viewport correction.
     fn apply_place(&self, app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
         #[cfg(target_os = "macos")]
         {

@@ -94,7 +94,10 @@
                0 2px 6px color-mix(in oklab, var(--shadow-color) 6%, transparent);
 
   /* surfaces composed from tokens (kept here so shell code has no raw colours) */
-  --topbar-bg: color-mix(in oklab, var(--bg) 82%, transparent);
+  /* The top bar is chrome, like the sidebar, not content: one colour across
+     the top and the left reads as one window frame, and the macOS title-bar
+     strip above it (which shows the window background) joins the same colour. */
+  --topbar-bg: var(--surface-2);
   --scrim: color-mix(in oklab, var(--fg) 28%, transparent);
   color-scheme: light;
 }
@@ -128,7 +131,8 @@
   --danger-soft: oklch(28% 0.055 25);
 
   --shadow-color: oklch(4% 0.004 255);
-  --topbar-bg: color-mix(in oklab, var(--bg) 82%, transparent);
+  /* Same as the sidebar (see the light theme's note). */
+  --topbar-bg: var(--surface-2);
   --scrim: color-mix(in oklab, var(--fg) 28%, transparent);
   color-scheme: dark;
 }

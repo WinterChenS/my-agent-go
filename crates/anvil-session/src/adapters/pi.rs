@@ -1106,6 +1106,14 @@ fn automatic_answer(request: &UiRequest, permission: &str) -> Option<UiAnswer> {
 /// The runtime names the method and carries the pieces that method needs:
 /// `select` brings options, `confirm` brings a message, `input` brings a
 /// placeholder, `editor` brings a prefill.
+///
+/// The fire-and-forget methods each name their words differently — a status is
+/// `statusText`, a widget is `widgetLines`, editor text is `text` — and they all
+/// arrive with `message` unset. The page prints one line of words, so they are
+/// folded into `message` here; reading only `message` left every one of them
+/// with nothing to say, which the transcript then rendered as a bare
+/// `扩展面板:` line. A widget with no `widgetLines` is an extension *clearing*
+/// its panel: that carries no words at all, and the page drops it.
 fn ui_request(value: &Value) -> UiRequest {
     let text = |key: &str| {
         value
@@ -1124,13 +1132,30 @@ fn ui_request(value: &Value) -> UiRequest {
                 .collect::<Vec<String>>()
         })
         .unwrap_or_default();
+    let method = text("method");
+    let message = match method.as_str() {
+        "setStatus" => text("statusText"),
+        "setWidget" => value
+            .get("widgetLines")
+            .and_then(Value::as_array)
+            .map(|lines| {
+                lines
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<&str>>()
+                    .join("\n")
+            })
+            .unwrap_or_default(),
+        "set_editor_text" => text("text"),
+        _ => text("message"),
+    };
     UiRequest {
         id: text("id"),
         session_id: String::new(),
         run_id: String::new(),
-        method: text("method"),
+        method,
         title: text("title"),
-        message: text("message"),
+        message,
         options,
         placeholder: text("placeholder"),
         prefill: text("prefill"),
@@ -1733,6 +1758,58 @@ mod tests {
         assert_eq!(events[0].payload["title"], "Clear session?");
         assert_eq!(events[0].payload["message"], "All messages will be lost.");
         assert_eq!(events[0].payload["timeoutMs"], 5000);
+    }
+
+    /// The fire-and-forget methods each name their words differently. Reading
+    /// only `message` left them all silent, and the page printed the bare label
+    /// instead of the text — that is the "扩展面板:" line over the first answer.
+    #[test]
+    fn a_widget_brings_its_lines_and_a_clear_brings_nothing() {
+        let set = serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-3",
+            "method": "setWidget",
+            "widgetKey": "subagents",
+            "widgetLines": ["子代理 2 个运行中", "最长 3m12s"],
+        });
+        let events = translate(&set);
+        assert_eq!(events[0].kind, EventKind::ExtensionUi);
+        assert_eq!(
+            events[0].payload["message"],
+            "子代理 2 个运行中\n最长 3m12s"
+        );
+
+        // pi's extensions clear their panel with `setWidget(key, undefined)` on
+        // session start: no lines, no words, nothing to print.
+        let clear = serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-4",
+            "method": "setWidget",
+            "widgetKey": "subagents",
+        });
+        let events = translate(&clear);
+        assert_eq!(events[0].kind, EventKind::ExtensionUi);
+        assert_eq!(events[0].payload["message"], "");
+    }
+
+    #[test]
+    fn a_status_and_editor_text_bring_their_own_field() {
+        let status = translate(&serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-5",
+            "method": "setStatus",
+            "statusKey": "mcp",
+            "statusText": "MCP: 2 个服务就绪",
+        }));
+        assert_eq!(status[0].payload["message"], "MCP: 2 个服务就绪");
+
+        let editor = translate(&serde_json::json!({
+            "type": "extension_ui_request",
+            "id": "uuid-6",
+            "method": "set_editor_text",
+            "text": "git status",
+        }));
+        assert_eq!(editor[0].payload["message"], "git status");
     }
 
     /// A `select` carries its options; they are the whole question.

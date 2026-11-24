@@ -17,7 +17,15 @@ interface HostCall {
  * A live host whose runtime asks the user a question and then waits for the
  * answer, exactly like pi's extension UI does.
  */
-function installHost(options: { method?: string; resolved?: boolean; auto?: boolean } = {}) {
+function installHost(
+  options: {
+    method?: string
+    resolved?: boolean
+    auto?: boolean
+    message?: string
+    title?: string
+  } = {},
+) {
   const method = options.method ?? 'confirm'
   const calls: HostCall[] = []
   const events: SessionEvent[] = [
@@ -39,8 +47,8 @@ function installHost(options: { method?: string; resolved?: boolean; auto?: bool
         id: 'uuid-1',
         sessionId: 'pi-1',
         method,
-        title: '允许这个操作吗',
-        message: '它会修改工作区',
+        title: options.title ?? '允许这个操作吗',
+        message: options.message ?? '它会修改工作区',
         options: method === 'select' ? ['允许', '拒绝'] : [],
       },
     },
@@ -236,6 +244,23 @@ describe('a question the runtime asked', () => {
     // saying it was answered.
     expect(screen.queryByTestId('chat-extension-ui')).toBeNull()
     expect(screen.queryByTestId('chat-extension-allow')).toBeNull()
+  })
+
+  it('prints nothing for a widget an extension is clearing', async () => {
+    // pi-subagents clears its panel with `setWidget(key, undefined)` on session
+    // start: the request carries no words, and a bare 「扩展面板:」 line over the
+    // first answer of every conversation is noise, not information.
+    installHost({ method: 'setWidget', message: '', title: '' })
+    await mountAndSend()
+    await screen.findByText('好的', {}, { timeout: 3000 })
+    expect(screen.queryByTestId('chat-extension-note')).toBeNull()
+  })
+
+  it('prints a widget that has something to say', async () => {
+    installHost({ method: 'setWidget', message: '子代理 2 个运行中', title: '' })
+    await mountAndSend()
+    const note = await screen.findByTestId('chat-extension-note', {}, { timeout: 3000 })
+    expect(note).toHaveTextContent('扩展面板: 子代理 2 个运行中')
   })
 
   it('tells a notice apart from a question', async () => {

@@ -779,6 +779,22 @@ export default function ChatPage() {
     live.startNew()
   }, [sample, history.newSeq, live.startNew])
 
+  // Leaving a conversation for another one closes the rail on the browser tab.
+  // The pane is a native view placed over the DOM, so it cannot follow the
+  // reader: left open it keeps the previous conversation's page floating over
+  // the new thread (and over the next one after that).
+  //
+  // Keyed on `history.switchSeq` because every way of leaving a conversation —
+  // the shell's list, the drawer's list, a new one, a model change — goes
+  // through it, while the runtime opening a page on its own (`browser-show`)
+  // does not.
+  const seenSwitch = useRef(history.switchSeq)
+  useEffect(() => {
+    if (sample || history.switchSeq === seenSwitch.current) return
+    seenSwitch.current = history.switchSeq
+    if (railTab === 'browser') setRailOpen(false)
+  }, [sample, history.switchSeq, railTab])
+
   useEffect(() => {
     if (!narrow || !railOpen) return
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

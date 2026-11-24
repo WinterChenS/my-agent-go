@@ -47,6 +47,11 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar" id="sidebar">
+      {/* The window's own title bar, transparent and drawn by the page. Its top
+          strip belongs to the sidebar's chrome, so the traffic lights sit on
+          the sidebar colour and this element is what drags the window from
+          there. Zero height off macOS, where nothing is drawn over the page. */}
+      <div className="titlebar-strip" data-tauri-drag-region aria-hidden="true" />
       <Link className="brand" to="/" aria-label="Anvil">
         <img className="brand-logo" src="/brand-logo.png" alt="Anvil" />
         <img className="brand-mark-img" src="/brand-mark.png" alt="" aria-hidden="true" />

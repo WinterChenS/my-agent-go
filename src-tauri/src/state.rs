@@ -257,6 +257,22 @@ pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error
         builder = builder.additional_browser_args(&extra);
     }
 
+    // macOS: AppKit paints the title bar in its own system material, a grey
+    // that matches nothing in the app — that is the seam above the topbar. A
+    // transparent title bar shows the window's background colour instead, which
+    // is `window_background` below: the same token the shell paints its chrome
+    // with, so the strip and the topbar are one colour, and it follows the
+    // theme. `Transparent` (not `Overlay`) keeps the content view out of the
+    // title bar: the page keeps its 792 pt viewport and the traffic lights stay
+    // above the app's own header rather than on top of it. The title text is
+    // hidden because the app draws its own.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Transparent)
+            .hidden_title(true);
+    }
+
     let window = builder.build()?;
 
     state.set_window(window);

@@ -72,6 +72,15 @@ export interface ChatHistory {
    */
   newSeq: number
   startNew: () => void
+  /**
+   * How many times the reader left one conversation for another — a new one or
+   * an existing row.
+   *
+   * The chat page hangs per-conversation state off this: the browser pane is a
+   * native view, not part of the DOM, so it cannot follow the reader into the
+   * next conversation and has to be closed when they leave.
+   */
+  switchSeq: number
   /** Open a session: switch to the chat route and show it. */
   open: (id: string) => void
   rename: (id: string, title: string) => Promise<void>
@@ -124,6 +133,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(() => readActive())
   const [runningId, setRunningId] = useState<string | null>(null)
   const [newSeq, setNewSeq] = useState(0)
+  const [switchSeq, setSwitchSeq] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -211,11 +221,13 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const startNew = useCallback(() => {
     setActive(null)
     setNewSeq((current) => current + 1)
+    setSwitchSeq((current) => current + 1)
   }, [setActive])
 
   const open = useCallback(
     (id: string) => {
       setActive(id)
+      setSwitchSeq((current) => current + 1)
       navigate('/chat')
     },
     [navigate, setActive],
@@ -319,6 +331,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       runningId,
       setRunningId,
       newSeq,
+      switchSeq,
       ready,
       error,
       notice,
@@ -343,6 +356,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       activeId,
       runningId,
       newSeq,
+      switchSeq,
       ready,
       error,
       notice,
@@ -384,6 +398,7 @@ const EMPTY_HISTORY: ChatHistory = {
   runningId: null,
   setRunningId: () => undefined,
   newSeq: 0,
+  switchSeq: 0,
   ready: true,
   error: null,
   notice: null,

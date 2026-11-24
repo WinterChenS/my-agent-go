@@ -298,12 +298,20 @@ impl HostConfig {
     }
 
     /// Background colour for a resolved theme, matching the Go host.
+    ///
+    /// It is the shell's `--surface-2` token in sRGB — the colour of the sidebar
+    /// and of the topbar: `oklch(23% 0.014 255)` dark, `oklch(97.4% 0.004 250)`
+    /// light. On macOS this is what shows through the transparent title bar, the
+    /// strip right above the topbar, so it has to be the same colour as the
+    /// chrome or the top of the window reads as a seam. It is also the shade the
+    /// window shows before the first paint, so a launch does not flash a
+    /// different colour than the page it is about to draw.
     #[must_use]
     pub fn window_background(resolved: &str) -> [u8; 4] {
         if resolved == "dark" {
-            [20, 22, 28, 255]
+            [25, 29, 36, 255]
         } else {
-            [245, 246, 248, 255]
+            [244, 247, 249, 255]
         }
     }
 }

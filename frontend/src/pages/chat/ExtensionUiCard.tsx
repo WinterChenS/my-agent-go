@@ -34,6 +34,18 @@ export function ExtensionUiCard({
   // card would claim the same weight as a question the reader must answer, so
   // they are one quiet line instead.
   if (isNoticeMethod(request.method)) {
+    // A notice with no words is a surface being *cleared*: pi's extensions call
+    // `setWidget(key, undefined)` on session start, which used to print a bare
+    // 「扩展面板:」 line above the first answer of every conversation. Nothing to
+    // say is nothing to show; the ledger still records the event.
+    const body = request.message || request.title
+    if (!body) return null
+    const label =
+      request.method === 'setStatus'
+        ? t('chat.extension.status')
+        : request.method === 'setWidget'
+          ? t('chat.extension.widget')
+          : ''
     return (
       <p
         className="chat-ui-note"
@@ -44,13 +56,7 @@ export function ExtensionUiCard({
           <Icon name="sparkle" size={11} />
         </span>
         <span className="chat-ui-note-text">
-          {request.method === 'notify'
-            ? request.message
-            : request.method === 'setStatus'
-              ? `${t('chat.extension.status')}: ${request.message}`
-              : request.method === 'setWidget'
-                ? `${t('chat.extension.widget')}: ${request.message}`
-                : request.message || request.title}
+          {label ? `${label}: ${body}` : body}
         </span>
       </p>
     )

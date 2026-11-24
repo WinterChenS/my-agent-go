@@ -2015,6 +2015,7 @@ describe('chat rail', () => {
   function installRailHost(
     empty = false,
     patch: (view: RailView) => RailView = (view) => view,
+    sessions: unknown[] = [],
   ) {
     const calls: string[] = []
     const internals = {
@@ -2023,7 +2024,7 @@ describe('chat rail', () => {
         if (command === 'catalog_snapshot' || command === 'catalog_refresh') {
           return catalogSnapshot(false)
         }
-        if (command === 'session_list') return { sessions: [], total: 0 }
+        if (command === 'session_list') return { sessions, total: sessions.length }
         if (command === 'session_projects') return []
         if (command === 'session_open') return summary()
         if (command === 'session_events') return []
@@ -2174,6 +2175,53 @@ describe('chat rail', () => {
     await userEvent.click(go)
     expect(screen.queryByText('找不到该轮对话')).toBeNull()
     expect(screen.getAllByTestId('chat-message-user')[0]).toHaveClass('is-focused')
+  })
+
+  it('closes the browser rail when another conversation is opened', async () => {
+    // The pane is a native view placed over the DOM: it cannot follow the
+    // reader into another conversation, so leaving the rail open on it kept the
+    // previous conversation's page floating over the new thread.
+    installRailHost(false, (view) => view, [
+      { ...summary(), id: 'pi-a', title: 'Alpha chat' },
+      { ...summary(), id: 'pi-b', title: 'Beta chat' },
+    ])
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+
+    const toggle = screen.getByTestId('chat-rail-toggle')
+    await userEvent.click(toggle)
+    await userEvent.click(screen.getByRole('tab', { name: '浏览器' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(screen.getByRole('button', { name: /Alpha chat/ }))
+
+    // The rail collapses, which shrinks the pane to nothing and parks the
+    // native view off-screen: `rail-open` is what the layout reads.
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'false'))
+    expect(screen.getByTestId('chat-layout').className).not.toContain('rail-open')
+  })
+
+  it('closes the browser rail when a new conversation starts', async () => {
+    installRailHost()
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('chat-composer')).not.toBeDisabled())
+
+    const toggle = screen.getByTestId('chat-rail-toggle')
+    await userEvent.click(toggle)
+    await userEvent.click(screen.getByRole('tab', { name: '浏览器' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(screen.getByTestId('chat-history-new'))
+
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'false'))
   })
 
   it('renders a local page only inside an empty sandbox', async () => {
