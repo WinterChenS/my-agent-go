@@ -2307,8 +2307,10 @@ describe('chat export', () => {
       includeTools: false,
       overwrite: false,
     })
-    // The path is what the user needs; the dialog closes on success.
+    // The path is what the user needs; the dialog closes on success and a
+    // visible toast reports where the file went (the notice is sr-only).
     await waitFor(() => expect(screen.getByTestId('chat-notice')).toHaveTextContent('D:/data/exports/weekly.md'))
+    expect(screen.getByTestId('chat-toast')).toHaveTextContent('D:/data/exports/weekly.md')
     expect(screen.queryByRole('dialog', { name: '导出会话' })).toBeNull()
   })
 

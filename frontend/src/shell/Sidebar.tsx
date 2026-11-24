@@ -100,6 +100,7 @@ export default function Sidebar() {
                 sessions: history.sessions,
                 projects: history.projects,
                 activeId: history.activeId,
+                runningId: history.runningId,
                 onOpen: history.open,
                 onNew: () => {
                   // A new conversation is a state of the chat page, so the

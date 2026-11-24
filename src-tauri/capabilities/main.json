@@ -9,6 +9,7 @@
     "allow-get-preferences",
     "allow-set-preferences",
     "allow-log-event",
+    "allow-open-external",
     "allow-catalog-snapshot",
     "allow-catalog-refresh",
     "allow-catalog-sync",

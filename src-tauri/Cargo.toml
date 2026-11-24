@@ -63,3 +63,9 @@ windows-sys = { workspace = true, features = [
 objc2 = "0.6"
 # `NSUserDefaults` for the macOS app theme (`system_theme::system_dark`).
 objc2-foundation = "0.3"
+# AppKit + CoreGraphics: the browser pane places its child webview in the
+# window's content-view coordinates, but the page reports a DOM rect in the
+# main webview's viewport coordinates. Converting between the two with NSView's
+# own geometry is what keeps the page inside the pane — and off the address bar.
+objc2-app-kit = "0.3"
+objc2-core-foundation = "0.3"

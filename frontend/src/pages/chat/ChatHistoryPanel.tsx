@@ -25,6 +25,8 @@ export interface LiveHistory {
   /** Project index the rows are grouped by; empty until the first read. */
   projects: ProjectSummary[]
   activeId: string | null
+  /** Session currently generating a reply; its row shows a running spinner. */
+  runningId?: string | null
   onOpen: (id: string) => void
   onNew: () => void
   onRename: (id: string, title: string) => void
@@ -105,6 +107,7 @@ export default function ChatHistoryPanel({
       pinned: session.pinned,
       archived: session.archived,
       projectPath: session.projectPath,
+      state: session.id === live?.runningId ? 'pending' : undefined,
     }))
 
   // Group live rows by the project index the host returned. The index decides
@@ -503,7 +506,14 @@ function SessionRow({
               {session.title}
             </span>
             <span className="chat-history-meta">
-              {session.state === 'pending' ? <i aria-hidden="true" /> : null}
+              {session.state === 'pending' ? (
+                <i
+                  className="chat-history-spinner"
+                  data-testid={`chat-history-running-${session.id}`}
+                  aria-label={t('chat.live.generating')}
+                  role="status"
+                />
+              ) : null}
               {session.archived ? (
                 <span className="chat-history-chip" data-testid="chat-history-archived-chip">
                   {t('chat.history.archivedBadge')}

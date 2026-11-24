@@ -57,6 +57,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "get_preferences",
     "set_preferences",
     "log_event",
+    "open_external",
     "catalog_snapshot",
     "catalog_refresh",
     "catalog_sync",

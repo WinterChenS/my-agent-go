@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent 
 import { useLocation, useNavigate } from 'react-router-dom'
 import { WORKBENCH_ROUTE } from '../../shell/routes'
 import { useI18n } from '../../i18n/LanguageProvider'
+import { useChatHistory } from '../../chat/ChatHistoryProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import {
   formatBytes,
@@ -841,6 +842,7 @@ function StatusCard({ view }: { view: WorkbenchView | null }) {
 export default function WorkbenchPage() {
   const { t, language } = useI18n()
   const navigate = useNavigate()
+  const history = useChatHistory()
   const sample = useWorkbenchSample()
   const host = hasWorkbenchHost()
   const [weeks, setWeeks] = useState<WorkbenchWeeks>(53)
@@ -891,12 +893,10 @@ export default function WorkbenchPage() {
       navigate('/chat')
     },
     resume: (id) => {
-      try {
-        window.localStorage.setItem('anvil.chat.session', id)
-      } catch {
-        // The chat page falls back to its own session list.
-      }
-      navigate('/chat')
+      // Go through the shared history context: it sets the active id *and*
+      // navigates, so the chat page reads the requested session on its first
+      // render instead of writing its old id back over ours.
+      history.open(id)
     },
   }
 

@@ -80,4 +80,17 @@ describe('markdown transcript', () => {
     expect(screen.getByText('Anvil 体验包（Windows x64，免安装）· 2026-11-15')).toBeInTheDocument()
     expect(document.querySelector('h1')).toBeNull()
   })
+
+  it('hands http links to the host so the reader\'s own browser opens them', async () => {
+    const invoke = vi.fn(async () => undefined)
+    ;(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = { invoke }
+    try {
+      renderMarkdown('[查文档](https://example.com/docs)')
+      const link = screen.getByText('查文档')
+      await userEvent.click(link)
+      expect(invoke).toHaveBeenCalledWith('open_external', { url: 'https://example.com/docs' })
+    } finally {
+      delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    }
+  })
 })

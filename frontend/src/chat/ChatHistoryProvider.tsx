@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   archiveSession,
   compactSession,
@@ -38,6 +38,13 @@ export interface ChatHistory {
   projects: ProjectSummary[]
   /** The session the chat page is showing; `null` means a new one. */
   activeId: string | null
+  /**
+   * The session currently generating a reply, or `null`. The chat page owns the
+   * run; the sidebar shows a spinner on this row so a turn in flight is visible
+   * from any route, not just while the chat page is on screen.
+   */
+  runningId: string | null
+  setRunningId: (id: string | null) => void
   /** True once the first read finished, so the panel can tell empty from loading. */
   ready: boolean
   error: string | null
@@ -109,11 +116,13 @@ function writeActive(id: string | null) {
 
 export function ChatHistoryProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const sample = useChatSample()
   const { t } = useI18n()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => readActive())
+  const [runningId, setRunningId] = useState<string | null>(null)
   const [newSeq, setNewSeq] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -144,6 +153,21 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     setActiveId(id)
     writeActive(id)
   }, [])
+
+  // Other pages open a conversation by writing the active id and navigating
+  // here — the workbench's 继续对话 and global search both do this. This
+  // provider lives in the shell and mounts once, so its `activeId` state was
+  // read from localStorage before that write and would never see it: the chat
+  // page then wrote its own current id back and the requested conversation was
+  // lost. Adopt the stored id on every entry to /chat, before the page reads it.
+  useEffect(() => {
+    if (location.pathname !== '/chat') return
+    const stored = readActive()
+    if (stored !== activeRef.current) {
+      activeRef.current = stored
+      setActiveId(stored)
+    }
+  }, [location.pathname])
 
   const refresh = useCallback(async () => {
     if (!isTauriHost() || sample) {
@@ -292,6 +316,8 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       sessions,
       projects,
       activeId,
+      runningId,
+      setRunningId,
       newSeq,
       ready,
       error,
@@ -315,6 +341,7 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
       sessions,
       projects,
       activeId,
+      runningId,
       newSeq,
       ready,
       error,
@@ -354,6 +381,8 @@ const EMPTY_HISTORY: ChatHistory = {
   sessions: [],
   projects: [],
   activeId: null,
+  runningId: null,
+  setRunningId: () => undefined,
   newSeq: 0,
   ready: true,
   error: null,

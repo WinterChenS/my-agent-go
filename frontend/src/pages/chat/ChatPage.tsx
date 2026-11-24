@@ -687,6 +687,10 @@ export default function ChatPage() {
   const [dialog, setDialog] = useState<ChatDialogKind>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  // Actions that write a file need a visible answer: the screen-reader notice
+  // above is deliberately invisible, so an export looked like it did nothing
+  // even though the file was on disk. This toast shows for a few seconds.
+  const [toast, setToast] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>(sample ? sampleChat.attachments : [])
   const [mentionOpen, setMentionOpen] = useState(false)
   const [attachmentOpen, setAttachmentOpen] = useState(false)
@@ -750,6 +754,14 @@ export default function ChatPage() {
   // produced a conversation. Refresh when the turn starts and keep a slow tick
   // while it runs so the row and its preview track the work.
   const refreshHistory = history.refresh
+  const setRunningId = history.setRunningId
+  useEffect(() => {
+    if (sample) return
+    // Publish the running session to the shared history so the sidebar can put
+    // a spinner on that row. Clear it on stop or when there is no session yet.
+    setRunningId(live.running ? currentId : null)
+    return () => setRunningId(null)
+  }, [sample, live.running, currentId, setRunningId])
   useEffect(() => {
     if (sample || !live.running) return
     void refreshHistory()
@@ -792,6 +804,10 @@ export default function ChatPage() {
   }, [historyOpen])
 
   const showNotice = (message: string) => setNotice(message)
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    window.setTimeout(() => setToast((current) => (current === message ? '' : current)), 7000)
+  }, [])
   // The pane's controls are created once; the notice handler they call may be
   // replaced by a later render, so they read it through a ref.
   noticeRef.current = showNotice
@@ -885,7 +901,13 @@ export default function ChatPage() {
   // to replace a file until the person says so, and the dialog stays open with
   // the reason when it fails.
   const runExport = async ({ format, includeTools }: ExportRequest) => {
-    const done = (path: string) => ({ ok: true, message: t('chat.export.saved', { path }) })
+    const done = (path: string) => {
+      const message = t('chat.export.saved', { path })
+      // The file is written under the app's data dir — without a visible path
+      // the reader cannot find it and the action looks like it did nothing.
+      showToast(message)
+      return { ok: true, message }
+    }
     try {
       const report = await live.exportSession(format, includeTools)
       return done(report.path)
@@ -1578,6 +1600,12 @@ export default function ChatPage() {
           {notice}
         </div>
       ) : null}
+      {toast ? (
+        <div className="chat-toast" data-testid="chat-toast" role="status">
+          <Icon name="check" size={14} />
+          <span>{toast}</span>
+        </div>
+      ) : null}
 
       <div
         className={`chat-layout${railOpen ? ' rail-open' : ''}`}
@@ -2008,6 +2036,7 @@ export default function ChatPage() {
                       sessions: history.sessions,
                       projects: history.projects,
                       activeId: history.activeId,
+                      runningId: history.runningId,
                       onOpen: openHistorySession,
                       onNew: () => {
                         history.startNew()

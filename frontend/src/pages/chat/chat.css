@@ -210,6 +210,28 @@ button.chat-badge:hover {
   color: var(--fg-2);
 }
 
+/* A visible, self-dismissing answer for actions that write a file (export).
+   The permanent notice above is for assistive tech only; without this the
+   export dialog closed with nothing on screen and looked like a no-op. */
+.chat-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  margin: var(--space-2) var(--space-6) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--success) 40%, var(--border));
+  border-radius: var(--r-md);
+  background: var(--success-soft, var(--surface-2));
+  color: var(--fg);
+  font-size: var(--text-xs);
+  word-break: break-all;
+  animation: chat-toast-in 0.16s ease-out;
+}
+@keyframes chat-toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
 /* The banner used to stay yellow on screen forever once anything showed a
    notice. Keep the live region for assistive tech, hide it visually. */
 .chat-notice.is-muted {
@@ -3659,6 +3681,22 @@ body.is-resizing-rail * {
   flex: none;
   border-radius: 50%;
   background: var(--warn);
+}
+/* A turn in flight: the row spins so it reads as working from any route, not
+   only while the chat page is in front. Sized inside the one-line meta row. */
+.chat-history-meta i.chat-history-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  border-top-color: var(--warn);
+  background: none;
+  animation: chat-history-spin 720ms linear infinite;
+}
+@keyframes chat-history-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-history-meta i.chat-history-spinner { animation-duration: 2s; }
 }
 
 .chat-history-actions-trigger {

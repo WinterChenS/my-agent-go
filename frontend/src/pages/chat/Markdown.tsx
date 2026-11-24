@@ -2,6 +2,7 @@ import { Children, isValidElement, useMemo, useRef, useState, type ReactNode } f
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useI18n } from '../../i18n/LanguageProvider'
+import { invokeHost, isTauriHost } from '../../host/tauri'
 import { copyText } from './copyText'
 
 /** Stable plugin list: a new array on each render re-parses the whole tree. */
@@ -105,11 +106,29 @@ export function Markdown({
       td: ({ children }) => <td>{cite(children)}</td>,
       th: ({ children }) => <th>{cite(children)}</th>,
       blockquote: ({ children }) => <blockquote>{cite(children)}</blockquote>,
-      a: ({ href, children }) => (
-        <a href={href} target="_blank" rel="noreferrer noopener">
-          {cite(children)}
-        </a>
-      ),
+      a: ({ href, children }) => {
+        // In the desktop host, `_blank` is a navigation the webview swallows —
+        // the link looked dead. Ask the host to open it in the reader's own
+        // browser. In a plain browser/test the normal anchor still works.
+        const external = isTauriHost() && href && /^https?:\/\//i.test(href)
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={
+              external
+                ? (event) => {
+                    event.preventDefault()
+                    void invokeHost('open_external', { url: href }).catch(() => undefined)
+                  }
+                : undefined
+            }
+          >
+            {cite(children)}
+          </a>
+        )
+      },
       img: ({ src, alt }) => (
         <img src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} loading="lazy" />
       ),

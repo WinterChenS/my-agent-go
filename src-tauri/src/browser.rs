@@ -30,6 +30,158 @@ use serde_json::Value;
 use tauri::webview::Webview;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
+#[cfg(target_os = "macos")]
+use std::ffi::c_void;
+
+/// The page reports a DOM rect in the main webview's viewport coordinates. A
+/// Tauri child webview is placed in its superview's coordinates, and on macOS
+/// those two views do not share an origin (title bar, traffic-light inset, a
+/// transparent full-size content view). Treating one as the other shifts the
+/// page upward — far enough to sit on top of the address bar. Ask AppKit to
+/// convert between the two instead of guessing the offset; this is the one
+/// conversion that is right for flipped views, Retina scaling and insets alike.
+///
+/// Returns the rect as the view reports it, back in the main webview's
+/// coordinates, so callers can compare it with the rect the page asked for.
+/// The three AppKit views involved in placing the browser pane: the main
+/// webview (whose viewport the page measures in), the child webview (the pane),
+/// and their shared superview (whose coordinates a frame is expressed in).
+#[cfg(target_os = "macos")]
+struct AppkitViews {
+    main: *mut objc2_app_kit::NSView,
+    child: *mut objc2_app_kit::NSView,
+    superview: *mut objc2_app_kit::NSView,
+}
+
+/// `with_webview` dispatches to the main thread, so hand the raw pointer back
+/// through a channel. It is a stable object for the view's lifetime.
+#[cfg(target_os = "macos")]
+fn appkit_view_of(app: &AppHandle, label: &str) -> Result<*mut c_void, String> {
+    use std::sync::mpsc::channel;
+    let webview = app
+        .get_webview(label)
+        .ok_or_else(|| format!("webview {label} not found"))?;
+    // A raw pointer is not `Send`; the address is. Send the usize and turn it
+    // back into a pointer on this thread. The view outlives this call.
+    let (tx, rx) = channel::<usize>();
+    webview
+        .with_webview(move |platform| {
+            let _ = tx.send(platform.inner() as usize);
+        })
+        .map_err(|error| format!("read {label}: {error}"))?;
+    let addr = rx
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|_| format!("read {label}: timed out"))?;
+    Ok(addr as *mut c_void)
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_views(app: &AppHandle) -> Result<AppkitViews, String> {
+    use objc2::msg_send;
+    use objc2_app_kit::NSView;
+    let main = appkit_view_of(app, "main")? as *mut NSView;
+    let child = appkit_view_of(app, "anvil-browser")? as *mut NSView;
+    let superview: *mut NSView = unsafe { msg_send![child, superview] };
+    if superview.is_null() {
+        return Err("browser view has no superview".to_string());
+    }
+    Ok(AppkitViews {
+        main,
+        child,
+        superview,
+    })
+}
+
+/// Place the pane's child webview at a rect in the main webview's viewport
+/// coordinates, then read its frame back through the same pair of views. The
+/// readback is therefore in the same coordinates the page reported, so a drift
+/// check compares like with like.
+#[cfg(target_os = "macos")]
+fn appkit_place(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
+    use objc2::msg_send;
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    let views = appkit_views(app)?;
+    unsafe {
+        let wanted = CGRect {
+            origin: CGPoint::new(x, y),
+            size: CGSize::new(w, h),
+        };
+        // DOM viewport (main webview) -> superview. A child view's frame is in
+        // its superview's coordinates; convertRect handles flipped views,
+        // Retina scaling and title-bar insets without us guessing an offset.
+        let frame: CGRect = msg_send![views.superview, convertRect: wanted, fromView: views.main];
+        let _: () = msg_send![views.child, setFrame: frame];
+        // A theme switch or a wry relayout can push the child beneath the app's
+        // own webview; re-adding it moves it back to the front of its siblings.
+        let _: () = msg_send![views.superview, addSubview: views.child];
+        let actual: CGRect = msg_send![views.child, frame];
+        let back: CGRect = msg_send![views.superview, convertRect: actual, toView: views.main];
+        Ok((
+            back.origin.x,
+            back.origin.y,
+            back.size.width,
+            back.size.height,
+        ))
+    }
+}
+
+/// Read the pane's frame back in the main webview's viewport coordinates,
+/// without moving it.
+#[cfg(target_os = "macos")]
+fn appkit_read(app: &AppHandle) -> Result<(f64, f64, f64, f64), String> {
+    use objc2::msg_send;
+    use objc2_core_foundation::CGRect;
+    let views = appkit_views(app)?;
+    unsafe {
+        let actual: CGRect = msg_send![views.child, frame];
+        let back: CGRect = msg_send![views.superview, convertRect: actual, toView: views.main];
+        Ok((
+            back.origin.x,
+            back.origin.y,
+            back.size.width,
+            back.size.height,
+        ))
+    }
+}
+
+/// Cross-platform placement. Windows and Linux keep Tauri's own `set_bounds`
+/// (they were never affected); macOS converts through AppKit because its main
+/// and child views do not share an origin. Returns the readback so callers can
+/// verify the view went where it was asked.
+fn place_view(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return appkit_place(app, x, y, w, h);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let webview = app
+            .get_webview("anvil-browser")
+            .ok_or_else(|| "browser webview not found".to_string())?;
+        webview
+            .set_bounds(rect_of(x, y, w, h))
+            .map_err(|error| format!("browser bounds: {error}"))?;
+        return Ok(webview
+            .bounds()
+            .ok()
+            .and_then(logical_of)
+            .unwrap_or((x, y, w, h)));
+    }
+}
+
+/// Cross-platform readback, in the same coordinates the page reported.
+fn read_view(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    #[cfg(target_os = "macos")]
+    {
+        return appkit_read(app).ok();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let webview = app.get_webview("anvil-browser")?;
+        return webview.bounds().ok().and_then(logical_of);
+    }
+}
+
 /// How long a command may take before the caller is told nobody answered.
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -172,7 +324,7 @@ impl Browser {
             .webview
             .lock()
             .map_err(|_| "browser lock".to_string())?;
-        if let Some(webview) = slot.as_ref() {
+        if slot.is_some() {
             let same = *self
                 .bounds
                 .lock()
@@ -184,8 +336,8 @@ impl Browser {
                 // to show for it.
                 return Ok(());
             }
-            return match webview.set_bounds(rect_of(x, y, w, h)) {
-                Ok(()) => {
+            return match place_view(app, x, y, w, h) {
+                Ok(_) => {
                     *self
                         .bounds
                         .lock()
@@ -233,35 +385,24 @@ impl Browser {
     /// exactly like a placement that arrived too early, and only the view's own
     /// frame tells them apart. It travels back to the host log, so "it still
     /// drifts" can be answered with a number instead of another guess.
-    pub fn reapply(&self) -> Result<String, String> {
+    pub fn reapply(&self, app: &AppHandle) -> Result<String, String> {
         let (x, y, w, h) = *self
             .bounds
             .lock()
             .map_err(|_| "browser bounds".to_string())?;
-        let slot = self
-            .webview
-            .lock()
-            .map_err(|_| "browser lock".to_string())?;
-        let Some(webview) = slot.as_ref() else {
+        if !self.is_open() {
             return Ok("no webview".to_string());
-        };
-        let (px, py, pw, ph) = placement(x, y, w, h);
-        webview
-            .set_bounds(rect_of(x, y, w, h))
-            .map_err(|error| format!("browser bounds: {error}"))?;
-        self.placements.fetch_add(1, Ordering::Relaxed);
-        // A theme switch or a wry relayout can quietly push this view beneath
-        // the app's own webview, and a page nobody can see reads as blank.
-        // Re-adding a subview moves it to the end — the front.
-        #[cfg(target_os = "macos")]
-        raise_view(webview);
-        // Read back what the view actually took. A child view the platform
-        // refused to move reports its old frame here and nowhere else.
-        let asked = format!("{px:.0},{py:.0} {pw:.0}x{ph:.0}");
-        match webview.bounds() {
-            Ok(rect) => Ok(format!("asked {asked}; view reports {}", describe(rect))),
-            Err(error) => Ok(format!("asked {asked}; readback failed: {error}")),
         }
+        let (px, py, pw, ph) = placement(x, y, w, h);
+        // On macOS the placement also brings the view to the front, so a
+        // theme switch cannot bury the page under the app's own webview.
+        let read = place_view(app, x, y, w, h)?;
+        self.placements.fetch_add(1, Ordering::Relaxed);
+        let asked = format!("{px:.0},{py:.0} {pw:.0}x{ph:.0}");
+        Ok(format!(
+            "asked {asked}; view reports {:.0},{:.0} {:.0}x{:.0}",
+            read.0, read.1, read.2, read.3
+        ))
     }
 
     /// Puts the view back if it is not where the pane says it should be.
@@ -270,22 +411,15 @@ impl Browser {
     /// app's back: one readback every second and a half, and a placement only
     /// when the numbers disagree. A parked pane (no size) is left alone — it is
     /// off-screen on purpose.
-    pub fn check(&self) -> Result<Option<String>, String> {
+    pub fn check(&self, app: &AppHandle) -> Result<Option<String>, String> {
         let want = *self
             .bounds
             .lock()
             .map_err(|_| "browser bounds".to_string())?;
-        if want.2 <= 1.0 || want.3 <= 1.0 {
+        if want.2 <= 1.0 || want.3 <= 1.0 || !self.is_open() {
             return Ok(None);
         }
-        let slot = self
-            .webview
-            .lock()
-            .map_err(|_| "browser lock".to_string())?;
-        let Some(webview) = slot.as_ref() else {
-            return Ok(None);
-        };
-        let Some(actual) = webview.bounds().ok().and_then(logical_of) else {
+        let Some(actual) = read_view(app) else {
             return Ok(None);
         };
         let close_enough = (actual.0 - want.0).abs() <= 1.5
@@ -299,9 +433,7 @@ impl Browser {
             "{:.0},{:.0} {:.0}x{:.0}",
             actual.0, actual.1, actual.2, actual.3
         );
-        webview
-            .set_bounds(rect_of(want.0, want.1, want.2, want.3))
-            .map_err(|error| format!("browser bounds: {error}"))?;
+        place_view(app, want.0, want.1, want.2, want.3)?;
         self.placements.fetch_add(1, Ordering::Relaxed);
         Ok(Some(format!("was at {found}, put back on the pane")))
     }
@@ -985,20 +1117,6 @@ fn pin_view(webview: &Webview<tauri::Wry>) {
     });
 }
 
-/// Moves an existing child webview back in front of its siblings (macOS).
-#[cfg(target_os = "macos")]
-fn raise_view(webview: &Webview<tauri::Wry>) {
-    let _ = webview.with_webview(|platform| {
-        let view = platform.inner();
-        if view.is_null() {
-            return;
-        }
-        // SAFETY: `raise_raw` only re-adds the live `WKWebView` to its own
-        // superview, moving it to the front of its siblings.
-        unsafe { raise_raw(view as *mut objc2::runtime::AnyObject) };
-    });
-}
-
 /// Re-adding a subview already in the hierarchy moves it to the end — the
 /// front — without reloading or resetting anything.
 ///
@@ -1032,6 +1150,7 @@ fn placement(x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
 
 /// One call, not a move followed by a resize: the intermediate frame is a page
 /// drawn at the old size in the new place.
+#[cfg(not(target_os = "macos"))]
 fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
     let (px, py, pw, ph) = placement(x, y, w, h);
     tauri::Rect {
@@ -1040,19 +1159,12 @@ fn rect_of(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
     }
 }
 
-/// One line describing where a native view says it is.
-fn describe(rect: tauri::Rect) -> String {
-    match logical_of(rect) {
-        Some((x, y, w, h)) => format!("{x:.0},{y:.0} {w:.0}x{h:.0}"),
-        None => "physical units (unreadable here)".to_string(),
-    }
-}
-
 /// The logical rect a platform reports, if it reported one.
 ///
 /// The readback is asked for in logical pixels; a physical answer means the
 /// platform handed back what the window manager thinks instead, and comparing
 /// it with the requested rect would be comparing two different units.
+#[cfg(not(target_os = "macos"))]
 fn logical_of(rect: tauri::Rect) -> Option<(f64, f64, f64, f64)> {
     match (rect.position, rect.size) {
         (tauri::Position::Logical(p), tauri::Size::Logical(s)) => {
@@ -1106,7 +1218,7 @@ fn place_last(app: &AppHandle, reason: &str) {
         return;
     };
     let browser = browser.get();
-    let message = match browser.reapply() {
+    let message = match browser.reapply(app) {
         Ok(report) => format!("browser: {reason} {report}"),
         Err(error) => format!("browser: {reason} failed: {error}"),
     };
@@ -1151,7 +1263,7 @@ pub fn spawn_watchdog(app: AppHandle) {
                     url.as_deref().unwrap_or("(no webview)")
                 ));
             }
-            match browser.check() {
+            match browser.check(&app) {
                 Ok(None) => {}
                 Ok(Some(note)) => {
                     // A pane that is being fixed every beat is a bug worth

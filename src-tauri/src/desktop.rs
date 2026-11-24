@@ -85,6 +85,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::commands::get_preferences,
             crate::commands::set_preferences,
             crate::commands::log_event,
+            crate::commands::open_external,
             crate::catalog::catalog_snapshot,
             crate::catalog::catalog_refresh,
             crate::catalog::catalog_sync,
