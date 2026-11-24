@@ -48,13 +48,9 @@ export default function Sidebar() {
   return (
     <aside className="sidebar" id="sidebar">
       <Link className="brand" to="/" aria-label="Anvil">
-        <span className="brand-mark">
-          <Icon name="layers" size={15} />
-        </span>
-        <span className="brand-copy">
-          <span className="brand-name">Anvil</span>
-          <span className="brand-sub">{t('brand.subtitle')}</span>
-        </span>
+        <img className="brand-logo" src="/brand-logo.png" alt="Anvil" />
+        <img className="brand-mark-img" src="/brand-mark.png" alt="" aria-hidden="true" />
+        <span className="brand-sub">{t('brand.subtitle')}</span>
       </Link>
 
       <div className="nav-group">
