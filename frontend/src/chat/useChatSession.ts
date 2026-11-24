@@ -13,8 +13,10 @@ import {
   deleteCatalogAgent,
   loadCatalog,
   refreshCatalog,
+  syncCatalogRuntime,
   type CatalogAgent,
   type CatalogModel,
+  type CatalogSnapshot,
 } from '../catalog/client'
 import { cacheUsable, readCachedSnapshot, writeCachedSnapshot } from '../catalog/cache'
 import { onCatalogChanged } from '../catalog/notify'
@@ -1014,9 +1016,33 @@ export function useChatSession({
     setSyncing(true)
     setError(null)
     try {
-      // A manual sync re-scans: a model installed after the startup scan is
-      // exactly the case this button exists for, and only a rescan finds it.
-      const catalog = await refreshCatalog()
+      // The button lives in the model picker, so it has to be fast *and* find
+      // what changed. A full rescan spawns every runtime to read its version
+      // before it syncs anything — seconds of spin for lists that live in
+      // local files. The fast path re-reads each installed runtime's models
+      // (milliseconds each, `catalog_sync` answers with the whole snapshot)
+      // and only falls back to the rescan when no runtime is installed at
+      // all, which is exactly the case the fast path cannot cover.
+      const baseline = await loadCatalog()
+      const installed = Array.from(
+        new Set(
+          baseline.runtimes
+            .filter((runtime) => runtime.status === 'available')
+            .map((runtime) => runtime.runtimeId),
+        ),
+      )
+      let catalog: CatalogSnapshot
+      if (installed.length > 0) {
+        catalog = baseline
+        for (const runtimeId of installed) {
+          catalog = await syncCatalogRuntime(runtimeId)
+        }
+      } else {
+        // A manual sync re-scans: a runtime installed after the startup scan
+        // is exactly the case this button exists for, and only a rescan
+        // finds it.
+        catalog = await refreshCatalog()
+      }
       writeCachedSnapshot(catalog)
       const usable = catalog.runtimes
         .filter((runtime) => runtime.status === 'available')

@@ -45,8 +45,14 @@ pub type Reply = Result<Value, String>;
 pub struct Browser {
     /// The child webview, once the pane has been opened.
     webview: Mutex<Option<Webview<tauri::Wry>>>,
+    /// A URL asked for while the pane had no rect to place a view on. It waits
+    /// here until the pane reports one, because a webview created at a
+    /// degenerate rect is created off-screen — and a page that starts its life
+    /// there may never commit its first navigation, which leaves every
+    /// following command waiting for a script the page never ran.
+    pending: Mutex<Option<String>>,
     /// Commands waiting for the page to post their answer.
-    pending: Mutex<HashMap<u64, Sender<Reply>>>,
+    pending_replies: Mutex<HashMap<u64, Sender<Reply>>>,
     next_id: AtomicU64,
     /// The loopback port the page posts answers to.
     port: AtomicU16,
@@ -62,7 +68,8 @@ impl Browser {
     pub fn new() -> Self {
         Self {
             webview: Mutex::new(None),
-            pending: Mutex::new(HashMap::new()),
+            pending: Mutex::new(None),
+            pending_replies: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             port: AtomicU16::new(0),
             bounds: Mutex::new((0.0, 0.0, 0.0, 0.0)),
@@ -91,6 +98,35 @@ impl Browser {
                 .map_err(|error| format!("navigate: {error}"))?;
             return Ok(());
         }
+        let (_, _, w, h) = *self
+            .bounds
+            .lock()
+            .map_err(|_| "browser bounds".to_string())?;
+        if w <= 1.0 || h <= 1.0 {
+            // No rect to place a view on yet. The pane is told to come forward
+            // (`SHOW_EVENT`); when it does, its first rect report creates the
+            // view on-screen. Creating it here would park it off-screen at
+            // 1×1, and a page born there can stall before its first commit —
+            // every command after that waits for a script that never ran,
+            // which is exactly "the site stays blank and `text` times out".
+            *self
+                .pending
+                .lock()
+                .map_err(|_| "browser pending".to_string())? = Some(url.to_string());
+            return Ok(());
+        }
+        self.spawn(app, url, &mut slot)
+    }
+
+    /// Create the webview at the rect the pane last reported. The caller holds
+    /// the webview lock; `add_child` blocks on the main thread, and nothing on
+    /// the main thread takes that lock, so the wait is safe.
+    fn spawn(
+        &self,
+        app: &AppHandle,
+        url: &str,
+        slot: &mut Option<Webview<tauri::Wry>>,
+    ) -> Result<(), String> {
         let (x, y, w, h) = *self
             .bounds
             .lock()
@@ -130,49 +166,64 @@ impl Browser {
 
     /// Move the pane. A closed pane is parked off-screen rather than destroyed:
     /// coming back should not reload the page the agent was in the middle of.
-    pub fn set_bounds(&self, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-        let slot = self
+    pub fn set_bounds(&self, app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+        let real = w > 1.0 && h > 1.0;
+        let mut slot = self
             .webview
             .lock()
             .map_err(|_| "browser lock".to_string())?;
-        let Some(webview) = slot.as_ref() else {
-            // There is no view to place yet; remembering the rect is what makes
-            // `open` create it where the pane already is.
-            *self
+        if let Some(webview) = slot.as_ref() {
+            let same = *self
                 .bounds
                 .lock()
-                .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
-            return Ok(());
-        };
-        if *self
+                .map_err(|_| "browser bounds".to_string())?
+                == (x, y, w, h);
+            if same {
+                // Same place, same size. Placing a webview makes it lay itself out
+                // again, and a repeated placement is a visible flicker with nothing
+                // to show for it.
+                return Ok(());
+            }
+            return match webview.set_bounds(rect_of(x, y, w, h)) {
+                Ok(()) => {
+                    *self
+                        .bounds
+                        .lock()
+                        .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
+                    self.placements.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }
+                Err(error) => {
+                    // A failed placement must not be remembered. The pane keeps
+                    // reporting the same rect, and the check above would swallow
+                    // every retry — the native view would sit at its old place for
+                    // good, which is exactly what "the page drifted and stayed
+                    // there" looks like.
+                    Err(format!("browser bounds: {error}"))
+                }
+            };
+        }
+        // There is no view yet. Remembering the rect — even a degenerate one,
+        // which is a closed pane — is what makes the next `open` or the report
+        // below create the view where the pane already is. A page the runtime
+        // asked for while the pane had no rect has been waiting for exactly
+        // this report: the pane's first real rect, which is where the view is
+        // created — on-screen, where its first navigation can commit and its
+        // script can answer.
+        *self
             .bounds
             .lock()
-            .map_err(|_| "browser bounds".to_string())?
-            == (x, y, w, h)
+            .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
+        if real
+            && let Some(url) = self
+                .pending
+                .lock()
+                .map_err(|_| "browser pending".to_string())?
+                .take()
         {
-            // Same place, same size. Placing a webview makes it lay itself out
-            // again, and a repeated placement is a visible flicker with nothing
-            // to show for it.
-            return Ok(());
+            return self.spawn(app, &url, &mut slot);
         }
-        match webview.set_bounds(rect_of(x, y, w, h)) {
-            Ok(()) => {
-                *self
-                    .bounds
-                    .lock()
-                    .map_err(|_| "browser bounds".to_string())? = (x, y, w, h);
-                self.placements.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
-            Err(error) => {
-                // A failed placement must not be remembered. The pane keeps
-                // reporting the same rect, and the check above would swallow
-                // every retry — the native view would sit at its old place for
-                // good, which is exactly what "the page drifted and stayed
-                // there" looks like.
-                Err(format!("browser bounds: {error}"))
-            }
-        }
+        Ok(())
     }
 
     /// Place the view at the last reported rect again, ignoring the "same
@@ -199,6 +250,11 @@ impl Browser {
             .set_bounds(rect_of(x, y, w, h))
             .map_err(|error| format!("browser bounds: {error}"))?;
         self.placements.fetch_add(1, Ordering::Relaxed);
+        // A theme switch or a wry relayout can quietly push this view beneath
+        // the app's own webview, and a page nobody can see reads as blank.
+        // Re-adding a subview moves it to the end — the front.
+        #[cfg(target_os = "macos")]
+        raise_view(webview);
         // Read back what the view actually took. A child view the platform
         // refused to move reports its old frame here and nowhere else.
         let asked = format!("{px:.0},{py:.0} {pw:.0}x{ph:.0}");
@@ -260,6 +316,12 @@ impl Browser {
                 .close()
                 .map_err(|error| format!("close browser: {error}"))?;
         }
+        // A URL waiting for a rect belongs to the view that is now gone; the
+        // next `open` decides again where its page starts life.
+        *self
+            .pending
+            .lock()
+            .map_err(|_| "browser pending".to_string())? = None;
         Ok(())
     }
 
@@ -273,6 +335,15 @@ impl Browser {
             .lock()
             .map(|slot| slot.is_some())
             .unwrap_or(false)
+    }
+
+    /// The address the page is on, for the watchdog's log. A page that stays on
+    /// `about:blank` after a navigation never committed it; that is the one
+    /// fact that separates "the network never answered" from "the script did".
+    pub fn page_url(&self) -> Option<String> {
+        let slot = self.webview.lock().ok()?;
+        let webview = slot.as_ref()?;
+        webview.url().ok().map(|url| url.to_string())
     }
 
     /// A PNG of what the page looks like right now.
@@ -344,7 +415,7 @@ impl Browser {
         };
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
-        self.pending
+        self.pending_replies
             .lock()
             .map_err(|_| "browser pending".to_string())?
             .insert(id, tx);
@@ -354,7 +425,7 @@ impl Browser {
             params
         );
         if let Err(error) = webview.eval(&script) {
-            self.pending
+            self.pending_replies
                 .lock()
                 .map(|mut pending| pending.remove(&id))
                 .ok();
@@ -363,18 +434,28 @@ impl Browser {
         match rx.recv_timeout(COMMAND_TIMEOUT) {
             Ok(reply) => reply,
             Err(_) => {
-                self.pending
+                self.pending_replies
                     .lock()
                     .map(|mut pending| pending.remove(&id))
                     .ok();
-                Err(format!("the page did not answer `{method}` in time"))
+                // The page's own address in the timeout turns the CLI output
+                // into the diagnosis: a page that is still on `about:blank`
+                // never committed its navigation, while a page on the asked-for
+                // URL has the script and chose not to answer.
+                let page = webview
+                    .url()
+                    .map(|url| url.to_string())
+                    .unwrap_or_else(|_| "unreadable".to_string());
+                Err(format!(
+                    "the page did not answer `{method}` in time (page: {page})"
+                ))
             }
         }
     }
 
     /// Complete one pending command with the page's answer.
     pub fn settle(&self, id: u64, reply: Reply) {
-        if let Ok(mut pending) = self.pending.lock()
+        if let Ok(mut pending) = self.pending_replies.lock()
             && let Some(tx) = pending.remove(&id)
         {
             let _ = tx.send(reply);
@@ -834,7 +915,7 @@ pub async fn browser_bounds(
     h: f64,
 ) -> Result<(), String> {
     let browser = state.get();
-    let placed = browser.set_bounds(x, y, w, h);
+    let placed = browser.set_bounds(&app, x, y, w, h);
     // macOS repositions child views on its own while the window resizes, and it
     // does so after this call — see `settle_later`. The placement below is the
     // one that survives; this one keeps the pane following during a drag.
@@ -873,13 +954,17 @@ pub async fn browser_action(
     browser.run_script(script)
 }
 
-/// Clears a child webview's autoresizing mask (macOS).
+/// Clears a child webview's autoresizing mask (macOS) and puts it in front.
 ///
 /// wry creates a child view with `NSViewMinYMargin` — "keep the distance from
 /// the bottom of the window". AppKit honours that on every resize, and it does
 /// so *after* the page has reported where the pane is, so growing the window
 /// slid the page upwards and left it there. The rect we place is the only
 /// authority over the frame; `0` (`NSViewNotSizable`) removes AppKit's.
+///
+/// The view is also re-added to its superview, which moves it to the front: a
+/// theme switch or a wry relayout can push it beneath the app's own webview,
+/// and a page that renders where nobody can see it reads as a blank pane.
 #[cfg(target_os = "macos")]
 fn pin_view(webview: &Webview<tauri::Wry>) {
     let _ = webview.with_webview(|platform| {
@@ -895,7 +980,37 @@ fn pin_view(webview: &Webview<tauri::Wry>) {
                 setAutoresizingMask: 0usize
             ];
         }
+        raise_raw(view as *mut objc2::runtime::AnyObject);
     });
+}
+
+/// Moves an existing child webview back in front of its siblings (macOS).
+#[cfg(target_os = "macos")]
+fn raise_view(webview: &Webview<tauri::Wry>) {
+    let _ = webview.with_webview(|platform| {
+        let view = platform.inner();
+        if view.is_null() {
+            return;
+        }
+        raise_raw(view as *mut objc2::runtime::AnyObject);
+    });
+}
+
+/// Re-adding a subview already in the hierarchy moves it to the end — the
+/// front — without reloading or resetting anything.
+///
+/// SAFETY: `view` is a live `NSView` and `superview`/`addSubview:` take and
+/// return `NSView` pointers.
+#[cfg(target_os = "macos")]
+unsafe fn raise_raw(view: *mut objc2::runtime::AnyObject) {
+    let superview: *mut objc2::runtime::AnyObject =
+        unsafe { objc2::msg_send![view, superview] };
+    if superview.is_null() {
+        return;
+    }
+    unsafe {
+        let _: () = objc2::msg_send![superview, addSubview: view];
+    }
 }
 
 /// Where the native view goes for a reported rect.
@@ -1009,6 +1124,10 @@ pub fn spawn_watchdog(app: AppHandle) {
     use tauri::Manager;
     std::thread::spawn(move || {
         let mut reported = 0u32;
+        // The page's address, logged whenever it changes. The watchdog's other
+        // corrections are silent unless they act; this one speaks, because a
+        // blank page has no other symptom in the log.
+        let mut last_url: Option<Option<String>> = None;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(1500));
             let Some(host) = app.try_state::<crate::state::HostState>() else {
@@ -1020,7 +1139,16 @@ pub fn spawn_watchdog(app: AppHandle) {
             let Some(browser) = app.try_state::<BrowserHandle>() else {
                 continue;
             };
-            match browser.get().check() {
+            let browser = browser.get();
+            let url = browser.page_url();
+            if last_url.as_ref() != Some(&url) {
+                last_url = Some(url.clone());
+                host.config.log.info(&format!(
+                    "browser: page {}",
+                    url.as_deref().unwrap_or("(no webview)")
+                ));
+            }
+            match browser.check() {
                 Ok(None) => {}
                 Ok(Some(note)) => {
                     // A pane that is being fixed every beat is a bug worth

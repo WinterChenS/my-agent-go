@@ -2702,6 +2702,18 @@ button.chat-badge:hover {
   from { opacity: 0; transform: translateY(6px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
+/* The model picker's refresh: pinned to the menu's top-right, one icon wide,
+   because the action and the list it refreshes belong on the same surface. */
+.chat-menu-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 var(--space-1) var(--space-2);
+}
+.chat-menu-head .chat-menu-sync {
+  padding: 3px 7px;
+  font-size: var(--text-2xs);
+}
 .chat-menu-group + .chat-menu-group {
   margin-top: var(--space-2);
   padding-top: var(--space-2);

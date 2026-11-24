@@ -243,9 +243,9 @@ function installHost(
       if (args) lastArgs.set(command, args)
       if (command === 'pi_subagent_status') return options.subagent ?? null
       if (command === 'pi_subagent_install') return options.install ?? null
-      if (command === 'catalog_refresh') {
+      if (command === 'catalog_refresh' || command === 'catalog_sync') {
         // A model that only exists after the manual sync: the picker must be
-        // rebuilt from the rescan, not from the startup snapshot.
+        // rebuilt from the re-read, not from the startup snapshot.
         rescanned = true
         return catalogSnapshot(rescanned)
       }
@@ -404,7 +404,7 @@ function installInventoryHost(
 }
 
 describe('chat live session', () => {
-  it('syncs the model list from the composer and shows what the rescan found', async () => {
+  it('refreshes the model list from the picker and shows what the sync found', async () => {
     const host = installHost()
     render(
       <MemoryRouter initialEntries={['/chat']}>
@@ -418,20 +418,19 @@ describe('chat live session', () => {
       await userEvent.click(picker())
       return screen.findByTestId('chat-model-menu')
     }
-    let menu = await openPicker()
+    const menu = await openPicker()
     expect(menu).not.toHaveTextContent('auto/glm-5.3-flash')
-    await userEvent.keyboard('{Escape}')
 
-    const sync = screen.getByTestId('chat-models-sync')
+    // The refresh lives at the top-right of the open model menu — not in the
+    // composer bar — and re-reads the installed runtime instead of rescanning.
+    const sync = within(menu).getByTestId('chat-models-sync')
     expect(sync).toHaveAccessibleName('同步模型列表')
     await userEvent.click(sync)
 
-    await waitFor(() => expect(host.calls).toContain('catalog_refresh'))
-    // The picker is rebuilt from the rescan, not from the startup snapshot.
-    await waitFor(async () => {
-      menu = await openPicker()
-      expect(menu).toHaveTextContent('auto/glm-5.3-flash')
-    })
+    await waitFor(() => expect(host.calls).toContain('catalog_sync'))
+    expect(host.args('catalog_sync')).toMatchObject({ runtimeId: 'pi' })
+    // The click did not close the menu, so the refreshed list is on screen.
+    await waitFor(() => expect(menu).toHaveTextContent('auto/glm-5.3-flash'))
   })
 
   it('offers only enabled models, grouped with the agents that bind them', async () => {

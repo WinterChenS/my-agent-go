@@ -26,7 +26,6 @@ import { turnUsage, type TurnUsage } from '../../chat/usage'
 import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
-import SyncButton from '../../shell/SyncButton'
 import { ROUTES_BY_ID } from '../../shell/routes'
 import { PREF_SHOW_TIMELINE, useBoolPreference, useSendShortcut } from '../../preferences/flags'
 import { useCatalog } from '../../catalog/useCatalog'
@@ -2583,6 +2582,7 @@ function ComposerMenu({
   groups,
   disabled,
   danger,
+  headAction,
   onPick,
   width = 320,
 }: {
@@ -2595,6 +2595,15 @@ function ComposerMenu({
   groups: MenuGroup[]
   disabled?: boolean
   danger?: boolean
+  /** An action pinned to the top-right of the open menu: the model picker's
+   *  refresh belongs beside the list it refreshes, not in the composer bar. */
+  headAction?: {
+    label: string
+    busy?: boolean
+    disabled?: boolean
+    testId?: string
+    onClick: () => void
+  }
   onPick: (value: string) => void
   width?: number
 }) {
@@ -2723,6 +2732,27 @@ function ComposerMenu({
           style={{ left: pos.left, bottom: pos.bottom, width }}
           onKeyDown={onMenuKey}
         >
+          {headAction ? (
+            <div className="chat-menu-head" role="presentation">
+              <button
+                type="button"
+                className={`sync-btn chat-menu-sync${headAction.busy ? ' is-busy' : ''}`}
+                aria-label={headAction.label}
+                title={headAction.label}
+                aria-busy={headAction.busy}
+                disabled={headAction.disabled || headAction.busy}
+                data-testid={headAction.testId}
+                // The click must not read as a pick: the menu stays open so the
+                // refreshed list is right there when the answer lands.
+                onClick={(event) => {
+                  event.stopPropagation()
+                  headAction.onClick()
+                }}
+              >
+                <Icon name="refresh" size={13} />
+              </button>
+            </div>
+          ) : null}
           {groups.map((group, groupIndex) => (
             <div className="chat-menu-group" key={groupIndex}>
               {group.label ? <div className="chat-menu-group-label">{group.label}</div> : null}
@@ -3674,16 +3704,18 @@ function Composer({
             value={modelValue}
             groups={modelGroups}
             disabled={!enabled}
+            headAction={
+              live
+                ? {
+                    label: t('chat.live.syncModels'),
+                    busy: live.syncing,
+                    testId: 'chat-models-sync',
+                    onClick: () => void live.onSync(),
+                  }
+                : undefined
+            }
             onPick={pickModel}
           />
-          {live ? (
-            <SyncButton
-              label={t('chat.live.syncModels')}
-              busy={live.syncing}
-              onClick={live.onSync}
-              testId="chat-models-sync"
-            />
-          ) : null}
           <ComposerMenu
             testId="chat-thinking-select"
             menuTestId="chat-thinking-menu"
