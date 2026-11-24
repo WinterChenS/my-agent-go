@@ -33,12 +33,13 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 /// Place the pane's child webview through Tauri's own `set_bounds`.
 ///
 /// This is the Windows/Linux path, and the macOS fallback when the view pair
-/// could not be captured at creation. On macOS the native path is subtly wrong
-/// for this pane: `window_position` flips the DOM rect against the *superview*
-/// height, assuming the pane's top-left and the superview's top-left are the
-/// same point. They are not — the main webview sits a title-bar's height below
-/// the superview's origin, so the child lands that much too high, on the
-/// address bar. `apply_place` uses the AppKit conversion on macOS instead.
+/// could not be captured at creation. On macOS it is subtly wrong for this pane:
+/// `window_position` flips the DOM rect against the *superview* height, i.e. it
+/// assumes the layout viewport's top and the superview's top are the same point.
+/// They are not — the window is a full-size-content window, so a DOM `y` of 0 is
+/// one title bar below both tops, and the child lands that much too high, on the
+/// address bar. `apply_place` uses the AppKit conversion (with the layout
+/// viewport inset) on macOS instead.
 fn place_native(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64, f64, f64, f64), String> {
     let webview = app
         .get_webview("anvil-browser")
@@ -54,6 +55,75 @@ fn place_native(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64,
     // with like.
     let read = webview.bounds().ok().and_then(logical_of).unwrap_or((x, y, w, h));
     Ok(read)
+}
+
+/// One line saying what AppKit actually holds, right now and not as reported by
+/// the read-back below.
+///
+/// The read-back goes through the same conversion as the placement, so it agrees
+/// with itself even when the placement is wrong — that is exactly how a 28 pt
+/// offset survived several rounds of "the numbers match". These are the raw
+/// numbers: the superview, both frames, `isFlipped`, and the layout-viewport
+/// inset. Comparing them with the rect the page reported is the only check that
+/// does not share the assumption being tested.
+#[cfg(target_os = "macos")]
+fn macos_describe(main: usize, child: usize, app: &AppHandle) -> Option<String> {
+    use objc2::msg_send;
+    use objc2_foundation::NSRect;
+    let (tx, rx) = channel::<String>();
+    app.run_on_main_thread(move || {
+        // SAFETY: live views for the child's lifetime; only geometry and class
+        // reads, no writes.
+        let note = unsafe {
+            let main = main as *mut objc2::runtime::AnyObject;
+            let child = child as *mut objc2::runtime::AnyObject;
+            let sup: *mut objc2::runtime::AnyObject = msg_send![child, superview];
+            if sup.is_null() {
+                "child has no superview".to_string()
+            } else {
+                let sup_frame: NSRect = msg_send![sup, frame];
+                let main_frame: NSRect = msg_send![main, frame];
+                let child_frame: NSRect = msg_send![child, frame];
+                let sup_flipped: bool = msg_send![sup, isFlipped];
+                let main_flipped: bool = msg_send![main, isFlipped];
+                let child_flipped: bool = msg_send![child, isFlipped];
+                let name: *mut objc2::runtime::AnyObject = msg_send![sup, className];
+                let utf8: *const std::os::raw::c_char = if name.is_null() {
+                    std::ptr::null()
+                } else {
+                    msg_send![name, UTF8String]
+                };
+                let sup_name = if utf8.is_null() {
+                    "?".to_string()
+                } else {
+                    std::ffi::CStr::from_ptr(utf8)
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                format!(
+                    "sup={sup_name} f={:.0},{:.0} {:.0}x{:.0} flipped={sup_flipped}; \
+                     main f={:.0},{:.0} {:.0}x{:.0} flipped={main_flipped}; \
+                     child f={:.0},{:.0} {:.0}x{:.0} flipped={child_flipped}; inset={:.0}",
+                    sup_frame.origin.x,
+                    sup_frame.origin.y,
+                    sup_frame.size.width,
+                    sup_frame.size.height,
+                    main_frame.origin.x,
+                    main_frame.origin.y,
+                    main_frame.size.width,
+                    main_frame.size.height,
+                    child_frame.origin.x,
+                    child_frame.origin.y,
+                    child_frame.size.width,
+                    child_frame.size.height,
+                    viewport_inset(main, sup),
+                )
+            }
+        };
+        let _ = tx.send(note);
+    })
+    .ok()?;
+    rx.recv_timeout(Duration::from_secs(2)).ok()
 }
 
 /// Read the pane's frame back in the same coordinates `getBoundingClientRect`
@@ -103,15 +173,69 @@ fn capture_views(app: &AppHandle, child: &Webview<tauri::Wry>) -> Option<(usize,
     Some((main_addr, child_addr))
 }
 
+/// How far the top of the page's layout viewport sits below the top of the main
+/// webview's frame, in points.
+///
+/// The main window is a full-size-content-view window: its content view — and the
+/// main webview that fills it — reaches up under the title bar, while WebKit lays
+/// the page out only in the unobscured part the window reports as
+/// `contentLayoutRect`. So `getBoundingClientRect().y == 0` is *not* the
+/// webview's frame top; it is one title bar lower.
+///
+/// Measured on macOS 15 (Mac mini, 1180x820 window): content view 820 pt,
+/// `contentLayoutRect` 792 pt, `window.innerHeight` 792 — a 28 pt inset. Treating
+/// a DOM `y` as if it started at the frame top puts the pane 28 pt too high, over
+/// its own address bar, and a read-back that omits the same inset agrees with
+/// itself while the picture on screen is wrong.
+#[cfg(target_os = "macos")]
+unsafe fn viewport_inset(
+    main: *mut objc2::runtime::AnyObject,
+    sup: *mut objc2::runtime::AnyObject,
+) -> f64 {
+    use objc2::msg_send;
+    use objc2_foundation::NSRect;
+    // SAFETY: `main` and `sup` are live views for the child's lifetime, and both
+    // messages are plain geometry reads with no interior mutation.
+    unsafe {
+        let window: *mut objc2::runtime::AnyObject = msg_send![sup, window];
+        if window.is_null() {
+            // Not in a window: no obscuring view to account for.
+            return 0.0;
+        }
+        // `contentLayoutRect` is in window base coordinates; `fromView:nil`
+        // converts exactly those into the superview's, so the two tops compared
+        // below are in one coordinate system whatever the superview's
+        // orientation is.
+        let layout: NSRect = msg_send![window, contentLayoutRect];
+        let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
+        let viewport: NSRect = msg_send![sup, convertRect: layout, fromView: none];
+        let frame: NSRect = msg_send![main, frame];
+        let sup_flipped: bool = msg_send![sup, isFlipped];
+        let viewport_top = if sup_flipped {
+            viewport.origin.y
+        } else {
+            viewport.origin.y + viewport.size.height
+        };
+        let main_top = if sup_flipped {
+            frame.origin.y
+        } else {
+            frame.origin.y + frame.size.height
+        };
+        (main_top - viewport_top).max(0.0)
+    }
+}
+
 /// macOS placement: convert the DOM rect from the main webview's viewport into
 /// the views' shared superview, then set the child's frame there.
 ///
 /// The conversion is AppKit's own `convertRect:fromView:` rather than hand
 /// arithmetic, because it alone accounts for the main view's origin inside the
-/// superview (the title-bar offset), `isFlipped` on each side, and Retina
-/// scaling. One `run_on_main_thread` hop, one `setFrame:` — the previous
-/// version looked the pointers up on every call (three hops, 3 s each) and
-/// timed out under the pane's high-frequency reports.
+/// superview, `isFlipped` on each side, and Retina scaling — and
+/// `viewport_inset` adds the one offset AppKit does not know about: the gap
+/// between the view's frame top and the page's layout viewport, which is where a
+/// DOM `y` is measured from. One `run_on_main_thread` hop, one `setFrame:` — the
+/// previous version looked the pointers up on every call (three hops, 3 s each)
+/// and timed out under the pane's high-frequency reports.
 #[cfg(target_os = "macos")]
 fn macos_place(
     main: usize,
@@ -137,9 +261,17 @@ fn macos_place(
             } else {
                 let flipped: bool = msg_send![main, isFlipped];
                 let bounds: NSRect = msg_send![main, bounds];
-                // The page reports y from the viewport's top. A flipped view
-                // shares that origin; an unflipped one counts from the bottom.
-                let in_main_y = if flipped { y } else { bounds.size.height - y - h };
+                // The page reports y from the layout viewport's top, which is
+                // `inset` below the frame's top on a full-size-content window.
+                let inset = viewport_inset(main, sup);
+                let page_y = y + inset;
+                // A flipped view shares the page's top-down origin; an unflipped
+                // one counts from the bottom.
+                let in_main_y = if flipped {
+                    page_y
+                } else {
+                    bounds.size.height - page_y - h
+                };
                 let wanted = NSRect {
                     origin: NSPoint::new(x, in_main_y),
                     size: NSSize::new(w, h),
@@ -147,15 +279,21 @@ fn macos_place(
                 let frame: NSRect = msg_send![sup, convertRect: wanted, fromView: main];
                 let _: () = msg_send![child, setFrame: frame];
                 // Raise: a theme switch or wry relayout can bury the child
-                // under the app's own webview, which reads as a blank pane.
-                let _: () = msg_send![sup, addSubview: child];
+                // under the app's own webview, which reads as a blank pane. Only
+                // when it is not already on top — re-adding an existing subview
+                // invalidates its layer for nothing, on every placement.
+                let siblings: *mut objc2::runtime::AnyObject = msg_send![sup, subviews];
+                let topmost: *mut objc2::runtime::AnyObject = msg_send![siblings, lastObject];
+                if topmost != child {
+                    let _: () = msg_send![sup, addSubview: child];
+                }
                 let actual: NSRect = msg_send![child, frame];
                 let back: NSRect = msg_send![sup, convertRect: actual, toView: main];
                 let dom_y = if flipped {
                     back.origin.y
                 } else {
                     bounds.size.height - back.origin.y - back.size.height
-                };
+                } - inset;
                 Ok((back.origin.x, dom_y, back.size.width, back.size.height))
             }
         };
@@ -185,11 +323,14 @@ fn macos_read(main: usize, child: usize, app: &AppHandle) -> Option<(f64, f64, f
                 let bounds: NSRect = msg_send![main, bounds];
                 let actual: NSRect = msg_send![child, frame];
                 let back: NSRect = msg_send![sup, convertRect: actual, toView: main];
+                // Report in the page's coordinates, i.e. minus the layout
+                // viewport's own offset: the drift check compares this with the
+                // rect the page reported, so the two must share an origin.
                 let dom_y = if flipped {
                     back.origin.y
                 } else {
                     bounds.size.height - back.origin.y - back.size.height
-                };
+                } - viewport_inset(main, sup);
                 Some((back.origin.x, dom_y, back.size.width, back.size.height))
             }
         };
@@ -1155,6 +1296,28 @@ pub async fn browser_bounds(
                     placed.as_ref().err().map(String::as_str).unwrap_or("")
                 ));
             }
+        }
+    }
+    // macOS: say what AppKit actually holds for the first few placements. A
+    // read-back goes through the conversion being tested; these are raw frames
+    // and class names, the only numbers that can contradict the assumption.
+    // `ANVIL_BROWSER_VIEWS=1` logs one for every placement instead of the first
+    // three — the switch to reach for when "it sits in the wrong place".
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        static DESCRIBED: AtomicU8 = AtomicU8::new(0);
+        let every = std::env::var_os("ANVIL_BROWSER_VIEWS").is_some();
+        if placed.is_ok()
+            && (every || DESCRIBED.fetch_add(1, Ordering::Relaxed) < 3)
+            && let Some(host) = app.try_state::<crate::state::HostState>()
+            && let Some((main, child)) = browser.views.lock().ok().and_then(|slot| *slot)
+            && let Some(note) = macos_describe(main, child, &app)
+        {
+            host.config.log.info(&format!(
+                "browser: views for {:.0},{:.0} {:.0}x{:.0}: {note}",
+                x, y, w, h
+            ));
         }
     }
     // macOS repositions child views on its own while the window resizes, and it
