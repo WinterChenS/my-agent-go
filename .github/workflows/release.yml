@@ -1,18 +1,22 @@
 name: Build installers
 
-# Every push to main builds the real platform installers. The four builds upload
-# to ONE draft release keyed by tag, because the updater manifest (`latest.json`)
-# is a single file that the action merges per platform as each build finishes —
-# four separate releases would mean four manifests that each know one platform.
+# Cutting a tag is the release decision: pushes to main build nothing, so a
+# half-finished change on main can never silently become an update everyone
+# receives. Tag as `anvil-v<version>` — the version must equal the one in
+# tauri.conf.json, checked before any build starts.
+#
+# The four builds upload to ONE draft release named after the tag, because the
+# updater manifest (`latest.json`) is a single file that the action merges per
+# platform as each build finishes — four separate releases would mean four
+# manifests that each know one platform.
 #
 # A draft is not visible to the updater: `releases/latest/download/latest.json`
 # only resolves once the final job has checked that the manifest lists every
 # platform and published the draft. A half-filled release is therefore never
-# announced, which is the property the previous two-phase workflow existed for.
+# announced.
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    tags: ['anvil-v*']
 
 permissions:
   contents: write
@@ -24,8 +28,39 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
 jobs:
+  verify:
+    name: Verify tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read app version
+        id: version
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      # A tag is the release decision, so it must name exactly the build this
+      # checkout produces. Without this, `anvil-v0.1.19` on a 0.1.18 checkout
+      # would publish 0.1.18 binaries under a version that lies to the updater.
+      - name: Check the tag matches the app version
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          expected="anvil-v${VERSION}"
+          if [ "$TAG" != "$expected" ]; then
+            echo "::error::tag is '$TAG' but tauri.conf.json says $VERSION (expected '$expected')"
+            exit 1
+          fi
+          echo "tagged release $TAG"
+
   build:
     name: ${{ matrix.name }}
+    needs: verify
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -95,8 +130,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src-tauri
-          tagName: anvil-v__VERSION__-${{ github.run_number }}
-          releaseName: Anvil v__VERSION__ (build ${{ github.run_number }})
+          tagName: ${{ github.ref_name }}
+          releaseName: Anvil ${{ needs.verify.outputs.version }}
           releaseBody: |
             ### macOS
 
@@ -149,16 +184,10 @@ jobs:
 
   release:
     name: Publish release
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Read app version
-        id: version
-        run: |
-          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          echo "value=$version" >> "$GITHUB_OUTPUT"
 
       # The one thing a user never sees is the manifest, so a manifest that
       # silently lacks a platform would surface as "updates do not work on my
@@ -166,7 +195,7 @@ jobs:
       - name: Check the updater manifest covers every platform
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           gh release download "$TAG" --pattern latest.json --output latest.json --clobber
@@ -181,7 +210,7 @@ jobs:
       - name: Publish the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           gh release edit "$TAG" --draft=false --latest
