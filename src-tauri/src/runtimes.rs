@@ -271,6 +271,9 @@ fn node_for_npm(
     let mut seen = std::collections::HashSet::new();
     let mut best: Option<(std::path::PathBuf, Version)> = None;
     let mut newest_seen: Option<Version> = None;
+    // What each candidate did, so a failure can say which binary was tried and
+    // how it failed instead of "找不到可执行的 Node.js" with no evidence.
+    let mut tried: Vec<String> = Vec::new();
     for candidate in candidates {
         if !candidate.is_file() {
             continue;
@@ -279,13 +282,24 @@ fn node_for_npm(
         if !seen.insert(key) {
             continue;
         }
-        let Ok(output) = process::run(&candidate, &["--version"], Duration::from_secs(3)) else {
-            continue;
+        let output = match process::run(&candidate, &["--version"], Duration::from_secs(3)) {
+            Ok(output) => output,
+            Err(error) => {
+                tried.push(format!("{} 无法启动：{error}", candidate.display()));
+                continue;
+            }
         };
         if !output.success() {
+            tried.push(format!(
+                "{} 退出码 {:?}：{}",
+                candidate.display(),
+                output.code,
+                output.text().lines().next().unwrap_or("").trim()
+            ));
             continue;
         }
         let Some(version) = Version::find(&output.text()) else {
+            tried.push(format!("{} 的输出无法识别版本", candidate.display()));
             continue;
         };
         if newest_seen.is_none_or(|current| version > current) {
@@ -298,13 +312,82 @@ fn node_for_npm(
             best = Some((candidate, version));
         }
     }
+    let evidence = if tried.is_empty() {
+        "没有找到任何 node.exe".to_string()
+    } else {
+        format!(
+            "试过 {} 个：{}",
+            tried.len(),
+            tried.iter().take(3).cloned().collect::<Vec<_>>().join("；")
+        )
+    };
     best.ok_or_else(|| match (required, newest_seen) {
         (Some(minimum), Some(found)) => {
             format!("需要 Node >= {minimum}，PATH 上找到的最高版本是 {found}；请升级 Node 后重试")
         }
-        (Some(minimum), None) => format!("找不到可用的 Node（需要 >= {minimum}）"),
-        _ => "找不到可执行的 Node.js".to_string(),
+        (Some(minimum), None) => format!("找不到可用的 Node（需要 >= {minimum}）；{evidence}"),
+        _ => format!("找不到可执行的 Node.js；{evidence}"),
     })
+}
+
+/// The Windows launcher written over npm's shim.
+///
+/// npm's own `.cmd` resolves `node` from `PATH`, which is why the install binds
+/// one interpreter — but a bare absolute path is a promise the filesystem can
+/// break: a node removed by nvm, a reinstalled Node, or a profile whose
+/// `LOCALAPPDATA` moved to another drive all leave a launcher pointing at
+/// nothing, and the runtime then reads as "found but would not start" forever.
+/// So the pin stays the first choice and stops being the only one: fall back to
+/// a `node.exe` shipped beside the shim, then to `node` on `PATH`.
+#[cfg(windows)]
+fn windows_shim_body(node: &std::path::Path, cli: &std::path::Path) -> String {
+    // `%` starts a variable reference inside a batch file; a literal one in a
+    // path has to be doubled or cmd eats the rest of the line.
+    let literal = |path: &std::path::Path| path.to_string_lossy().replace('%', "%%");
+    format!(
+        "@ECHO off\r\n\
+         SETLOCAL\r\n\
+         SET \"_anvil_node={node}\"\r\n\
+         IF NOT EXIST \"%_anvil_node%\" SET \"_anvil_node=%~dp0node.exe\"\r\n\
+         IF NOT EXIST \"%_anvil_node%\" SET \"_anvil_node=node\"\r\n\
+         \"%_anvil_node%\" \"{cli}\" %*\r\n\
+         EXIT /b %ERRORLEVEL%\r\n",
+        node = literal(node),
+        cli = literal(cli),
+    )
+}
+
+/// Rewrite a launcher that can no longer start, if its package is still there.
+///
+/// The launcher is a file this app wrote. When the Node it pinned is gone —
+/// `nvm use`, a Node reinstall, a profile whose `LOCALAPPDATA` moved to another
+/// drive — the runtime keeps being found and keeps failing to start, and the
+/// only way back is to write the launcher again. `failing` is the executable the
+/// scan actually probed: repairing a launcher for some other install would leave
+/// the broken one in place and quietly add a second copy.
+///
+/// Idempotent by construction: [`pin_shim_to_node`] reports `None` when the file
+/// already holds the body it would write, so a scan cannot rewrite every time.
+///
+/// `Ok(None)` means "nothing to do", `Err` carries the reason a repair was
+/// possible in principle but did not happen — both end up in the host log, so a
+/// launcher that stays broken can be diagnosed from the log alone.
+#[cfg(windows)]
+pub fn repair_launcher(runtime_id: &str, failing: &str) -> Result<Option<String>, String> {
+    let spec = spec(runtime_id).ok_or_else(|| format!("{runtime_id} 不在安装清单里"))?;
+    let prefix = common::shared_prefix().ok_or("找不到安装前缀")?;
+    let shim = common::shared_shim(&prefix, spec.binary);
+    if !shim.is_file() {
+        return Ok(None);
+    }
+    if !shim.to_string_lossy().eq_ignore_ascii_case(failing.trim()) {
+        // The failing executable is some other install of this runtime; the
+        // launcher here is not the one that broke.
+        return Ok(None);
+    }
+    // `npm` is only consulted for a sibling Node; handing it the shim starts the
+    // search in the prefix, which is where a bundled interpreter lives.
+    pin_shim_to_node(&prefix, spec, &shim, &shim)
 }
 
 /// Rewrite npm's PATH-dependent shim so it launches the pinned Node directly.
@@ -340,11 +423,12 @@ fn pin_shim_to_node(
     let (node, version) = node_for_npm(npm, required_node(&package_dir))?;
     #[cfg(windows)]
     {
-        let node_literal = node.to_string_lossy().replace('%', "%%");
-        let cli_literal = cli.to_string_lossy().replace('%', "%%");
-        let body = format!(
-            "@ECHO off\r\n\"{node_literal}\" \"{cli_literal}\" %*\r\nEXIT /b %ERRORLEVEL%\r\n"
-        );
+        let body = windows_shim_body(&node, &cli);
+        // Writing the same launcher again is a no-op: a repair path may run on
+        // every scan, and a file that keeps its mtime is evidence it was fine.
+        if std::fs::read_to_string(shim).is_ok_and(|existing| existing == body) {
+            return Ok(None);
+        }
         std::fs::write(shim, body)
             .map_err(|error| format!("写入 {} 失败：{error}", shim.display()))?;
     }
@@ -366,7 +450,7 @@ fn pin_shim_to_node(
         std::fs::set_permissions(shim, permissions).map_err(|error| error.to_string())?;
     }
     Ok(Some(format!(
-        "已把 {} 启动器绑定到 Node {}（{}），避免 PATH 里的旧版 Node 干扰",
+        "已把 {} 启动器绑定到 Node {}（{}），并在该路径失效时回退到同目录 / PATH 的 Node",
         spec.binary,
         version,
         node.display()
@@ -491,5 +575,45 @@ mod tests {
         let tail = output_tail(&text, 10);
         assert!(tail.ends_with(&"a".repeat(10)));
         assert!(tail.starts_with('…'));
+    }
+
+    /// The launcher must outlive the Node it was pinned to.
+    ///
+    /// Binding one absolute interpreter is what keeps an old Node on `PATH`
+    /// from hijacking the CLI, but a profile move or `nvm use` can delete that
+    /// exact file — and then the runtime is permanently "found but would not
+    /// start". The pin has to be a preference, not the only way in.
+    #[test]
+    #[cfg(windows)]
+    fn the_windows_shim_falls_back_when_the_pinned_node_is_gone() {
+        let body = windows_shim_body(
+            std::path::Path::new(r"D:\Users\winte\AppData\Local\pi-node\current\node.exe"),
+            std::path::Path::new(r"D:\Users\winte\AppData\Local\pi-node\current\cli.js"),
+        );
+        assert!(
+            body.contains(r#"SET "_anvil_node=D:\Users\winte\AppData\Local\pi-node\current\node.exe""#),
+            "keeps the pin first: {body}"
+        );
+        assert!(
+            body.contains(r#"IF NOT EXIST "%_anvil_node%" SET "_anvil_node=%~dp0node.exe""#),
+            "falls back to the sibling node: {body}"
+        );
+        assert!(
+            body.contains(r#"IF NOT EXIST "%_anvil_node%" SET "_anvil_node=node""#),
+            "falls back to PATH last: {body}"
+        );
+        assert!(body.contains(r#""%_anvil_node%" "D:\"#), "still runs the cli: {body}");
+    }
+
+    /// A literal `%` in a path would otherwise be read as a variable.
+    #[test]
+    #[cfg(windows)]
+    fn the_windows_shim_escapes_percent_signs() {
+        let body = windows_shim_body(
+            std::path::Path::new(r"C:\100%\node.exe"),
+            std::path::Path::new(r"C:\100%\cli.js"),
+        );
+        assert!(body.contains(r"C:\100%%\node.exe"), "{body}");
+        assert!(body.contains(r"C:\100%%\cli.js"), "{body}");
     }
 }

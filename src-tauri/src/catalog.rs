@@ -187,12 +187,17 @@ impl CatalogState {
             // the log line carries the path, the exit status and the shim's own
             // error, which is what actually names the cause.
             let state = app.state::<CatalogState>();
+            let host = app.state::<HostState>();
+            #[cfg(windows)]
+            for note in state.repair_launchers() {
+                host.config.log.info(&format!("catalog: repaired launcher — {note}"));
+            }
             if let Ok(snapshot) = state.snapshot_now() {
                 for runtime in &snapshot.runtimes {
                     if runtime.status == "available" || runtime.install_path.is_empty() {
                         continue;
                     }
-                    app.state::<HostState>().config.log.info(&format!(
+                    host.config.log.info(&format!(
                         "catalog: {} is {} at {}{}",
                         runtime.runtime_id,
                         runtime.status,
@@ -245,6 +250,48 @@ impl CatalogState {
         if let Err(error) = outcome {
             eprintln!("[catalog] discovery could not open the catalog: {error}");
         }
+    }
+
+    /// Rewrite launchers this app wrote that the scan found unusable.
+    ///
+    /// A launcher pinned to a Node that has since moved keeps the runtime
+    /// "found but would not start" for as long as nobody rewrites the file, and
+    /// that is the shape of failure a user cannot fix by themselves. Returns one
+    /// note per launcher repaired, for the log; the caller re-reads the snapshot
+    /// afterwards so a repaired runtime is not reported as broken.
+    #[cfg(windows)]
+    fn repair_launchers(&self) -> Vec<String> {
+        let broken: Vec<(String, String)> = match self.snapshot_now() {
+            Ok(snapshot) => snapshot
+                .runtimes
+                .iter()
+                .filter(|runtime| {
+                    runtime.status == "probe_failed" && !runtime.install_path.is_empty()
+                })
+                .map(|runtime| (runtime.runtime_id.clone(), runtime.install_path.clone()))
+                .collect(),
+            Err(_) => return Vec::new(),
+        };
+        let mut notes = Vec::new();
+        for (runtime_id, install_path) in broken {
+            match crate::runtimes::repair_launcher(&runtime_id, &install_path) {
+                Ok(Some(note)) => {
+                    // The launcher changed, so the status that was just written is
+                    // already out of date: probe again before the UI reads the row.
+                    let _ = self.with_service(|service| {
+                        service
+                            .probe_runtime(&runtime_id)
+                            .map_err(|error| error.to_wire())
+                    });
+                    notes.push(note);
+                }
+                Ok(None) => {}
+                Err(reason) => notes.push(format!(
+                    "{runtime_id} 的启动器无法自动修复（{install_path}）：{reason}"
+                )),
+            }
+        }
+        notes
     }
 }
 

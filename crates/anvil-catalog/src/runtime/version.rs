@@ -22,9 +22,14 @@ impl Version {
                 continue;
             }
             // A version must start at a token boundary, so `2024-11-05` in a date
-            // is not picked up ahead of the real version.
-            let boundary =
-                index == 0 || !bytes[index - 1].is_ascii_alphanumeric() && bytes[index - 1] != b'.';
+            // is not picked up ahead of the real version. A leading `v` is part
+            // of the version, not a word it is glued to: `node --version` prints
+            // `v22.23.2`, and rejecting that made every Node lookup fail while
+            // blaming the machine for having no working Node.
+            let boundary = index == 0
+                || !bytes[index - 1].is_ascii_alphanumeric() && bytes[index - 1] != b'.'
+                || (matches!(bytes[index - 1], b'v' | b'V')
+                    && (index == 1 || !bytes[index - 2].is_ascii_alphanumeric()));
             if !boundary {
                 index += 1;
                 continue;
@@ -115,6 +120,34 @@ mod tests {
                 patch: 23
             })
         );
+    }
+
+    /// `node --version` prints `v22.23.2`.
+    ///
+    /// The parser used to require the digits to start a token, so the `v` made
+    /// every Node version unreadable — which silently disabled the interpreter
+    /// pin and made install-time and probe-time Node lookups fail on machines
+    /// that had a perfectly good Node.
+    #[test]
+    fn reads_a_v_prefixed_version() {
+        assert_eq!(
+            Version::find("v22.23.2\n"),
+            Some(Version {
+                major: 22,
+                minor: 23,
+                patch: 2
+            })
+        );
+        assert_eq!(
+            Version::find("node v18.0.0"),
+            Some(Version {
+                major: 18,
+                minor: 0,
+                patch: 0
+            })
+        );
+        // A `v` glued to a word is not a version prefix.
+        assert_eq!(Version::find("rev22.1.0"), None);
     }
 
     #[test]
