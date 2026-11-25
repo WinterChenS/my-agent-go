@@ -243,6 +243,87 @@ export interface ModelVerification {
   detail: string | null
 }
 
+/** One value a provider needs beside the API key (Cloudflare account id, …). */
+export interface ProviderExtraField {
+  env: string
+  label: string
+  required: boolean
+}
+
+/** One provider pi ships with, plus whatever credential is stored for it. */
+export interface ProviderAccount {
+  id: string
+  name: string
+  baseUrl: string | null
+  api: string
+  keyEnv: string | null
+  supportsKey: boolean
+  oauthLabel: string | null
+  oauthSubscription: boolean
+  extra: ProviderExtraField[]
+  /** `oauth`, `api_key`, or null when nothing is stored. */
+  credential: string | null
+  /** `builtin` for pi's own providers, `custom` for a models.json entry. */
+  source: 'builtin' | 'custom'
+  /** A `baseUrl` in models.json overriding the built-in endpoint. */
+  baseUrlOverride: string | null
+  /** Masked tail of the stored key. The key itself never reaches the page. */
+  keyHint: string | null
+  models: string[]
+}
+
+export interface ProviderSnapshot {
+  accounts: ProviderAccount[]
+  authPath: string
+  modelsPath: string
+  customApis: string[]
+  warnings: string[]
+}
+
+export interface ProviderKeyValue {
+  name: string
+  value: string
+}
+
+export interface CustomProviderDraft {
+  id: string
+  name?: string
+  baseUrl: string
+  api: string
+  apiKey?: string
+  models: string[]
+}
+
+/** One selectable answer in a provider's sign-in menu. */
+export interface LoginOption {
+  id: string
+  label: string
+  description: string | null
+}
+
+/**
+ * One event of a running sign-in.
+ *
+ * `kind` is `auth_url`, `device_code`, `info`, `progress`, `prompt`, `done`, or
+ * `error`. A `prompt` carries the id its answer must be submitted with.
+ */
+export interface ProviderLoginEvent {
+  sessionId: string
+  providerId: string
+  kind: string
+  message: string | null
+  url: string | null
+  userCode: string | null
+  verificationUri: string | null
+  instructions: string | null
+  promptId: string | null
+  promptKind: string | null
+  placeholder: string | null
+  options: LoginOption[]
+  intervalSeconds: number | null
+  expiresInSeconds: number | null
+}
+
 export interface McpProbeResult {
   ok: boolean
   /**
@@ -317,6 +398,62 @@ export function addCustomModel(input: {
 
 export function verifyCatalogModel(runtimeId: string, modelId: string): Promise<ModelVerification> {
   return hostCall<ModelVerification>('catalog_verify_model', { runtimeId, modelId })
+}
+
+/** Event the host emits while a provider sign-in is running. */
+export const PROVIDER_LOGIN_EVENT = 'anvil://pi-login'
+
+/** The provider catalogue plus the credentials stored on this machine. */
+export function loadProviders(): Promise<ProviderSnapshot> {
+  return hostCall<ProviderSnapshot>('pi_providers')
+}
+
+/** Store an API key (and any provider-scoped extras) for one provider. */
+export function setProviderKey(
+  providerId: string,
+  key: string,
+  env: ProviderKeyValue[] = [],
+): Promise<ProviderSnapshot> {
+  return hostCall<ProviderSnapshot>('pi_provider_set_key', { providerId, key, env })
+}
+
+/** Forget the credential pi stored for one provider. */
+export function logoutProvider(providerId: string): Promise<ProviderSnapshot> {
+  return hostCall<ProviderSnapshot>('pi_provider_logout', { providerId })
+}
+
+/** Create a custom provider, or point a built-in one at another endpoint. */
+export function saveCustomProvider(draft: CustomProviderDraft): Promise<ProviderSnapshot> {
+  return hostCall<ProviderSnapshot>('pi_provider_custom_save', { draft })
+}
+
+/** Remove a custom provider from models.json. */
+export function removeCustomProvider(providerId: string): Promise<ProviderSnapshot> {
+  return hostCall<ProviderSnapshot>('pi_provider_custom_remove', { providerId })
+}
+
+/**
+ * Start a provider's browser sign-in.
+ *
+ * Resolves with the session id; the flow itself is followed through
+ * {@link PROVIDER_LOGIN_EVENT}, because the next step is a browser visit.
+ */
+export function startProviderLogin(providerId: string): Promise<string> {
+  return hostCall<string>('pi_provider_login', { providerId })
+}
+
+/** Answer the prompt a running sign-in is waiting on. */
+export function submitProviderLogin(
+  sessionId: string,
+  promptId: string,
+  value: string,
+): Promise<void> {
+  return hostCall<void>('pi_provider_login_submit', { sessionId, promptId, value })
+}
+
+/** Stop a sign-in that is waiting on a browser. */
+export function cancelProviderLogin(sessionId: string): Promise<void> {
+  return hostCall<void>('pi_provider_login_cancel', { sessionId })
 }
 
 export function setDefaultCatalogModel(runtimeId: string, modelId: string): Promise<CatalogSnapshot> {

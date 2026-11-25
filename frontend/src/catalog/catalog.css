@@ -514,3 +514,286 @@
   align-items: center;
   gap: var(--space-2);
 }
+
+/* Provider accounts.
+   The section sits above the model table: a model list without a credential
+   behind it is a list of models nobody can call. */
+
+.cat-providers {
+  margin-bottom: var(--space-4);
+}
+
+.cat-provider-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cat-provider-search {
+  flex: 1;
+  min-width: 160px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+
+.cat-chip {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.cat-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 43 providers in one column would push the models off the page; only the list
+   scrolls, the header and the tools stay put. */
+.cat-provider-wrap {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.cat-provider-table {
+  margin: 0;
+}
+
+.cat-provider-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+}
+
+.cat-provider-name {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.cat-provider-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.cat-provider-name > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.cat-provider-name strong {
+  font-size: var(--text-sm);
+  font-weight: 560;
+}
+
+.cat-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cat-provider-foot {
+  font-size: var(--text-2xs);
+  word-break: break-all;
+}
+
+.cat-notice.is-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* Dialogs: the same shell as the agent dialogs, scoped to the catalog so this
+   page does not depend on another page's stylesheet. */
+
+.cat-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-10);
+  background: var(--scrim);
+}
+
+.cat-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: 86vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.cat-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-9) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-dialog-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.cat-dialog-head h2 {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--text-lg);
+}
+
+.cat-dialog-head p {
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.cat-dialog-body {
+  padding: var(--space-6) var(--space-9);
+}
+
+.cat-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-9);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.cat-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cat-form-stack label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+}
+
+.cat-form-stack input,
+.cat-form-stack select,
+.cat-form-stack textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+
+.cat-form-stack input,
+.cat-form-stack select {
+  height: 30px;
+}
+
+.cat-form-stack textarea {
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.cat-form-stack input:focus,
+.cat-form-stack select:focus,
+.cat-form-stack textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Sign-in transcript. */
+.cat-login {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+
+.cat-login-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.cat-login-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.cat-login-block p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.cat-login-code {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--fg);
+  font-size: var(--text-lg);
+  letter-spacing: 0.18em;
+}
+
+.cat-login-done {
+  margin: 0;
+  color: var(--success);
+}
+
+.cat-login-log {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.cat-spinner {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cat-spin 0.8s linear infinite;
+}
+
+@keyframes cat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

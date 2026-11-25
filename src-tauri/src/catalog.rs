@@ -64,6 +64,11 @@ impl CatalogState {
         &self.database
     }
 
+    /// The home directory every adapter reads its runtime config from.
+    pub fn home(&self) -> &std::path::Path {
+        &self.home
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Option<CatalogService>>, String> {
         self.service
             .lock()

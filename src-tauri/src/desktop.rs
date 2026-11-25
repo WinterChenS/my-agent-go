@@ -79,6 +79,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(state)
         .manage(catalog)
         .manage(session)
+        // Provider sign-ins outlive the command that starts them; the sessions
+        // live here so a cancel (or a closed window) can stop the helper.
+        .manage(crate::pi_auth::PiLoginState::default())
         // The native folder/file dialogs (`workspace_pick*`).
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -104,6 +107,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_remove_mcp,
             crate::catalog::runtime_install,
             crate::catalog::runtime_update_check,
+            crate::pi_auth::pi_providers,
+            crate::pi_auth::pi_provider_set_key,
+            crate::pi_auth::pi_provider_logout,
+            crate::pi_auth::pi_provider_custom_save,
+            crate::pi_auth::pi_provider_custom_remove,
+            crate::pi_auth::pi_provider_login,
+            crate::pi_auth::pi_provider_login_submit,
+            crate::pi_auth::pi_provider_login_cancel,
             crate::session::session_list,
             crate::session::session_detail,
             crate::session::session_events,
@@ -171,6 +182,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .setup(|app| {
             create_main_window(app)?;
+            // A provider sign-in waits on a browser, not on the window. Closing
+            // the window must not leave its Node process (and a session with no
+            // page to answer it) behind.
+            if let Some(window) = app.get_window("main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                    ) {
+                        handle.state::<crate::pi_auth::PiLoginState>().cancel_all();
+                    }
+                });
+            }
             // macOS moves a window's child views itself while the window
             // resizes, and it does that after the page has already reported the
             // pane's new rect — so the last word belongs to AppKit and the page

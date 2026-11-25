@@ -6,6 +6,8 @@
 //!   failure);
 //! * `skills` / `mcp` — runtime-independent inventory readers, with redaction
 //!   and a trusted-command check for the explicit MCP probe;
+//! * `providers` — pi's built-in provider catalogue and the credentials in
+//!   `~/.pi/agent/auth.json` / `models.json` (`api_key` or OAuth per provider);
 //! * `secrets` — DPAPI-encrypted credentials, never written in plaintext;
 //! * `runtime` — the adapter contract, the registry, the scan/sync service and
 //!   the four shipped adapters (Pi, Codex, Claude Code, OpenCode).
@@ -16,6 +18,7 @@ pub mod error;
 pub mod ids;
 pub mod mcp;
 pub mod model;
+pub mod providers;
 pub mod runtime;
 pub mod secrets;
 pub mod skills;

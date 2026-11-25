@@ -25,6 +25,7 @@ import {
 } from './client'
 import { byRuntime, modelsFor, syncProblems, type CatalogView } from './useCatalog'
 import { onRuntimeInstallLog } from './installLog'
+import { CatalogProvidersPanel } from './ProvidersPanel'
 
 /** Human status label for a runtime row. */
 export function runtimeStatusKey(status: string): MessageKey {
@@ -668,7 +669,11 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {  const { t
   }
 
   return (
-    <div className="cat-panel" data-testid="catalog-models">
+    <>
+      {/* Accounts sit above the models: a model list without a credential behind
+          it is a list of models nobody can call. */}
+      <CatalogProvidersPanel onChanged={() => void view.syncRuntime(active)} />
+      <div className="cat-panel" data-testid="catalog-models">
       <div className="cat-panel-head">
         <div>
           <h3>{t('catalog.models.title')}</h3>
@@ -874,7 +879,8 @@ export function CatalogModelsPanel({ view }: { view: CatalogView }) {  const { t
           </table>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 

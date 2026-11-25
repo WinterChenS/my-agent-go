@@ -313,9 +313,49 @@ identifier = "allow-pi-subagent-update"
 description = "Allows replacing the installed subagent extension sources with the ones the current pi package ships."
 commands.allow = ["pi_subagent_update"]
 
+[[permission]]
+identifier = "allow-pi-providers"
+description = "Allows reading pi's built-in provider catalogue and the credentials stored for it."
+commands.allow = ["pi_providers"]
+
+[[permission]]
+identifier = "allow-pi-provider-set-key"
+description = "Allows saving an API key (and provider-scoped extras) into pi's auth.json for one provider."
+commands.allow = ["pi_provider_set_key"]
+
+[[permission]]
+identifier = "allow-pi-provider-logout"
+description = "Allows removing the credential pi stored for one provider."
+commands.allow = ["pi_provider_logout"]
+
+[[permission]]
+identifier = "allow-pi-provider-custom-save"
+description = "Allows adding a custom provider (or overriding a built-in provider's endpoint) in pi's models.json."
+commands.allow = ["pi_provider_custom_save"]
+
+[[permission]]
+identifier = "allow-pi-provider-custom-remove"
+description = "Allows removing a custom provider from pi's models.json."
+commands.allow = ["pi_provider_custom_remove"]
+
+[[permission]]
+identifier = "allow-pi-provider-login"
+description = "Allows starting a provider's browser sign-in through pi's own OAuth flow."
+commands.allow = ["pi_provider_login"]
+
+[[permission]]
+identifier = "allow-pi-provider-login-submit"
+description = "Allows answering a running provider sign-in (API key, verification code or redirect URL)."
+commands.allow = ["pi_provider_login_submit"]
+
+[[permission]]
+identifier = "allow-pi-provider-login-cancel"
+description = "Allows stopping a provider sign-in that is waiting on a browser."
+commands.allow = ["pi_provider_login_cancel"]
+
 [default]
 description = "Default Anvil host command set: preferences, the diagnostic log line, the phase-1 catalog and the phase-2 chat sessions."
-permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-open-external", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-catalog-test-mcp", "allow-catalog-remove-mcp", "allow-subagent-overview", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-memory-overview", "allow-memory-save", "allow-memory-update", "allow-memory-delete", "allow-memory-clear", "allow-memory-set-switches", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-pi-subagent-update", "allow-runtime-install", "allow-runtime-update-check", "allow-schedule-overview", "allow-schedule-save", "allow-schedule-delete", "allow-schedule-toggle", "allow-schedule-run-now", "allow-library-overview", "allow-library-import", "allow-library-export", "allow-library-preview", "allow-library-reveal", "allow-connectors-overview", "allow-connector-save", "allow-connector-delete", "allow-connector-toggle", "allow-connector-probe", "allow-skill-create", "allow-skill-import", "allow-skill-remove"]
+permissions = ["allow-get-preferences", "allow-set-preferences", "allow-log-event", "allow-open-external", "allow-catalog-snapshot", "allow-catalog-refresh", "allow-catalog-sync", "allow-catalog-sync-inventory", "allow-catalog-add-model", "allow-catalog-verify-model", "allow-catalog-set-default-model", "allow-catalog-probe-mcp", "allow-catalog-test-mcp", "allow-catalog-remove-mcp", "allow-subagent-overview", "allow-session-list", "allow-session-detail", "allow-session-events", "allow-session-open", "allow-session-send", "allow-session-abort", "allow-session-rename", "allow-session-pin", "allow-session-archive", "allow-session-delete", "allow-session-projects", "allow-session-fork", "allow-session-compact", "allow-session-approve", "allow-session-context-list", "allow-session-rail", "allow-session-export", "allow-session-audit", "allow-session-audit-export", "allow-workbench-overview", "allow-agent-runs", "allow-memory-overview", "allow-memory-save", "allow-memory-update", "allow-memory-delete", "allow-memory-clear", "allow-memory-set-switches", "allow-workspace-defaults", "allow-workspace-ensure", "allow-workspace-create", "allow-workspace-pick", "allow-workspace-pick-file", "allow-workspace-pick-files", "allow-pi-subagent-status", "allow-pi-subagent-install", "allow-pi-subagent-update", "allow-runtime-install", "allow-runtime-update-check", "allow-pi-providers", "allow-pi-provider-set-key", "allow-pi-provider-logout", "allow-pi-provider-custom-save", "allow-pi-provider-custom-remove", "allow-pi-provider-login", "allow-pi-provider-login-submit", "allow-pi-provider-login-cancel", "allow-schedule-overview", "allow-schedule-save", "allow-schedule-delete", "allow-schedule-toggle", "allow-schedule-run-now", "allow-library-overview", "allow-library-import", "allow-library-export", "allow-library-preview", "allow-library-reveal", "allow-connectors-overview", "allow-connector-save", "allow-connector-delete", "allow-connector-toggle", "allow-connector-probe", "allow-skill-create", "allow-skill-import", "allow-skill-remove"]
 [[permission]]
 identifier = "allow-browser-open"
 description = "Allows opening a page in the right pane's browser."
@@ -430,3 +470,8 @@ commands.allow = ["skill_import"]
 identifier = "allow-skill-remove"
 description = "Allows removing an installed skill from the runtime's skill root."
 commands.allow = ["skill_remove"]
+
+[[permission]]
+identifier = "allow-pi-extensions"
+description = "Allows listing the pi extensions the chat page offers (bundled and installed)."
+commands.allow = ["pi_extensions"]

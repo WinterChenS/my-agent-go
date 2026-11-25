@@ -37,6 +37,7 @@ pub mod library;
 pub mod log;
 pub mod memory;
 pub mod options;
+pub mod pi_auth;
 pub mod prefs;
 pub mod runtimes;
 pub mod session;
@@ -76,6 +77,14 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_remove_mcp",
     "runtime_install",
     "runtime_update_check",
+    "pi_providers",
+    "pi_provider_set_key",
+    "pi_provider_logout",
+    "pi_provider_custom_save",
+    "pi_provider_custom_remove",
+    "pi_provider_login",
+    "pi_provider_login_submit",
+    "pi_provider_login_cancel",
     "session_list",
     "session_detail",
     "session_events",

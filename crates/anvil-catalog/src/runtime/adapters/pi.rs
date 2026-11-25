@@ -53,10 +53,6 @@ impl PiAdapter {
         Self::config_dir(home).join("mcp.json")
     }
 
-    fn auth_file(home: &Path) -> PathBuf {
-        Self::config_dir(home).join("auth.json")
-    }
-
     fn settings_file(home: &Path) -> PathBuf {
         Self::config_dir(home).join("settings.json")
     }
@@ -80,28 +76,15 @@ impl PiAdapter {
         Some((provider, model.to_string()))
     }
 
-    /// Whether any provider in `models.json` carries its own key.
+    /// Whether any provider carries a usable credential.
     ///
-    /// A custom provider is authenticated by the `apiKey` written next to it
-    /// (`~/.pi/agent/models.json`), not by `auth.json` — pi never writes the
-    /// latter for a hand-configured provider. Checking only `auth.json` made a
-    /// working runtime read as "未认证".
-    fn models_have_api_key(home: &Path) -> bool {
-        let Some(value) = common::read_json(&Self::models_file(home), 8 << 20) else {
-            return false;
-        };
-        value
-            .get("providers")
-            .and_then(|value| value.as_object())
-            .is_some_and(|providers| {
-                providers.values().any(|provider| {
-                    provider
-                        .get("apiKey")
-                        .or_else(|| provider.get("api_key"))
-                        .and_then(|value| value.as_str())
-                        .is_some_and(|key| !key.trim().is_empty())
-                })
-            })
+    /// Two places can hold one: a provider login recorded in `auth.json`, or an
+    /// `apiKey` written next to a custom provider in `models.json`. Checking
+    /// only the first reported a working setup as "未认证" and hid it from the
+    /// pickers. The providers module owns both rules, so the models page and
+    /// this probe cannot disagree about what "configured" means.
+    fn has_provider_credential(home: &Path) -> bool {
+        !crate::providers::signed_in(home).is_empty()
     }
 
     fn install_candidates() -> Vec<PathBuf> {
@@ -115,6 +98,11 @@ impl PiAdapter {
     fn read_models(home: &Path) -> Result<Vec<ModelRecord>> {
         let now = crate::clock::now_rfc3339();
         let mut models: Vec<ModelRecord> = Vec::new();
+        // Providers with a credential, from both stores pi accepts: `auth.json`
+        // (a key or a sign-in) and an `apiKey` beside a custom provider. The
+        // models page shows a row per provider, so a model worth offering has to
+        // say whether the account behind it exists.
+        let signed = crate::providers::signed_in(home);
         // `models.json` only holds hand-written providers, and a pi signed in to
         // a built-in one may not have the file at all. Its absence is not "no
         // models": the runtime still knows which model it starts with, and that
@@ -160,7 +148,8 @@ impl PiAdapter {
                     .get("apiKey")
                     .or_else(|| provider.get("api_key"))
                     .and_then(|value| value.as_str())
-                    .is_some_and(|key| !key.trim().is_empty());
+                    .is_some_and(|key| !key.trim().is_empty())
+                    || signed.iter().any(|id| id == provider_name);
                 models.push(ModelRecord {
                     enabled: false,
                     runtime_id: "pi".to_string(),
@@ -206,7 +195,9 @@ impl PiAdapter {
                     // it a signed-in pi with no custom provider showed zero
                     // models and 「未启用模型」, which reads as "installed but
                     // unusable".
-                    let _ = provider;
+                    let has_credential = provider
+                        .as_deref()
+                        .is_some_and(|id| signed.iter().any(|signed| signed == id));
                     models.push(ModelRecord {
                         enabled: true,
                         runtime_id: "pi".to_string(),
@@ -219,7 +210,7 @@ impl PiAdapter {
                         verified_at: None,
                         is_default: true,
                         updated_at: now.clone(),
-                        has_credential: false,
+                        has_credential,
                     });
                 }
             }
@@ -284,12 +275,11 @@ impl RuntimeAdapter for PiAdapter {
         // `auth.json`, or an `apiKey` written next to a custom provider in
         // `models.json`. Checking only the first reported a working setup as
         // "未认证" and hid it from the pickers.
-        let has_login = common::has_credentials(&Self::auth_file(&context.home));
-        let has_provider_key = Self::models_have_api_key(&context.home);
+        let has_credential = Self::has_provider_credential(&context.home);
         let status = match version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
-            Some(_) if !has_login && !has_provider_key => RuntimeStatus::Unauthenticated,
+            Some(_) if !has_credential => RuntimeStatus::Unauthenticated,
             Some(_) => RuntimeStatus::Available,
         };
         let detail = match status {
