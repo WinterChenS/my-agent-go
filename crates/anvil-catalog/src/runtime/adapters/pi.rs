@@ -113,16 +113,22 @@ impl PiAdapter {
     }
 
     fn read_models(home: &Path) -> Result<Vec<ModelRecord>> {
-        let Some(value) = common::read_json(&Self::models_file(home), 8 << 20) else {
-            return Ok(Vec::new());
-        };
         let now = crate::clock::now_rfc3339();
         let mut models: Vec<ModelRecord> = Vec::new();
-        let Some(providers) = value.get("providers").and_then(|value| value.as_object()) else {
-            return Ok(Vec::new());
-        };
+        // `models.json` only holds hand-written providers, and a pi signed in to
+        // a built-in one may not have the file at all. Its absence is not "no
+        // models": the runtime still knows which model it starts with, and that
+        // answer is handled below.
         let configured = Self::configured_default(home);
-        for (provider_name, provider) in providers {
+        let providers = common::read_json(&Self::models_file(home), 8 << 20)
+            .and_then(|value| {
+                value
+                    .get("providers")
+                    .and_then(|value| value.as_object())
+                    .cloned()
+            })
+            .unwrap_or_default();
+        for (provider_name, provider) in &providers {
             let provider_api = provider.get("api").and_then(|value| value.as_str());
             // Without the endpoint nothing can check whether a model answers,
             // and an unchecked catalog seeds whatever sorts first (`auto/
@@ -177,7 +183,7 @@ impl PiAdapter {
         // on "未启用模型（设置 → 模型 里启用）". When `settings.json` names
         // something outside `models.json` (a built-in provider), the first
         // discovered model stands in — an empty picker helps nobody.
-        if let Some((_, default_model)) = configured {
+        if let Some((provider, default_model)) = configured {
             let exact = models
                 .iter()
                 .position(|model| model.model_id == default_model)
@@ -187,9 +193,35 @@ impl PiAdapter {
                             || default_model.ends_with(&format!("/{}", model.model_id))
                     })
                 });
-            if let Some(index) = exact {
-                models[index].is_default = true;
-                models[index].enabled = true;
+            match exact {
+                Some(index) => {
+                    models[index].is_default = true;
+                    models[index].enabled = true;
+                }
+                None => {
+                    // A built-in provider: `models.json` holds only hand-written
+                    // providers, so its model list is not where pi's own models
+                    // live. The runtime still said which model it starts with,
+                    // and that one row is what opens a working picker — without
+                    // it a signed-in pi with no custom provider showed zero
+                    // models and 「未启用模型」, which reads as "installed but
+                    // unusable".
+                    let _ = provider;
+                    models.push(ModelRecord {
+                        enabled: true,
+                        runtime_id: "pi".to_string(),
+                        model_id: default_model.clone(),
+                        display_name: default_model,
+                        origin: "runtime".to_string(),
+                        protocol: None,
+                        endpoint: None,
+                        verified: false,
+                        verified_at: None,
+                        is_default: true,
+                        updated_at: now.clone(),
+                        has_credential: false,
+                    });
+                }
             }
         }
         if !models.iter().any(|model| model.is_default) {
@@ -444,6 +476,27 @@ mod tests {
         let rows = PiAdapter::read_models(&home).expect("read models");
         assert_eq!(rows.iter().filter(|row| row.is_default).count(), 1);
         assert!(rows.iter().any(|row| row.enabled));
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// A signed-in pi that never wrote a custom provider keeps its models in its
+    /// own bundle, and `models.json` is either absent or empty. The model pi
+    /// says it starts with is then the only row the app can name — and without
+    /// it a working install showed 「未启用模型」 with nothing to pick.
+    #[test]
+    fn the_builtin_default_model_is_offered_when_models_json_is_empty() {
+        let home = scratch("builtin-default");
+        fs::write(
+            home.join(".pi/agent/settings.json"),
+            br#"{"defaultProvider":"deepseek","defaultModel":"deepseek-v4-pro"}"#,
+        )
+        .expect("write settings");
+
+        let rows = PiAdapter::read_models(&home).expect("read models");
+        assert_eq!(rows.len(), 1, "the runtime's own default has to be offered");
+        assert_eq!(rows[0].model_id, "deepseek-v4-pro");
+        assert!(rows[0].is_default);
+        assert!(rows[0].enabled, "a default nobody can pick is not a default");
         let _ = fs::remove_dir_all(&home);
     }
 }
