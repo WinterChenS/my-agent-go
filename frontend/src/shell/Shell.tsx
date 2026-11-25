@@ -5,7 +5,7 @@ import { ChatHistoryProvider } from '../chat/ChatHistoryProvider'
 import { WorkspaceProvider } from '../workspace/WorkspaceProvider'
 import GlobalSearchDialog from './GlobalSearchDialog'
 import Sidebar from './Sidebar'
-import Topbar from './Topbar'
+import WindowChrome from './WindowChrome'
 import { resolveRoute, ROUTES_BY_ID, WORKBENCH_ROUTE } from './routes'
 import { useContextMenuGuard } from './useContextMenuGuard'
 import { useHistoryShortcuts } from './useHistoryShortcuts'
@@ -62,11 +62,13 @@ export default function Shell() {
     <ChatHistoryProvider>
       <WorkspaceProvider>
         <div className="shell" data-shell>
-          <Sidebar />
+          <WindowChrome />
+          <Sidebar onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
           <div className="main">
-            {route.chrome === 'shell' ? (
-              <Topbar route={route} onOpenSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} />
-            ) : null}
+            {/* No topbar: every page already opens with its own h1, so a strip
+                repeating the title, a breadcrumb and two icons only pushed the
+                content down. Search moved into the sidebar; Ctrl/Cmd+K still
+                opens it from anywhere. */}
             <main className={`page${route.chrome === 'chat' ? ' page-chat' : ''}`} tabIndex={0} aria-label={t('main.content')}>
               <div className="page-inner">
                 <Outlet />

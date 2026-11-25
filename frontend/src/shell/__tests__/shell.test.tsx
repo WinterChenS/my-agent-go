@@ -67,54 +67,36 @@ describe('shared shell', () => {
     renderAt('/')
     expect(screen.getByRole('link', { name: 'Anvil' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '帮助' })).toBeInTheDocument()
+    // The topbar's placeholder help button went with the topbar itself.
+    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
     expect(screen.getByRole('button', { name: '工具与自动化' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
     expect(screen.getByRole('main', { name: '主内容' })).toBeInTheDocument()
     expect(screen.getByTestId('build-marker')).toHaveTextContent('anvil-rebuild-shell')
   })
 
-  it('renders the prototype breadcrumb parent for every shell route', () => {
+  it('gives the page the full height: no topbar on any route', () => {
     for (const route of SHELL_ROUTES) {
       cleanup()
       const { container } = renderAt(route.path)
-      if (route.chrome === 'chat') {
-        expect(container.querySelector('.topbar')).toBeNull()
-        continue
-      }
-      const crumb = container.querySelector('#topbar-crumb')
-      expect(crumb, `breadcrumb for ${route.path}`).not.toBeNull()
-      expect(crumb).toHaveAttribute('aria-label', `${route.breadcrumbParent} / ${route.title}`)
-      const parentSpan = crumb?.querySelector('span:first-child')
-      expect(parentSpan, `visible parent span for ${route.path}`).not.toBeNull()
-      expect(parentSpan).toHaveTextContent(route.breadcrumbParent)
-      expect(parentSpan).not.toHaveAttribute('hidden')
-      expect(crumb).toHaveTextContent(route.breadcrumbParent)
-      expect(crumb).toHaveTextContent(route.title)
+      expect(container.querySelector('.topbar'), `topbar for ${route.path}`).toBeNull()
+      expect(container.querySelector('#topbar-crumb')).toBeNull()
+      // Every page names itself; that h1 is what the removed strip duplicated.
+      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
     }
   })
 
-  it('matches the prototype topbar actions per route', () => {
-    renderAt('/')
-    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '帮助' })).toBeInTheDocument()
-    cleanup()
-
-    renderAt('/agents')
-    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
-    cleanup()
-
-    renderAt('/settings')
-    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
-    expect(screen.queryByText('运行时未接入')).toBeNull()
-    cleanup()
-
-    renderAt('/chat')
-    expect(screen.queryByRole('button', { name: '搜索' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
+  it('keeps search reachable from the sidebar on every route', () => {
+    for (const route of SHELL_ROUTES) {
+      cleanup()
+      renderAt(route.path)
+      expect(
+        screen.getByRole('button', { name: '搜索' }),
+        `search for ${route.path}`,
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '帮助' })).toBeNull()
+    }
   })
 
   it('does not render prototype fixture identity or counts in the normal entry', () => {

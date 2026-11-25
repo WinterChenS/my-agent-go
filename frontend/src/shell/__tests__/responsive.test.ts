@@ -26,8 +26,10 @@ describe('shell responsiveness', () => {
     expect(tokensCss).toContain('--sidebar-w-collapsed: 60px;')
   })
 
-  it('never hides the visible breadcrumb parent or separator', () => {
-    expect(shellCss).not.toMatch(/topbar-crumb[^{}]*\{[^}]*display:\s*none/gi)
+  it('keeps the shell free of a topbar strip', () => {
+    // The page owns its title; a strip repeating it only cost vertical space.
+    expect(shellCss).not.toMatch(/\.topbar\s*\{/)
+    expect(shellCss).toContain('.sidebar-search')
   })
 
   it('covers the nine manifest viewports with no horizontal scroll requirement', () => {

@@ -10,19 +10,23 @@ at 1440×900 and 390×844 and stored next to the R0-01 evidence.
 - Nine locked routes and labels: 工作台, 对话, Agent, 资源库, Skill, MCP,
   连接器, 定时任务, 设置.
 - Sidebar geometry, brand mark, primary nav + 「工具与自动化」 flyout,
-  topbar height, page scroll container and 900/620 breakpoints.
-- Breadcrumb parents per screen (工作区 / 智能体 / 自动化 / 系统), driven by
-  `routes.json`.
-- Topbar actions per screen: help only on 工作台; search on every shell route;
-  settings has a runtime badge + search.
+  page scroll container and 900/620 breakpoints.
+- Breadcrumb parents per screen (工作区 / 智能体 / 自动化 / 系统) are still
+  declared in `routes.json`, but no strip renders them.
 - Frozen tokens from the prototype (`--bg`, `--surface`, `--fg`, `--border`,
   `--accent`, radii, shadows, fonts, motion); shell CSS references tokens only.
-- Keyboard focus order (sidebar → topbar → main), `aria-current`, tool menu
+- Keyboard focus order (sidebar → search → main), `aria-current`, tool menu
   open via menu button, Arrow keys, Escape returns focus, `Space`/`Enter`
   activate menu items.
 
 ## Intentional deviations (with reason)
 
+- **No topbar strip (2026-11-25).** The prototype draws a 52 px strip holding a
+  breadcrumb, the page title, search and help. Every page already opens with its
+  own `<h1>`, so the strip repeated the title and pushed the content down; it is
+  gone. Search moved to a sidebar row (`Ctrl/Cmd+K` unchanged) and the help
+  placeholder went with the strip. `topbarActions` stays in `routes.json` as a
+  record of the prototype, not as a render contract.
 - **No persistent back button.** The prototype only has a session-specific
   「返回工作台」 control in `chat.html`, which belongs to R0-05. The shell relies
   on browser history (`Alt+Left` / `Cmd+[`); native acceptance injects
@@ -57,7 +61,7 @@ at 1440×900 and 390×844 and stored next to the R0-01 evidence.
 
 ## Manual review conclusion
 
-Shell geometry, navigation, breadcrumbs, topbar actions, token values and
+Shell geometry, navigation, token values and
 responsive behavior were compared against the prototype screenshots and the
 prototype CSS. The deviations above are deliberate and scope-driven; no layout
 or interaction difference beyond them is accepted. The prototype fixture
@@ -332,7 +336,7 @@ entry; they must not be reintroduced outside isolated sample fixtures.
   from the runtime's own config for that one request — the catalogue only keeps
   header names — and the outcome (tool list or the server's error) is persisted.
 - Settings are applied on change: there is no page-level 保存更改/检查配置, and
-  the topbar no longer shows a 「运行时未接入」 badge on this page. The app's own
+  with the topbar gone there is no 「运行时未接入」 badge to show on this page. The app's own
   right-click menu is removed in this build; the browser pane keeps its own.
 
 

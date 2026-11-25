@@ -22,23 +22,23 @@ function activeLabel(): string {
 afterEach(cleanup)
 
 describe('shell keyboard access', () => {
-  it('tabs sidebar → topbar → main content', async () => {
+  it('tabs sidebar → search → nav → main content', async () => {
     const user = userEvent.setup()
     renderAt('/')
     const order: string[] = []
     // Enough stops to get past the sidebar's conversation list, which sits
-    // between the nav and the topbar and grows with the ledger.
+    // between the nav and the page and grows with the ledger.
     for (let index = 0; index < 30; index += 1) {
       await user.tab()
       order.push(activeLabel())
     }
     const at = (needle: string) => order.findIndex((entry) => entry.includes(needle))
     expect(at('Anvil')).toBe(0)
-    expect(at('工作台')).toBeGreaterThan(at('Anvil'))
+    // Search is the first stop after the brand now that the topbar is gone.
+    expect(at('搜索')).toBeGreaterThan(at('Anvil'))
+    expect(at('工作台')).toBeGreaterThan(at('搜索'))
     expect(at('工具与自动化')).toBeGreaterThan(at('Agent'))
-    expect(at('搜索')).toBeGreaterThan(at('工具与自动化'))
-    expect(at('帮助')).toBeGreaterThan(at('搜索'))
-    expect(at('主内容')).toBeGreaterThan(at('帮助'))
+    expect(at('主内容')).toBeGreaterThan(at('工具与自动化'))
   })
 
   it('opens the tools menu with Enter, moves focus with arrows and closes with Escape', async () => {

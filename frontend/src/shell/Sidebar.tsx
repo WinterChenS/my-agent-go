@@ -1,4 +1,5 @@
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import type { RefObject } from 'react'
 import ChatHistoryPanel from '../pages/chat/ChatHistoryPanel'
 import { useChatSample } from '../pages/chat/sampleData'
 import { useChatHistory } from '../chat/ChatHistoryProvider'
@@ -18,7 +19,13 @@ import { SHELL_SAMPLE_FIXTURE, useShellSample } from './sampleNavigation'
  */
 const COMPACT_KEEP_LAST = 2
 
-export default function Sidebar() {
+export default function Sidebar({
+  onOpenSearch,
+  searchButtonRef,
+}: {
+  onOpenSearch: () => void
+  searchButtonRef: RefObject<HTMLButtonElement | null>
+}) {
   const { t } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
@@ -47,16 +54,27 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar" id="sidebar">
-      {/* The window's own title bar, transparent and drawn by the page. Its top
-          strip belongs to the sidebar's chrome, so the traffic lights sit on
-          the sidebar colour and this element is what drags the window from
-          there. Zero height off macOS, where nothing is drawn over the page. */}
-      <div className="titlebar-strip" data-tauri-drag-region aria-hidden="true" />
       <Link className="brand" to="/" aria-label="Anvil">
         <img className="brand-logo" src="/brand-logo.png" alt="Anvil" />
         <img className="brand-mark-img" src="/brand-mark.png" alt="" aria-hidden="true" />
         <span className="brand-sub">{t('brand.subtitle')}</span>
       </Link>
+
+      {/* Search lives here now that the topbar is gone. It keeps the nav row's
+          shape so it reads as part of the sidebar rather than a floating icon,
+          and the shortcut is the fast path for anyone who never clicks it. */}
+      <button
+        type="button"
+        id="sidebar-search"
+        ref={searchButtonRef}
+        className="nav-item sidebar-search"
+        aria-label={t('topbar.search')}
+        onClick={onOpenSearch}
+      >
+        <Icon name="search" size={15} />
+        <span>{t('topbar.search')}</span>
+        <kbd className="nav-kbd">{navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl K'}</kbd>
+      </button>
 
       <div className="nav-group">
         <div className="nav-label">{t('nav.group.start')}</div>

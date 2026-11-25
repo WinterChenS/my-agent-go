@@ -1,4 +1,4 @@
-/* Shared shell: layout, sidebar, tools menu, topbar, scroll container.
+/* Shared shell: layout, sidebar, tools menu, scroll container.
    All colours, radii, shadows, fonts and spacing come from design/tokens.css. */
 
 .shell {
@@ -10,20 +10,64 @@
   overflow: hidden;
 }
 
-/* ---------- sidebar ---------- */
+/* ---------- window chrome (macOS overlay, Linux borderless) ---------- */
 
-/* The title-bar strip the page reserves for the window's own title bar (macOS,
-   transparent title bar). It carries `data-tauri-drag-region`: the strip is
-   page content now, so without it the window could not be dragged from the top
-   left. Height is 0 where nothing is drawn over the page. */
-.titlebar-strip {
-  position: absolute;
+/* The page owns the top edge on those platforms, so this strip is the window's
+   drag handle and its double-click target. Height is 0 on Windows, where the
+   system title bar still exists and the strip is not rendered at all. It sits
+   above the page and below the window buttons. */
+.window-drag-strip {
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   height: var(--window-top-inset, 0px);
-  z-index: 1;
+  z-index: 45;
 }
+
+/* Linux only: the frame is gone, so these are the window's only controls. */
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--window-top-inset, 0px);
+  z-index: 50;
+}
+
+.window-control {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.window-control:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.window-control.is-danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* The main column starts below the reserved strip on the platforms the page
+   paints; on Windows the inset is 0 and this changes nothing. */
+html[data-window-chrome="macos"] .main,
+html[data-window-chrome="linux"] .main {
+  padding-top: var(--window-top-inset, 0px);
+}
+
+/* ---------- sidebar ---------- */
 
 .sidebar {
   position: relative;
@@ -364,7 +408,7 @@
   white-space: nowrap;
 }
 
-/* ---------- main / topbar / scroll container ---------- */
+/* ---------- main / scroll container ---------- */
 
 .main {
   display: flex;
@@ -377,50 +421,27 @@
   background: var(--bg);
 }
 
-.topbar {
-  position: relative;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: var(--space-7);
-  height: 52px;
+/* Search row in the sidebar. It borrows `.nav-item` for its metrics so the
+   sidebar keeps one rhythm, and adds the shortcut hint on the right. */
+.sidebar-search {
   flex: none;
-  padding: 0 var(--space-10);
-  border-bottom: 1px solid var(--border);
-  background: var(--topbar-bg);
+  margin-bottom: var(--space-2);
+  /* A button, not a link: it must not inherit the browser's control font. */
+  font-family: inherit;
+  font-size: var(--text-md);
+  text-align: left;
 }
 
-.topbar-crumb {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.nav-kbd {
+  margin-left: auto;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
   color: var(--muted);
-  font-size: var(--text-base);
-  white-space: nowrap;
-}
-
-.topbar-crumb .sep {
-  color: var(--border-strong);
-}
-
-.topbar-title {
-  color: var(--fg);
-  font-family: var(--font-display);
-  font-weight: 580;
-  letter-spacing: -0.005em;
-}
-
-.topbar-spacer {
-  flex: 1;
-}
-
-.topbar-status {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
 }
 
 .iconbtn {
@@ -650,11 +671,6 @@
 }
 
 @media (max-width: 620px) {
-  .topbar {
-    gap: var(--space-4);
-    padding: 0 var(--space-6);
-  }
-
   .page-head {
     flex-direction: column;
     gap: var(--space-6);
