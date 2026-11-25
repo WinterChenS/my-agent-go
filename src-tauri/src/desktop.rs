@@ -84,6 +84,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(crate::pi_auth::PiLoginState::default())
         // The native folder/file dialogs (`workspace_pick*`).
         .plugin(tauri_plugin_dialog::init())
+        // Updates come from the release the CI publishes; the plugin owns the
+        // signature check and the per-platform install, both of which are
+        // easier to get wrong by hand than to configure.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             crate::commands::get_preferences,
             crate::commands::set_preferences,
@@ -115,6 +119,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::pi_auth::pi_provider_login,
             crate::pi_auth::pi_provider_login_submit,
             crate::pi_auth::pi_provider_login_cancel,
+            crate::updater::app_update_check,
+            crate::updater::app_update_install,
             crate::session::session_list,
             crate::session::session_detail,
             crate::session::session_events,

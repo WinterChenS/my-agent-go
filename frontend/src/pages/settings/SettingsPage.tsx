@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/LanguageProvider'
 import type { MessageKey } from '../../i18n/catalogue'
 import Icon from '../../shell/Icon'
 import ThemeSettings from './ThemeSettings'
+import UpdateCard from '../../updates/UpdateCard'
 import MemoryPanel from './MemoryPanel'
 import {
   describeSessionError,
@@ -285,6 +286,9 @@ function GeneralPanel({
           </SettingRow>
         </div>
       </Card>
+      {/* The update card talks to the host, so the isolated sample page (which
+          must render without one) does not include it. */}
+      {!sample ? <UpdateCard /> : null}
       {!sample ? <p className="st-hint">{t('settings.general.onlyReal')}</p> : null}
     </div>
   )

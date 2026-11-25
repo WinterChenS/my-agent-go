@@ -1,9 +1,10 @@
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import type { RefObject } from 'react'
+import { useSyncExternalStore, type RefObject } from 'react'
 import ChatHistoryPanel from '../pages/chat/ChatHistoryPanel'
 import { useChatSample } from '../pages/chat/sampleData'
 import { useChatHistory } from '../chat/ChatHistoryProvider'
 import { isTauriHost } from '../host/tauri'
+import { subscribeUpdates, updateSnapshot } from '../updates/store'
 import { useI18n } from '../i18n/LanguageProvider'
 import Icon from './Icon'
 import { PRIMARY_ROUTES } from './routes'
@@ -27,6 +28,8 @@ export default function Sidebar({
   searchButtonRef: RefObject<HTMLButtonElement | null>
 }) {
   const { t } = useI18n()
+  const update = useSyncExternalStore(subscribeUpdates, updateSnapshot)
+  const pendingUpdate = update.status === 'available' ? update.check?.available ?? null : null
   const location = useLocation()
   const navigate = useNavigate()
   const chatSample = useChatSample()
@@ -169,6 +172,20 @@ export default function Sidebar({
             <span className="user-chip-plan">{t('user.plan')}</span>
           </span>
         </div>
+        {/* Discovered by the background check, so it is visible from wherever
+            the reader is — the settings card is not a place anyone visits
+            daily. */}
+        {pendingUpdate ? (
+          <button
+            type="button"
+            className="sidebar-update"
+            data-testid="sidebar-update"
+            onClick={() => navigate('/settings#general')}
+          >
+            <span className="sidebar-update-dot" aria-hidden="true" />
+            <span>{t('settings.update.badge', { version: pendingUpdate.version })}</span>
+          </button>
+        ) : null}
         <span className="shell-build-marker" data-testid="build-marker">
           anvil-rebuild-shell
         </span>

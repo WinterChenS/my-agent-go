@@ -77,6 +77,8 @@
     "allow-pi-subagent-install",
     "allow-pi-subagent-update",
     "allow-pi-extensions",
+    "allow-app-update-check",
+    "allow-app-update-install",
     "allow-runtime-install",
     "allow-runtime-update-check",
     "allow-pi-providers",

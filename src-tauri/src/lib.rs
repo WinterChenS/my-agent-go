@@ -43,6 +43,7 @@ pub mod runtimes;
 pub mod session;
 pub mod state;
 pub mod schedules;
+pub mod updater;
 pub mod skills;
 pub mod subagents;
 pub mod system_theme;
@@ -149,4 +150,6 @@ pub const APP_COMMANDS: &[&str] = &[
     "skill_create",
     "skill_import",
     "skill_remove",
+    "app_update_check",
+    "app_update_install",
 ];

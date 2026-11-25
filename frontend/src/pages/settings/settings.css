@@ -1186,3 +1186,45 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* App update: the bar only exists while a download is running, so it is
+   in-flow rather than an overlay — the card must not jump when it appears. */
+.st-progress {
+  display: block;
+  height: 4px;
+  margin-top: var(--space-3);
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.st-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.st-update-notes {
+  margin-top: var(--space-3);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+.st-update-notes summary {
+  cursor: pointer;
+}
+
+.st-update-notes pre {
+  max-height: 160px;
+  margin: var(--space-2) 0 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

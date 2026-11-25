@@ -11,6 +11,7 @@ import { useContextMenuGuard } from './useContextMenuGuard'
 import { useHistoryShortcuts } from './useHistoryShortcuts'
 import { useLayoutProbe } from './useLayoutProbe'
 import { reportHostLog } from '../host/tauri'
+import { startUpdateWatch } from '../updates/store'
 
 export default function Shell() {
   const location = useLocation()
@@ -57,6 +58,17 @@ export default function Shell() {
     document.title = t('document.titleFormat', { title: t(route.titleKey) })
     reportHostLog(`i18n-title: title=${document.title}`)
   }, [language, route.titleKey, t])
+
+  // One background check per launch, a few seconds in: the first seconds belong
+  // to the window and the session list. The fixture pages render without a host
+  // and must not reach for one.
+  const fixturePage =
+    location.pathname.startsWith('/__sample') ||
+    new URLSearchParams(location.search).get('sample') !== null
+  useEffect(() => {
+    if (fixturePage) return
+    startUpdateWatch()
+  }, [fixturePage])
 
   return (
     <ChatHistoryProvider>

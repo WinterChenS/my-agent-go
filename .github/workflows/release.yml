@@ -1,8 +1,14 @@
 name: Build installers
 
-# Every push to main builds the real platform installers. Build jobs publish
-# workflow artifacts; one final job collects them into a single GitHub Release
-# so a matrix race cannot create four half-filled releases.
+# Every push to main builds the real platform installers. The four builds upload
+# to ONE draft release keyed by tag, because the updater manifest (`latest.json`)
+# is a single file that the action merges per platform as each build finishes —
+# four separate releases would mean four manifests that each know one platform.
+#
+# A draft is not visible to the updater: `releases/latest/download/latest.json`
+# only resolves once the final job has checked that the manifest lists every
+# platform and published the draft. A half-filled release is therefore never
+# announced, which is the property the previous two-phase workflow existed for.
 on:
   push:
     branches: [main]
@@ -81,14 +87,41 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The updater refuses a bundle whose signature it cannot verify, so
+          # every bundle is signed with the release key. Only the public half is
+          # in tauri.conf.json; the private half lives in the repository secret
+          # and never reaches the checkout.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src-tauri
-          # No tagName / releaseName here: this job only builds and uploads
-          # workflow artifacts. `release` creates one release from all of them.
+          tagName: anvil-v__VERSION__-${{ github.run_number }}
+          releaseName: Anvil v__VERSION__ (build ${{ github.run_number }})
+          releaseBody: |
+            ### macOS
+
+            The app is ad-hoc signed, not notarized (that needs a paid Apple
+            Developer ID). If macOS says the app "is damaged" or cannot be
+            verified, clear the download quarantine once after installing:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Anvil.app
+            ```
+
+            On Apple Silicon use the `aarch64` DMG; the `x64` DMG runs under
+            Rosetta and is only for Intel Macs.
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          # Four jobs merge into one `latest.json`. A retry re-reads the release
+          # file before merging, so a job that lost a race adds its platform to
+          # the winner's list instead of replacing it.
+          retryAttempts: 3
           args: --bundles ${{ matrix.bundles }} ${{ matrix.args }}
-          uploadUpdaterJson: false
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: anvil-${{ matrix.name }}-[bundle]
+          uploadUpdaterJson: true
+          # NSIS (setup.exe) is the bundle the updater installs in place on
+          # Windows; the WiX msi is still published for manual installs.
+          updaterJsonPreferNsis: true
 
       # Apple Silicon refuses to start an app bundle that carries no signature
       # of its own — the only signature a freshly linked arm64 binary has is the
@@ -121,49 +154,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download every platform bundle
-        uses: actions/download-artifact@v4
-        with:
-          pattern: anvil-*
-          path: artifacts
-          merge-multiple: true
-
-      - name: List bundles
-        run: find artifacts -maxdepth 2 -type f -printf '%P %s bytes\n' | sort
-
       - name: Read app version
         id: version
         run: |
           version=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish one release with all installers
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
-          name: Anvil v${{ steps.version.outputs.value }} (build ${{ github.run_number }})
-          generate_release_notes: true
-          append_body: true
-          body: |
-            ### macOS
+      # The one thing a user never sees is the manifest, so a manifest that
+      # silently lacks a platform would surface as "updates do not work on my
+      # machine" weeks later. Refuse to publish that.
+      - name: Check the updater manifest covers every platform
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --pattern latest.json --output latest.json --clobber
+          cat latest.json
+          for key in windows-x86_64 linux-x86_64 darwin-aarch64 darwin-x86_64; do
+            if ! jq -e --arg k "$key" '.platforms | has($k)' latest.json > /dev/null; then
+              echo "::error::latest.json is missing $key; in-app updates would skip that platform"
+              exit 1
+            fi
+          done
 
-            The app is ad-hoc signed, not notarized (that needs a paid Apple
-            Developer ID). If macOS says the app "is damaged" or cannot be
-            verified, clear the download quarantine once after installing:
-
-            ```sh
-            xattr -dr com.apple.quarantine /Applications/Anvil.app
-            ```
-
-            On Apple Silicon use the `aarch64` DMG; the `x64` DMG runs under
-            Rosetta and is only for Intel Macs.
-          draft: false
-          prerelease: false
-          files: |
-            artifacts/*.msi
-            artifacts/*.exe
-            artifacts/*.dmg
-            artifacts/*.app
-            artifacts/*.deb
-            artifacts/*.rpm
-            artifacts/*.AppImage
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: anvil-v${{ steps.version.outputs.value }}-${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false --latest
