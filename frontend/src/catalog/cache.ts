@@ -53,11 +53,19 @@ export function writeCachedSnapshot(snapshot: CatalogSnapshot | null): void {
   }
 }
 
-/** A cache that can actually open the composer: an available runtime + a model. */
+/**
+ * A cache that can actually open the composer: a runtime that can start + a
+ * model.
+ *
+ * `unauthenticated` counts — it is discovery failing to find a credential file,
+ * and the runtime authenticates itself when it starts. Leaving it out made a
+ * working install wait on a full startup probe before the picker would paint.
+ */
 export function cacheUsable(snapshot: CatalogSnapshot | null): boolean {
   if (!snapshot) return false
   return (
-    snapshot.runtimes.some((runtime) => runtime.status === 'available') &&
-    snapshot.models.length > 0
+    snapshot.runtimes.some(
+      (runtime) => runtime.status === 'available' || runtime.status === 'unauthenticated',
+    ) && snapshot.models.length > 0
   )
 }

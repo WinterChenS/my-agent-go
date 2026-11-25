@@ -39,7 +39,9 @@ struct ScriptedAdapter {
     capabilities: Capabilities,
     discovery_paths: Mutex<Vec<PathBuf>>,
     discover_error: Option<String>,
-    probe_status: RuntimeStatus,
+    /// Behind a lock so a test can change what the next probe reports, the way
+    /// a real runtime changes after an install or a login.
+    probe_status: Mutex<RuntimeStatus>,
     probe_error: Option<String>,
     sync_answers: Mutex<BTreeMap<String, SyncAnswer>>,
     verify: Option<ModelVerification>,
@@ -62,7 +64,7 @@ impl ScriptedAdapter {
             },
             discovery_paths: Mutex::new(Vec::new()),
             discover_error: None,
-            probe_status: RuntimeStatus::Available,
+            probe_status: Mutex::new(RuntimeStatus::Available),
             probe_error: None,
             sync_answers: Mutex::new(BTreeMap::new()),
             verify: Some(ModelVerification {
@@ -130,7 +132,7 @@ impl RuntimeAdapter for ScriptedAdapter {
         }
         Ok(ProbeReport {
             version: Some("9.9.9".into()),
-            status: self.probe_status,
+            status: *self.probe_status.lock().expect("probe status"),
             config_path: None,
             detail: None,
             latency_ms: 3,
@@ -816,13 +818,16 @@ fn service_marks_a_failed_resync_stale_and_keeps_the_rows() {
 
 #[test]
 fn credential_is_encrypted_at_rest() {
-    let ciphertext = secrets::protect("sk-live-abcdef").expect("protect");
+    let dir = std::env::temp_dir().join(format!("anvil-cred-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("credential dir");
+    let ciphertext = secrets::protect(&dir, "sk-live-abcdef").expect("protect");
     let as_text = String::from_utf8_lossy(&ciphertext);
     assert!(!as_text.contains("sk-live"));
     assert_eq!(
-        secrets::unprotect(&ciphertext).expect("unprotect"),
+        secrets::unprotect(&dir, &ciphertext).expect("unprotect"),
         "sk-live-abcdef"
     );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -888,8 +893,8 @@ fn probe_mcp_reports_a_missing_server() {
 fn registration_row_carries_health_and_capabilities() {
     let home = TempHome::new("row");
     let executable = home.touch("bin/demo.cmd");
-    let mut adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
-    adapter.probe_status = RuntimeStatus::Unauthenticated;
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    *adapter.probe_status.lock().expect("probe status") = RuntimeStatus::Unauthenticated;
     let mut service = service(&home, vec![Arc::new(adapter)]);
     service.scan().expect("scan");
     let snapshot = service.snapshot().expect("snapshot");
@@ -899,6 +904,54 @@ fn registration_row_carries_health_and_capabilities() {
     let health: RuntimeHealth = runtime.health.clone();
     assert!(!health.checked_at.is_empty());
     assert!(runtime.capabilities.models == CapabilityState::Supported);
+}
+
+/// A key this app stores is a credential the adapter cannot see. The runtime
+/// must read as available after it is added — otherwise "I signed in through
+/// the app" and "未认证" were both true at once, and the chat picker withheld
+/// every model of a runtime that works.
+#[test]
+fn a_key_stored_here_signs_the_runtime_in() {
+    let home = TempHome::new("stored-key");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = ScriptedAdapter::new("demo").discover_at(vec![executable]);
+    *adapter.probe_status.lock().expect("probe status") = RuntimeStatus::Unauthenticated;
+    let mut service = service(&home, vec![Arc::new(adapter)]);
+    service.scan().expect("scan");
+    assert_eq!(service.snapshot().expect("snapshot").runtimes[0].status, "unauthenticated");
+
+    service
+        .add_custom_model("demo", "demo-1", "Demo 1", None, None, Some("sk-test"))
+        .expect("add model");
+    service.probe_runtime("demo").expect("re-probe");
+
+    let snapshot = service.snapshot().expect("snapshot");
+    assert_eq!(
+        snapshot.runtimes[0].status, "available",
+        "a stored key has to count as being signed in"
+    );
+}
+
+/// The status has to be re-readable on demand: a runtime installed while the
+/// window was open, or signed in from another terminal, changes without an app
+/// restart — and the refresh button is the only thing that can notice.
+#[test]
+fn probing_one_runtime_answers_with_the_status_it_finds_now() {
+    let home = TempHome::new("reprobe");
+    let executable = home.touch("bin/demo.cmd");
+    let adapter = Arc::new(ScriptedAdapter::new("demo").discover_at(vec![executable]));
+    *adapter.probe_status.lock().expect("probe status") = RuntimeStatus::Unauthenticated;
+    let mut service = service(&home, vec![adapter.clone() as Arc<dyn RuntimeAdapter>]);
+    service.scan().expect("scan");
+    assert_eq!(service.snapshot().expect("snapshot").runtimes[0].status, "unauthenticated");
+
+    // The runtime signed in somewhere else; the next probe sees it.
+    *adapter.probe_status.lock().expect("probe status") = RuntimeStatus::Available;
+    service.probe_runtime("demo").expect("probe");
+
+    let runtime = &service.snapshot().expect("snapshot").runtimes[0];
+    assert_eq!(runtime.status, "available");
+    assert_eq!(runtime.version.as_deref(), Some("9.9.9"));
 }
 
 #[test]

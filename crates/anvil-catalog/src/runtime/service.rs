@@ -211,6 +211,7 @@ impl CatalogService {
         let registered = self.registry.ids();
         let registered_refs: Vec<&str> = registered.iter().map(String::as_str).collect();
         self.store.forget_unregistered(&registered_refs)?;
+        self.upgrade_with_app_credentials(&mut registrations)?;
         self.store
             .apply_scan(&registrations, &scanned_ids, &scanned_at)?;
         self.failures = failures.clone();
@@ -220,6 +221,62 @@ impl CatalogService {
             failures,
             scanned_at,
         })
+    }
+
+    /// Treat a key this app stores as the credential it is.
+    ///
+    /// Discovery reads the files a runtime writes for itself (`auth.json`, a
+    /// provider `apiKey`). A key typed into 设置 → 模型 lives in this database
+    /// instead, invisible to the adapter — so a runtime that the reader had just
+    /// signed in through the app still reported `unauthenticated`, and the chat
+    /// picker then withheld its models. That is the "installed, version showing,
+    /// but unusable" report.
+    fn upgrade_with_app_credentials(
+        &self,
+        registrations: &mut [RuntimeRegistration],
+    ) -> Result<()> {
+        for registration in registrations.iter_mut() {
+            if registration.status != RuntimeStatus::Unauthenticated {
+                continue;
+            }
+            if !self
+                .store
+                .has_runtime_credential(&registration.runtime_id)?
+            {
+                continue;
+            }
+            registration.status = RuntimeStatus::Available;
+            // No detail line: the table would show it under the badge, and
+            // "the app holds a key for this runtime" is not something the reader
+            // has to act on. The status is the whole message.
+            registration.health.detail = None;
+        }
+        Ok(())
+    }
+
+    /// Re-discover and re-probe one runtime, right now.
+    ///
+    /// This is the human pressing refresh — after installing a runtime, after
+    /// signing in from another terminal, after fixing a PATH. It spawns the
+    /// runtime once (the same `--version` discovery already does) and is
+    /// deliberately *not* part of the startup or background paths, which must
+    /// never wait on a process.
+    pub fn probe_runtime(&mut self, runtime_id: &str) -> Result<()> {
+        let Some(adapter) = self.registry.get(runtime_id) else {
+            return Ok(());
+        };
+        let scanned_at = clock::now_rfc3339();
+        let discovery = DiscoveryContext {
+            home: self.home.clone(),
+            timeout: self.timeouts.discovery,
+        };
+        let outcome = scan_adapter(&adapter, &discovery, self.timeouts.probe, &scanned_at);
+        let mut registrations = outcome.registrations;
+        self.upgrade_with_app_credentials(&mut registrations)?;
+        let scanned = [runtime_id.to_string()];
+        self.store.apply_scan(&registrations, &scanned, &scanned_at)?;
+        self.scanned_at = Some(scanned_at);
+        Ok(())
     }
 
     /// Sync every supported resource family for one runtime.
@@ -596,7 +653,10 @@ impl CatalogService {
         let credential_ref = match credential {
             Some(value) if !value.trim().is_empty() => {
                 let name = credential_name(runtime_id, model_id);
-                let ciphertext = secrets::protect(value)?;
+                // The key file lives beside the database, so the store owns the
+                // directory the sealing uses.
+                let dir = self.store.dir().to_path_buf();
+                let ciphertext = secrets::protect(&dir, value)?;
                 self.store.store_credential(&name, &ciphertext, &now)?;
                 Some(name)
             }
@@ -646,7 +706,10 @@ impl CatalogService {
             .store
             .load_credential(&credential_name(runtime_id, model_id))?
         {
-            Some(ciphertext) => Some(secrets::unprotect(&ciphertext)?),
+            Some(ciphertext) => {
+                let dir = self.store.dir().to_path_buf();
+                Some(secrets::unprotect(&dir, &ciphertext)?)
+            }
             None => None,
         };
         let context = ProbeContext {

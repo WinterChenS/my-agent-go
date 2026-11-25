@@ -11,7 +11,7 @@
 //! * credentials are stored as opaque ciphertext blobs; nothing here can read
 //!   them without the OS key.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
@@ -33,6 +33,9 @@ pub const DEFAULT_AGENT_ID: &str = "default";
 /// Handle to `<data dir>/catalog.sqlite`.
 pub struct Store {
     connection: Connection,
+    /// Directory the database lives in — also where the Unix credential key
+    /// sits. Empty for an in-memory store, which has no credentials to keep.
+    dir: PathBuf,
 }
 
 impl Store {
@@ -45,7 +48,13 @@ impl Store {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.pragma_update(None, "busy_timeout", 5_000)?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            dir: path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(".")),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -53,9 +62,17 @@ impl Store {
     /// In-memory database for contract tests.
     pub fn open_in_memory() -> Result<Self> {
         let connection = Connection::open_in_memory()?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            dir: std::env::temp_dir().join("anvil-catalog-memory"),
+        };
         store.migrate()?;
         Ok(store)
+    }
+
+    /// Where the credential key for this store lives.
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 
     fn migrate(&self) -> Result<()> {
@@ -1441,6 +1458,20 @@ impl Store {
         let count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM secrets WHERE name = ?1",
             params![name],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Whether *any* model of `runtime_id` carries a credential this app stored.
+    ///
+    /// Discovery only reads the credential files a runtime writes itself, so a
+    /// key the reader typed into this app is invisible to it — and the runtime
+    /// read as "not signed in" while its own picker held a working model.
+    pub fn has_runtime_credential(&self, runtime_id: &str) -> Result<bool> {
+        let count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM models WHERE runtime_id = ?1 AND credential_ref IS NOT NULL",
+            params![runtime_id],
             |row| row.get(0),
         )?;
         Ok(count > 0)

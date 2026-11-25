@@ -63,6 +63,26 @@ function statusTone(status: string): string {
   }
 }
 
+/**
+ * The next step for a status the reader can actually fix.
+ *
+ * The adapter's own detail is an English sentence about files
+ * ("no credential found: ... run `pi login`"), which is accurate and useless to
+ * someone looking at a table. These two states have a concrete action, so they
+ * get one line in the reader's language; the technical detail stays as the
+ * cell's title.
+ */
+function statusHintKey(status: string): MessageKey | null {
+  switch (status) {
+    case 'unauthenticated':
+      return 'catalog.status.unauthenticatedHint'
+    case 'probe_failed':
+      return 'catalog.status.probeFailedHint'
+    default:
+      return null
+  }
+}
+
 /** Scan state line with the refresh control. */
 export function CatalogSummary({ view }: { view: CatalogView }) {
   const { t } = useI18n()
@@ -218,9 +238,17 @@ export function CatalogRuntimeTable({
                   <span className={`cat-badge ${statusTone(runtime.status)}`} data-status={runtime.status}>
                     <i />{t(runtimeStatusKey(runtime.status))}
                   </span>
-                  {runtime.health.detail && (
+                  {statusHintKey(runtime.status) ? (
+                    <span
+                      className="cat-sub cat-hint"
+                      title={runtime.health.detail ?? undefined}
+                      data-testid={`catalog-runtime-hint-${runtime.runtimeId}`}
+                    >
+                      {t(statusHintKey(runtime.status) as MessageKey)}
+                    </span>
+                  ) : runtime.health.detail ? (
                     <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
-                  )}
+                  ) : null}
                 </td>
                 <td className="mono">{runtime.version ?? '—'}</td>
                 <td className="cat-path mono" title={runtime.installPath}>

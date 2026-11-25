@@ -43,17 +43,26 @@ fn place_native(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(f64,
     let webview = app
         .get_webview("anvil-browser")
         .ok_or_else(|| "browser webview not found".to_string())?;
-    let (px, py, pw, ph) = placement(x, y, w, h);
     webview
-        .set_bounds(tauri::Rect {
-            position: tauri::Position::Logical(LogicalPosition::new(px, py)),
-            size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
-        })
+        .set_bounds(rect_for(x, y, w, h))
         .map_err(|error| format!("browser bounds: {error}"))?;
     // Read back what the platform actually took so a drift check compares like
     // with like.
     let read = webview.bounds().ok().and_then(logical_of).unwrap_or((x, y, w, h));
     Ok(read)
+}
+
+/// The rect a placement asks for.
+///
+/// One call, not a move followed by a resize: the intermediate frame would be a
+/// page drawn at the old size in the new place. Pure, so the numbers can be
+/// asserted without a window.
+fn rect_for(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
+    let (px, py, pw, ph) = placement(x, y, w, h);
+    tauri::Rect {
+        position: tauri::Position::Logical(LogicalPosition::new(px, py)),
+        size: tauri::Size::Logical(LogicalSize::new(pw, ph)),
+    }
 }
 
 /// One line saying what AppKit actually holds, right now and not as reported by
@@ -1660,7 +1669,7 @@ mod placement_tests {
 
     #[test]
     fn a_rect_carries_the_same_numbers_in_one_call() {
-        match rect_of(540.0, 120.0, 420.0, 600.0) {
+        match rect_for(540.0, 120.0, 420.0, 600.0) {
             tauri::Rect {
                 position: tauri::Position::Logical(position),
                 size: tauri::Size::Logical(size),

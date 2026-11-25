@@ -169,6 +169,14 @@
   line-height: 1.5;
 }
 
+/* The actionable line under a status badge ("run pi login / add a key").
+   Wraps instead of being clipped: it is the only text that says what to do, and
+   a table cell is narrow. */
+.cat-hint {
+  max-width: 32ch;
+  white-space: normal;
+}
+
 .cat-path {
   max-width: 26ch;
   overflow: hidden;

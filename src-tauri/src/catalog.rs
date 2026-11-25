@@ -288,15 +288,21 @@ pub async fn catalog_sync_inventory(app: AppHandle) -> Result<CatalogSnapshot, S
 /// Sync one runtime's model list and return the refreshed snapshot.
 ///
 /// The models page is split by runtime and syncs the tab the user is looking
-/// at. Discovery (spawning every runtime to read its version) is not repeated
-/// here: that is what made "sync" feel slow, and the rows already exist from
-/// the startup scan.
+/// at. A *user-initiated* sync also re-probes that one runtime: the status is
+/// what the reader is trying to fix when they press this — a runtime installed
+/// while the app was open, or `pi login` run in another window, leaves the row
+/// saying "未认证" until something re-reads it. One process spawn for the
+/// runtime on screen is the right price; the startup path keeps the file-only
+/// sync so nothing waits on a probe.
 #[tauri::command]
 pub async fn catalog_sync(
     state: State<'_, CatalogState>,
     runtime_id: String,
 ) -> Result<CatalogSnapshot, String> {
     state.with_service(|service| {
+        service
+            .probe_runtime(&runtime_id)
+            .map_err(|error| error.to_wire())?;
         service
             .sync_models(&runtime_id)
             .map_err(|error| error.to_wire())?;
@@ -305,6 +311,11 @@ pub async fn catalog_sync(
 }
 
 /// Add a custom model; the credential is encrypted before it is stored.
+///
+/// A credential changes the runtime's own status — it is the difference between
+/// "未认证" and usable — so the runtime is re-probed in the same call. The reader
+/// just typed a key; making them press refresh to see it take effect is the gap
+/// that kept "I added a key and nothing changed" alive.
 #[tauri::command]
 pub async fn catalog_add_model(
     state: State<'_, CatalogState>,
@@ -326,6 +337,12 @@ pub async fn catalog_add_model(
                 credential.as_deref(),
             )
             .map_err(|error| error.to_wire())?;
+        if credential.is_some_and(|value| !value.trim().is_empty()) {
+            // Best effort: a probe that fails must not undo a model that was
+            // stored successfully — the row is still there, and the status is
+            // corrected by the next scan.
+            let _ = service.probe_runtime(&runtime_id);
+        }
         service.snapshot().map_err(|error| error.to_wire())
     })
 }

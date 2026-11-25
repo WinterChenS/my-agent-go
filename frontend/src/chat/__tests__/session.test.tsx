@@ -123,7 +123,7 @@ interface Host {
   args: (command: string) => unknown
 }
 
-function catalogSnapshot(withExtra: boolean) {
+function catalogSnapshot(withExtra: boolean, runtimeStatus = 'available') {
   const models = [
     {
       runtimeId: 'pi',
@@ -190,7 +190,7 @@ function catalogSnapshot(withExtra: boolean) {
         installPath: 'C:////pi.CMD',
         installSource: 'path',
         configPath: null,
-        status: 'available',
+        status: runtimeStatus,
         capabilities: {
           models: 'supported',
           customModels: 'supported',
@@ -230,6 +230,8 @@ function installHost(
     detailAfterCompact?: SessionDetail
     /** Answer compaction as a no-op, the way pi does for a small session. */
     compactSkipped?: boolean
+    /** Status the catalog reports for pi, e.g. 'unauthenticated'. */
+    runtimeStatus?: string
   } = {},
 ): Host {
   const calls: string[] = []
@@ -247,9 +249,9 @@ function installHost(
         // A model that only exists after the manual sync: the picker must be
         // rebuilt from the re-read, not from the startup snapshot.
         rescanned = true
-        return catalogSnapshot(rescanned)
+        return catalogSnapshot(rescanned, options.runtimeStatus)
       }
-      if (command === 'catalog_snapshot') return catalogSnapshot(rescanned)
+      if (command === 'catalog_snapshot') return catalogSnapshot(rescanned, options.runtimeStatus)
       if (command === 'session_list') {
         // Two sessions in two directories: the history panel must group them by
         // the project index rather than list them flat.
@@ -404,6 +406,29 @@ function installInventoryHost(
 }
 
 describe('chat live session', () => {
+  /// The report that started this: pi is installed, its version reads fine, and
+  /// the composer still said 「未启用模型」 because discovery could not find a
+  /// credential file. pi authenticates itself at startup (auth.json, a provider
+  /// `apiKey`, an env var), so "no credential file found" must not withhold its
+  /// models — that turned a working install into an unusable one.
+  it('offers the models of a runtime whose credential file it could not find', async () => {
+    installHost({ runtimeStatus: 'unauthenticated' })
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    const picker = () => screen.getByTestId('chat-model-select')
+    await waitFor(() => expect(picker()).not.toBeDisabled())
+    // 「未启用模型」 is the panel that replaced the thread.
+    expect(screen.queryByTestId('chat-connecting')).toBeNull()
+
+    await userEvent.click(picker())
+    const menu = await screen.findByTestId('chat-model-menu')
+    expect(menu).toHaveTextContent('Gateway Sol')
+  })
+
   it('refreshes the model list from the picker and shows what the sync found', async () => {
     const host = installHost()
     render(

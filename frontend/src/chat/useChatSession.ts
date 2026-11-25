@@ -214,6 +214,26 @@ export interface ChatSessionView {
   refreshContext: (sessionId: string) => Promise<void>
 }
 
+/**
+ * Runtimes whose models the composer may offer.
+ *
+ * `unauthenticated` is included on purpose. It means discovery could not *find*
+ * a credential file it knows about — not that the runtime cannot authenticate.
+ * pi resolves its own auth when it starts (`auth.json`, a provider `apiKey` in
+ * `models.json`, or a provider env var), and a key stored through 设置 → 模型
+ * lives in this app's database, which the adapter never reads. Filtering the
+ * runtime out turned "installed, version readable, key present" into an empty
+ * picker and the 「未启用模型」 panel: installed, visible, unusable.
+ *
+ * A runtime that is missing, orphaned, too old or failed its probe still has no
+ * place here: those are the states where starting a turn cannot work.
+ */
+function usableRuntimeIds(snapshot: CatalogSnapshot): string[] {
+  return snapshot.runtimes
+    .filter((runtime) => runtime.status === 'available' || runtime.status === 'unauthenticated')
+    .map((runtime) => runtime.runtimeId)
+}
+
 function toChoices(models: CatalogModel[], keep: string[]): ModelChoice[] {
   // Two filters, for two different reasons: the runtime has to be installed and
   // usable, and the user has to have turned the model on. Discovery finds every
@@ -911,9 +931,7 @@ export function useChatSession({
     // chat cannot offer a model the machine does not have.
     const catalog = await loadCatalog()
     writeCachedSnapshot(catalog)
-    const usable = catalog.runtimes
-      .filter((runtime) => runtime.status === 'available')
-      .map((runtime) => runtime.runtimeId)
+    const usable = usableRuntimeIds(catalog)
     const choices = toChoices(catalog.models, usable)
     if (!mounted.current) return choices.length > 0
     // An empty probe result (a runtime that failed to spawn this launch) must
@@ -965,9 +983,7 @@ export function useChatSession({
     const cached = readCachedSnapshot()
     let cachedReady = false
     if (cacheUsable(cached) && cached && mounted.current) {
-      const usable = cached.runtimes
-        .filter((runtime) => runtime.status === 'available')
-        .map((runtime) => runtime.runtimeId)
+      const usable = usableRuntimeIds(cached)
       const choices = toChoices(cached.models, usable)
       setModels(choices)
       setAgents(toAgentChoices(cached.agents))
@@ -1024,10 +1040,14 @@ export function useChatSession({
       // and only falls back to the rescan when no runtime is installed at
       // all, which is exactly the case the fast path cannot cover.
       const baseline = await loadCatalog()
+      // Every runtime with an executable on disk, whatever its status says: the
+      // sync is also what re-probes the status, so a runtime that was installed
+      // while this window was open has to be in this list — otherwise the one
+      // action that would correct it skips it.
       const installed = Array.from(
         new Set(
           baseline.runtimes
-            .filter((runtime) => runtime.status === 'available')
+            .filter((runtime) => runtime.installPath && runtime.status !== 'orphaned')
             .map((runtime) => runtime.runtimeId),
         ),
       )
@@ -1038,15 +1058,12 @@ export function useChatSession({
           catalog = await syncCatalogRuntime(runtimeId)
         }
       } else {
-        // A manual sync re-scans: a runtime installed after the startup scan
-        // is exactly the case this button exists for, and only a rescan
-        // finds it.
+        // Nothing is installed yet, so there is no runtime to sync: a full
+        // rescan is the only thing that can discover a brand-new install.
         catalog = await refreshCatalog()
       }
       writeCachedSnapshot(catalog)
-      const usable = catalog.runtimes
-        .filter((runtime) => runtime.status === 'available')
-        .map((runtime) => runtime.runtimeId)
+      const usable = usableRuntimeIds(catalog)
       const choices = toChoices(catalog.models, usable)
       if (!mounted.current) return
       setModels(choices)
