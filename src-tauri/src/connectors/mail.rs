@@ -203,7 +203,10 @@ fn parse_headers(body: &str) -> Vec<Value> {
             uid = rest.trim().to_string();
             continue;
         }
-        if trimmed == ")" || trimmed == ")" {
+        // A FETCH body ends with the IMAP close paren. The second half of this
+        // test used to repeat the first one, which made `clippy::eq_op` a hard
+        // error and the comparison pointless.
+        if trimmed == ")" {
             if !headers.is_empty() {
                 rows.push(headers_to_row(&uid, &headers));
                 headers.clear();
