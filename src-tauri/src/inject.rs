@@ -18,12 +18,47 @@ use crate::prefs::{Preferences, resolve_theme};
 
 /// Height of the window's own title-bar strip, in logical pixels.
 ///
-/// With a transparent title bar macOS draws no chrome of its own, so the strip
-/// is painted by the page — and the traffic lights land on top of it. The page
-/// reserves exactly this much space so they sit on the chrome colour instead of
-/// the sidebar's logo. Measured as the gap the opaque title bar used to take:
-/// an 820 pt window laid its page out in 792 pt.
-pub const TITLEBAR_INSET: u32 = if cfg!(target_os = "macos") { 28 } else { 0 };
+/// Where the app owns the window chrome — macOS (traffic lights over the
+/// content) and Linux (borderless, with the app's own buttons) — the page
+/// reserves exactly this much space at the top so those controls sit on the
+/// chrome colour instead of the sidebar's logo, and so a drag region can live
+/// there. Windows keeps its system title bar, so nothing is reserved.
+///
+/// macOS measures the gap an opaque title bar used to take (an 820 pt window
+/// laid its page out in 792 pt). Linux uses the height of the button strip the
+/// page draws itself.
+pub const TITLEBAR_INSET: u32 = if cfg!(target_os = "macos") {
+    28
+} else if cfg!(windows) {
+    0
+} else {
+    36
+};
+
+/// Which window chrome this build draws, as the page sees it.
+///
+/// `macos` keeps the traffic lights and needs only the inset; `linux` is
+/// borderless and gets the page-drawn buttons; `windows` keeps the system title
+/// bar and the page draws nothing.
+pub const WINDOW_CHROME: &str = if cfg!(target_os = "macos") {
+    "macos"
+} else if cfg!(windows) {
+    "windows"
+} else {
+    "linux"
+};
+
+/// How this build shows a page in the chat pane.
+///
+/// `native` is a child webview placed over the pane, which Windows and macOS
+/// can do. `iframe` is the page's own frame, for the platforms where a child
+/// webview cannot be placed at all — the format matches
+/// [`crate::browser::NATIVE_PANE`], which is what decides it.
+pub const BROWSER_PANE: &str = if crate::browser::NATIVE_PANE {
+    "native"
+} else {
+    "iframe"
+};
 
 /// Values injected before the first frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,6 +74,10 @@ pub struct InitialState {
     pub system_dark: bool,
     /// Space to leave for the window's own title bar, in logical pixels.
     pub window_top_inset: u32,
+    /// `macos`, `linux` or `windows`; selects which chrome the page draws.
+    pub window_chrome: String,
+    /// `native` or `iframe`; how the chat pane shows a page.
+    pub browser_pane: String,
 }
 
 impl InitialState {
@@ -51,11 +90,13 @@ impl InitialState {
             language: preferences.language.clone(),
             system_dark,
             window_top_inset: TITLEBAR_INSET,
+            window_chrome: WINDOW_CHROME.to_string(),
+            browser_pane: BROWSER_PANE.to_string(),
         }
     }
 }
 
-const SCRIPT_TEMPLATE: &str = r#"(function(){var state=__STATE__;window.__ANVIL_INITIAL_THEME__={mode:state.mode,resolved:state.resolved,systemDark:state.systemDark};window.__ANVIL_INITIAL_LANGUAGE__=state.language;function apply(){var el=document.documentElement;if(!el){return false;}el.lang=state.language;el.dataset.theme=state.resolved;el.style.colorScheme=state.resolved;el.style.setProperty('--window-top-inset',state.windowTopInset+'px');return true;}if(!apply()){var observer=new MutationObserver(function(){if(apply()){observer.disconnect();}});observer.observe(document,{childList:true,subtree:true});document.addEventListener('DOMContentLoaded',apply,{once:true});}})();"#;
+const SCRIPT_TEMPLATE: &str = r#"(function(){var state=__STATE__;window.__ANVIL_INITIAL_THEME__={mode:state.mode,resolved:state.resolved,systemDark:state.systemDark};window.__ANVIL_INITIAL_LANGUAGE__=state.language;function apply(){var el=document.documentElement;if(!el){return false;}el.lang=state.language;el.dataset.theme=state.resolved;el.dataset.windowChrome=state.windowChrome;el.dataset.browserPane=state.browserPane;el.style.colorScheme=state.resolved;el.style.setProperty('--window-top-inset',state.windowTopInset+'px');return true;}if(!apply()){var observer=new MutationObserver(function(){if(apply()){observer.disconnect();}});observer.observe(document,{childList:true,subtree:true});document.addEventListener('DOMContentLoaded',apply,{once:true});}})();"#;
 
 /// JavaScript applied before any page script runs.
 #[must_use]

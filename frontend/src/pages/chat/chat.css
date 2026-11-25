@@ -4728,6 +4728,23 @@ body.is-resizing-rail * {
   font-size: var(--text-2xs);
 }
 
+/* The escape hatch for a site that refuses to be framed. */
+.chat-browser-open {
+  margin-left: auto;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+.chat-browser-open:hover {
+  text-decoration: underline;
+}
+
 /* A citation marker in the transcript: the number is the link. */
 .chat-cite {
   display: inline-flex;

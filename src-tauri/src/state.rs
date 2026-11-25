@@ -257,20 +257,28 @@ pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error
         builder = builder.additional_browser_args(&extra);
     }
 
-    // macOS: AppKit paints the title bar in its own system material, a grey
-    // that matches nothing in the app — that is the seam above the topbar. A
-    // transparent title bar shows the window's background colour instead, which
-    // is `window_background` below: the same token the shell paints its chrome
-    // with, so the strip and the topbar are one colour, and it follows the
-    // theme. `Transparent` (not `Overlay`) keeps the content view out of the
-    // title bar: the page keeps its 792 pt viewport and the traffic lights stay
-    // above the app's own header rather than on top of it. The title text is
-    // hidden because the app draws its own.
+    // macOS: the system title bar is a band of its own material above a page
+    // that matches nothing in it. `Overlay` lets the content view cover the
+    // whole window, so the page paints the top edge and only the traffic lights
+    // float above it; the title text is hidden because the app has its own. The
+    // page reserves `--window-top-inset` for those lights.
+    //
+    // Linux: GTK draws a title bar only as part of the window frame, and there
+    // is no way to keep its buttons while dropping the bar. The frame goes and
+    // the page draws the buttons (`window_controls` in the injected state).
+    //
+    // Windows keeps its system title bar: the app has no business re-drawing
+    // minimize/maximize/close where the OS already handles snapping, resize
+    // borders and high-DPI scaling.
     #[cfg(target_os = "macos")]
     {
         builder = builder
-            .title_bar_style(tauri::TitleBarStyle::Transparent)
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder.decorations(false);
     }
 
     let window = builder.build()?;

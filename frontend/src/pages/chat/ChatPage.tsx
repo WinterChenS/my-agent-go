@@ -36,6 +36,7 @@ import {
   type PiSubagentStatus,
 } from '../../catalog/client'
 import ChatDialogs, { type ChatDialogKind, type ExportRequest } from './ChatDialogs'
+import { browserPaneMode } from './browserPane'
 import {
   SubAgentButton,
   SubAgentDrawer,
@@ -833,23 +834,33 @@ export default function ChatPage() {
   // off-screen and bring it back on every keystroke — the flicker.
   const browserControl = useMemo(
     () => ({
+      // On a platform that cannot place a native view the pane draws the page
+      // in a frame, and the address alone drives it — calling the host commands
+      // would only raise errors nobody can act on ("bounds" runs on every
+      // resize).
       open: (url: string) => {
         setBrowserUrl(url)
+        if (browserPaneMode() === 'iframe') return
         void browserOpen(url).catch((cause: unknown) =>
           noticeRef.current?.(cause instanceof Error ? cause.message : String(cause)),
         )
       },
       close: () => {
         setBrowserUrl('')
+        if (browserPaneMode() === 'iframe') return
         void browserClose().catch(() => undefined)
       },
-      action: (method: 'back' | 'forward' | 'reload') =>
-        void browserAction(method).catch(() => undefined),
+      action: (method: 'back' | 'forward' | 'reload') => {
+        if (browserPaneMode() === 'iframe') return
+        void browserAction(method).catch(() => undefined)
+      },
       // A placement hint, not something the reader asked for: a host that
       // cannot place it (no desktop, a closed window) must not raise into the
       // page.
-      bounds: (rect: { x: number; y: number; w: number; h: number }) =>
-        void browserBounds(rect).catch(() => undefined),
+      bounds: (rect: { x: number; y: number; w: number; h: number }) => {
+        if (browserPaneMode() === 'iframe') return
+        void browserBounds(rect).catch(() => undefined)
+      },
     }),
     [],
   )

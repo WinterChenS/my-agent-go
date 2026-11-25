@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RailExec, RailView } from '../../chat/client'
 import { useI18n } from '../../i18n/LanguageProvider'
+import { invokeHost } from '../../host/tauri'
 import Icon from '../../shell/Icon'
+import { browserPaneMode } from './browserPane'
 import { FilePreviewPane } from './FilePreviewPane'
 import { sampleChat } from './sampleData'
 
@@ -618,6 +620,10 @@ function LiveBrowser({
   const viewRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState(url)
   const [showLocal, setShowLocal] = useState(true)
+  // A platform that cannot float a native view embeds the page in a frame
+  // instead — and then there is no rect to report and no native command to
+  // call. Everything below branches on this one flag.
+  const framed = browserPaneMode() === 'iframe'
 
   useEffect(() => {
     setDraft(url)
@@ -628,7 +634,7 @@ function LiveBrowser({
   // and when the tab changes. A closed pane reports a zero size, which parks the
   // native view off-screen without losing the page.
   useEffect(() => {
-    if (!browser) return
+    if (!browser || framed) return
     // Scroll fires this many times a second; only a changed rect is worth an
     // IPC round trip.
     let last = ''
@@ -691,7 +697,7 @@ function LiveBrowser({
       window.removeEventListener('mouseup', report, true)
       browser.bounds({ x: 0, y: 0, w: 0, h: 0 })
     }
-  }, [browser])
+  }, [browser, framed])
 
   const openUrl = (raw: string) => {
     const url = raw.trim()
@@ -712,27 +718,33 @@ function LiveBrowser({
           openUrl(draft)
         }}
       >
-        {(['back', 'forward'] as const).map((step) => (
-          <button
-            key={step}
-            type="button"
-            className="chat-iconbtn"
-            aria-label={t(step === 'back' ? 'chat.rail.browser.back' : 'chat.rail.browser.forward')}
-            data-testid={`chat-browser-${step}`}
-            onClick={() => browser?.action(step)}
-          >
-            <Icon name={step === 'back' ? 'arrowLeft' : 'chevron'} size={13} />
-          </button>
-        ))}
-        <button
-          type="button"
-          className="chat-iconbtn"
-          aria-label={t('chat.rail.browser.reload')}
-          data-testid="chat-browser-reload"
-          onClick={() => browser?.action('reload')}
-        >
-          <Icon name="refresh" size={13} />
-        </button>
+        {/* A frame cannot be navigated by the host: the history and reload
+            buttons would be dead, so the pane does not pretend to have them. */}
+        {framed ? null : (
+          <>
+            {(['back', 'forward'] as const).map((step) => (
+              <button
+                key={step}
+                type="button"
+                className="chat-iconbtn"
+                aria-label={t(step === 'back' ? 'chat.rail.browser.back' : 'chat.rail.browser.forward')}
+                data-testid={`chat-browser-${step}`}
+                onClick={() => browser?.action(step)}
+              >
+                <Icon name={step === 'back' ? 'arrowLeft' : 'chevron'} size={13} />
+              </button>
+            ))}
+            <button
+              type="button"
+              className="chat-iconbtn"
+              aria-label={t('chat.rail.browser.reload')}
+              data-testid="chat-browser-reload"
+              onClick={() => browser?.action('reload')}
+            >
+              <Icon name="refresh" size={13} />
+            </button>
+          </>
+        )}
         <input
           className="chat-browser-input"
           data-testid="chat-browser-url"
@@ -759,6 +771,18 @@ function LiveBrowser({
             </div>
           </>
         ) : null}
+        {/* No native layer on this platform: the page itself goes in the pane.
+            It is a real frame, so a site that refuses to be embedded (`X-Frame-
+            Options`) stays blank — the note below says so and offers the
+            system browser, which is the only way to reach those. */}
+        {framed && url ? (
+          <iframe
+            className="chat-browser-frame"
+            data-testid="chat-rail-browser-page"
+            title={url}
+            src={url}
+          />
+        ) : null}
         {url ? null : (
           <div className="chat-rail-empty" data-testid="chat-rail-browser-unavailable">
             <Icon name="globe" size={20} />
@@ -767,6 +791,21 @@ function LiveBrowser({
           </div>
         )}
       </div>
+      {framed ? (
+        <div className="chat-browser-actions" data-testid="chat-browser-framed-note">
+          <span className="chat-browser-note">{t('chat.rail.browser.framed')}</span>
+          {url ? (
+            <button
+              type="button"
+              className="chat-browser-open"
+              data-testid="chat-browser-external"
+              onClick={() => void invokeHost('open_external', { url }).catch(() => undefined)}
+            >
+              {t('chat.rail.browser.openExternal')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

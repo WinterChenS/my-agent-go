@@ -30,6 +30,21 @@ use serde_json::Value;
 use tauri::webview::Webview;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
+/// Whether this build can float a child webview over the pane.
+///
+/// Windows (WebView2) and macOS (AppKit) move a child webview to any rect the
+/// page reports. Linux cannot: `tauri-runtime-wry` hands every webview the
+/// window's own `GtkBox` (`build_gtk(window.default_vbox())`), so a second one
+/// is packed *beside* the first as a sibling that shares the window instead of
+/// floating over it — the app gets pushed aside by a page nobody can place. And
+/// `set_bounds` is a no-op there anyway: wry only allocates a child it put in a
+/// `GtkFixed`, and `add_to_container` reports `is_in_fixed_parent = false` for
+/// a `GtkBox`.
+///
+/// So Linux embeds the page in an iframe inside the pane (the page owns that)
+/// and never creates the native view. This is the switch both sides read.
+pub const NATIVE_PANE: bool = cfg!(any(target_os = "windows", target_os = "macos"));
+
 /// Place the pane's child webview through Tauri's own `set_bounds`.
 ///
 /// This is the Windows/Linux path, and the macOS fallback when the view pair
@@ -457,6 +472,16 @@ impl Browser {
 
     /// Open the pane on `url`, or navigate the one that is already open.
     pub fn open(&self, app: &AppHandle, url: &str) -> Result<(), String> {
+        if !NATIVE_PANE {
+            // A real failure, not something the caller can retry around: the
+            // view would land as a sibling of the app's own webview and eat
+            // half the window. The page knows and uses a frame, so this is only
+            // reachable from a tool call — say what to do instead of what broke.
+            return Err(
+                "this platform cannot place an embedded webview; open the address with the system browser"
+                    .to_string(),
+            );
+        }
         let mut slot = self
             .webview
             .lock()
