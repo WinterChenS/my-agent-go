@@ -107,7 +107,14 @@ export default function ChatHistoryPanel({
       pinned: session.pinned,
       archived: session.archived,
       projectPath: session.projectPath,
-      state: session.id === live?.runningId ? 'pending' : undefined,
+      // The ledger's own status is the source of truth: a run keeps going —
+      // and keeps its spinner — while the reader is on another conversation
+      // or another page entirely. `runningId` covers the brief moment between
+      // send and the next ledger read, when status has not caught up yet.
+      state:
+        session.status === 'running' || session.id === live?.runningId
+          ? 'pending'
+          : undefined,
     }))
 
   // Group live rows by the project index the host returned. The index decides

@@ -218,6 +218,19 @@ export function ChatHistoryProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
+  // A turn in flight belongs to the ledger, not to the page that started it.
+  // Keep refreshing while any session is `running`, from whichever route the
+  // reader is on, so its sidebar spinner stays until the host actually ends
+  // the run — and disappears when it does. This used to live in ChatPage keyed
+  // on that page's `live.running`, so switching away stopped the polling and
+  // left a spinner that never cleared (or lost one that should still be there).
+  const anyRunning = sessions.some((session) => session.status === 'running')
+  useEffect(() => {
+    if (sample || !anyRunning || !isTauriHost()) return
+    const timer = window.setInterval(() => void refresh(), 2000)
+    return () => window.clearInterval(timer)
+  }, [sample, anyRunning, refresh])
+
   const startNew = useCallback(() => {
     setActive(null)
     setNewSeq((current) => current + 1)

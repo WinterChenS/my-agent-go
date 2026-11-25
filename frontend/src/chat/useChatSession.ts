@@ -868,6 +868,16 @@ export function useChatSession({
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [current, setCurrent] = useState<SessionDetail | null>(null)
   const [turnEvents, setTurnEvents] = useState<SessionEvent[]>([])
+  /**
+   * Each conversation's streaming timeline stays here even while another is
+   * on screen. Switching used to blank the timeline and rebuild it from the
+   * ledger, which showed an empty frame and a replay of already-seen text.
+   * With the cache, switching back paints the exact state we left in the same
+   * frame; `attach` then only has to catch up on events written while away.
+   */
+  const timelines = useRef(new Map<string, SessionEvent[]>())
+  const details = useRef(new Map<string, SessionDetail>())
+  const visibleSession = useRef<string | null>(null)
   const [rail, setRail] = useState<RailView | null>(null)
   const [context, setContext] = useState<ContextUsage | null>(null)
   const [running, setRunning] = useState(false)
@@ -909,6 +919,28 @@ export function useChatSession({
       mounted.current = false
       pollStop.current = true
     }
+  }, [])
+
+  /**
+   * Write a conversation's timeline to its cache, and to the visible view
+   * only when that conversation is the one on screen. A turn that keeps
+   * running in the background therefore updates its own cache continuously;
+   * coming back simply shows the latest cached rows, with nothing to rebuild.
+   */
+  const writeTimeline = useCallback(
+    (sessionId: string, events: SessionEvent[] | ((previous: SessionEvent[]) => SessionEvent[])) => {
+      const previous = timelines.current.get(sessionId) ?? []
+      const next = typeof events === 'function' ? events(previous) : events
+      timelines.current.set(sessionId, next)
+      if (visibleSession.current === sessionId) setTurnEvents(next)
+    },
+    [],
+  )
+
+  /** Cache a freshly read detail; paint it only if its session is on screen. */
+  const writeDetail = useCallback((sessionId: string, detail: SessionDetail) => {
+    details.current.set(sessionId, detail)
+    if (visibleSession.current === sessionId) setCurrent(detail)
   }, [])
 
   // The list and the project index are read together: the panel groups the
@@ -1171,16 +1203,27 @@ export function useChatSession({
       if (!ownsView()) return
 
       if (terminal) {
-        // Finished between the detail read and this one: just show the result.
+        // The run ended while the reader was away. The stored answer is now
+        // in the detail; drop the streamed timeline so the finished message
+        // is not shown twice (once streamed, once from the ledger).
+        timelines.current.delete(sessionId)
+        if (visibleSession.current === sessionId) setTurnEvents([])
         try {
           const detail = await loadSession(sessionId)
-          if (ownsView()) setCurrent(detail)
+          if (ownsView()) writeDetail(sessionId, detail)
         } catch {
           // Keep what is on screen; a manual refresh retries.
         }
         if (ownsView()) await refreshRail(sessionId)
         return
       }
+
+      // Coming back to a turn we were already following: keep the cached rows
+      // and append only what the host wrote while we were away. Replaying the
+      // whole run here duplicated every line the reader had already seen.
+      const cached = timelines.current.get(sessionId) ?? []
+      const lastCachedSeq = cached.length ? Math.max(...cached.map((row) => row.seq)) : 0
+      const unseen = replay.filter((event) => event.seq > lastCachedSeq)
 
       eventCursor.current = since
       // Only this run's events belong to the live view; every other run in the
@@ -1190,7 +1233,9 @@ export function useChatSession({
       // its reasoning and tool calls are already in the ledger, and starting
       // from an empty bubble made a half-finished turn look like one that had
       // just begun — everything it had thought and run so far was gone.
-      setTurnEvents(replay)
+      writeTimeline(sessionId, (previous) =>
+        previous.length ? [...previous, ...unseen] : unseen,
+      )
       setTurnFailure(null)
       setTurnStartedAt(startedAtFrom(run) ?? Date.now())
       if (!ownsView()) return
@@ -1207,7 +1252,7 @@ export function useChatSession({
               (event) => !event.runId || !staleRuns.current.has(event.runId),
             )
             if (fresh.length > 0 && ownsView()) {
-              setTurnEvents((previous) => [...previous, ...fresh])
+              writeTimeline(sessionId, (previous) => [...previous, ...fresh])
             }
             terminal =
               fresh.find(
@@ -1235,10 +1280,14 @@ export function useChatSession({
 
       try {
         const detail = await loadSession(sessionId)
+        // Cache the finished ledger even if the reader is elsewhere, so a
+        // later switch shows the answer immediately rather than a stale copy.
+        writeDetail(sessionId, detail)
+        timelines.current.delete(sessionId)
+        if (visibleSession.current === sessionId) setTurnEvents([])
         if (ownsView()) {
           // Same batch as `send`: the ledger with its assistant message and the
           // end of streaming must land together, never two frames apart.
-          setCurrent(detail)
           setRunning(false)
           setTurnStartedAt(null)
           setTurnFailure(failure)
@@ -1257,7 +1306,7 @@ export function useChatSession({
         void refreshContext(sessionId)
       }
     },
-    [reloadSessions, refreshRail],
+    [reloadSessions, refreshRail, refreshContext, writeDetail, writeTimeline],
   )
 
   const select = useCallback(
@@ -1269,26 +1318,36 @@ export function useChatSession({
       const epoch = ++viewEpoch.current
       const ownsView = () => mounted.current && viewEpoch.current === epoch
       pollStop.current = true
-      setRunning(false)
+      // Paint this conversation immediately from its cache — synchronous, no
+      // IPC, no blank frame. A first visit has no cache and shows the previous
+      // conversation for one frame until the ledger read below lands, which
+      // is the same behaviour as before but without replaying a turn we have
+      // already seen when coming back.
+      visibleSession.current = sessionId
+      const cachedDetail = details.current.get(sessionId)
+      const cachedTimeline = timelines.current.get(sessionId)
+      if (cachedDetail) setCurrent(cachedDetail)
+      setTurnEvents(cachedTimeline ?? [])
+      setTurnFailure(null)
       setTurnStartedAt(null)
+      setError(null)
       try {
         const detail = await loadSession(sessionId)
         // A faster second click has superseded this one. Writing the older
         // conversation here — or starting another `attach` for it — is what
         // made rapid switching dereference the wrong view and then wedge.
         if (!ownsView()) return
-        setCurrent(detail)
-        setTurnEvents([])
-        setTurnFailure(null)
-        setTurnStartedAt(null)
+        writeDetail(sessionId, detail)
+        // Do not reset the timeline from the ledger here: the cache already
+        // holds every event we painted, including text streamed after the
+        // last stored row. Replaying would duplicate it.
         eventCursor.current = 0
         // Opening a stored conversation starts no turn: every run in it is
         // history, so a new message must not replay this transcript.
         staleRuns.current = new Set(detail.runs.map((run) => run.id))
-        setError(null)
         // A run still marked `running` is a turn the host is executing right
-        // now — the page was simply not here to watch it. Follow it instead of
-        // showing the conversation as if it had stopped after the prompt.
+        // now — the page was simply not here to watch it. `attach` resumes it
+        // from the cache's last seq instead of replaying the whole stream.
         const live = detail.runs.find((run) => run.status === 'running')
         if (live && ownsView()) void attach(sessionId, live, detail.runs)
       } catch (cause) {
@@ -1298,12 +1357,13 @@ export function useChatSession({
       await refreshRail(sessionId)
       await refreshContext(sessionId)
     },
-    [attach, refreshRail, refreshContext],
+    [attach, refreshRail, refreshContext, writeDetail],
   )
 
   const startNew = useCallback(() => {
     viewEpoch.current += 1
     pollStop.current = true
+    visibleSession.current = null
     setRunning(false)
     setTurnStartedAt(null)
     setCurrent(null)
@@ -1374,11 +1434,13 @@ export function useChatSession({
         // resolved copy (bytes, truncation, outside-project) when it lands.
         ...(context.length > 0 ? { meta: { context } } : {}),
       }
-      setCurrent((existing) =>
-        existing ? { ...existing, messages: [...existing.messages, optimistic] } : existing,
-      )
+      visibleSession.current = sessionId
+      setCurrent((existing) => {
+        if (!existing || existing.session.id !== sessionId) return existing
+        return { ...existing, messages: [...existing.messages, optimistic] }
+      })
       setRunning(true)
-      setTurnEvents([])
+      writeTimeline(sessionId, [])
       setError(null)
       setTurnFailure(null)
       setTurnStartedAt(Date.now())
@@ -1403,7 +1465,7 @@ export function useChatSession({
                 // The turn's parts and approval cards come from the same
                 // stream; keeping the batch lets the page render them without
                 // a second read and without re-deriving text.
-                setTurnEvents((previous) => [...previous, ...fresh])
+                writeTimeline(sessionId, (previous) => [...previous, ...fresh])
               }
             }
           } catch {
@@ -1488,18 +1550,22 @@ export function useChatSession({
       }
 
       // The reader may have opened another conversation while the turn ran.
-      // The turn itself keeps going on the host, but nothing here may paint
-      // into the view that is now showing a different conversation.
-      if (!ownsView()) return failure
-
+      // The turn still finished on the host: always cache its final ledger
+      // below so switching back shows the answer. Only the *view* writes are
+      // gated by ownsView — never the cache.
       try {
         const detail = await loadSession(sessionId)
+        // Keep the cache current even while another conversation is on screen.
+        writeDetail(sessionId, detail)
+        // The streamed rows are now in the ledger as one message. Drop them so
+        // a later switch does not draw the answer twice.
+        timelines.current.delete(sessionId)
+        if (visibleSession.current === sessionId) setTurnEvents([])
         if (ownsView()) {
           // Land the finished ledger and the end of the streaming state in the
           // same batch. Clearing `running` only after the IPC reads below left
           // a frame where both the stored answer and the streaming bubble were
           // visible — the same run drawn twice.
-          setCurrent(detail)
           setRunning(false)
           setTurnStartedAt(null)
           setTurnFailure(outcome)
@@ -1520,7 +1586,7 @@ export function useChatSession({
       }
       return failure
     },
-    [current, model, reloadSessions, refreshRail, refreshContext],
+    [current, model, reloadSessions, refreshRail, refreshContext, writeDetail, writeTimeline],
   )
 
   const retry = useCallback(() => sendRef.current(lastPrompt.current), [])

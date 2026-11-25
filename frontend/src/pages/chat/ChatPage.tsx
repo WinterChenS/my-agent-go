@@ -756,18 +756,29 @@ export default function ChatPage() {
   // while it runs so the row and its preview track the work.
   const refreshHistory = history.refresh
   const setRunningId = history.setRunningId
+  // `runningId` is only the instant hint between sending and the first ledger
+  // read. The ledger's `status === running` now owns the spinner for the rest
+  // of the turn: it survives switching away and clears when the host ends the
+  // run. Never clear the hint on unmount or on a session switch — that is what
+  // used to drop a spinner from a run that was still going.
+  const hintedRun = useRef<string | null>(null)
   useEffect(() => {
     if (sample) return
-    // Publish the running session to the shared history so the sidebar can put
-    // a spinner on that row. Clear it on stop or when there is no session yet.
-    setRunningId(live.running ? currentId : null)
-    return () => setRunningId(null)
+    if (live.running && currentId) {
+      hintedRun.current = currentId
+      setRunningId(currentId)
+    } else if (!live.running && hintedRun.current) {
+      // This conversation's turn ended. The ledger is refreshed below, so the
+      // status and the hint land in the same frame rather than flickering.
+      setRunningId(null)
+      hintedRun.current = null
+    }
   }, [sample, live.running, currentId, setRunningId])
   useEffect(() => {
     if (sample || !live.running) return
+    // One immediate read so the row and its preview track the new turn; the
+    // provider keeps ticking after that, independent of which page is open.
     void refreshHistory()
-    const timer = window.setInterval(() => void refreshHistory(), 3000)
-    return () => window.clearInterval(timer)
   }, [sample, live.running, refreshHistory])
 
   // "New conversation" from the sidebar is a counted request, not just a null
