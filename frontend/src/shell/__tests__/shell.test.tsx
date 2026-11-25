@@ -72,7 +72,9 @@ describe('shared shell', () => {
     expect(screen.getByRole('button', { name: '工具与自动化' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '返回上一页' })).toBeNull()
     expect(screen.getByRole('main', { name: '主内容' })).toBeInTheDocument()
-    expect(screen.getByTestId('build-marker')).toHaveTextContent('anvil-rebuild-shell')
+    // The build marker and the wordmark's subtitle were chrome, not content.
+    expect(screen.queryByTestId('build-marker')).toBeNull()
+    expect(screen.queryByText('本地智能体客户端 · v0.9')).toBeNull()
   })
 
   it('gives the page the full height: no topbar on any route', () => {
@@ -108,7 +110,7 @@ describe('shared shell', () => {
     expect(screen.getByText('未检测')).toBeInTheDocument()
     expect(screen.getByText('本地工作区')).toBeInTheDocument()
     expect(screen.getByText('未连接账号')).toBeInTheDocument()
-    expect(screen.getByText('本地智能体客户端 · v0.9')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Anvil' })).toBeInTheDocument()
   })
 
   it('keeps the tools menu closed and out of the tab order by default', () => {

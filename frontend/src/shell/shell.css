@@ -97,7 +97,7 @@ html[data-window-chrome="linux"] .main {
      236px sidebar and pushed the first nav item down. At 132px it still reads
      as the brand without competing with the navigation, which is what the
      sidebar is for. */
-  padding: var(--space-2) var(--space-4) var(--space-5);
+  padding: var(--space-2) var(--space-4) var(--space-2);
   border-radius: var(--r-sm);
 }
 
@@ -125,17 +125,6 @@ html[data-window-chrome="linux"] .main {
 [data-theme='dark'] .brand-logo,
 [data-theme='dark'] .brand-mark-img {
   filter: invert(1) hue-rotate(180deg);
-}
-
-.brand-sub {
-  display: block;
-  font-size: var(--text-2xs);
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
 }
 
 .nav-group {
@@ -402,16 +391,6 @@ html[data-window-chrome="linux"] .main {
   white-space: nowrap;
 }
 
-.shell-build-marker {
-  display: block;
-  padding: var(--space-3) var(--space-4) var(--space-1);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-align: center;
-  white-space: nowrap;
-}
-
 /* ---------- main / scroll container ---------- */
 
 .main {
@@ -621,7 +600,6 @@ html[data-window-chrome="linux"] .main {
   }
 
   .brand-logo,
-  .brand-sub,
   .nav-label,
   .nav-item > span,
   .nav-count,
@@ -663,10 +641,6 @@ html[data-window-chrome="linux"] .main {
   .user-chip {
     justify-content: center;
     padding: var(--space-4) 0;
-  }
-
-  .shell-build-marker {
-    display: none;
   }
 
   .page-inner {

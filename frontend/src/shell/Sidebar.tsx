@@ -60,7 +60,6 @@ export default function Sidebar({
       <Link className="brand" to="/" aria-label="Anvil">
         <img className="brand-logo" src="/brand-logo.png" alt="Anvil" />
         <img className="brand-mark-img" src="/brand-mark.png" alt="" aria-hidden="true" />
-        <span className="brand-sub">{t('brand.subtitle')}</span>
       </Link>
 
       {/* Search lives here now that the topbar is gone. It keeps the nav row's
@@ -186,9 +185,6 @@ export default function Sidebar({
             <span>{t('settings.update.badge', { version: pendingUpdate.version })}</span>
           </button>
         ) : null}
-        <span className="shell-build-marker" data-testid="build-marker">
-          anvil-rebuild-shell
-        </span>
       </div>
     </aside>
   )

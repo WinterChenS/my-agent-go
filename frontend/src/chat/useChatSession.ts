@@ -875,6 +875,16 @@ export function useChatSession({
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
   const pollStop = useRef(false)
   const mounted = useRef(true)
+  /**
+   * Which conversation the view currently belongs to. `send` and `attach`
+   * run for minutes and keep writing into the view; switching sessions used
+   * to leave the old flow alive, so its polls appended events to the new
+   * conversation (duplicating a turn) and its final `setCurrent` jumped the
+   * view back. Capturing this epoch at start and checking it before every
+   * write makes a stale flow a no-op. The ref, not state, so a switch takes
+   * effect on the very next poll without waiting for a render.
+   */
+  const viewEpoch = useRef(0)
   /** Last ledger seq already rendered; resets when the session changes. */
   const eventCursor = useRef(0)
   /**
@@ -1132,6 +1142,12 @@ export function useChatSession({
    */
   const attach = useCallback(
     async (sessionId: string, run: SessionRun, runs: SessionRun[]) => {
+      // This flow writes into the view for as long as the turn runs. If the
+      // reader opens another conversation, `select` bumps the epoch and every
+      // write below becomes a no-op — otherwise this run's events land in the
+      // new conversation and its terminal `setCurrent` pulls the view back.
+      const epoch = viewEpoch.current
+      const ownsView = () => mounted.current && viewEpoch.current === epoch
       // Read the ledger once. The cursor starts at its end so history is not
       // replayed by the poll, and this run's own events are kept to rebuild the
       // half-finished turn. The same read tells us whether the run ended while
@@ -1152,17 +1168,17 @@ export function useChatSession({
       } catch {
         return
       }
-      if (!mounted.current) return
+      if (!ownsView()) return
 
       if (terminal) {
         // Finished between the detail read and this one: just show the result.
         try {
           const detail = await loadSession(sessionId)
-          if (mounted.current) setCurrent(detail)
+          if (ownsView()) setCurrent(detail)
         } catch {
           // Keep what is on screen; a manual refresh retries.
         }
-        await refreshRail(sessionId)
+        if (ownsView()) await refreshRail(sessionId)
         return
       }
 
@@ -1177,10 +1193,11 @@ export function useChatSession({
       setTurnEvents(replay)
       setTurnFailure(null)
       setTurnStartedAt(startedAtFrom(run) ?? Date.now())
+      if (!ownsView()) return
       setRunning(true)
       pollStop.current = false
 
-      while (!pollStop.current) {
+      while (!pollStop.current && ownsView()) {
         try {
           const events = await loadSessionEvents(sessionId, since)
           if (events.length > 0) {
@@ -1189,7 +1206,7 @@ export function useChatSession({
             const fresh = events.filter(
               (event) => !event.runId || !staleRuns.current.has(event.runId),
             )
-            if (fresh.length > 0 && mounted.current) {
+            if (fresh.length > 0 && ownsView()) {
               setTurnEvents((previous) => [...previous, ...fresh])
             }
             terminal =
@@ -1203,6 +1220,9 @@ export function useChatSession({
         }
         await sleep(POLL_INTERVAL_MS)
       }
+      // The reader may have left while we were polling. Nothing below may
+      // write into the view they moved to.
+      if (!ownsView()) return
 
       const payload = (terminal?.payload ?? {}) as Record<string, unknown>
       const status = typeof payload.status === 'string' ? payload.status : 'completed'
@@ -1215,7 +1235,7 @@ export function useChatSession({
 
       try {
         const detail = await loadSession(sessionId)
-        if (mounted.current) {
+        if (ownsView()) {
           // Same batch as `send`: the ledger with its assistant message and the
           // end of streaming must land together, never two frames apart.
           setCurrent(detail)
@@ -1225,24 +1245,38 @@ export function useChatSession({
         }
       } catch {
         // Keep the streamed view; the next open re-reads it.
-        if (mounted.current) {
+        if (ownsView()) {
           setRunning(false)
           setTurnStartedAt(null)
           setTurnFailure(failure)
         }
       }
       await reloadSessions().catch(() => undefined)
-      await refreshRail(sessionId)
-      void refreshContext(sessionId)
+      if (ownsView()) {
+        await refreshRail(sessionId)
+        void refreshContext(sessionId)
+      }
     },
     [reloadSessions, refreshRail],
   )
 
   const select = useCallback(
     async (sessionId: string) => {
+      // Leave the old conversation before loading the new one. Incrementing
+      // the epoch makes any in-flight send/attach stop writing into the view,
+      // and clearing `running` here (not waiting for the old flow to finish)
+      // is what keeps a loading spinner from following the reader here.
+      const epoch = ++viewEpoch.current
+      const ownsView = () => mounted.current && viewEpoch.current === epoch
+      pollStop.current = true
+      setRunning(false)
+      setTurnStartedAt(null)
       try {
         const detail = await loadSession(sessionId)
-        if (!mounted.current) return
+        // A faster second click has superseded this one. Writing the older
+        // conversation here — or starting another `attach` for it — is what
+        // made rapid switching dereference the wrong view and then wedge.
+        if (!ownsView()) return
         setCurrent(detail)
         setTurnEvents([])
         setTurnFailure(null)
@@ -1256,10 +1290,11 @@ export function useChatSession({
         // now — the page was simply not here to watch it. Follow it instead of
         // showing the conversation as if it had stopped after the prompt.
         const live = detail.runs.find((run) => run.status === 'running')
-        if (live) void attach(sessionId, live, detail.runs)
+        if (live && ownsView()) void attach(sessionId, live, detail.runs)
       } catch (cause) {
-        if (mounted.current) setError(describeSessionError(cause))
+        if (ownsView()) setError(describeSessionError(cause))
       }
+      if (!ownsView()) return
       await refreshRail(sessionId)
       await refreshContext(sessionId)
     },
@@ -1267,6 +1302,10 @@ export function useChatSession({
   )
 
   const startNew = useCallback(() => {
+    viewEpoch.current += 1
+    pollStop.current = true
+    setRunning(false)
+    setTurnStartedAt(null)
     setCurrent(null)
     setTurnEvents([])
     setRail(null)
@@ -1310,6 +1349,12 @@ export function useChatSession({
       }
 
       const sessionId = active.session.id
+      // Hold the epoch for the whole turn. Opening another conversation bumps
+      // it, and every view write below is then skipped: this turn keeps running
+      // on the host but stops painting into a conversation that is no longer
+      // on screen (no borrowed spinner, gradient, streamed text or jump-back).
+      const epoch = viewEpoch.current
+      const ownsView = () => mounted.current && viewEpoch.current === epoch
       // A turn only ever shows its own output. `active.runs` is the ledger as
       // it stood before this prompt, so any event carrying one of those ids is
       // leftover history from a poll that stopped early.
@@ -1345,16 +1390,16 @@ export function useChatSession({
       // turns of the same session and is reset when the session changes.
       const poll = async () => {
         let since = eventCursor.current
-        while (!pollStop.current) {
+        while (!pollStop.current && ownsView()) {
           try {
             const events = await loadSessionEvents(sessionId, since)
             if (events.length > 0) {
               since = latestSeq(events, since)
-              eventCursor.current = since
+              if (ownsView()) eventCursor.current = since
               const fresh = events.filter(
                 (event) => !event.runId || !staleRuns.current.has(event.runId),
               )
-              if (fresh.length > 0 && mounted.current) {
+              if (fresh.length > 0 && ownsView()) {
                 // The turn's parts and approval cards come from the same
                 // stream; keeping the batch lets the page render them without
                 // a second read and without re-deriving text.
@@ -1393,10 +1438,10 @@ export function useChatSession({
       const warmRail = (async () => {
         for (let round = 0; round < 20; round += 1) {
           await sleep(400)
-          if (warmStop || !mounted.current) return
+          if (warmStop || !ownsView()) return
           try {
             const view = await loadRail(sessionId)
-            if (warmStop || !mounted.current) return
+            if (warmStop || !ownsView()) return
             setRail(view)
             // A turn that carried nothing has nothing to wait for: one read
             // after the message lands is all it needs.
@@ -1442,9 +1487,14 @@ export function useChatSession({
         await warmRail
       }
 
+      // The reader may have opened another conversation while the turn ran.
+      // The turn itself keeps going on the host, but nothing here may paint
+      // into the view that is now showing a different conversation.
+      if (!ownsView()) return failure
+
       try {
         const detail = await loadSession(sessionId)
-        if (mounted.current) {
+        if (ownsView()) {
           // Land the finished ledger and the end of the streaming state in the
           // same batch. Clearing `running` only after the IPC reads below left
           // a frame where both the stored answer and the streaming bubble were
@@ -1456,16 +1506,18 @@ export function useChatSession({
         }
       } catch {
         // Keep the optimistic view; the next refresh will retry.
-        if (mounted.current) {
+        if (ownsView()) {
           setRunning(false)
           setTurnStartedAt(null)
           setTurnFailure(outcome)
         }
       }
       await reloadSessions().catch(() => undefined)
-      await refreshRail(sessionId)
-      await refreshContext(sessionId)
-      if (failure) setError(failure)
+      if (ownsView()) {
+        await refreshRail(sessionId)
+        await refreshContext(sessionId)
+        if (failure) setError(failure)
+      }
       return failure
     },
     [current, model, reloadSessions, refreshRail, refreshContext],

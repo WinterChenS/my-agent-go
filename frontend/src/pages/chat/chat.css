@@ -3685,14 +3685,23 @@ body.is-resizing-rail * {
 /* A turn in flight: the row spins so it reads as working from any route, not
    only while the chat page is in front. Sized inside the one-line meta row. */
 .chat-history-meta i.chat-history-spinner {
-  width: 11px;
-  height: 11px;
+  /* border-box keeps the 12px circle exactly 12px: content-box made the
+     border push it past the meta row's baseline and it read as lopsided. */
+  box-sizing: border-box;
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex: none;
   border: 2px solid color-mix(in oklab, var(--warn) 30%, transparent);
   border-top-color: var(--warn);
+  border-radius: 50%;
   background: none;
+  /* Center the rotation on the circle, not on an inline element's baseline. */
+  transform-origin: center;
   animation: chat-history-spin 720ms linear infinite;
 }
 @keyframes chat-history-spin {
+  from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
