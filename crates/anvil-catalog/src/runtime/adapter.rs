@@ -84,6 +84,13 @@ pub struct ModelVerification {
 #[serde(rename_all = "camelCase")]
 pub struct McpProbe {
     pub ok: bool,
+    /// What the row's state becomes: `connected`, `needs_auth` or `failed`.
+    ///
+    /// `needs_auth` is not a failure — the server refused the credential, which
+    /// for an OAuth server means the runtime holds the sign-in and the app does
+    /// not. The page shows it as "sign in from the runtime", not as a red error.
+    #[serde(default)]
+    pub state: Option<String>,
     pub tools: Vec<String>,
     pub detail: Option<String>,
 }

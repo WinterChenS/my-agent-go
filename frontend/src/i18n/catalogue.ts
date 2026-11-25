@@ -3541,6 +3541,15 @@ const catalogZh = {
   'catalog.mcp.probing': '连接中…',
   'catalog.mcp.probeOk': '{name} 连接成功，{count} 个工具',
   'catalog.mcp.probeFailed': '{name} 连接失败：{detail}',
+  'catalog.mcp.probeNeedsAuth':
+    '{name} 需要登录：这个服务用 OAuth，凭据在运行时里。在终端执行「pi mcp login {name}」授权后，再点一次「连接并枚举」。',
+  'catalog.mcp.state.connected': '已连接',
+  'catalog.mcp.state.needsAuth': '需要登录',
+  'catalog.mcp.state.failed': '连接失败',
+  'catalog.mcp.state.missingUrl': '缺少地址',
+  'catalog.mcp.state.missingCommand': '缺少命令',
+  'catalog.mcp.state.unknown': '未探测',
+  'catalog.mcp.oauthCredential': 'OAuth（凭据在运行时里）',
 }
 
 const catalogEn: Record<keyof typeof catalogZh, string> = {
@@ -3677,6 +3686,15 @@ const catalogEn: Record<keyof typeof catalogZh, string> = {
   'catalog.mcp.probing': 'Connecting…',
   'catalog.mcp.probeOk': '{name} connected, {count} tools',
   'catalog.mcp.probeFailed': '{name} failed: {detail}',
+  'catalog.mcp.probeNeedsAuth':
+    '{name} needs a sign-in: this server uses OAuth and the session lives in the runtime. Run 「pi mcp login {name}」, then connect again.',
+  'catalog.mcp.state.connected': 'Connected',
+  'catalog.mcp.state.needsAuth': 'Sign-in needed',
+  'catalog.mcp.state.failed': 'Failed',
+  'catalog.mcp.state.missingUrl': 'No URL',
+  'catalog.mcp.state.missingCommand': 'No command',
+  'catalog.mcp.state.unknown': 'Not probed',
+  'catalog.mcp.oauthCredential': 'OAuth (session in the runtime)',
 }
 
 const zhCN = {

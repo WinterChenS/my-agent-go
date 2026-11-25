@@ -245,6 +245,14 @@ export interface ModelVerification {
 
 export interface McpProbeResult {
   ok: boolean
+  /**
+   * The row's state after the probe: `connected`, `needs_auth`, `failed`, or a
+   * `missing_*` for an unusable declaration.
+   *
+   * `needs_auth` is not a failure: the server refused the credential, and for an
+   * OAuth server the session that would satisfy it lives in the runtime.
+   */
+  state?: string | null
   tools: string[]
   detail: string | null
 }

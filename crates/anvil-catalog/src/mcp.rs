@@ -714,6 +714,63 @@ pub fn header_values(runtime_id: &str, home: &Path, name: &str) -> Vec<(String, 
         .unwrap_or_default()
 }
 
+/// The OAuth access token the runtime holds for one remote server, if any.
+///
+/// Remote MCP servers that use OAuth (Box, Sentry, Linear…) have no header in
+/// `mcp.json` and no secret in the declaration: the runtime signed in once, and
+/// keeps the session in its own auth store. pi writes `~/.pi/agent/mcp-auth.json`
+/// keyed by `mcp__<server>|<url>`, with the live token under `tokens`.
+///
+/// Without this the probe sent an unauthenticated `initialize` to a server that
+/// works perfectly inside the runtime, got `401`, and reported the server as
+/// broken — the one status the reader cannot act on.
+///
+/// The token is read at probe time and never persisted: a synced snapshot must
+/// not carry a credential.
+pub fn oauth_token(runtime_id: &str, home: &Path, name: &str, url: &str) -> Option<String> {
+    let auth_file = match runtime_id {
+        // The auth store sits next to `mcp.json`, in the same agent directory.
+        "pi" => home.join(".pi").join("agent").join("mcp-auth.json"),
+        // The other adapters have no OAuth store this build can read.
+        _ => return None,
+    };
+    let value = common_read_json(&auth_file)?;
+    let entries = value.as_object()?;
+    // pi keys the store by server name *and* URL: the same URL under two names
+    // is two sign-ins, so a lookup by URL alone would hand one account's token
+    // to another. The second spelling is there for a prefix change, not as a
+    // wildcard.
+    let url = url.trim();
+    let entry = entries
+        .get(&format!("mcp__{name}|{url}"))
+        .or_else(|| entries.get(&format!("{name}|{url}")))?;
+    let token = entry
+        .get("tokens")
+        .and_then(|tokens| tokens.get("access_token"))
+        .or_else(|| entry.get("accessToken"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|token| !token.is_empty())?;
+    Some(token.to_string())
+}
+
+fn common_read_json(path: &Path) -> Option<serde_json::Value> {
+    let metadata = std::fs::metadata(path).ok()?;
+    // An auth store is a handful of KB; anything larger is not one.
+    if metadata.len() > (2 << 20) {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Whether a header the declaration already sets is the Authorization one.
+pub fn has_authorization(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("authorization"))
+}
+
 /// Connect to a remote (HTTP) MCP server, run `initialize` + `tools/list`, and
 /// return the tool names.
 ///
@@ -727,6 +784,11 @@ pub fn header_values(runtime_id: &str, home: &Path, name: &str) -> Vec<(String, 
 ///
 /// The probe is explicit, so the request is a real one: a server that rejects
 /// the credential reports 401/403 here instead of looking healthy.
+///
+/// A rejection is returned as [`Error::Unauthorized`], not as a plain failure:
+/// an OAuth server that is signed in inside the runtime can still refuse a
+/// visitor who arrived without its session cookie, and "this server is broken"
+/// is the wrong thing to tell the reader.
 pub fn probe_http(
     url: &str,
     headers: &[(String, String)],
@@ -765,11 +827,7 @@ pub fn probe_http(
         timeout,
     )?;
     if first.status >= 400 {
-        return Err(Error::Rejected(format!(
-            "initialize returned HTTP {}: {}",
-            first.status,
-            first.body.chars().take(200).collect::<String>()
-        )));
+        return Err(status_error("initialize", first.status, &first.body));
     }
     let session = first
         .headers
@@ -804,11 +862,7 @@ pub fn probe_http(
         timeout,
     )?;
     if list.status >= 400 {
-        return Err(Error::Rejected(format!(
-            "tools/list returned HTTP {}: {}",
-            list.status,
-            list.body.chars().take(200).collect::<String>()
-        )));
+        return Err(status_error("tools/list", list.status, &list.body));
     }
     let value = rpc_json(&list.body)
         .ok_or_else(|| Error::Format("tools/list did not answer with JSON-RPC".into()))?;
@@ -853,6 +907,25 @@ struct HttpAnswer {
 
 /// One request through the system curl. Credentials ride on stdin (`-K -`),
 /// never on the command line.
+/// The error a non-2xx answer becomes.
+///
+/// 401 and 403 mean the credential was refused, which is its own kind of
+/// answer: an OAuth server that is signed in inside the runtime still refuses a
+/// visitor who arrived without that session, and "the server is broken" is the
+/// wrong thing to put on screen. Every other status is a failure of the request
+/// itself.
+fn status_error(step: &str, status: u16, body: &str) -> Error {
+    let detail = format!(
+        "{step} returned HTTP {status}: {}",
+        body.chars().take(200).collect::<String>()
+    );
+    if matches!(status, 401 | 403) {
+        Error::Unauthorized(detail)
+    } else {
+        Error::Rejected(detail)
+    }
+}
+
 fn curl(
     url: &str,
     method: &str,
@@ -1176,5 +1249,61 @@ DEMO_REGION = "eu"
         assert!(quoted.contains(r"\\"), "{quoted}");
         assert!(quoted.starts_with('"') && quoted.ends_with('"'));
         assert!(quote_config("Bearer \"x\"").contains("\\\""));
+    }
+
+    /// Box-style servers keep their session in the runtime, not in `mcp.json`.
+    /// The probe has to read that session, or it answers 401 for a server that
+    /// works everywhere else.
+    #[test]
+    fn the_runtime_oauth_session_is_used_for_a_remote_probe() {
+        let home = std::env::temp_dir().join(format!(
+            "anvil-mcp-auth-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".pi/agent")).expect("agent dir");
+        let url = "https://mcp.box.example/mcp";
+        let auth = serde_json::json!({
+            format!("mcp__box|{url}"): {
+                "serverUrl": url,
+                "tokens": { "access_token": "at-live", "token_type": "Bearer" },
+                "tokensExpireAt": 4_102_444_800_000u64
+            }
+        });
+        std::fs::write(
+            home.join(".pi/agent/mcp-auth.json"),
+            serde_json::to_vec(&auth).expect("json"),
+        )
+        .expect("auth file");
+
+        assert_eq!(
+            oauth_token("pi", &home, "box", url).as_deref(),
+            Some("at-live"),
+            "the signed-in session has to reach the probe"
+        );
+        // A server this build cannot read a session for, or a name that is not
+        // signed in, must not borrow somebody else's token.
+        assert!(oauth_token("pi", &home, "other", url).is_none());
+        assert!(oauth_token("codex", &home, "box", url).is_none());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A refused credential is not a broken server: the row has to be able to
+    /// say "sign in from the runtime" instead of "failed".
+    #[test]
+    fn a_refused_credential_is_its_own_answer() {
+        assert_eq!(
+            status_error("initialize", 401, "").code(),
+            "unauthorized",
+            "401 must not read as a generic failure"
+        );
+        assert_eq!(status_error("tools/list", 403, "").code(), "unauthorized");
+        assert_eq!(status_error("initialize", 500, "boom").code(), "rejected");
+        assert!(
+            status_error("initialize", 401, "")
+                .message()
+                .contains("HTTP 401")
+        );
     }
 }

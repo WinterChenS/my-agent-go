@@ -19,6 +19,10 @@ pub enum Error {
     NotFound(String),
     /// An operation exceeded its deadline.
     Timeout(String),
+    /// The remote end refused the credential (HTTP 401/403). Separate from
+    /// [`Error::Rejected`] because it is not a broken server: it means the
+    /// visitor needs to sign in somewhere the app cannot sign in for them.
+    Unauthorized(String),
 }
 
 impl Error {
@@ -31,6 +35,7 @@ impl Error {
             Error::Rejected(_) => "rejected",
             Error::NotFound(_) => "not_found",
             Error::Timeout(_) => "timeout",
+            Error::Unauthorized(_) => "unauthorized",
         }
     }
 
@@ -41,7 +46,8 @@ impl Error {
             | Error::Format(text)
             | Error::Rejected(text)
             | Error::NotFound(text)
-            | Error::Timeout(text) => text,
+            | Error::Timeout(text)
+            | Error::Unauthorized(text) => text,
         }
     }
 

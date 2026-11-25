@@ -753,11 +753,21 @@ impl CatalogService {
                 self.store.set_mcp_tools(runtime_id, name, &[])?;
                 return Ok(McpProbe {
                     ok: false,
+                    state: Some("missing_url".to_string()),
                     tools: Vec::new(),
                     detail: Some("remote MCP declaration has no URL".into()),
                 });
             };
-            let headers = mcp::header_values(runtime_id, &self.home, name);
+            let mut headers = mcp::header_values(runtime_id, &self.home, name);
+            // An OAuth server has no header in the declaration: the runtime
+            // signed in once and keeps the session in its own store. Probing
+            // without it answered 401 for a server that works in the runtime.
+            // The stored header wins when the declaration sets one.
+            if !mcp::has_authorization(&headers)
+                && let Some(token) = mcp::oauth_token(runtime_id, &self.home, name, &url)
+            {
+                headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+            }
             return match mcp::probe_http(&url, &headers, self.timeouts.sync) {
                 Ok(tools) => {
                     self.store
@@ -765,8 +775,23 @@ impl CatalogService {
                     self.store.set_mcp_tools(runtime_id, name, &tools)?;
                     Ok(McpProbe {
                         ok: true,
+                        state: Some("connected".to_string()),
                         detail: Some(format!("{} tools", tools.len())),
                         tools,
+                    })
+                }
+                // A rejected credential is its own state: the server is not
+                // broken, the visitor is not signed in. The runtime refreshes
+                // its own tokens, so the next probe after `/mcp login` works.
+                Err(Error::Unauthorized(detail)) => {
+                    self.store
+                        .set_mcp_state(runtime_id, name, "needs_auth", &now)?;
+                    self.store.set_mcp_tools(runtime_id, name, &[])?;
+                    Ok(McpProbe {
+                        ok: false,
+                        state: Some("needs_auth".to_string()),
+                        tools: Vec::new(),
+                        detail: Some(detail),
                     })
                 }
                 Err(error) => {
@@ -774,6 +799,7 @@ impl CatalogService {
                     self.store.set_mcp_tools(runtime_id, name, &[])?;
                     Ok(McpProbe {
                         ok: false,
+                        state: Some("failed".to_string()),
                         tools: Vec::new(),
                         detail: Some(error.to_wire()),
                     })
@@ -786,6 +812,7 @@ impl CatalogService {
             self.store.set_mcp_tools(runtime_id, name, &[])?;
             return Ok(McpProbe {
                 ok: false,
+                state: Some("missing_command".to_string()),
                 tools: Vec::new(),
                 detail: Some("declaration has no command".into()),
             });
@@ -797,6 +824,7 @@ impl CatalogService {
                 self.store.set_mcp_tools(runtime_id, name, &tools)?;
                 Ok(McpProbe {
                     ok: true,
+                    state: Some("connected".to_string()),
                     detail: Some(format!("{} tools", tools.len())),
                     tools,
                 })
@@ -806,6 +834,7 @@ impl CatalogService {
                 self.store.set_mcp_tools(runtime_id, name, &[])?;
                 Ok(McpProbe {
                     ok: false,
+                    state: Some("failed".to_string()),
                     tools: Vec::new(),
                     detail: Some(error.to_wire()),
                 })
@@ -854,11 +883,13 @@ impl CatalogService {
         match mcp::probe_draft(transport, command, args, url, self.timeouts.sync) {
             Ok(tools) => Ok(McpProbe {
                 ok: true,
+                state: Some("connected".to_string()),
                 tools,
                 detail: None,
             }),
             Err(error) => Ok(McpProbe {
                 ok: false,
+                state: Some("failed".to_string()),
                 tools: Vec::new(),
                 detail: Some(error.to_wire()),
             }),

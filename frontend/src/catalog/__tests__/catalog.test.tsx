@@ -422,6 +422,48 @@ describe('catalog panels', () => {
     })
     expect(await screen.findByText('pencil 连接成功，2 个工具')).toBeInTheDocument()
   })
+
+  /// A Box-style OAuth server works inside the runtime and refuses a visitor
+  /// without its session. Reporting that as "连接失败" was the bug: the reader
+  /// was told a working server is broken, with nothing to act on.
+  it('treats a refused credential as a sign-in, not a broken server', async () => {
+    // The row's state comes from the snapshot the host writes, so both the
+    // probe answer and the re-read have to carry it.
+    const refused = () => {
+      const snapshot = snapshotFixture()
+      snapshot.mcp = snapshot.mcp.map((server) => ({ ...server, state: 'needs_auth' }))
+      return snapshot
+    }
+    installHost({
+      // Every read the panel makes has to carry the state: the inventory poll
+      // fires after mount and would otherwise paint the fixture's own row.
+      catalog_snapshot: refused,
+      catalog_sync_inventory: refused,
+      catalog_sync: refused,
+      catalog_probe_mcp: () => ({
+        ok: false,
+        state: 'needs_auth',
+        tools: [],
+        detail: 'initialize returned HTTP 401: {"error":"unauthorized"}',
+      }),
+    })
+    const user = userEvent.setup()
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogMcpPanel view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('catalog-mcp')).toBeInTheDocument())
+    const row = screen.getByTestId('catalog-mcp-codex:pencil')
+    // A cached snapshot may paint first; the host's answer is what this asserts.
+    await waitFor(() =>
+      expect(within(row).getByText('需要登录').closest('.cat-badge')).toHaveClass('is-warn'),
+    )
+    expect(within(row).queryByText('failed')).toBeNull()
+
+    await user.click(within(row).getByRole('button', { name: '连接并枚举' }))
+    expect(await screen.findByText(/pencil 需要登录/)).toHaveTextContent('pi mcp login pencil')
+  })
 })
 
 describe("pi's subagent extension on the runtime page", () => {

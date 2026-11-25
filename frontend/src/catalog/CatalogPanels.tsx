@@ -942,6 +942,39 @@ export function CatalogSkillsPanel({ view }: { view: CatalogView }) {
   )
 }
 
+/** How one imported MCP row's last probe reads. */
+export function mcpStateKey(state: string): MessageKey {
+  switch (state) {
+    case 'connected':
+      return 'catalog.mcp.state.connected'
+    case 'needs_auth':
+      return 'catalog.mcp.state.needsAuth'
+    case 'failed':
+      return 'catalog.mcp.state.failed'
+    case 'missing_url':
+      return 'catalog.mcp.state.missingUrl'
+    case 'missing_command':
+      return 'catalog.mcp.state.missingCommand'
+    default:
+      return 'catalog.mcp.state.unknown'
+  }
+}
+
+function mcpStateTone(state: string): string {
+  switch (state) {
+    case 'connected':
+      return 'is-success'
+    // Not a failure: the server refused a visitor who has no session, and the
+    // session it wants lives in the runtime.
+    case 'needs_auth':
+      return 'is-warn'
+    case 'failed':
+      return 'is-danger'
+    default:
+      return ''
+  }
+}
+
 /** Imported MCP declarations with the explicit probe. */
 export function CatalogMcpPanel({ view }: { view: CatalogView }) {
   const { t } = useI18n()
@@ -961,7 +994,9 @@ export function CatalogMcpPanel({ view }: { view: CatalogView }) {
       setNotice(
         result.ok
           ? t('catalog.mcp.probeOk', { name: server.name, count: result.tools.length })
-          : t('catalog.mcp.probeFailed', { name: server.name, detail: result.detail ?? '' }),
+          : result.state === 'needs_auth'
+            ? t('catalog.mcp.probeNeedsAuth', { name: server.name })
+            : t('catalog.mcp.probeFailed', { name: server.name, detail: result.detail ?? '' }),
       )
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : String(cause))
@@ -1015,13 +1050,20 @@ export function CatalogMcpPanel({ view }: { view: CatalogView }) {
                     <td>{server.transport}</td>
                     <td>
                       <span className="cat-sub mono">{server.runtimeId}</span>
-                      <span className="cat-badge" data-state={server.state}><i />{server.state}</span>
+                      <span
+                        className={`cat-badge ${mcpStateTone(server.state)}`}
+                        data-state={server.state}
+                      >
+                        <i />{t(mcpStateKey(server.state))}
+                      </span>
                     </td>
                     <td>
                       <span className="cat-sub">
-                        {server.envKeys.length + server.headerKeys.length === 0
-                          ? t('catalog.mcp.noSecrets')
-                          : t('catalog.mcp.secretKeys', { count: server.envKeys.length + server.headerKeys.length })}
+                        {server.envKeys.length + server.headerKeys.length > 0
+                          ? t('catalog.mcp.secretKeys', { count: server.envKeys.length + server.headerKeys.length })
+                          : server.transport === 'stdio'
+                            ? t('catalog.mcp.noSecrets')
+                            : t('catalog.mcp.oauthCredential')}
                       </span>
                     </td>
                     <td className="cat-num">
