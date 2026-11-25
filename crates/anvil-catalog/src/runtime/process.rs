@@ -398,11 +398,30 @@ fn build_platform_dirs() -> Vec<PathBuf> {
         env_dir("LOCALAPPDATA", "pi-node/current");
         env_dir("LOCALAPPDATA", "pi/node/current");
         env_dir("LOCALAPPDATA", "Programs");
+        env_dir("LOCALAPPDATA", "Programs/nodejs");
         env_dir("LOCALAPPDATA", "Volta/bin");
         env_dir("LOCALAPPDATA", "pnpm");
         env_dir("APPDATA", "npm");
         env_dir("APPDATA", "fnm");
         env_dir("USERPROFILE", ".bun/bin");
+        // Node installed for the terminal only: nvm-windows keeps every version
+        // under `NVM_HOME\v*` and points its symlink at the active one, scoop and
+        // chocolatey use their own shim folders, and an MSI install lands under
+        // `Program Files\nodejs`. A GUI app started from the Start menu inherits
+        // none of those unless the user put them on the machine-wide PATH, and an
+        // npm shim that cannot find `node` is exactly the "found but would not
+        // start" probe failure. Look where the installers actually put it.
+        for name in ["NVM_HOME", "NVM_SYMLINK", "NODE_HOME"] {
+            env_dir(name, "");
+        }
+        env_dir("ProgramFiles", "nodejs");
+        env_dir("ProgramFiles(x86)", "nodejs");
+        env_dir("USERPROFILE", "scoop/shims");
+        env_dir("USERPROFILE", "scoop/apps/nodejs/current");
+        env_dir("ProgramData", "chocolatey/bin");
+        if let Some(nvm) = std::env::var_os("NVM_HOME") {
+            dirs.extend(version_dirs(&PathBuf::from(nvm), &[]));
+        }
         if let Some(appdata) = std::env::var_os("APPDATA") {
             let appdata = PathBuf::from(appdata);
             dirs.extend(version_dirs(

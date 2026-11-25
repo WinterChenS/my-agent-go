@@ -197,15 +197,62 @@ pub fn node_env() -> Vec<(String, String)> {
     process::child_env()
 }
 
-/// Run `--version` and return the parsed version plus the raw first line.
-pub fn version_probe(
-    executable: &Path,
-    timeout: Duration,
-) -> Result<(Option<Version>, String, u64)> {
+/// What one `--version` call told us.
+///
+/// The exit status and the first line are kept next to the parsed version
+/// because "probe failed" alone is unactionable: a shim that dies because it
+/// cannot find `node` prints the reason on its first line, and throwing that
+/// away left the reader with a generic hint and no way to tell a missing Node
+/// from a blocked install directory.
+#[derive(Clone, Debug, Default)]
+pub struct VersionProbe {
+    pub version: Option<Version>,
+    /// First non-empty line of stdout (or stderr when stdout was empty).
+    pub first_line: String,
+    pub elapsed_ms: u64,
+    pub exit: Option<i32>,
+    pub timed_out: bool,
+}
+
+impl VersionProbe {
+    /// Why no version could be read, in words that name the file and its error.
+    pub fn failure_note(&self, executable: &Path, timeout: Duration) -> String {
+        if self.timed_out {
+            return format!(
+                "{} --version did not finish within {}s",
+                executable.display(),
+                timeout.as_secs()
+            );
+        }
+        let mut note = match self.exit {
+            Some(code) => format!("{} --version exited {code}", executable.display()),
+            None => format!("{} --version printed nothing", executable.display()),
+        };
+        if !self.first_line.is_empty() {
+            note.push_str(": ");
+            // A stack trace can be hundreds of lines; the first one names the
+            // cause, and the status cell has to stay readable.
+            note.extend(self.first_line.chars().take(240));
+            if self.first_line.chars().count() > 240 {
+                note.push('…');
+            }
+        }
+        note
+    }
+}
+
+/// Run `--version` and return what it said.
+pub fn version_probe(executable: &Path, timeout: Duration) -> Result<VersionProbe> {
     let output = process::run_with_env(executable, &["--version"], timeout, &node_env())?;
     let text = output.text();
     let first_line = text.lines().next().unwrap_or("").trim().to_string();
-    Ok((Version::find(&text), first_line, output.elapsed_ms))
+    Ok(VersionProbe {
+        version: Version::find(&text),
+        first_line,
+        elapsed_ms: output.elapsed_ms,
+        exit: output.code,
+        timed_out: output.timed_out,
+    })
 }
 
 /// Whether a JSON object at `path` has at least one key (an auth store).

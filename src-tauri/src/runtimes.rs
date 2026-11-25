@@ -157,16 +157,15 @@ where
     let probe = installed
         .as_ref()
         .and_then(|path| common::version_probe(path, Duration::from_secs(15)).ok());
-    let version = probe.as_ref().and_then(|(parsed, first_line, _)| {
-        parsed
+    let version = probe.as_ref().and_then(|probe| {
+        probe
+            .version
             .map(|value| value.to_string())
-            .or_else(|| (!first_line.is_empty()).then(|| first_line.clone()))
+            .or_else(|| (!probe.first_line.is_empty()).then(|| probe.first_line.clone()))
     });
     let ok = output.success()
         && installed.is_some()
-        && probe
-            .as_ref()
-            .is_some_and(|(parsed, _, _)| parsed.is_some());
+        && probe.as_ref().is_some_and(|probe| probe.version.is_some());
     if !ok {
         if !output.success() {
             notes.push(format!("npm 退出码 {:?}", output.code));
@@ -176,7 +175,18 @@ where
                 common::shared_shim(&prefix, spec.binary).display()
             ));
         } else {
-            notes.push("启动器已写入，但 `--version` 没有返回可识别的版本；通常是 PATH 中的 Node 版本过低。".to_string());
+            // Say what the shim itself said. "版本过低" was a guess printed as a
+            // fact; a shim whose pinned Node moved, or which cannot find `node`
+            // at all, fails with its own line that the reader can act on.
+            let because = probe
+                .as_ref()
+                .map(|probe| probe.first_line.trim())
+                .filter(|line| !line.is_empty())
+                .map(|line| format!("（{line}）"))
+                .unwrap_or_default();
+            notes.push(format!(
+                "启动器已写入，但 `--version` 没有返回可识别的版本{because}"
+            ));
         }
     }
     for note in &notes {

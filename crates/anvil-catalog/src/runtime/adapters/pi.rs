@@ -261,8 +261,7 @@ impl RuntimeAdapter for PiAdapter {
     }
 
     fn probe(&self, context: &ProbeContext, candidate: &RuntimeCandidate) -> Result<ProbeReport> {
-        let (version, first_line, latency_ms) =
-            common::version_probe(&candidate.executable, context.timeout)?;
+        let probe = common::version_probe(&candidate.executable, context.timeout)?;
         let config_dir = Self::config_dir(&context.home);
         let config_path = if Self::models_file(&context.home).is_file() {
             Some(Self::models_file(&context.home))
@@ -276,7 +275,7 @@ impl RuntimeAdapter for PiAdapter {
         // `models.json`. Checking only the first reported a working setup as
         // "未认证" and hid it from the pickers.
         let has_credential = Self::has_provider_credential(&context.home);
-        let status = match version {
+        let status = match probe.version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
             Some(_) if !has_credential => RuntimeStatus::Unauthenticated,
@@ -285,7 +284,7 @@ impl RuntimeAdapter for PiAdapter {
         let detail = match status {
             RuntimeStatus::VersionUnsupported => Some(format!(
                 "version {} is below the supported {}.{}.{}",
-                version.expect("version"),
+                probe.version.expect("version"),
                 MIN_VERSION.major,
                 MIN_VERSION.minor,
                 MIN_VERSION.patch
@@ -295,17 +294,18 @@ impl RuntimeAdapter for PiAdapter {
                  `pi login`"
                     .into(),
             ),
-            RuntimeStatus::ProbeFailed if first_line.is_empty() => {
-                Some("--version printed nothing".into())
-            }
+            // Name the file, its exit status and what it printed. The generic
+            // "would not start" hint cannot tell a missing Node from a blocked
+            // directory, which is the one thing the reader has to know.
+            RuntimeStatus::ProbeFailed => Some(probe.failure_note(&candidate.executable, context.timeout)),
             _ => None,
         };
         Ok(ProbeReport {
-            version: version.map(|value| value.to_string()),
+            version: probe.version.map(|value| value.to_string()),
             status,
             config_path,
             detail,
-            latency_ms,
+            latency_ms: probe.elapsed_ms,
         })
     }
 
@@ -355,6 +355,7 @@ pub fn skills_root(home: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::PiAdapter;
+    use crate::runtime::adapter::RuntimeAdapter;
     use std::fs;
     use std::path::PathBuf;
 
@@ -487,6 +488,48 @@ mod tests {
         assert_eq!(rows[0].model_id, "deepseek-v4-pro");
         assert!(rows[0].is_default);
         assert!(rows[0].enabled, "a default nobody can pick is not a default");
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// A shim that cannot start must say why.
+    ///
+    /// "探测失败" with a generic hint told the reader nothing: a missing `node`
+    /// and a blocked install directory look identical. The shim's own first line
+    /// is the only fact that separates them, so the probe has to keep it.
+    #[test]
+    #[cfg(windows)]
+    fn a_shim_that_will_not_start_reports_its_own_words() {
+        let home = scratch("probe-failure");
+        let shim = home.join("bin").join("pi.cmd");
+        fs::create_dir_all(shim.parent().expect("parent")).expect("bin");
+        fs::write(&shim, "@ECHO off\r\n>&2 ECHO 'node' is not recognized\r\nEXIT /b 1\r\n")
+            .expect("write shim");
+
+        let candidate = crate::model::RuntimeCandidate {
+            runtime_id: "pi".to_string(),
+            executable: shim.clone(),
+            source: crate::model::InstallSource::KnownDir,
+            instance: None,
+        };
+        let report = PiAdapter
+            .probe(
+                &crate::runtime::adapter::ProbeContext {
+                    home: home.clone(),
+                    timeout: std::time::Duration::from_secs(5),
+                },
+                &candidate,
+            )
+            .expect("probe runs");
+
+        assert_eq!(report.status, crate::model::RuntimeStatus::ProbeFailed);
+        let detail = report.detail.expect("a failed probe explains itself");
+        assert!(detail.contains("pi.cmd"), "names the file: {detail}");
+        assert!(detail.contains("exited 1"), "names the exit status: {detail}");
+        assert!(
+            detail.contains("'node' is not recognized"),
+            "keeps the shim's own message: {detail}"
+        );
+
         let _ = fs::remove_dir_all(&home);
     }
 }

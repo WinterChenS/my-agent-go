@@ -177,6 +177,17 @@
   white-space: normal;
 }
 
+/* The adapter's own failure line ("pi.cmd --version exited 1: 'node' is not
+   recognized"). Set apart from the hint above it: the hint says what to try,
+   this one says what actually happened, and only this one can be wrong in a way
+   the reader has to read. */
+.cat-detail {
+  max-width: 44ch;
+  color: var(--danger, var(--fg-2));
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .cat-path {
   max-width: 26ch;
   overflow: hidden;

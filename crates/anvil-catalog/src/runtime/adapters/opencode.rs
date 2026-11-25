@@ -148,8 +148,7 @@ impl RuntimeAdapter for OpenCodeAdapter {
     }
 
     fn probe(&self, context: &ProbeContext, candidate: &RuntimeCandidate) -> Result<ProbeReport> {
-        let (version, first_line, latency_ms) =
-            common::version_probe(&candidate.executable, context.timeout)?;
+        let probe = common::version_probe(&candidate.executable, context.timeout)?;
         let config_file = Self::config_file(&context.home);
         let config_path = if config_file.is_file() {
             Some(config_file)
@@ -158,7 +157,7 @@ impl RuntimeAdapter for OpenCodeAdapter {
         } else {
             None
         };
-        let status = match version {
+        let status = match probe.version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
             Some(_) if !common::has_credentials(&Self::auth_file(&context.home)) => {
@@ -167,12 +166,12 @@ impl RuntimeAdapter for OpenCodeAdapter {
             Some(_) => RuntimeStatus::Available,
         };
         let detail = match status {
-            RuntimeStatus::ProbeFailed if first_line.is_empty() => {
-                Some("--version printed nothing".into())
+            RuntimeStatus::ProbeFailed => {
+                Some(probe.failure_note(&candidate.executable, context.timeout))
             }
             RuntimeStatus::VersionUnsupported => Some(format!(
                 "version {} is below the supported {}.{}.{}",
-                version.expect("version"),
+                probe.version.expect("version"),
                 MIN_VERSION.major,
                 MIN_VERSION.minor,
                 MIN_VERSION.patch
@@ -183,11 +182,11 @@ impl RuntimeAdapter for OpenCodeAdapter {
             _ => None,
         };
         Ok(ProbeReport {
-            version: version.map(|value| value.to_string()),
+            version: probe.version.map(|value| value.to_string()),
             status,
             config_path,
             detail,
-            latency_ms,
+            latency_ms: probe.elapsed_ms,
         })
     }
 

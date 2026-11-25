@@ -240,13 +240,26 @@ export function CatalogRuntimeTable({
                     <i />{t(runtimeStatusKey(runtime.status))}
                   </span>
                   {statusHintKey(runtime.status) ? (
-                    <span
-                      className="cat-sub cat-hint"
-                      title={runtime.health.detail ?? undefined}
-                      data-testid={`catalog-runtime-hint-${runtime.runtimeId}`}
-                    >
-                      {t(statusHintKey(runtime.status) as MessageKey)}
-                    </span>
+                    <>
+                      <span
+                        className="cat-sub cat-hint"
+                        data-testid={`catalog-runtime-hint-${runtime.runtimeId}`}
+                      >
+                        {t(statusHintKey(runtime.status) as MessageKey)}
+                      </span>
+                      {/* The adapter's own words, on screen instead of in a
+                          tooltip: "would not start" cannot tell a missing Node
+                          from a blocked directory, and that is the one thing
+                          the reader needs to fix it. */}
+                      {runtime.health.detail ? (
+                        <span
+                          className="cat-sub cat-detail mono"
+                          data-testid={`catalog-runtime-detail-${runtime.runtimeId}`}
+                        >
+                          {runtime.health.detail}
+                        </span>
+                      ) : null}
+                    </>
                   ) : runtime.health.detail ? (
                     <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
                   ) : null}
@@ -291,6 +304,22 @@ export function CatalogRuntimeTable({
                     >
                       {working ? t('catalog.runtimes.checking') : t('catalog.runtimes.check')}
                     </button>
+                    {/* A runtime that was found but will not start is almost
+                        always a broken launcher — a Node path that moved, or a
+                        shim written by an older install. Re-running the install
+                        rewrites the launcher and re-pins it to a working Node,
+                        which is the only action that fixes it. */}
+                    {runtime.status === 'probe_failed' ? (
+                      <button
+                        type="button"
+                        className="cat-btn cat-btn-primary"
+                        data-testid={`catalog-runtime-reinstall-${runtime.runtimeId}`}
+                        disabled={working}
+                        onClick={() => void update(runtime.runtimeId, runtime.version ?? '')}
+                      >
+                        {working ? t('catalog.runtimes.updating') : t('catalog.runtimes.reinstall')}
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>

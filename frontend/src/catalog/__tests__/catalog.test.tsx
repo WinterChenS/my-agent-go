@@ -258,6 +258,41 @@ describe('catalog panels', () => {
     expect(readCachedSnapshot()?.runtimes.length).toBeGreaterThan(0)
   })
 
+  it('puts the real probe error on screen, not in a tooltip', async () => {
+    // "探测失败" plus "Node is probably missing" cannot tell a reader why their
+    // runtime would not start. The adapter now reports the shim's own words, and
+    // a tooltip is not a place anyone looks.
+    const broken = () => {
+      const snapshot = snapshotFixture()
+      snapshot.runtimes[0] = {
+        ...snapshot.runtimes[0],
+        version: null,
+        status: 'probe_failed',
+        health: {
+          checkedAt: '2026-01-01T00:00:00Z',
+          latencyMs: 40,
+          detail: "C:\\Users\\Public\\pi.CMD --version exited 1: 'node' is not recognized",
+        },
+      }
+      return snapshot
+    }
+    installHost({ catalog_snapshot: broken, catalog_sync_inventory: broken })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogRuntimeTable view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('catalog-runtime-detail-pi')).toHaveTextContent(
+        "'node' is not recognized",
+      ),
+    )
+    expect(screen.getByTestId('catalog-runtime-hint-pi')).toBeInTheDocument()
+    // The remedy for a broken launcher is to install it again: that rewrites
+    // the shim and re-pins it to a Node that exists.
+    expect(screen.getByTestId('catalog-runtime-reinstall-pi')).toHaveTextContent('重新安装')
+  })
+
   it('renders runtime status, versions and the rescan control', async () => {
     installHost()
     render(

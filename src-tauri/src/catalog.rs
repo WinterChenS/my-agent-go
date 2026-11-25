@@ -182,6 +182,30 @@ impl CatalogState {
             if ran.is_err() {
                 eprintln!("[catalog] discovery panicked; rows on screen were kept");
             }
+            // Record why a found runtime is unusable in the host log as well as
+            // on screen. A report that says only "探测失败" costs a round trip;
+            // the log line carries the path, the exit status and the shim's own
+            // error, which is what actually names the cause.
+            let state = app.state::<CatalogState>();
+            if let Ok(snapshot) = state.snapshot_now() {
+                for runtime in &snapshot.runtimes {
+                    if runtime.status == "available" || runtime.install_path.is_empty() {
+                        continue;
+                    }
+                    app.state::<HostState>().config.log.info(&format!(
+                        "catalog: {} is {} at {}{}",
+                        runtime.runtime_id,
+                        runtime.status,
+                        runtime.install_path,
+                        runtime
+                            .health
+                            .detail
+                            .as_deref()
+                            .map(|detail| format!(" — {detail}"))
+                            .unwrap_or_default()
+                    ));
+                }
+            }
             // The rows changed under a page that is already on screen.
             let _ = app.emit(CATALOG_SCANNED_EVENT, ());
         });

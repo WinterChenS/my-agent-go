@@ -227,8 +227,7 @@ impl RuntimeAdapter for CodexAdapter {
     }
 
     fn probe(&self, context: &ProbeContext, candidate: &RuntimeCandidate) -> Result<ProbeReport> {
-        let (version, first_line, latency_ms) =
-            common::version_probe(&candidate.executable, context.timeout)?;
+        let probe = common::version_probe(&candidate.executable, context.timeout)?;
         let config_file = Self::config_file(&context.home);
         let config_path = if config_file.is_file() {
             Some(config_file)
@@ -239,7 +238,7 @@ impl RuntimeAdapter for CodexAdapter {
         };
 
         let mut detail = None;
-        let mut status = match version {
+        let mut status = match probe.version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
             Some(_) if !common::has_credentials(&Self::auth_file(&context.home)) => {
@@ -262,7 +261,7 @@ impl RuntimeAdapter for CodexAdapter {
         if status == RuntimeStatus::VersionUnsupported {
             detail = Some(format!(
                 "version {} is below the supported {}.{}.{}",
-                version.expect("version"),
+                probe.version.expect("version"),
                 MIN_VERSION.major,
                 MIN_VERSION.minor,
                 MIN_VERSION.patch
@@ -271,16 +270,18 @@ impl RuntimeAdapter for CodexAdapter {
         if status == RuntimeStatus::Unauthenticated {
             detail = Some("no credential in ~/.codex/auth.json".into());
         }
-        if status == RuntimeStatus::ProbeFailed && detail.is_none() && first_line.is_empty() {
-            detail = Some("--version printed nothing".into());
+        if status == RuntimeStatus::ProbeFailed && detail.is_none() {
+            // `--version` itself failed: name the file, its exit status and the
+            // first line it printed.
+            detail = Some(probe.failure_note(&candidate.executable, context.timeout));
         }
 
         Ok(ProbeReport {
-            version: version.map(|value| value.to_string()),
+            version: probe.version.map(|value| value.to_string()),
             status,
             config_path,
             detail,
-            latency_ms,
+            latency_ms: probe.elapsed_ms,
         })
     }
 
