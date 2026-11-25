@@ -93,7 +93,11 @@ html[data-window-chrome="linux"] .main {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4) var(--space-7);
+  /* Was 172px wide with 14px under it: the wordmark took four fifths of a
+     236px sidebar and pushed the first nav item down. At 132px it still reads
+     as the brand without competing with the navigation, which is what the
+     sidebar is for. */
+  padding: var(--space-2) var(--space-4) var(--space-5);
   border-radius: var(--r-sm);
 }
 
@@ -104,7 +108,7 @@ html[data-window-chrome="linux"] .main {
 .brand-logo {
   display: block;
   width: 100%;
-  max-width: 172px;
+  max-width: 132px;
   height: auto;
 }
 
@@ -983,4 +987,36 @@ html[data-window-chrome="linux"] .main {
   .sync-btn.is-busy svg {
     animation: none;
   }
+}
+
+/* A newer build exists. It sits where the build marker sits — the bottom of the
+   sidebar, above the version — because that is the one line of chrome a reader
+   already scans when wondering which build they are running. */
+.sidebar-update {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-2xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-update:hover {
+  border-color: var(--accent);
+}
+
+.sidebar-update-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
 }
