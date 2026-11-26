@@ -2034,6 +2034,7 @@ export default function ChatPage() {
                 windowSize={contextWindow}
                 used={contextUsed}
                 percent={live.context?.percent ?? null}
+                live={live.running && live.context?.tokens !== null && live.context?.tokens !== undefined}
                 canCompact={Boolean(liveSession) && !live.running}
                 compacting={compactingContext}
                 onCompact={compactLiveContext}
@@ -2423,6 +2424,7 @@ export function ContextRing({
   windowSize,
   used,
   percent,
+  live = false,
   canCompact = false,
   compacting = false,
   onCompact,
@@ -2430,6 +2432,14 @@ export function ContextRing({
   windowSize: number
   used: number | null
   percent: number | null
+  /**
+   * The number comes from the turn in flight, not from a finished measurement.
+   *
+   * Same quantity, different moment: it is the runtime's own report for the
+   * last request it made, which is what makes the gauge move while the answer
+   * is still being written.
+   */
+  live?: boolean
   /** Only an idle, real session can be compacted. */
   canCompact?: boolean
   compacting?: boolean
@@ -2517,6 +2527,11 @@ export function ContextRing({
             <b>{t('chat.context.label', { window: label, percent: Math.round(shown) })}</b>
           </span>
           <span className="chat-context-card-row">{detail}</span>
+          {live ? (
+            <span className="chat-context-card-row is-live" data-testid="chat-context-live">
+              {t('chat.context.live')}
+            </span>
+          ) : null}
           {canCompact ? (
             <button
               type="button"

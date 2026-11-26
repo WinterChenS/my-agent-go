@@ -119,6 +119,29 @@ export function readUsage(raw: unknown): Omit<TurnUsage, 'reports'> | null {
 }
 
 /**
+ * How full the context is, from the runtime's own usage reports.
+ *
+ * A turn makes one request per step, and the LAST report of each request is the
+ * context as it stands: the prompt it sent (cached or not) plus the answer it
+ * produced, which is now part of the transcript. Summing them would answer a
+ * different question — that is what the provider billed, not what is in the
+ * window.
+ *
+ * `null` when the runtime said nothing, so the caller keeps whatever number it
+ * already had instead of painting a zero.
+ */
+export function contextTokens(events: SessionEvent[]): number | null {
+  let tokens: number | null = null
+  for (const event of events) {
+    if (event.kind !== 'usage') continue
+    const usage = readUsage(event.payload.usage ?? event.payload)
+    if (!usage) continue
+    tokens = usage.input + usage.output
+  }
+  return tokens
+}
+
+/**
  * Sum a turn's usage reports.
  *
  * `scope: "thread"` reports are running totals for the whole thread, so only the

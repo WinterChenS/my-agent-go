@@ -2116,6 +2116,12 @@ button.chat-badge:hover {
   line-height: 1.5;
   white-space: nowrap;
 }
+/* Says which moment the number is from: a gauge that moves during generation
+   must not look like a finished measurement. */
+.chat-context-card-row.is-live {
+  color: var(--accent);
+  opacity: 0.85;
+}
 .chat-context-compact {
   display: inline-flex;
   align-items: center;

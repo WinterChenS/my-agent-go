@@ -7,7 +7,7 @@
 // the turn ends it reloads the session, which replaces the optimistic rows with
 // the stored ones.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CatalogUnavailable,
   deleteCatalogAgent,
@@ -64,6 +64,7 @@ import {
   type UiAnswer,
   type UiRequest,
 } from './client'
+import { contextTokens } from './usage'
 
 /** How often the running turn re-reads the ledger. */
 const POLL_INTERVAL_MS = 120
@@ -888,7 +889,15 @@ export function useChatSession({
   const details = useRef(new Map<string, SessionDetail>())
   const visibleSession = useRef<string | null>(null)
   const [rail, setRail] = useState<RailView | null>(null)
-  const [context, setContext] = useState<ContextUsage | null>(null)
+  /**
+   * The context gauge as the runtime last *measured* it.
+   *
+   * Reading it costs a `pi` process (`get_session_stats`), so it is read when a
+   * conversation is opened, when a turn ends and after a compaction — never
+   * while a turn runs. Kept apart from the derived value below so the two
+   * sources stay distinguishable.
+   */
+  const [storedContext, setStoredContext] = useState<ContextUsage | null>(null)
   /**
    * The conversation whose turn is being generated right now.
    *
@@ -933,6 +942,26 @@ export function useChatSession({
   const openSessionId = current?.session.id ?? null
   /** A turn is running *here*, not merely somewhere in this page. */
   const running = runningSession !== null && runningSession === openSessionId
+  /**
+   * The gauge the page shows: while a turn runs it follows the runtime's own
+   * usage reports, which arrive with every request.
+   *
+   * `session_context` is the authoritative reading, but it costs a `pi` process
+   * (`get_session_stats`) and was only taken when a turn ended — so the ring sat
+   * frozen at the pre-turn number for the whole generation, on a conversation
+   * that had visibly grown. The last request's report answers the same question
+   * from data the poll already has, without a second process.
+   */
+  const context = useMemo<ContextUsage | null>(() => {
+    const live = running ? contextTokens(turnEvents) : null
+    if (live === null) return storedContext
+    const window = storedContext?.contextWindow ?? 0
+    return {
+      tokens: live,
+      contextWindow: window,
+      percent: window > 0 ? (live * 100) / window : null,
+    }
+  }, [running, storedContext, turnEvents])
   /** Last ledger seq already rendered; resets when the session changes. */
   const eventCursor = useRef(0)
   /**
@@ -1196,9 +1225,9 @@ export function useChatSession({
   const refreshContext = useCallback(async (sessionId: string) => {
     try {
       const usage = await sessionContext(sessionId)
-      if (mounted.current) setContext(usage ?? null)
+      if (mounted.current) setStoredContext(usage ?? null)
     } catch {
-      if (mounted.current) setContext(null)
+      if (mounted.current) setStoredContext(null)
     }
   }, [])
 
@@ -1413,7 +1442,7 @@ export function useChatSession({
     setCurrent(null)
     setTurnEvents([])
     setRail(null)
-    setContext(null)
+    setStoredContext(null)
     setError(null)
     setTurnFailure(null)
     setTurnStartedAt(null)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '../client'
-import { readUsage, turnUsage } from '../usage'
+import { contextTokens, readUsage, turnUsage } from '../usage'
 
 function usage(seq: number, payload: Record<string, unknown>): SessionEvent {
   return { sessionId: 'pi-1', runId: 'pi-1:r1', seq, kind: 'usage', at: '2026-11-16T00:00:00Z', payload }
@@ -80,5 +80,36 @@ describe('token accounting', () => {
     expect(turnUsage([usage(1, { usage: { cost: { total: 0 } } })])).toBeNull()
     expect(turnUsage([usage(1, {})])).toBeNull()
     expect(turnUsage([{ ...usage(2, {}), kind: 'text_delta' }])).toBeNull()
+  })
+})
+
+describe('how full the context is', () => {
+  // The number a context gauge wants: what the window held after the last
+  // request, not the sum of every request's prompt (that is the bill).
+  const growing = [
+    usage(15, { usage: { cacheRead: 0, cacheWrite: 0, input: 9023, output: 38, totalTokens: 9061 } }),
+    usage(37, { usage: { cacheRead: 8960, cacheWrite: 0, input: 139, output: 78, totalTokens: 9177 } }),
+  ]
+
+  it('reads the last report, so the gauge follows a turn as it grows', () => {
+    expect(contextTokens(growing)).toBe(9177)
+    // One more request: the window now holds that prompt plus its answer.
+    const later = [...growing, usage(52, { usage: { cacheRead: 9100, input: 40, output: 260 } })]
+    expect(contextTokens(later)).toBe(9400)
+  })
+
+  it('says nothing rather than zero when the runtime sent no usage', () => {
+    expect(contextTokens([])).toBeNull()
+    expect(contextTokens([{ ...usage(1, {}), kind: 'text_delta' }])).toBeNull()
+    expect(contextTokens([usage(1, { usage: { cost: { total: 0.1 } } })])).toBeNull()
+  })
+
+  it('takes a thread snapshot as the occupancy it is', () => {
+    expect(
+      contextTokens([
+        usage(1, { usage: { inputTokens: 100, outputTokens: 10 }, scope: 'thread' }),
+        usage(2, { usage: { inputTokens: 64000, outputTokens: 900 }, scope: 'thread' }),
+      ]),
+    ).toBe(64900)
   })
 })
