@@ -22,6 +22,7 @@ use std::sync::{Mutex, MutexGuard};
 use anvil_session::audit::{self, AuditReport};
 use anvil_session::export::{ExportFormat, ExportOptions, ExportReport};
 use anvil_session::rail::RailView;
+use anvil_session::schedule;
 use anvil_session::{
     ApprovalDecision, Approvals, Cancels, CompactReport, ContextEntry, ContextRef, ContextUsage,
     Message, Steers,
@@ -30,6 +31,9 @@ use anvil_session::{
 };
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+
+/// Folder under the workspace that holds one directory per scheduled task.
+const SCHEDULE_DIR: &str = "schedules";
 
 /// Session state shared by the commands.
 pub struct SessionState {
@@ -252,6 +256,7 @@ impl SessionState {
     pub(crate) fn open_scheduled(
         &self,
         agent_id: &str,
+        schedule_id: &str,
         title: &str,
     ) -> Result<SessionSummary, String> {
         let (agent, skills) = self.agent_config(agent_id)?;
@@ -262,11 +267,12 @@ impl SessionState {
         };
         let roster = crate::subagents::roster_for(&agent.delegation_policy, agent.concurrency);
         let notes = join_notes(&self.memory_notes(), &roster);
+        let cwd = self.schedule_workspace(schedule_id, title)?;
         let spec = spec_for_agent(
             agent,
             skills,
             memory,
-            String::new(),
+            cwd,
             Some(title.to_string()),
             &notes,
         );
@@ -275,6 +281,39 @@ impl SessionState {
                 .open(&spec)
                 .map_err(|error| error.to_wire().to_string())
         })
+    }
+
+    /// The directory a schedule's runs share.
+    ///
+    /// A scheduled task is one task run many times: every fire is its own
+    /// conversation, but they all work in one folder — and that folder is the
+    /// schedule's name, not a session id. Without this each fire landed in a
+    /// fresh `<workspace>/anvil-<timestamp>` directory, so a file one run wrote
+    /// was invisible to the next.
+    ///
+    /// The folder is remembered through the ledger (the last fire's project
+    /// path), so renaming a schedule keeps its history in the directory it
+    /// already has instead of starting a second one. The name is the whole
+    /// identity of the folder, so two schedules deliberately named the same
+    /// thing run in the same place.
+    fn schedule_workspace(&self, schedule_id: &str, name: &str) -> Result<String, String> {
+        let root = self.state_dir.join(SCHEDULE_DIR);
+        let previous = self.with_reader(|store| {
+            schedule::last_workspace(store.raw(), schedule_id)
+                .map_err(|error| error.to_wire().to_string())
+        })?;
+        if let Some(path) = previous {
+            let path = PathBuf::from(path);
+            // Only a folder this app made is reused; a user's project is not
+            // ours to keep writing into just because a schedule ran there once.
+            if path.starts_with(&root) && path.is_dir() {
+                return Ok(path.to_string_lossy().into_owned());
+            }
+        }
+        let dir = root.join(schedule::directory_name(name));
+        std::fs::create_dir_all(&dir)
+            .map_err(|error| format!("create schedule dir {}: {error}", dir.display()))?;
+        Ok(dir.to_string_lossy().into_owned())
     }
 
     /// 用户长期记忆 as a prompt block, honouring the 注入 switch.

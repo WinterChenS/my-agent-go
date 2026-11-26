@@ -207,7 +207,7 @@ fn run_one(state: &SessionState, record: &schedule::ScheduleRecord) -> Occurrenc
             run_id,
             duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         };
-    let session = match state.open_scheduled(&record.agent_id, &record.name) {
+    let session = match state.open_scheduled(&record.agent_id, &record.id, &record.name) {
         Ok(session) => session,
         Err(error) => return finish("failed", error, String::new(), String::new()),
     };

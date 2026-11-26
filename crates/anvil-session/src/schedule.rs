@@ -386,6 +386,83 @@ fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScheduleRecord> {
     })
 }
 
+/// A filesystem-safe folder name for a schedule.
+///
+/// A scheduled task is one task run many times, so every fire shares one folder
+/// and that folder is named after the task — "每日站会纪要" rather than a fresh
+/// session id per run. Names are user text, so this only removes what a folder
+/// name cannot hold (`\ / : * ? " < > |`, control characters, a trailing dot or
+/// space) and keeps everything else, including CJK. Windows device names are
+/// escaped, and a name that sanitises to nothing falls back to `schedule`.
+#[must_use]
+pub fn directory_name(name: &str) -> String {
+    const MAX_CHARS: usize = 60;
+    let mut cleaned = String::with_capacity(name.len());
+    let mut last_dash = false;
+    for ch in name.trim().chars() {
+        let safe = !(ch.is_control()
+            || matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+        if safe && !ch.is_whitespace() {
+            cleaned.push(ch);
+            last_dash = false;
+            continue;
+        }
+        // Whitespace and rejected characters both become one dash, so
+        // "站会 纪要" and "站会:纪要" do not produce two different folders.
+        if !last_dash && !cleaned.is_empty() {
+            cleaned.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = cleaned.trim_matches(|c| c == '-' || c == '.' || c == ' ');
+    let mut out: String = trimmed.chars().take(MAX_CHARS).collect();
+    // A trailing dot makes a folder Windows cannot create.
+    out = out.trim_end_matches(|c| c == '.' || c == ' ').to_string();
+    if out.is_empty() {
+        out = "schedule".to_string();
+    }
+    // `CON`, `NUL`, `COM1`… are device names, not folders. Deviating the name
+    // keeps the schedule usable instead of failing every fire.
+    let stem = out
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        out.push_str("-task");
+    }
+    out
+}
+
+/// The directory this schedule's most recent fire ran in.
+///
+/// Read from the ledger instead of derived from the name every time, so
+/// renaming a schedule keeps its files where they are instead of scattering
+/// them across two folders. `None` means "never ran" (or a ledger without the
+/// session tables yet).
+pub fn last_workspace(connection: &Connection, schedule_id: &str) -> Result<Option<String>> {
+    ensure_schema(connection)?;
+    let prepared = connection.prepare(
+        "SELECT s.project_path FROM schedule_occurrences o
+           JOIN sessions s ON s.id = o.session_id
+          WHERE o.schedule_id = ?1 AND o.session_id <> '' AND s.project_path <> ''
+          ORDER BY o.scheduled_at DESC LIMIT 1",
+    );
+    // A ledger created before any session existed has no `sessions` table; that
+    // is "nothing to reuse", not a failure of the fire.
+    let Ok(mut statement) = prepared else {
+        return Ok(None);
+    };
+    let found = statement
+        .query_row(params![schedule_id], |row| row.get::<_, String>(0))
+        .optional()?;
+    Ok(found.filter(|path| !path.trim().is_empty()))
+}
+
 /// Every schedule, enabled ones first and by the time they will next run.
 pub fn list(connection: &Connection) -> Result<Vec<ScheduleRecord>> {
     ensure_schema(connection)?;
@@ -911,6 +988,65 @@ mod tests {
 
         remove(&connection, &saved.id).expect("remove");
         assert!(list(&connection).expect("list").is_empty());
+    }
+
+    #[test]
+    fn a_folder_name_keeps_the_task_name_and_drops_what_a_path_cannot_hold() {
+        // The task's own name is the folder, CJK included.
+        assert_eq!(directory_name("每日站会纪要"), "每日站会纪要");
+        assert_eq!(directory_name("站会 纪要"), "站会-纪要");
+        assert_eq!(directory_name("notes/report: v2?"), "notes-report-v2");
+        // Nothing usable left: still a folder name, never an empty path.
+        assert_eq!(directory_name("  "), "schedule");
+        assert_eq!(directory_name("***"), "schedule");
+        // Windows device names are not folders.
+        assert_eq!(directory_name("CON"), "CON-task");
+        assert_eq!(directory_name("com1"), "com1-task");
+        assert_eq!(directory_name("console"), "console");
+        // A trailing dot or space makes a folder Windows refuses to create.
+        assert_eq!(directory_name("trailing."), "trailing");
+        assert_eq!(directory_name(&"长".repeat(80)).chars().count(), 60);
+    }
+
+    #[test]
+    fn the_folder_of_a_schedule_is_the_folder_its_last_fire_used() {
+        let connection = ledger();
+        let saved = save(&connection, &draft(None, "0 9 * * *"), &target()).expect("save");
+        // Never fired, and the session tables are not part of this fixture yet:
+        // "nothing to reuse" rather than a failed fire.
+        assert_eq!(last_workspace(&connection, &saved.id).expect("lookup"), None);
+
+        connection
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, project_path TEXT NOT NULL DEFAULT '')",
+            )
+            .expect("sessions table");
+        connection
+            .execute(
+                "INSERT INTO sessions (id, project_path) VALUES ('sess-1', 'D:/workspace/schedules/每日站会纪要')",
+                [],
+            )
+            .expect("session row");
+        let at = saved.next_run_at.clone();
+        assert!(claim(&connection, &saved, &at).expect("claim"));
+        finish(
+            &connection,
+            &saved.id,
+            &at,
+            &OccurrenceOutcome {
+                state: "success".into(),
+                reason: String::new(),
+                session_id: "sess-1".into(),
+                run_id: "run-1".into(),
+                duration_ms: 10,
+            },
+        )
+        .expect("finish");
+        // The next fire reuses this, so a renamed schedule keeps its history.
+        assert_eq!(
+            last_workspace(&connection, &saved.id).expect("lookup").as_deref(),
+            Some("D:/workspace/schedules/每日站会纪要")
+        );
     }
 
     #[test]
