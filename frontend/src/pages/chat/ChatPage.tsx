@@ -743,11 +743,26 @@ export default function ChatPage() {
     if (currentId !== history.activeId) history.setActive(currentId)
   }, [sample, currentId, history])
 
+  // Opening a conversation is a request, not a comparison of ids.
+  //
+  // The old test — "is the requested id already the one on screen?" — dropped
+  // real clicks. Click Beta while Alpha's ledger read is in flight, then click
+  // Alpha again to stay where you are: the id matched, nothing ran, and Beta's
+  // read landed and took the view, so the click that said "stay here" was the
+  // one that lost. `switchSeq` counts every open request, including the one for
+  // the row already on screen, so each click supersedes the read it interrupts.
+  const seenOpen = useRef(history.switchSeq)
   useEffect(() => {
     if (sample) return
-    if (!history.activeId || history.activeId === currentId) return
-    void live.select(history.activeId)
-  }, [sample, history.activeId, currentId, live.select])
+    const requested = history.activeId
+    const asked = history.switchSeq !== seenOpen.current
+    seenOpen.current = history.switchSeq
+    if (!requested) return
+    // The page's own session (a turn that just opened one) is not an open
+    // request: selecting it again would throw away the live turn it is running.
+    if (!asked && requested === currentId) return
+    void live.select(requested)
+  }, [sample, history.activeId, history.switchSeq, currentId, live.select])
 
   // A running turn exists only in the ledger until the sidebar asks for the
   // list again. `session_open` writes the row immediately, but the panel kept
@@ -757,10 +772,11 @@ export default function ChatPage() {
   const refreshHistory = history.refresh
   const setRunningId = history.setRunningId
   // `runningId` is only the instant hint between sending and the first ledger
-  // read. The ledger's `status === running` now owns the spinner for the rest
-  // of the turn: it survives switching away and clears when the host ends the
-  // run. Never clear the hint on unmount or on a session switch — that is what
-  // used to drop a spinner from a run that was still going.
+  // read. The ledger's `status === running` owns the spinner for the rest of
+  // the turn: it survives switching away and clears when the host ends the run.
+  // The hint is per conversation, like the turn itself — leaving a running
+  // conversation hands its row back to the ledger instead of pinning the
+  // spinner on whichever conversation the reader opened next.
   const hintedRun = useRef<string | null>(null)
   useEffect(() => {
     if (sample) return
@@ -768,12 +784,16 @@ export default function ChatPage() {
       hintedRun.current = currentId
       setRunningId(currentId)
     } else if (!live.running && hintedRun.current) {
-      // This conversation's turn ended. The ledger is refreshed below, so the
-      // status and the hint land in the same frame rather than flickering.
+      // The live turn stopped belonging to this page's view: either it ended,
+      // or the reader left the conversation it belongs to. Either way the hint
+      // goes, and the ledger's own row status takes the spinner from here — so
+      // read the list now instead of waiting for a tick that may never come,
+      // because a list where nothing looks running stops ticking.
       setRunningId(null)
       hintedRun.current = null
+      void refreshHistory()
     }
-  }, [sample, live.running, currentId, setRunningId])
+  }, [sample, live.running, currentId, setRunningId, refreshHistory])
   useEffect(() => {
     if (sample || !live.running) return
     // One immediate read so the row and its preview track the new turn; the
@@ -1387,18 +1407,30 @@ export default function ChatPage() {
   const sendRef = useRef(live.send)
   sendRef.current = live.send
   const sawRun = useRef(false)
+  const runEpoch = useRef<number | null>(null)
   useEffect(() => {
     if (live.running) {
       sawRun.current = true
+      runEpoch.current = live.epoch
       return
     }
     if (!sawRun.current) return
     sawRun.current = false
+    const ended = runEpoch.current
+    runEpoch.current = null
+    // The reader changed conversation while the turn was still going. That is
+    // the same `running` transition as a finished turn and the opposite event:
+    // the queue belongs to the conversation they left, and sending its head
+    // here would post their text into the thread they moved to.
+    if (ended !== live.epoch) {
+      setQueue([])
+      return
+    }
     const next = queueRef.current[0]
     if (!next) return
     setQueue((previous) => previous.slice(1))
     void sendRef.current(next.text, next.refs)
-  }, [live.running])
+  }, [live.running, live.epoch])
 
   // A different conversation has its own queue, its own agents and its own
   // drafts; carrying them across would send text into the wrong thread.

@@ -172,7 +172,16 @@ export interface ChatSessionView {
   rail: RailView | null
   /** pi's own context-window estimate for the open session; null when unknown. */
   context: ContextUsage | null
+  /**
+   * A turn is being generated *for the conversation on screen*.
+   *
+   * Deliberately not "this page is streaming": switching conversations while a
+   * turn runs must not hand that turn's bubble, stop button or spinner to the
+   * conversation the reader opened.
+   */
   running: boolean
+  /** How many times the reader has changed conversation. */
+  epoch: number
   /** Why the last turn ended without a reply; null while running or clean. */
   turnFailure: TurnFailure | null
   /** When the running turn started, for the visible waiting clock. */
@@ -880,7 +889,27 @@ export function useChatSession({
   const visibleSession = useRef<string | null>(null)
   const [rail, setRail] = useState<RailView | null>(null)
   const [context, setContext] = useState<ContextUsage | null>(null)
-  const [running, setRunning] = useState(false)
+  /**
+   * The conversation whose turn is being generated right now.
+   *
+   * A boolean would claim "this page is streaming", which is a different and
+   * false thing: a turn belongs to one conversation, and the reader is free to
+   * walk away from it. Held as the id, the live bubble, the stop button, the
+   * waiting clock and the sidebar hint all follow *that* conversation instead
+   * of landing on whatever the reader opens next — which painted the previous
+   * conversation's agent badge and typing dots on top of an unrelated
+   * transcript.
+   */
+  const [runningSession, setRunningSession] = useState<string | null>(null)
+  /**
+   * How many times the reader has changed conversation.
+   *
+   * A flow that started under a different value belongs to a conversation that
+   * is no longer on screen: it still fills its own cache, but never the view.
+   * The sidebar's queue reads it to tell "this turn ended" apart from "the
+   * reader left", which are the same `running` transition and different events.
+   */
+  const [epoch, setEpoch] = useState(0)
   const [turnFailure, setTurnFailure] = useState<TurnFailure | null>(null)
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
   const pollStop = useRef(false)
@@ -895,6 +924,15 @@ export function useChatSession({
    * effect on the very next poll without waiting for a render.
    */
   const viewEpoch = useRef(0)
+  /**
+   * The conversation on screen, as an id.
+   *
+   * `running` is derived from this instead of being a flag of its own: that is
+   * what keeps a turn from following the reader into another conversation.
+   */
+  const openSessionId = current?.session.id ?? null
+  /** A turn is running *here*, not merely somewhere in this page. */
+  const running = runningSession !== null && runningSession === openSessionId
   /** Last ledger seq already rendered; resets when the session changes. */
   const eventCursor = useRef(0)
   /**
@@ -1178,8 +1216,8 @@ export function useChatSession({
       // reader opens another conversation, `select` bumps the epoch and every
       // write below becomes a no-op — otherwise this run's events land in the
       // new conversation and its terminal `setCurrent` pulls the view back.
-      const epoch = viewEpoch.current
-      const ownsView = () => mounted.current && viewEpoch.current === epoch
+      const mine = viewEpoch.current
+      const ownsView = () => mounted.current && viewEpoch.current === mine
       // Read the ledger once. The cursor starts at its end so history is not
       // replayed by the poll, and this run's own events are kept to rebuild the
       // half-finished turn. The same read tells us whether the run ended while
@@ -1239,7 +1277,7 @@ export function useChatSession({
       setTurnFailure(null)
       setTurnStartedAt(startedAtFrom(run) ?? Date.now())
       if (!ownsView()) return
-      setRunning(true)
+      setRunningSession(sessionId)
       pollStop.current = false
 
       while (!pollStop.current && ownsView()) {
@@ -1288,14 +1326,14 @@ export function useChatSession({
         if (ownsView()) {
           // Same batch as `send`: the ledger with its assistant message and the
           // end of streaming must land together, never two frames apart.
-          setRunning(false)
+          setRunningSession(null)
           setTurnStartedAt(null)
           setTurnFailure(failure)
         }
       } catch {
         // Keep the streamed view; the next open re-reads it.
         if (ownsView()) {
-          setRunning(false)
+          setRunningSession(null)
           setTurnStartedAt(null)
           setTurnFailure(failure)
         }
@@ -1313,10 +1351,15 @@ export function useChatSession({
     async (sessionId: string) => {
       // Leave the old conversation before loading the new one. Incrementing
       // the epoch makes any in-flight send/attach stop writing into the view,
-      // and clearing `running` here (not waiting for the old flow to finish)
-      // is what keeps a loading spinner from following the reader here.
-      const epoch = ++viewEpoch.current
-      const ownsView = () => mounted.current && viewEpoch.current === epoch
+      // and dropping the live-turn claim here (not waiting for the old flow to
+      // finish) is what keeps a loading spinner from following the reader here.
+      // Both land in the same batch, so no frame shows this conversation with
+      // the previous one's turn. `attach` claims it back below if the ledger
+      // says this conversation really is still generating.
+      const mine = ++viewEpoch.current
+      setEpoch(mine)
+      setRunningSession(null)
+      const ownsView = () => mounted.current && viewEpoch.current === mine
       pollStop.current = true
       // Paint this conversation immediately from its cache — synchronous, no
       // IPC, no blank frame. A first visit has no cache and shows the previous
@@ -1362,9 +1405,10 @@ export function useChatSession({
 
   const startNew = useCallback(() => {
     viewEpoch.current += 1
+    setEpoch(viewEpoch.current)
     pollStop.current = true
     visibleSession.current = null
-    setRunning(false)
+    setRunningSession(null)
     setTurnStartedAt(null)
     setCurrent(null)
     setTurnEvents([])
@@ -1413,8 +1457,8 @@ export function useChatSession({
       // it, and every view write below is then skipped: this turn keeps running
       // on the host but stops painting into a conversation that is no longer
       // on screen (no borrowed spinner, gradient, streamed text or jump-back).
-      const epoch = viewEpoch.current
-      const ownsView = () => mounted.current && viewEpoch.current === epoch
+      const mine = viewEpoch.current
+      const ownsView = () => mounted.current && viewEpoch.current === mine
       // A turn only ever shows its own output. `active.runs` is the ledger as
       // it stood before this prompt, so any event carrying one of those ids is
       // leftover history from a poll that stopped early.
@@ -1439,7 +1483,7 @@ export function useChatSession({
         if (!existing || existing.session.id !== sessionId) return existing
         return { ...existing, messages: [...existing.messages, optimistic] }
       })
-      setRunning(true)
+      setRunningSession(sessionId)
       writeTimeline(sessionId, [])
       setError(null)
       setTurnFailure(null)
@@ -1563,17 +1607,17 @@ export function useChatSession({
         if (visibleSession.current === sessionId) setTurnEvents([])
         if (ownsView()) {
           // Land the finished ledger and the end of the streaming state in the
-          // same batch. Clearing `running` only after the IPC reads below left
-          // a frame where both the stored answer and the streaming bubble were
-          // visible — the same run drawn twice.
-          setRunning(false)
+          // same batch. Clearing the live turn only after the IPC reads below
+          // left a frame where both the stored answer and the streaming bubble
+          // were visible — the same run drawn twice.
+          setRunningSession(null)
           setTurnStartedAt(null)
           setTurnFailure(outcome)
         }
       } catch {
         // Keep the optimistic view; the next refresh will retry.
         if (ownsView()) {
-          setRunning(false)
+          setRunningSession(null)
           setTurnStartedAt(null)
           setTurnFailure(outcome)
         }
@@ -1769,6 +1813,7 @@ export function useChatSession({
     rail,
     context,
     running,
+    epoch,
     turnFailure,
     turnStartedAt,
     retry,
