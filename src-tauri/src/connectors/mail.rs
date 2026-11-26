@@ -192,8 +192,12 @@ fn parse_headers(body: &str) -> Vec<Value> {
     for line in body.lines() {
         let trimmed = line.trim_end_matches('\r');
         if trimmed.starts_with("* ") && trimmed.contains("FETCH") {
-            uid.clear();
             headers.clear();
+            // The UID arrives on this same response line — `* 7 FETCH (UID 101
+            // BODY[HEADER.FIELDS (...)]` — not as a line of its own. Clearing it
+            // and waiting for a standalone `UID` line gave every row an empty
+            // id, so the message could not be addressed afterwards.
+            uid = uid_in_fetch_line(trimmed).unwrap_or_default();
             continue;
         }
         if trimmed.eq_ignore_ascii_case("UID") {
@@ -226,6 +230,27 @@ fn parse_headers(body: &str) -> Vec<Value> {
         rows.push(headers_to_row(&uid, &headers));
     }
     rows
+}
+
+/// The `UID <n>` carried by an IMAP FETCH response line.
+///
+/// `* 7 FETCH (UID 101 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {96}` — the id
+/// belongs to the response, so it is read from there. Only a bare number counts:
+/// `UID` also appears inside the requested section (`BODY[HEADER.FIELDS ...]`
+/// stops short of it today, but a future section could name it).
+fn uid_in_fetch_line(line: &str) -> Option<String> {
+    let mut tokens = line.split(|c: char| c.is_whitespace() || c == '(' || c == ')');
+    while let Some(token) = tokens.next() {
+        if !token.eq_ignore_ascii_case("UID") {
+            continue;
+        }
+        if let Some(value) = tokens.next() {
+            if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn headers_to_row(uid: &str, headers: &[String]) -> Value {
@@ -682,6 +707,37 @@ Date: Sun, 22 Nov 2026 09:00:00 +0800\r\n\
         assert_eq!(rows[0]["uid"], "42");
         assert_eq!(rows[0]["subject"], "你好");
         assert!(rows[0]["from"].as_str().unwrap().contains("ann@example.com"));
+    }
+
+    /// Two messages in one transcript, the way the server really answers a
+    /// `UID FETCH <range> (UID BODY.PEEK[HEADER.FIELDS ...])`: each response
+    /// line carries `n FETCH (` and the UID on the *same* line, followed by the
+    /// header literal. Reading only a standalone `UID 42` line gave every row an
+    /// empty id, so nothing downstream could address a message.
+    #[test]
+    fn every_message_keeps_its_own_uid_across_one_transcript() {
+        let body = "
+* 7 FETCH (UID 101 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {96}
+From: Ann <ann@example.com>
+Subject: First
+Date: Sun, 22 Nov 2026 09:00:00 +0800
+
+)
+* 8 FETCH (UID 2 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {97}
+From: Bob <bob@example.com>
+Subject: Second
+Date: Sun, 22 Nov 2026 10:00:00 +0800
+
+)
+";
+        let rows = parse_headers(body);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["uid"], "101");
+        assert_eq!(rows[0]["subject"], "First");
+        assert_eq!(rows[1]["uid"], "2");
+        assert_eq!(rows[1]["subject"], "Second");
+        // The id belongs to its own message, not to the previous one.
+        assert!(rows[1]["from"].as_str().unwrap().contains("bob@example.com"));
     }
 
     #[test]
