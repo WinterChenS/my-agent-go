@@ -635,9 +635,13 @@ describe('chat live session', () => {
     })
 
     await waitFor(() => expect(screen.queryByTestId('chat-compacting')).toBeNull())
-    await waitFor(() =>
-      expect(screen.getByTestId('chat-message-compacted')).toHaveTextContent('压缩上下文完成'),
-    )
+    await waitFor(() => expect(screen.getByTestId('chat-message-compacted')).toBeInTheDocument())
+    // The stored fold is the summary card, and it says what it is: the running
+    // divider's words are gone with the command, and "compaction complete"
+    // belongs to the divider at the tail, not to this row at the top.
+    const summary = screen.getByTestId('chat-message-compacted')
+    expect(summary).toHaveTextContent('压缩摘要')
+    expect(summary).toHaveTextContent('较早的对话已经总结。')
   })
 
   it('reports a no-op compaction as "nothing to compact" instead of a failure', async () => {

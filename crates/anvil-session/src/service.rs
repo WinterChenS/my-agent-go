@@ -1322,6 +1322,25 @@ impl SessionService {
             });
         }
         self.store.replace_messages(session_id, &kept)?;
+        // The summary row stands for the folded history, so it sits at the top.
+        // The reader ran the command at the bottom, though, and a row that only
+        // appears far above the viewport reads as "nothing happened". Leave a
+        // divider where the command was run: the page swaps its wording from
+        // "compacting" to "compacted" in place, and it survives a reload.
+        let marker = serde_json::json!({
+            "compaction": "done",
+            "collapsed": head.len(),
+            "kept": tail.len(),
+            "nativeContext": native_context,
+        });
+        self.store.append_message(
+            session_id,
+            None,
+            Role::System,
+            "context compacted",
+            &now,
+            Some(&marker),
+        )?;
         self.store
             .append_event(session_id, "", crate::model::EventKind::Compacted, &meta)?;
         Ok(CompactReport {
@@ -2268,13 +2287,28 @@ mod tests {
         assert_eq!(report.collapsed, 4);
         assert_eq!(report.kept, 2);
         let detail = service.detail(&session.id).expect("detail");
-        assert_eq!(detail.messages.len(), 3);
+        // The summary, the verbatim tail, and the divider that marks where the
+        // command was run — the divider is what the page keeps on screen.
+        assert_eq!(detail.messages.len(), 4);
         assert_eq!(detail.messages[0].role, Role::System);
         assert!(detail.messages[0].text.contains("4 earlier message(s)"));
         assert_eq!(detail.messages[1].text, "third question");
         assert_eq!(detail.messages[2].text, "echo:third question");
+        let marker = detail.messages.last().expect("marker");
+        assert_eq!(marker.role, Role::System);
+        assert_eq!(
+            marker.meta.as_ref().and_then(|meta| meta["compaction"].as_str()),
+            Some("done")
+        );
+        assert_eq!(
+            marker
+                .meta
+                .as_ref()
+                .and_then(|meta| meta["collapsed"].as_u64()),
+            Some(4)
+        );
         let seqs: Vec<i64> = detail.messages.iter().map(|message| message.seq).collect();
-        assert_eq!(seqs, vec![1, 2, 3]);
+        assert_eq!(seqs, vec![1, 2, 3, 4]);
         let events = service.events(&session.id).expect("events");
         let compacted = events
             .iter()

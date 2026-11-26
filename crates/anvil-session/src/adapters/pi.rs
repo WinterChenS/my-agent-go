@@ -690,7 +690,11 @@ impl SessionAdapter for PiAdapter {
         }
         write_command(&mut stdin, &request)
             .map_err(|error| Error::Failed(format!("ask pi to compact: {error}")))?;
-        drop(stdin);
+        // Keep stdin open until the answer arrives. Closing it is this adapter's
+        // orderly shutdown, and pi reads that as "the host is gone": the
+        // summarization call was cancelled mid-flight and every real compaction
+        // ended as "Compaction cancelled", which the page could only report as a
+        // failure. The pipe is closed below, after the reply.
 
         // A summary is an LLM call; a cold provider can take minutes. The page
         // shows its own "compacting" card, so waiting here is visible.
@@ -747,13 +751,24 @@ impl SessionAdapter for PiAdapter {
                                     }
                                 }
                             } else {
-                                let message = value
-                                    .pointer("/error/message")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("pi refused the context compaction");
+                                // `error` is a plain string in pi's own refusal
+                                // ("Nothing to compact (session too small)") and
+                                // an object elsewhere. Reading only the object
+                                // shape turned every benign refusal into
+                                // "pi refused the context compaction", which the
+                                // page showed as a failure — and nothing was
+                                // written, so a compact that could have said
+                                // "already small" looked like a dead button.
+                                let message = refusal_message(&value);
                                 match nothing_to_compact(message) {
                                     Some(reason) => outcome.skipped = Some(reason),
-                                    None => failure = Some(message.to_string()),
+                                    // The `compaction_end` event usually names
+                                    // the reason first; a summary-less refusal
+                                    // from the command response must not erase it.
+                                    None if outcome.skipped.is_none() => {
+                                        failure = Some(message.to_string());
+                                    }
+                                    None => {}
                                 }
                             }
                             answered = true;
@@ -766,6 +781,9 @@ impl SessionAdapter for PiAdapter {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+        // Answered (or gave up): close the pipe now, which is how pi is told to
+        // exit, and give it a moment before the handle is dropped.
+        drop(stdin);
         let _ = wait_briefly(&mut child);
         if let Some(failure) = failure {
             return Err(Error::Failed(failure));
@@ -1044,6 +1062,20 @@ fn parse_line(line: &str) -> Option<Value> {
 /// a compaction is already the newest entry ("Already compacted"). Neither is a
 /// failure the reader should be asked to fix; the caller reports them as a
 /// no-op. The returned code is what the page localises.
+/// The reason pi gave for refusing a compaction.
+///
+/// `error` is a plain string on pi's own refusals ("Nothing to compact (session
+/// too small)") and an object with a `message` on protocol errors. Reading only
+/// the object shape reported every benign refusal as "pi refused the context
+/// compaction", so a compact that had a precise answer to give showed none.
+fn refusal_message(value: &Value) -> &str {
+    value
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("error").and_then(Value::as_str))
+        .unwrap_or("pi refused the context compaction")
+}
+
 fn nothing_to_compact(message: &str) -> Option<String> {
     let lower = message.to_ascii_lowercase();
     if lower.contains("nothing to compact") {
@@ -1736,6 +1768,30 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, EventKind::Unknown);
         assert_eq!(events[0].payload["type"], "brand_new_event");
+    }
+
+    /// pi answers a refused compact with `error` as a **string**. Reading only
+    /// `error.message` turned "Nothing to compact (session too small)" into
+    /// "pi refused the context compaction" and then into a hard failure, so the
+    /// page reported a broken button for a perfectly normal answer.
+    #[test]
+    fn a_refusal_string_is_read_as_the_reason() {
+        let value = serde_json::json!({
+            "id": "compact-1",
+            "type": "response",
+            "command": "compact",
+            "success": false,
+            "error": "Nothing to compact (session too small)"
+        });
+        let message = refusal_message(&value);
+        assert_eq!(message, "Nothing to compact (session too small)");
+        assert_eq!(nothing_to_compact(message).as_deref(), Some("too_small"));
+
+        let object = serde_json::json!({
+            "success": false,
+            "error": { "message": "Already compacted" }
+        });
+        assert_eq!(nothing_to_compact(refusal_message(&object)).as_deref(), Some("already_compacted"));
     }
 
     /// A question the runtime asked has to reach the page: the run is blocked

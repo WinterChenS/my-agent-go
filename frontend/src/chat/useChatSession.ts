@@ -1027,12 +1027,12 @@ export function useChatSession({
       const active = current?.session.id
       if (active) {
         const detail = await loadSession(active)
-        if (mounted.current) setCurrent(detail)
+        writeDetail(active, detail)
       }
     } catch (cause) {
       if (mounted.current) setError(describeSessionError(cause))
     }
-  }, [current, reloadSessions])
+  }, [current, reloadSessions, writeDetail])
 
   /** Read the catalog once and adopt its models; `true` when there is one. */
   const readModels = useCallback(async (): Promise<boolean> => {
@@ -1811,7 +1811,14 @@ export function useChatSession({
       try {
         const report = await compactSession(sessionId, keepLast, instructions)
         const detail = await loadSession(sessionId)
-        if (mounted.current) setCurrent(detail)
+        // The fold rewrote this conversation's history. Going through the cache
+        // is what keeps it rewritten: a plain `setCurrent` left the old detail
+        // in `details`, so switching away and back painted the pre-compaction
+        // transcript and the command looked like it had never run.
+        writeDetail(sessionId, detail)
+        // The streamed rows of the last turn are no longer part of the ledger;
+        // keeping them would draw folded messages again below the divider.
+        writeTimeline(sessionId, [])
         await reloadSessions()
         return report
       } catch (cause) {
@@ -1819,7 +1826,7 @@ export function useChatSession({
         return null
       }
     },
-    [reloadSessions],
+    [reloadSessions, writeDetail, writeTimeline],
   )
 
   const pending = lastPendingApproval(turnEvents)

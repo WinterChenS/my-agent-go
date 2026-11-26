@@ -1041,6 +1041,16 @@ export default function ChatPage() {
       !(message.role === 'assistant' && message.runId && streamingRunIds.has(message.runId)),
   )
 
+  // The divider that says "compacting" is a placeholder: it holds the spot at
+  // the end of the transcript and, when the ledger gains the outcome row, the
+  // same spot shows the result. Without this the placeholder and the stored
+  // row painted together for a frame, and then only the stored one remained —
+  // which is what made the row seem to vanish.
+  const compactSettled = Boolean(
+    (visibleMessages[visibleMessages.length - 1]?.meta as { compaction?: string } | undefined)
+      ?.compaction,
+  )
+
   const lastUser = [...visibleMessages].reverse().find((message) => message.role === 'user')
   // The optimistic copy of every turn uses the same `pending-<session>` id, so
   // the id alone cannot tell turn two from turn three. Include the words and
@@ -1186,6 +1196,36 @@ export default function ChatPage() {
       if (again && followRef.current) again.scrollTop = bottomOffset(again)
     })
   }, [live.running, sample])
+
+  // Compaction rewrites the transcript above the reader. The divider that says
+  // so lands at the very end, after the answer that was already on screen — the
+  // "newest question at the top" placement leaves it below the fold, so the
+  // reader saw a rewritten conversation and no sign of the command. Follow the
+  // real tail here, not that placement.
+  const lastVisibleId = visibleMessages[visibleMessages.length - 1]?.id ?? ''
+  useLayoutEffect(() => {
+    if (sample || !compactSettled) return
+    const node = threadRef.current
+    if (!node) return
+    followRef.current = true
+    // Bring the divider itself into view rather than computing an offset: the
+    // column above it is full of tool cards and images that settle over the
+    // next few frames, and any offset measured before they do leaves the note
+    // off screen — which is indistinguishable from "the command did nothing".
+    const reveal = () => {
+      const note = threadRef.current?.querySelector<HTMLElement>(
+        '[data-testid="chat-message-compact-done"], [data-testid="chat-message-compact-skipped"]',
+      )
+      note?.scrollIntoView?.({ block: 'center' })
+    }
+    reveal()
+    const frame = requestAnimationFrame(reveal)
+    const timer = window.setTimeout(reveal, 200)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [compactSettled, lastVisibleId, sample])
 
   const onThreadScroll = () => {
     const node = threadRef.current
@@ -1489,7 +1529,13 @@ export default function ChatPage() {
   }
 
   const compactHistorySession = (id: string) => {
-    void history.compact(id, COMPACT_KEEP_LAST).then(() => setNotice(t('chat.live.compacted')))
+    void history.compact(id, COMPACT_KEEP_LAST).then(() => {
+      // A row in the history list can be the conversation that is open. The
+      // page's transcript is its own copy, and it is the copy the reader is
+      // watching: re-read it, or the fold on the host stays invisible here.
+      if (liveSession?.id === id) void live.refresh()
+      showToast(t('chat.live.compacted'))
+    })
   }
 
   // The context ring compacts the *open* session, not a history row. It is
@@ -1499,7 +1545,7 @@ export default function ChatPage() {
   const compactLiveContext = (instructions?: string) => {
     if (!liveSession || compactingContext) return
     if (live.running) {
-      setNotice(t('chat.compact.busy'))
+      showToast(t('chat.compact.busy'))
       return
     }
     setCompactingContext(true)
@@ -1507,14 +1553,20 @@ export default function ChatPage() {
       .compact(liveSession.id, COMPACT_KEEP_LAST, instructions)
       .then((report) => {
         if (!report) {
-          setNotice(t('chat.compact.failed'))
+          // The divider is the only feedback while this runs, and it goes away
+          // with the placeholder. A silent failure is what made the control
+          // look dead, so this one is painted, not whispered to a live region.
+          showToast(t('chat.compact.failed'))
           return
         }
         // pi answers "nothing to compact" for a session that is still small or
         // was just compacted. That is not a failure, and claiming "compacted"
-        // would be a lie: say what happened and still refresh the transcript so
-        // the status row is visible.
-        setNotice(report.skipped ? t('chat.compact.skipped') : t('chat.live.compacted'))
+        // would be a lie: the stored divider says which of the two happened.
+        showToast(report.skipped ? t('chat.compact.skipped') : t('chat.live.compacted'))
+        // The fold rewrote this conversation's ledger, so the row's message
+        // count in the sidebar is now wrong. Re-read both: the gauge and the
+        // list above it.
+        void refreshHistory()
         return live.refreshContext(liveSession.id)
       })
       .finally(() => setCompactingContext(false))
@@ -1763,40 +1815,43 @@ export default function ChatPage() {
                     </article>
                   ) : message.meta && (message.meta as { compacted?: boolean }).compacted ? (
                     <section
-                      className="chat-state-card"
+                      className="chat-state-card is-quiet"
                       data-testid="chat-message-compacted"
                       role="status"
-                      aria-label={t('chat.compact.done')}
+                      aria-label={t('chat.compact.summaryTitle')}
                       key={message.id}
                     >
                       <span className="chat-state-icon">
                         <Icon name="archive" size={14} />
                       </span>
                       <div className="chat-state-copy">
-                        <b>{t('chat.compact.done')}</b>
+                        <b>{t('chat.compact.summaryTitle')}</b>
                         <span className="chat-compact-summary">{message.text}</span>
                       </div>
                     </section>
                   ) : message.meta && (message.meta as { compaction?: string }).compaction === 'skipped' ? (
-                    <section
-                      className="chat-state-card is-quiet"
-                      data-testid="chat-message-compact-skipped"
-                      role="status"
-                      aria-label={t('chat.compact.skipped')}
+                    <CompactDivider
                       key={message.id}
-                    >
-                      <span className="chat-state-icon">
-                        <Icon name="archive" size={14} />
-                      </span>
-                      <div className="chat-state-copy">
-                        <b>{t('chat.compact.skipped')}</b>
-                        <span>
-                          {(message.meta as { reason?: string }).reason === 'already_compacted'
-                            ? t('chat.compact.skippedAgain')
-                            : t('chat.compact.skippedSmall')}
-                        </span>
-                      </div>
-                    </section>
+                      state="skipped"
+                      testId="chat-message-compact-skipped"
+                      label={t('chat.compact.skipped')}
+                      detail={
+                        (message.meta as { reason?: string }).reason === 'already_compacted'
+                          ? t('chat.compact.skippedAgain')
+                          : t('chat.compact.skippedSmall')
+                      }
+                    />
+                  ) : message.meta && (message.meta as { compaction?: string }).compaction === 'done' ? (
+                    <CompactDivider
+                      key={message.id}
+                      state="done"
+                      testId="chat-message-compact-done"
+                      label={t('chat.compact.done')}
+                      detail={t('chat.compact.doneDetail', {
+                        folded: (message.meta as { collapsed?: number }).collapsed ?? 0,
+                        kept: (message.meta as { kept?: number }).kept ?? 0,
+                      })}
+                    />
                   ) : (
                     <article
                       className={`chat-msg${focusRing(message.runId)}`}
@@ -1880,21 +1935,13 @@ export default function ChatPage() {
                   onApprove={(decision) => void live.approve(decision)}
                   onRetry={() => void live.retry()}
                 />
-                {compactingContext ? (
-                  <section
-                    className="chat-compact-status"
-                    data-testid="chat-compacting"
-                    role="status"
-                    aria-live="polite"
-                    aria-label={t('chat.compact.running')}
-                  >
-                    <span className="chat-compact-rule" aria-hidden="true" />
-                    <span className="chat-compact-body">
-                      <b>{t('chat.compact.running')}</b>
-                      <small>{t('chat.compact.runningHint')}</small>
-                    </span>
-                    <span className="chat-compact-rule" aria-hidden="true" />
-                  </section>
+                {compactingContext && !compactSettled ? (
+                  <CompactDivider
+                    state="running"
+                    testId="chat-compacting"
+                    label={t('chat.compact.running')}
+                    detail={t('chat.compact.runningHint')}
+                  />
                 ) : null}
                 {/* Invisible spacer: sized so "scroll to bottom" pins the
                     newest question at the top and leaves the answer room. */}
@@ -2416,10 +2463,51 @@ export function parseWindowSize(label: string | undefined): number {
   return Math.round(value * scale)
 }
 
-/** How full the model's context window is; the number comes from pi when the
+/**
+ * The one row that reports a context compaction, in the transcript.
+ *
+ * A hairline rule with a centred label, not a card: compaction is a note about
+ * what happened to the conversation, and a boxed card between two messages
+ * reads like something the assistant said. The same component draws the
+ * placeholder while the runtime is working and the stored outcome afterwards,
+ * so the row changes its words and keeps its place.
+ */
+export function CompactDivider({
+  state,
+  label,
+  detail,
+  testId,
+}: {
+  state: 'running' | 'done' | 'skipped'
+  label: string
+  detail?: string
+  testId: string
+}) {
+  return (
+    <section
+      className={`chat-compact-status is-${state}`}
+      data-testid={testId}
+      role="status"
+      aria-live={state === 'running' ? 'polite' : undefined}
+      aria-label={label}
+    >
+      <span className="chat-compact-rule" aria-hidden="true" />
+      <span className="chat-compact-body">
+        <b>{label}</b>
+        {detail ? <small>{detail}</small> : null}
+      </span>
+      <span className="chat-compact-rule" aria-hidden="true" />
+    </section>
+  )
+}
+
+/**
+ * How full the model's context window is; the number comes from pi when the
  * session has one, otherwise from the model's advertised window. Hovering opens
  * a themed card with the numbers, and — when idle on a real session — a compact
- * action. While a turn runs the ring is read-only. */
+ * action. While a turn runs the ring is read-only, and its number follows the
+ * runtime's own reports for the turn in flight.
+ */
 export function ContextRing({
   windowSize,
   used,
