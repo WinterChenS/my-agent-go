@@ -655,9 +655,38 @@ mod tests {
         assert!(HELPER.contains("builtinProviders"), "helper loads pi's catalogue");
         assert!(HELPER.contains("--provider"), "helper takes a provider id");
         assert!(
-            !HELPER.contains("auth.json"),
-            "the helper must not write credentials itself"
+            HELPER.contains("type: 'credential'"),
+            "the credential leaves the helper on stdout"
         );
+    }
+
+    /// Exactly one place may write the credential store, and it is this crate.
+    ///
+    /// This used to be `!HELPER.contains("auth.json")`, which failed the moment
+    /// the script's header comment *named* the file it deliberately does not
+    /// touch: the check was about a word, not about behaviour. What the helper
+    /// may reach for is the invariant, so it is read off its imports — no file
+    /// system, no other modules, nothing but stdio and URL parsing.
+    #[test]
+    fn the_helper_cannot_touch_the_credential_store_itself() {
+        let imported: Vec<&str> = HELPER
+            .split("from 'node:")
+            .skip(1)
+            .filter_map(|rest| rest.split('\'').next())
+            .collect();
+        assert!(!imported.is_empty(), "the helper imports pi's modules");
+        for module in imported {
+            assert!(
+                module == "readline" || module == "url",
+                "the helper talks over stdio only; it must not import node:{module}"
+            );
+        }
+        for writer in ["writeFile", "appendFile", "createWriteStream", "mkdtemp"] {
+            assert!(
+                !HELPER.contains(writer),
+                "the helper must not write files itself ({writer})"
+            );
+        }
     }
 
     #[test]
