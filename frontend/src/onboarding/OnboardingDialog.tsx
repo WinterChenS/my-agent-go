@@ -491,7 +491,7 @@ export default function OnboardingDialog() {
           ) : (
             <>
               <p className="ob-sub">
-                勾选要启用的运行时；没安装的可以在这里一键安装（npm 全局方式装到当前用户目录，不需要管理员权限，也不改系统 PATH）。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
+                勾选要启用的运行时；没安装的可以在这里一键安装（npm 全局方式装到当前用户目录，不需要管理员权限，也不改系统 PATH）。机器上还没有 Node 时，会先把一份 Node 运行时下到同一目录，再装运行时本身。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
               </p>
 
               {failed ? (
@@ -602,7 +602,7 @@ export default function OnboardingDialog() {
               {installing ? (
                 <>
                   <p className="ob-hint" data-testid="onboarding-installing">
-                    正在通过 npm 全局安装 {installing} 到当前用户目录（不修改系统 PATH），首次下载可能需要一到三分钟…
+                    正在通过 npm 全局安装 {installing} 到当前用户目录（不修改系统 PATH）。若本机没有 Node，会先下载一份 Node 运行时；首次可能要几分钟，进度见下方日志。
                   </p>
                   <pre
                     ref={logRef}
@@ -625,7 +625,7 @@ export default function OnboardingDialog() {
 
               {!loading && !failed && usable.length === 0 ? (
                 <p className="ob-hint">
-                  本机还没有可用的运行时。点「一键安装」会按 npm 全局方式装到当前用户目录（不动系统 PATH），装完自动识别并勾选。
+                  本机还没有可用的运行时。点「一键安装」会按 npm 全局方式装到当前用户目录（不动系统 PATH）；没有 Node 会先自动准备，装完自动识别并勾选。
                 </p>
               ) : null}
 

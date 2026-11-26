@@ -3472,7 +3472,7 @@ const catalogZh = {
   'catalog.status.unauthenticated': '未认证',
   'catalog.status.unauthenticatedHint':
     '运行时还没登录：在终端执行「pi login」完成登录，再点右上角刷新即可；用自建网关的，把 key 写进 ~/.pi/agent/models.json 的 provider 里。',
-  'catalog.status.probeFailedHint': '运行时已找到但启动失败：常见原因是 Node 不在 PATH 上，或安装目录不可执行。',
+  'catalog.status.probeFailedHint': '运行时已找到但启动失败：常见原因是 Node 不在 PATH 上，或启动器指向了一个已不存在的 Node。点「重新安装」会重写启动器，必要时先准备 Node。',
   'catalog.status.probeFailed': '探测失败',
   'catalog.status.adapterFailed': '适配器失败',
   'catalog.status.orphaned': '适配器已移除',
@@ -3692,7 +3692,7 @@ const catalogEn: Record<keyof typeof catalogZh, string> = {
   'catalog.status.unauthenticated': 'Not signed in',
   'catalog.status.unauthenticatedHint':
     'This runtime is not signed in: run 「pi login」 in a terminal and press refresh; for a gateway of your own, put its key in a provider in ~/.pi/agent/models.json.',
-  'catalog.status.probeFailedHint': 'The runtime was found but would not start: usually Node missing from PATH, or the install is not executable.',
+  'catalog.status.probeFailedHint': 'The runtime was found but would not start: usually Node missing from PATH, or a launcher pinned to a Node that no longer exists. Reinstall rewrites the launcher and, if needed, prepares Node first.',
   'catalog.status.probeFailed': 'Probe failed',
   'catalog.status.adapterFailed': 'Adapter failed',
   'catalog.status.orphaned': 'Adapter removed',

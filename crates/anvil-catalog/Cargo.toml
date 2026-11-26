@@ -16,6 +16,14 @@ sha2 = "0.10"
 toml = "0.9"
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
+# Unpacking the Node archive a machine without an interpreter needs.
+[target.'cfg(windows)'.dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[target.'cfg(unix)'.dependencies]
+tar = "0.4"
+flate2 = "1"
+
 # The report doubles as the acceptance oracle, so its selector grammar is
 # covered by unit tests instead of only by a live machine run.
 [[example]]

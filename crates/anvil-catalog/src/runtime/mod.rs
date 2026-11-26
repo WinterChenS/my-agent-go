@@ -6,6 +6,7 @@
 
 pub mod adapter;
 pub mod adapters;
+pub mod node_bootstrap;
 pub mod process;
 pub mod registry;
 pub mod service;

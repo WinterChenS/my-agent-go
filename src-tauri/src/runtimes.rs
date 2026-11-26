@@ -109,8 +109,28 @@ where
     let prefix = prefix()?;
     std::fs::create_dir_all(&prefix)
         .map_err(|error| format!("创建安装目录 {} 失败：{error}", prefix.display()))?;
-    let npm = common::shared_npm(&prefix)
-        .ok_or_else(|| "未找到 npm：请先安装 Node.js（Anvil 用它安装运行时 CLI）".to_string())?;
+    // A machine with no Node cannot run npm, and npm is what installs the
+    // runtime. Preparing one here is the difference between "一键安装" and a
+    // dead end that tells the user to go install Node first.
+    let npm = match usable_npm(&prefix) {
+        Some(npm) => npm,
+        None => {
+            on_line("未找到 npm：先为这台机器准备一份 Node 运行时（只装在当前用户目录）。");
+            let prepared = anvil_catalog::runtime::node_bootstrap::ensure(&prefix, &mut on_line)
+                .map_err(|error| {
+                    format!(
+                        "这台机器没有可用的 Node，自动准备也失败了：{}。也可以自己安装 Node.js（https://nodejs.org）后重试。",
+                        error.to_wire()
+                    )
+                })?;
+            on_line(&format!(
+                "已准备好 Node {}：{}",
+                prepared.version,
+                prepared.node.display()
+            ));
+            prepared.npm
+        }
+    };
 
     let prefix_arg = prefix.to_string_lossy().into_owned();
     // `--global` is what makes npm put the `bin` shim at the prefix root on
@@ -135,7 +155,12 @@ where
     // npm is a Node script with `#!/usr/bin/env node`; on macOS a Finder-launched
     // app has no node on PATH, so the install would die with "env: node: No such
     // file or directory" before npm printed anything.
-    let env = process::child_env();
+    //
+    // The interpreter that runs npm sits beside it, and a package's own
+    // postinstall script calls `node` by name — which is exactly how a
+    // bootstrap that put Node in the prefix still failed with "'node' 不是内部或
+    // 外部命令". Its directory goes first in the child's PATH.
+    let env = node_first_env(&npm);
     let output = process::run_streaming(&npm, &args, INSTALL_TIMEOUT, &env, |line| on_line(line))
         .map_err(|error| format!("运行 npm 失败：{error}"))?;
 
@@ -473,6 +498,51 @@ pub struct UpdateCheck {
     pub error: Option<String>,
 }
 
+/// `child_env` with the interpreter's own directory in front.
+///
+/// npm runs package lifecycle scripts through a shell whose `PATH` is whatever
+/// we hand it. `node` has to resolve there, and the npm we just chose is the
+/// best evidence of where that Node is: beside it on Windows, `bin/` on macOS
+/// and Linux.
+fn node_first_env(npm: &std::path::Path) -> Vec<(String, String)> {
+    let env = process::child_env();
+    let Some(directory) = npm.parent() else {
+        return env;
+    };
+    env.into_iter()
+        .map(|(key, value)| {
+            if !key.eq_ignore_ascii_case("PATH") {
+                return (key, value);
+            }
+            let mut dirs = vec![directory.to_path_buf()];
+            dirs.extend(std::env::split_paths(&value));
+            match std::env::join_paths(dirs) {
+                Ok(joined) => (key, joined.to_string_lossy().into_owned()),
+                Err(_) => (key, value),
+            }
+        })
+        .collect()
+}
+
+/// An `npm` that actually runs, not merely one that exists.
+///
+/// `%APPDATA%\npm` (and every shell alias folder) can hold an `npm.cmd` whose
+/// `node` is gone: the file is there, so discovery finds it, but every call
+/// fails with "node is not recognized". Asking it for its version is the only
+/// way to tell that apart from a machine that simply has no npm — and the two
+/// lead to different actions.
+fn usable_npm(prefix: &std::path::Path) -> Option<std::path::PathBuf> {
+    let npm = common::shared_npm(prefix)?;
+    let output = process::run_with_env(
+        &npm,
+        &["--version"],
+        Duration::from_secs(20),
+        &node_first_env(&npm),
+    )
+    .ok()?;
+    output.success().then_some(npm)
+}
+
 /// Ask the registry for the latest published version and compare.
 ///
 /// This is a network read (`npm view`), so it is explicit: opening settings
@@ -506,7 +576,7 @@ pub fn check_update(runtime_id: &str, installed: Option<&str>) -> Result<UpdateC
         ],
         UPDATE_TIMEOUT,
         // Same reason as the install: npm itself is `#!/usr/bin/env node`.
-        &process::child_env(),
+        &node_first_env(&npm),
     )
     .map_err(|error| format!("查询 npm 失败：{error}"))?;
     if !output.success() {
