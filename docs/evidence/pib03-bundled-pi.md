@@ -99,3 +99,85 @@ npm --prefix frontend run build → tsc -b && vite build 成功
 - 「干净离线机」未执行：本机已有外部 Pi/Node，且未断网；PIB03-A 的离线声明保持 `NOT_RUN`。
 - 真实模型对话未在本轮执行（未登录状态，且登录会写入验收数据根之外的状态）；沿用既有 Pi 登录约定，联网对话作为后续真实验收项。
 - `SettingsPage` 的 `sample` 运行时卡片是 `/__sample/settings` 设计预览，只弹提示、不触发 npm 或安装动作，保持原样。
+
+## 7. Linux 试用（Box 云桌面，2026-11-27）
+
+目的是回答“Linux 能不能装、能不能跑”，**不是**正式跨平台验收：ADR 0005 / 0008 的平台矩阵不变，
+此处只记录真实结果。
+
+环境：Ubuntu 24.04（Box 云桌面，x86_64，2 vCPU / 3.9 GB，XFCE，DISPLAY=:0），
+rustup + rustc 1.95.0，webkit2gtk-4.1 2.52.6，系统 Node 24.21 仅用于构建前端。
+
+### 7.1 构建前修掉的三处跨平台缺陷
+
+| 提交 | 缺陷 | 后果 |
+|---|---|---|
+| `ba635d3` | `anvil-devtools` 无条件链接 Windows 注册表 API | Linux 上 `bundle-pi` 无法编译/运行；现按 Windows 门控，并在其他平台读 `/etc/os-release` 与内核版本 |
+| `8aea02e` | `bundle-pi` 把 Node `LICENSE` 复制到二进制旁边 | Unix 上落在 `node/bin/LICENSE`，清单检查要求 `node/LICENSE`，staging 自检失败 |
+| `529e1bf`、`9b16b6e` | 包内运行时扫描只“标记”旧 runtime 行 | 从旧版升级后出现两行 Pi Agent（一行仍是 `pi login` 旧提示）；改为包内运行时只保留本次扫描的那一行，升级与损坏两种情况都覆盖 |
+
+### 7.2 构建与安装
+
+```text
+> cargo run --locked -p anvil-devtools -- bundle-pi --target=linux-x64
+bundle-pi: staged …/src-tauri/bundle-runtime/pi for linux-x64 (node 24.16.0, pi 1.6.0)
+node/bin/node → v24.16.0；cli.js --version → 1.6.0
+
+> npx @tauri-apps/cli@2 build --config src-tauri/tauri.bundle.conf.json --bundles deb -- --locked
+Finished 1 bundle at: …/Anvil_0.1.22_amd64.deb (79.17 MiB)
+TAURI_EXIT=1   ← 仅缺 TAURI_SIGNING_PRIVATE_KEY
+sha256 aecb4118ba1b28053575585230af0333b44884c8104edbc0b860bb62b9390a6c
+
+> sudo apt-get install -y ./Anvil_0.1.22_amd64.deb
+Unpacking anvil (0.1.22) over (0.1.17)     ← Box 上原有旧版，升级路径顺带被验证
+INSTALL_EXIT=0
+/usr/lib/Anvil/runtime/pi/node/bin/node --version      → v24.16.0
+/usr/lib/Anvil/runtime/pi/…/dist/bundle/cli.js --version → 1.6.0
+```
+
+启动（`DISPLAY=:0 /usr/bin/anvil`）后日志：
+
+```text
+pi: bundled 1.6.0 (node 24.16.0) at /usr/lib/Anvil/runtime/pi
+pi: agent_dir=/home/user/.anvil skill_root=/home/user/.anvil/skill
+catalog: pi is unauthenticated at /usr/lib/Anvil/runtime/pi/…/dist/bundle/cli.js — no credential found yet: sign in from 设置 → 模型 …
+```
+
+catalog 数据库只剩一行：`('pi', '1.6.0', 'bundled', 'unauthenticated')`（旧 0.1.17 留下的
+`known_dir` 行已被清掉）。Box 上没有外部 `pi`。
+
+界面：首启直接进入工作台（PIB04 已去掉引导）；设置 → 运行时显示单行
+“Bundled with Anvil / 1.6.0 / /usr/lib/Anvil/runtime/pi / Data root /home/user/.anvil”，
+并给出“Import from the old Pi…”入口（截图 `linux-runtime-bundled.webp`）。
+
+### 7.3 损坏与卸载
+
+```text
+> sudo mv /usr/lib/Anvil/runtime/pi/…/dist/bundle/cli.js{,.bak}; 重新启动
+catalog: ('pi:unavailable', None, 'bundled', 'adapter_failed',
+          detail='the bundled Pi runtime is incomplete: …cli.js is missing; reinstall Anvil')
+```
+
+界面单行显示 “Bundled runtime damaged” + 加载器原文 +“Pi is never (and no longer needs to be)
+installed through npm.”（截图 `linux-runtime-damaged.webp`），没有第二个 Pi 行、没有 npm 入口。
+
+```text
+> sudo apt-get remove -y anvil
+REMOVE=0
+/usr/bin/anvil 已移除；/usr/lib/Anvil 仅剩损坏用例自己放的 cli.js.bak（已手动清理）
+/home/user/.anvil 完整保留；/home/user/.pi 未被修改
+```
+
+### 7.4 截图
+
+| 文件 | SHA-256 | 内容 |
+|---|---|---|
+| `docs/evidence/raw/pib03/linux-first-launch.webp` | `1f880944…3d032` | 首启直接工作台，无引导 |
+| `docs/evidence/raw/pib03/linux-runtime-bundled.webp` | `636c4028…3678c` | 运行时页：单行、已内置、1.6.0、数据根 |
+| `docs/evidence/raw/pib03/linux-runtime-damaged.webp` | `e70a0c8a…c987` | 损坏包：单行、错误原文、重装提示 |
+
+### 7.5 本节的限制
+
+- 只构建并安装了 `.deb`；AppImage、其他架构、签名整包更新、离线机均 `NOT_RUN`。
+- Box 有网络、有系统 Node 与 WebKitGTK，因此这不是“干净离线安装”的证明。
+- 结论仅限“Linux x64 这个环境里，安装、启动、使用包内 Pi、损坏提示、卸载都能走通”。
