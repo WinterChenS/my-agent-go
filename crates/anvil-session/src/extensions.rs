@@ -176,6 +176,22 @@ fn display_path(path: &Path) -> String {
 /// (Unix prefixes), and — when the shim resolves to `dist/cli.js` — the package
 /// root being one of the executable's own ancestors.
 ///
+/// The example shipped inside the runtime this app carries (ADR 0009).
+///
+/// A bundled install has no `pi` on PATH to derive the package location from —
+/// and even when one exists, its `examples/extensions/subagent` is a *different*
+/// package from the one Anvil runs. Startup publishes the bundle, and its
+/// manifest already names the example, so that is the source when it is there.
+fn bundled_source() -> Option<PathBuf> {
+    let bundle = anvil_catalog::runtime::bundled::active()?;
+    has_entry(&bundle.subagent_source).then(|| bundle.subagent_source.clone())
+}
+
+/// The source a status/install should copy from, bundled runtime first.
+fn install_source() -> Option<PathBuf> {
+    bundled_source().or_else(|| crate::adapters::find_on_path("pi").and_then(|exe| source_for(&exe)))
+}
+
 /// `ANVIL_PI_SUBAGENT_SOURCE` overrides the search, for tests and for a pi
 /// installed somewhere this heuristic cannot see.
 #[must_use]
@@ -502,7 +518,7 @@ fn status_at(agent_dir: &Path, source: Option<&Path>, detected: bool) -> PiSubag
 /// to decide whether to draw the install banner at all.
 #[must_use]
 pub fn pi_subagent_status() -> PiSubagentStatus {
-    let source = crate::adapters::find_on_path("pi").and_then(|exe| source_for(&exe));
+    let source = install_source();
     match agent_dir() {
         Some(dir) => {
             // The copy this installer writes is `extensions/subagent/`, but a
@@ -674,12 +690,9 @@ pub fn install_pi_subagent() -> Result<PiSubagentInstall> {
                 .to_string(),
         )
     })?;
-    let executable = crate::adapters::find_on_path("pi").ok_or_else(|| {
-        Error::NotFound("pi executable not found on PATH (install pi or fix PATH)".to_string())
-    })?;
-    let source = source_for(&executable).ok_or_else(|| {
+    let source = install_source().ok_or_else(|| {
         Error::NotFound(
-            "the installed pi package does not ship examples/extensions/subagent; update pi"
+            "the bundled Pi runtime does not carry examples/extensions/subagent; reinstall Anvil"
                 .to_string(),
         )
     })?;
@@ -732,6 +745,39 @@ mod tests {
         std::fs::write(source.join("agents/reviewer.md"), "# reviewer\n").expect("reviewer");
         std::fs::write(source.join("prompts/implement.md"), "# implement\n").expect("prompt");
         source
+    }
+
+    /// With the runtime inside the installer there is no PATH `pi` to read the
+    /// example from. The published bundle names it, and that is the copy an
+    /// install must use — otherwise the page reports "not shipped" for a
+    /// runtime that ships it.
+    #[test]
+    fn a_bundled_runtime_is_the_subagent_source() {
+        use std::sync::Arc;
+
+        let root = temp_root("bundled-source");
+        let data = root.join("data");
+        let source = fake_source(&root);
+        let bundle = anvil_catalog::runtime::bundled::BundledPi {
+            root: root.clone(),
+            node: root.join("node/bin/node"),
+            cli: root.join("pi/dist/bundle/cli.js"),
+            pi_ai: root.join("pi/dist/providers/all.js"),
+            subagent_source: source.clone(),
+            agent_dir: data.clone(),
+            skill_root: data.join("skill"),
+            node_version: "24.16.0".to_string(),
+            pi_version: "1.6.0".to_string(),
+            target: "test".to_string(),
+        };
+        anvil_catalog::runtime::bundled::set_active(Arc::new(bundle));
+        let status = pi_subagent_status();
+        assert!(status.can_install, "{status:?}");
+        assert_eq!(
+            status.source.as_deref().map(PathBuf::from),
+            Some(source.clone())
+        );
+        assert_eq!(PathBuf::from(&status.agent_dir), data);
     }
 
     #[test]

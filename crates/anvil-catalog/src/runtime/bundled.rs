@@ -193,18 +193,19 @@ impl BundledPi {
                 host_arch()
             ));
         }
-        let node = resolve(root, &manifest.node)?;
-        let cli = resolve(root, &manifest.cli)?;
-        let pi_ai = resolve(root, &manifest.pi_ai)?;
-        let subagent_source = resolve(root, &manifest.subagent_source)?;
+        let root = plain(root);
+        let node = resolve(&root, &manifest.node)?;
+        let cli = resolve(&root, &manifest.cli)?;
+        let pi_ai = resolve(&root, &manifest.pi_ai)?;
+        let subagent_source = resolve(&root, &manifest.subagent_source)?;
         Ok(Self {
-            root: root.to_path_buf(),
+            root,
             node,
             cli,
             pi_ai,
             subagent_source,
-            agent_dir: data_dir.to_path_buf(),
-            skill_root: data_dir.join("skill"),
+            agent_dir: plain(data_dir),
+            skill_root: plain(data_dir).join("skill"),
             node_version: manifest.node_version,
             pi_version: manifest.pi_version,
             target: manifest.target,
@@ -288,6 +289,30 @@ impl BundledPi {
 ///
 /// A manifest is data on disk; a tampered one must not be able to point the host
 /// at an executable somewhere else on the machine.
+/// Strip the Windows verbatim prefix Tauri hands out with `resource_dir()`.
+///
+/// Tauri canonicalizes the install directory, so every resource arrives as
+/// `\\?\D:\...`. Passing that form to `node <script>` looks equivalent to
+/// Windows but not to the script: Pi resolves its own package files from the
+/// script path, and a verbatim path makes that resolution fail — it then reports
+/// Node's version instead of its own (24.16.0 where 1.6.0 was meant), which is
+/// what the catalogue stored before this existed. The paths are still the same
+/// files; only the spelling changes.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn plain(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.as_os_str().to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
 fn resolve(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let candidate = Path::new(relative);
     if candidate.is_absolute()
@@ -542,6 +567,30 @@ mod tests {
         assert_eq!(bundle.skill_root, data.join("skill"));
         assert_eq!(bundle.pi_version, "1.6.0");
         assert_eq!(bundle.node_version, "24.16.0");
+        assert!(bundle.cli.ends_with("dist/bundle/cli.js"));
+    }
+
+    /// Tauri's `resource_dir()` canonicalizes into a `\\?\` path. That spelling
+    /// breaks Pi's own package resolution (it then reports Node's version), so
+    /// the loaded bundle must carry ordinary paths even when it was handed a
+    /// verbatim root.
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_install_path_is_spelled_plainly() {
+        let root = scratch("verbatim");
+        stage(&root);
+        write_manifest(&root, &good_manifest());
+        // `canonicalize` is what hands Tauri its verbatim spelling.
+        let verbatim = root.canonicalize().expect("canonical root");
+        assert!(verbatim.to_string_lossy().starts_with(r"\\?\"));
+        let bundle = BundledPi::from_dir(&verbatim, &root.join("data")).expect("valid bundle");
+        for path in [&bundle.root, &bundle.node, &bundle.cli, &bundle.pi_ai] {
+            assert!(
+                !path.to_string_lossy().starts_with(r"\\?\"),
+                "{} still carries the verbatim prefix",
+                path.display()
+            );
+        }
         assert!(bundle.cli.ends_with("dist/bundle/cli.js"));
     }
 
