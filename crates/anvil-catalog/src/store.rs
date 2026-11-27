@@ -19,9 +19,9 @@ use crate::connector::{ConnectorCall, ConnectorCallStat, ConnectorRow};
 use crate::error::{Error, Result};
 use crate::ids::{instance_key, path_key};
 use crate::model::{
-    AdapterFailure, AgentDraft, AgentRecord, Capabilities, CatalogSnapshot, InventoryKind,
-    McpRecord, ModelRecord, RuntimeHealth, RuntimeRecord, RuntimeRegistration, RuntimeStatus,
-    SkillRecord, SyncOutcome, ToolRecord,
+    AdapterFailure, AgentDraft, AgentRecord, Capabilities, CatalogSnapshot, InstallSource,
+    InventoryKind, McpRecord, ModelRecord, RuntimeHealth, RuntimeRecord, RuntimeRegistration,
+    RuntimeStatus, SkillRecord, SyncOutcome, ToolRecord,
 };
 
 const SCHEMA_VERSION: i64 = 1;
@@ -326,6 +326,29 @@ impl Store {
                     health,
                     registration.last_seen,
                 ])?;
+            }
+        }
+        {
+            // A bundled runtime has exactly one install (ADR 0009). Rows an
+            // older build discovered for the same runtime — a managed copy under
+            // the data directory, a PATH shim — are not a second install to keep:
+            // the page rendered two "Pi Agent" rows after an upgrade, one of them
+            // "not installed" and still advising `pi login`.
+            let mut bundled: Vec<&str> = registrations
+                .iter()
+                .filter(|registration| matches!(registration.source, InstallSource::Bundled))
+                .map(|registration| registration.runtime_id.as_str())
+                .collect();
+            bundled.sort_unstable();
+            bundled.dedup();
+            if !bundled.is_empty() {
+                let mut drop_foreign = transaction.prepare(
+                    "DELETE FROM runtimes WHERE runtime_id = ?1 AND install_source <> ?2",
+                )?;
+                for runtime_id in bundled {
+                    drop_foreign
+                        .execute(params![runtime_id, InstallSource::Bundled.as_str()])?;
+                }
             }
         }
         {
@@ -1804,4 +1827,60 @@ fn agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
         enabled: row.get::<_, i64>(23)? != 0,
         updated_at: row.get(24)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registration(id: &str, source: InstallSource, status: RuntimeStatus) -> RuntimeRegistration {
+        RuntimeRegistration {
+            id: id.to_string(),
+            runtime_id: "pi".to_string(),
+            display_name: "Pi Agent".to_string(),
+            version: Some("1.6.0".to_string()),
+            executable: std::path::PathBuf::from(format!("{id}/pi")),
+            source,
+            config_path: None,
+            status,
+            capabilities: Capabilities::none(),
+            health: RuntimeHealth::default(),
+            last_seen: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// An upgrade from the host-Pi build leaves a `known_dir` row behind; the
+    /// bundled runtime is the only install then, so the old row must go instead
+    /// of lingering as a second "not installed" Pi Agent.
+    #[test]
+    fn a_bundled_scan_drops_rows_an_older_install_left_behind() {
+        let root = std::env::temp_dir().join(format!(
+            "anvil-store-bundled-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch");
+        let mut store = Store::open(&root.join("catalog.sqlite")).expect("store");
+        let scanned = vec!["pi".to_string()];
+
+        let old = registration("pi:old", InstallSource::KnownDir, RuntimeStatus::NotInstalled);
+        store
+            .apply_scan(&[old], &scanned, "2026-01-01T00:00:00Z")
+            .expect("first scan");
+
+        let bundled = registration(
+            "pi:bundled",
+            InstallSource::Bundled,
+            RuntimeStatus::Unauthenticated,
+        );
+        store
+            .apply_scan(&[bundled], &scanned, "2026-01-01T00:00:01Z")
+            .expect("second scan");
+
+        let rows = store.runtimes().expect("rows");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].install_source, "bundled");
+        assert_eq!(rows[0].id, "pi:bundled");
+    }
 }
