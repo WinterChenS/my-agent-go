@@ -11,7 +11,6 @@ import ConnectorsPage from './pages/connectors/ConnectorsPage'
 import SchedulesPage from './pages/schedules/SchedulesPage'
 import LibraryPage from './pages/library/LibraryPage'
 import { ThemeProvider } from './preferences/ThemeProvider'
-import OnboardingDialog from './onboarding/OnboardingDialog'
 import PagePlaceholder from './shell/PagePlaceholder'
 import Shell from './shell/Shell'
 import { SHELL_ROUTES, WORKBENCH_ROUTE } from './shell/routes'
@@ -98,14 +97,7 @@ export function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      {/*
-        The wizard lives beside the routes, inside the same providers: it offers
-        a theme switch, so it must share the app's ThemeProvider instead of
-        starting a second one. Keeping it out of `AppRoutes` also keeps it out
-        of the pages' test tree, where it has nothing to say.
-      */}
       <AppProviders>
-        <OnboardingDialog />
         <RoutesTree />
       </AppProviders>
     </BrowserRouter>

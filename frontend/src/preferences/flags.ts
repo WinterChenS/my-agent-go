@@ -9,8 +9,6 @@ import { useCallback, useEffect, useState } from 'react'
 export const PREF_SHOW_TIMELINE = 'anvil.chat.showTimeline'
 /** Poll local skills/tools/MCP declarations in the background. On by default. */
 export const PREF_AUTO_SYNC = 'anvil.catalog.autoSync'
-/** First-run setup (pick a runtime + model) has been completed. */
-export const PREF_ONBOARDING_DONE = 'anvil.onboarding.done'
 /**
  * Which key sends a composer draft.
  *

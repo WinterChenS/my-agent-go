@@ -468,17 +468,6 @@ export function setCatalogModelEnabled(
   return hostCall<CatalogSnapshot>('catalog_set_model_enabled', { runtimeId, modelId, enabled })
 }
 
-/**
- * Record that first-run setup is finished.
- *
- * The wizard keeps a localStorage flag too, but that lives in the WebView and
- * a forced quit or a storage reset drops it. This one lives in the data
- * directory, so a configured profile does not open on the wizard again.
- */
-export function markCatalogSetupDone(): Promise<void> {
-  return hostCall<void>('catalog_mark_setup_done')
-}
-
 /** Save the whole agent draft; the host persists every field it edits. */
 export function saveCatalogAgent(draft: CatalogAgentDraft): Promise<CatalogSnapshot> {
   return hostCall<CatalogSnapshot>('catalog_save_agent', { agent: draft })
