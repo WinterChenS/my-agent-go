@@ -36,9 +36,11 @@ import {
   installPiSubagent,
   installRuntime,
   markCatalogSetupDone,
+  piRuntimeStatus,
   piSubagentStatus,
   setCatalogModelEnabled,
   setDefaultCatalogModel,
+  type BundledPiStatus,
   type CatalogModel,
   type CatalogRuntime,
   type CatalogSnapshot,
@@ -166,6 +168,9 @@ export default function OnboardingDialog() {
   /** Runtimes the user turned on. Seeded once, to pi only. */
   const [selected, setSelected] = useState<string[]>([])
   const [subagent, setSubagent] = useState<PiSubagentStatus | null>(null)
+  // What the installer carries (ADR 0009). A damaged tree is reported here, not
+  // as "pi is not installed": the wizard must not send anyone to npm.
+  const [piStatus, setPiStatus] = useState<BundledPiStatus | null>(null)
   const [busy, setBusy] = useState(false)
   /** runtimeId npm is installing right now, if any. */
   const [installing, setInstalling] = useState<string | null>(null)
@@ -244,6 +249,9 @@ export default function OnboardingDialog() {
     if (finished || !isTauriHost()) return
     void piSubagentStatus()
       .then(setSubagent)
+      .catch(() => undefined)
+    void piRuntimeStatus()
+      .then(setPiStatus)
       .catch(() => undefined)
   }, [finished])
 
@@ -368,6 +376,13 @@ export default function OnboardingDialog() {
    */
   const installOne = useCallback(
     async (runtimeId: string) => {
+      // Pi arrives with the installer. The old wizard offered a one-click npm
+      // install for it; that path is gone (ADR 0009) and a stale row must not
+      // bring it back.
+      if (runtimeId === DEFAULT_RUNTIME) {
+        setNotice('Pi 已内置在 Anvil 中，无需安装；若包内运行时损坏，请重新安装 Anvil。')
+        return
+      }
       setInstalling(runtimeId)
       setInstallLog([])
       setNotice('')
@@ -491,8 +506,14 @@ export default function OnboardingDialog() {
           ) : (
             <>
               <p className="ob-sub">
-                勾选要启用的运行时；没安装的可以在这里一键安装（npm 全局方式装到当前用户目录，不需要管理员权限，也不改系统 PATH）。机器上还没有 Node 时，会先把一份 Node 运行时下到同一目录，再装运行时本身。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
+                勾选要启用的运行时。Pi 随 Anvil 一起安装，无需额外下载；其他运行时可以在这里按 npm 全局方式装到当前用户目录（不需要管理员权限，也不改系统 PATH）。每个运行时会自动使用它的默认模型，进软件后还能在设置里换。
               </p>
+
+              {piStatus?.state === 'damaged' ? (
+                <p className="ob-notice is-error" data-testid="onboarding-pi-damaged">
+                  {piStatus.error ?? '包内 Pi 运行时损坏。'} 请重新安装 Anvil 恢复包内 Pi；本版本不会通过 npm 安装 Pi。
+                </p>
+              ) : null}
 
               {failed ? (
                 <p className="ob-notice is-error">
@@ -512,9 +533,13 @@ export default function OnboardingDialog() {
                   {runtimes.map((runtime) => {
                     // Found and runnable, even if discovery could not see the
                     // credential: the checkbox stays usable and the pill says
-                    // which of the two it is.
+                    // which of the two it is. A damaged bundled runtime is the
+                    // opposite — found, but nothing this build can run.
+                    const isPiRuntime = runtime.runtimeId === DEFAULT_RUNTIME
+                    const piDamaged = isPiRuntime && piStatus?.state === 'damaged'
                     const ready =
-                      runtime.status === 'available' || runtime.status === 'unauthenticated'
+                      (runtime.status === 'available' || runtime.status === 'unauthenticated') &&
+                      !piDamaged
                     const signedIn = runtime.status === 'available'
                     const checked = selected.includes(runtime.runtimeId)
                     const pick =
@@ -557,17 +582,21 @@ export default function OnboardingDialog() {
                           ) : (
                             <>
                               <span className="ob-pill is-muted">
-                                {runtimeStatusLabel(runtime.status)}
+                                {piDamaged ? '包内运行时损坏' : runtimeStatusLabel(runtime.status)}
                               </span>
-                              <button
-                                type="button"
-                                className="ob-btn is-small"
-                                disabled={installing !== null || busy}
-                                data-testid={`onboarding-install-${runtime.runtimeId}`}
-                                onClick={() => void installOne(runtime.runtimeId)}
-                              >
-                                {started ? '安装中…' : '一键安装'}
-                              </button>
+                              {/* Pi is installed by Anvil's installer; there is no
+                                  npm step to offer, damaged or not. */}
+                              {isPiRuntime ? null : (
+                                <button
+                                  type="button"
+                                  className="ob-btn is-small"
+                                  disabled={installing !== null || busy}
+                                  data-testid={`onboarding-install-${runtime.runtimeId}`}
+                                  onClick={() => void installOne(runtime.runtimeId)}
+                                >
+                                  {started ? '安装中…' : '一键安装'}
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
@@ -576,10 +605,12 @@ export default function OnboardingDialog() {
                             as "not installed": the path and the probe's own
                             reason are the only way to tell a PATH problem from
                             a missing login. */}
-                        {runtime.status !== 'available' && runtime.status !== 'not_installed' ? (
+                        {piDamaged || (runtime.status !== 'available' && runtime.status !== 'not_installed') ? (
                           <p className="ob-hint ob-runtime-detail" data-testid={`onboarding-detail-${runtime.runtimeId}`}>
-                            {runtime.health?.detail || '已找到可执行文件，但没有通过启动检查。'}
-                            {runtime.installPath ? ` · ${runtime.installPath}` : ''}
+                            {piDamaged
+                              ? piStatus?.error || '包内 Pi 运行时损坏，请重新安装 Anvil。'
+                              : runtime.health?.detail || '已找到可执行文件，但没有通过启动检查。'}
+                            {!piDamaged && runtime.installPath ? ` · ${runtime.installPath}` : ''}
                           </p>
                         ) : null}
 
@@ -625,7 +656,9 @@ export default function OnboardingDialog() {
 
               {!loading && !failed && usable.length === 0 ? (
                 <p className="ob-hint">
-                  本机还没有可用的运行时。点「一键安装」会按 npm 全局方式装到当前用户目录（不动系统 PATH）；没有 Node 会先自动准备，装完自动识别并勾选。
+                  {piStatus?.state === 'damaged'
+                    ? '包内 Pi 运行时损坏，需要重新安装 Anvil 恢复。'
+                    : '本机没有可用的运行时。其他运行时可以按 npm 全局方式装到当前用户目录（不动系统 PATH）；Pi 随 Anvil 安装包提供。'}
                 </p>
               ) : null}
 

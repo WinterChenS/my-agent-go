@@ -38,6 +38,7 @@ import {
   CatalogModelsPanel,
   CatalogRuntimeTable,
   CatalogSummary,
+  PiLegacyImport,
   SubagentExtensionPanel,
 } from '../../catalog/CatalogPanels'
 
@@ -488,6 +489,9 @@ function RuntimePanel({ sample, onNotice }: { sample: boolean; onNotice: (messag
           <div className="st-catalog" data-testid="settings-runtime-catalog">
             <CatalogSummary view={catalog} />
             <CatalogRuntimeTable view={catalog} onNotice={onNotice} />
+            {/* The legacy import is offered only when `~/.pi` still has
+                something to carry over; the component hides itself otherwise. */}
+            <PiLegacyImport onNotice={onNotice} />
           </div>
         ) : (
           <Empty

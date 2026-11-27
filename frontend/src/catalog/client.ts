@@ -687,3 +687,83 @@ export interface RuntimeUpdateCheck {
 export function checkRuntimeUpdate(runtimeId: string): Promise<RuntimeUpdateCheck> {
   return hostCall<RuntimeUpdateCheck>('runtime_update_check', { runtimeId })
 }
+
+/**
+ * The Pi runtime this install carries (ADR 0009).
+ *
+ * `state` is `bundled` when the runtime is usable and `damaged` when the tree in
+ * the install directory cannot be loaded. There is deliberately no "missing"
+ * state: Pi arrives with the installer, so a copy that is not there is a broken
+ * install, not an invitation to run npm.
+ */
+export interface BundledPiStatus {
+  state: 'bundled' | 'damaged'
+  version: string | null
+  nodeVersion: string | null
+  installRoot: string
+  nodePath: string
+  cliPath: string
+  /** `PI_CODING_AGENT_DIR`: the Anvil data directory. */
+  agentDir: string
+  /** User-level skill root, `<data_dir>/skill`. */
+  skillRoot: string
+  dataDir: string
+  /** Why the runtime is unusable; `null` when it is fine. */
+  error: string | null
+}
+
+/** What the shipped runtime is, asked without spawning it. */
+export function piRuntimeStatus(): Promise<BundledPiStatus> {
+  return hostCall<BundledPiStatus>('pi_runtime_status')
+}
+
+/** One entry a legacy import would copy. */
+export interface PiImportItem {
+  relative: string
+  source: string
+  target: string
+  /** `new`, `exists` (kept, not overwritten) or `unsupported`. */
+  state: 'new' | 'exists' | 'unsupported'
+  detail: string
+}
+
+/** What an import from the old `~/.pi` would do, before it does it. */
+export interface PiImportPlan {
+  agentSource: string
+  skillSource: string
+  agentTarget: string
+  skillTarget: string
+  /** Whether the legacy source has anything to offer at all. */
+  available: boolean
+  items: PiImportItem[]
+}
+
+export interface PiImportReport {
+  copied: number
+  skipped: number
+  failed: string[]
+}
+
+/**
+ * Read the legacy import plan. Read-only: nothing is written until the user
+ * confirms, and the host re-plans before copying so a stale page cannot
+ * overwrite what changed in between.
+ */
+export function piImportPlan(): Promise<PiImportPlan> {
+  return hostCall<PiImportPlan>('pi_import_plan')
+}
+
+/** Copy the entries the plan marks `new`. Credentials and sessions are never part of it. */
+export function piImportRun(): Promise<PiImportReport> {
+  return hostCall<PiImportReport>('pi_import_run')
+}
+
+/**
+ * Install the signed Anvil update.
+ *
+ * Pi ships inside the installer, so this is the Pi update too — there is no
+ * separate package to fetch, and no npm run to watch.
+ */
+export function installAppUpdate(): Promise<void> {
+  return hostCall<void>('app_update_install')
+}

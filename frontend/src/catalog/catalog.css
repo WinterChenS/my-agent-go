@@ -808,3 +808,43 @@
     transform: rotate(360deg);
   }
 }
+
+/* Legacy Pi import (PIB03): a button under the runtime table and the list of
+   entries a confirmed import would copy. States are coloured, because "kept
+   because it already exists" is the one thing a reader must notice before
+   pressing import. */
+.cat-import {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+.cat-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cat-import-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-import-list li:last-child {
+  border-bottom: 0;
+}
+
+.cat-import-list li[data-state='new'] .cat-sub {
+  color: var(--success, var(--fg));
+}
+
+.cat-import-list li[data-state='unsupported'] .cat-sub {
+  color: var(--muted);
+}

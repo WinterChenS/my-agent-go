@@ -9,6 +9,7 @@ import {
   CatalogRuntimeTable,
   CatalogSkillsPanel,
   CatalogSummary,
+  PiLegacyImport,
   SubagentExtensionPanel,
 } from '../CatalogPanels'
 import { useCatalog, type CatalogView } from '../useCatalog'
@@ -180,6 +181,11 @@ function installHost(overrides: Partial<Record<string, (args?: Record<string, un
       calls.push({ command, args })
       const override = overrides[command]
       if (override) return override(args)
+      // Bundled-runtime state and the legacy import are opt-in per test: a test
+      // that does not stub them runs the row exactly as a browser would (no
+      // host answer), which is the case the component has to survive anyway.
+      if (command === 'pi_runtime_status') return null
+      if (command === 'pi_import_plan') return null
       if (command === 'catalog_snapshot') return snapshotFixture()
       if (command === 'catalog_add_model') return snapshotFixture()
       if (command === 'catalog_refresh') return snapshotFixture()
@@ -288,9 +294,10 @@ describe('catalog panels', () => {
       ),
     )
     expect(screen.getByTestId('catalog-runtime-hint-pi')).toBeInTheDocument()
-    // The remedy for a broken launcher is to install it again: that rewrites
-    // the shim and re-pins it to a Node that exists.
-    expect(screen.getByTestId('catalog-runtime-reinstall-pi')).toHaveTextContent('重新安装')
+    // The remedy used to be "install it again", which rewrote the shim. Pi has
+    // no shim to rewrite now (ADR 0009): it is the copy in the installer, so a
+    // probe failure here is an install to repair, not an npm package to fetch.
+    expect(screen.queryByTestId('catalog-runtime-reinstall-pi')).not.toBeInTheDocument()
   })
 
   it('renders runtime status, versions and the rescan control', async () => {
@@ -630,5 +637,160 @@ describe("pi's subagent extension on the runtime page", () => {
     expect(notices[0]).toContain('not_found: pi executable not found on PATH')
     // Still missing, so the button is still there for a retry.
     expect(within(row).getByTestId('catalog-subagent-install')).toBeInTheDocument()
+  })
+})
+
+describe('bundled Pi (PIB03)', () => {
+  const bundled = (overrides: Record<string, unknown> = {}) => ({
+    state: 'bundled',
+    version: '1.6.0',
+    nodeVersion: '24.16.0',
+    installRoot: 'D:\\Anvil\\runtime\\pi',
+    nodePath: 'D:\\Anvil\\runtime\\pi\\node\\node.exe',
+    cliPath: 'D:\\Anvil\\runtime\\pi\\lib\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js',
+    agentDir: 'D:\\data\\anvil',
+    skillRoot: 'D:\\data\\anvil\\skill',
+    dataDir: 'D:\\data\\anvil',
+    error: null,
+    ...overrides,
+  })
+
+  it('shows the shipped runtime and its version, with no npm install action', async () => {
+    installHost({ pi_runtime_status: () => bundled() })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogRuntimeTable view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('catalog-runtime-bundled-pi')).toHaveTextContent('已内置'),
+    )
+    const row = screen.getByTestId('catalog-runtime-pi')
+    // The version comes from the installer's manifest, not from whatever the
+    // last scan of `PATH` happened to find.
+    expect(within(row).getByText('1.6.0')).toBeInTheDocument()
+    expect(screen.getByTestId('catalog-runtime-data-dir-pi')).toHaveTextContent('D:\\data\\anvil')
+    // Pi is not an npm package here: no reinstall, and nothing installs it.
+    expect(screen.queryByTestId('catalog-runtime-reinstall-pi')).not.toBeInTheDocument()
+    expect(screen.getByTestId('catalog-runtime-check-pi')).toBeInTheDocument()
+  })
+
+  it('renders a damaged bundle with the loader words and no way to install pi', async () => {
+    const damaged = () => {
+      const snapshot = snapshotFixture()
+      snapshot.runtimes[0] = {
+        ...snapshot.runtimes[0],
+        version: null,
+        installPath: '',
+        status: 'adapter_failed',
+        health: {
+          checkedAt: '2026-01-01T00:00:00Z',
+          latencyMs: 0,
+          detail: 'runtime/pi is missing; reinstall Anvil',
+        },
+      }
+      return snapshot
+    }
+    const calls = installHost({
+      catalog_snapshot: damaged,
+      catalog_sync_inventory: damaged,
+      pi_runtime_status: () =>
+        bundled({ state: 'damaged', version: null, error: 'runtime/pi is missing; reinstall Anvil' }),
+    })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogRuntimeTable view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('catalog-runtime-bundled-error')).toHaveTextContent(
+        'reinstall Anvil',
+      ),
+    )
+    expect(screen.getByTestId('catalog-runtime-bundled-status-pi')).toHaveTextContent('包内运行时损坏')
+    expect(screen.getByTestId('catalog-runtime-damaged-note-pi')).toBeInTheDocument()
+    expect(screen.queryByTestId('catalog-runtime-update-pi')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('catalog-runtime-reinstall-pi')).not.toBeInTheDocument()
+    expect(calls.some((call) => call.command === 'runtime_install')).toBe(false)
+  })
+
+  it('checks for updates against the Anvil installer, not npm', async () => {
+    const user = userEvent.setup()
+    const calls = installHost({
+      pi_runtime_status: () => bundled(),
+      runtime_update_check: () => ({
+        runtimeId: 'pi',
+        package: 'Anvil',
+        installed: '1.6.0',
+        latest: '0.1.23',
+        updateAvailable: true,
+        checkedAt: '2026-01-01T00:00:00Z',
+        error: null,
+      }),
+      app_update_install: () => null,
+    })
+    render(
+      <LanguageProvider>
+        <Harness>{(view) => <CatalogRuntimeTable view={view} />}</Harness>
+      </LanguageProvider>,
+    )
+    await user.click(await screen.findByTestId('catalog-runtime-check-pi'))
+    const update = await screen.findByTestId('catalog-runtime-update-pi')
+    expect(update).toHaveTextContent('更新 Anvil')
+    await user.click(update)
+    await waitFor(() =>
+      expect(calls.some((call) => call.command === 'app_update_install')).toBe(true),
+    )
+    expect(calls.some((call) => call.command === 'runtime_install')).toBe(false)
+  })
+
+  it('offers the legacy import, lists every entry and reports what it copied', async () => {
+    const user = userEvent.setup()
+    const calls = installHost({
+      pi_import_plan: () => ({
+        agentSource: 'C:\\Users\\u\\.pi\\agent',
+        skillSource: 'C:\\Users\\u\\.pi\\skills',
+        agentTarget: 'D:\\data\\anvil',
+        skillTarget: 'D:\\data\\anvil\\skill',
+        available: true,
+        items: [
+          {
+            relative: 'models.json',
+            source: 'C:\\Users\\u\\.pi\\agent\\models.json',
+            target: 'D:\\data\\anvil\\models.json',
+            state: 'new',
+            detail: '',
+          },
+          {
+            relative: 'settings.json',
+            source: 'C:\\Users\\u\\.pi\\agent\\settings.json',
+            target: 'D:\\data\\anvil\\settings.json',
+            state: 'exists',
+            detail: 'target already exists',
+          },
+        ],
+      }),
+      pi_import_run: () => ({ copied: 1, skipped: 1, failed: [] }),
+    })
+    render(
+      <LanguageProvider>
+        <PiLegacyImport />
+      </LanguageProvider>,
+    )
+    await user.click(await screen.findByTestId('catalog-pi-import-open'))
+    const dialog = screen.getByTestId('catalog-pi-import-dialog')
+    expect(within(dialog).getByText('models.json')).toBeInTheDocument()
+    expect(within(dialog).getByText('已存在，跳过')).toBeInTheDocument()
+    await user.click(screen.getByTestId('catalog-pi-import-run'))
+    await waitFor(() =>
+      expect(screen.getByTestId('catalog-pi-import-report')).toHaveTextContent(
+        '已复制 1 项，跳过 1 项。',
+      ),
+    )
+    expect(calls.some((call) => call.command === 'pi_import_run')).toBe(true)
+    // The plan is re-read after the copy so the list reflects what is left.
+    await waitFor(() =>
+      expect(calls.filter((call) => call.command === 'pi_import_plan').length).toBeGreaterThan(1),
+    )
   })
 })

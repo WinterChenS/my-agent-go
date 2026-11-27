@@ -6,20 +6,28 @@ import type { MessageKey } from '../i18n/catalogue'
 import {
   addCustomModel,
   checkRuntimeUpdate,
+  installAppUpdate,
   installPiSubagent,
   installRuntime,
   loadCatalog,
   piExtensions,
+  piImportPlan,
+  piImportRun,
+  piRuntimeStatus,
   piSubagentStatus,
   probeCatalogMcp,
   updatePiSubagent,
   setCatalogModelEnabled,
   setDefaultCatalogModel,
   verifyCatalogModel,
+  type BundledPiStatus,
   type CatalogModel,
   type CatalogMcp,
   type CatalogSnapshot,
   type PiExtension,
+  type PiImportItem,
+  type PiImportPlan,
+  type PiImportReport,
   type PiSubagentStatus,
   type RuntimeUpdateCheck,
 } from './client'
@@ -147,7 +155,23 @@ export function CatalogRuntimeTable({
   const [checks, setChecks] = useState<Record<string, RuntimeUpdateCheck>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [installLog, setInstallLog] = useState<string[]>([])
+  // What the installer put on disk, asked once. `null` means the host could not
+  // answer (a browser, or a page opened before startup finished) — the row then
+  // keeps its catalog description instead of inventing a bundled state.
+  const [pi, setPi] = useState<BundledPiStatus | null>(null)
   const logRef = useRef<HTMLPreElement | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void piRuntimeStatus()
+      .then((status) => {
+        if (alive) setPi(status)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
   // The npm transcript streams while `installRuntime` is still in flight.
   useEffect(() => {
     if (!busy) return
@@ -187,6 +211,9 @@ export function CatalogRuntimeTable({
   }
 
   const update = async (runtimeId: string, version: string) => {
+    // Pi is not an npm package any more (ADR 0009). Every other runtime still
+    // installs through npm; this branch exists so a stale page cannot.
+    if (runtimeId === 'pi') return
     setBusy(runtimeId)
     setInstallLog([])
     try {
@@ -212,6 +239,24 @@ export function CatalogRuntimeTable({
     }
   }
 
+  /** Pi's update is an Anvil update: the installer carries the next version. */
+  const updateApp = async (version: string) => {
+    setBusy('pi')
+    try {
+      await installAppUpdate()
+      setChecks((current) => {
+        const next = { ...current }
+        delete next.pi
+        return next
+      })
+      onNotice?.(t('catalog.runtimes.updateAppStarted', { version }))
+    } catch (error) {
+      onNotice?.(t('catalog.runtimes.updateAppFailed', { message: failureText(error) }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="cat-table-wrap">
       <table className="cat-table" aria-label={t('catalog.runtimes.title')} data-testid="catalog-runtimes">
@@ -229,6 +274,12 @@ export function CatalogRuntimeTable({
           {runtimes.map((runtime) => {
             const result = checks[runtime.runtimeId]
             const working = busy === runtime.runtimeId
+            // Only pi is bundled (ADR 0009). Its row answers from the installer's
+            // manifest rather than from whatever was on PATH, and a tree that
+            // will not load reads as “reinstall Anvil”, never as “install pi”.
+            const isPi = runtime.runtimeId === 'pi'
+            const bundled = isPi ? pi : null
+            const damaged = bundled?.state === 'damaged'
             return (
               <tr key={runtime.id} data-testid={`catalog-runtime-${runtime.runtimeId}`}>
                 <td>
@@ -236,37 +287,67 @@ export function CatalogRuntimeTable({
                   <span className="cat-sub mono">{runtime.runtimeId}</span>
                 </td>
                 <td>
-                  <span className={`cat-badge ${statusTone(runtime.status)}`} data-status={runtime.status}>
-                    <i />{t(runtimeStatusKey(runtime.status))}
-                  </span>
-                  {statusHintKey(runtime.status) ? (
+                  {damaged ? (
                     <>
                       <span
-                        className="cat-sub cat-hint"
-                        data-testid={`catalog-runtime-hint-${runtime.runtimeId}`}
+                        className="cat-badge is-danger"
+                        data-status="damaged"
+                        data-testid="catalog-runtime-bundled-status-pi"
                       >
-                        {t(statusHintKey(runtime.status) as MessageKey)}
+                        <i />{t('catalog.runtimes.damaged')}
                       </span>
-                      {/* The adapter's own words, on screen instead of in a
-                          tooltip: "would not start" cannot tell a missing Node
-                          from a blocked directory, and that is the one thing
-                          the reader needs to fix it. */}
-                      {runtime.health.detail ? (
-                        <span
-                          className="cat-sub cat-detail mono"
-                          data-testid={`catalog-runtime-detail-${runtime.runtimeId}`}
-                        >
-                          {runtime.health.detail}
+                      <span
+                        className="cat-sub cat-detail mono"
+                        data-testid="catalog-runtime-bundled-error"
+                      >
+                        {bundled?.error ?? ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`cat-badge ${statusTone(runtime.status)}`} data-status={runtime.status}>
+                        <i />{t(runtimeStatusKey(runtime.status))}
+                      </span>
+                      {bundled?.state === 'bundled' ? (
+                        <span className="cat-sub" data-testid="catalog-runtime-bundled-pi">
+                          {t('catalog.runtimes.bundled')}
                         </span>
                       ) : null}
+                      {statusHintKey(runtime.status) ? (
+                        <>
+                          <span
+                            className="cat-sub cat-hint"
+                            data-testid={`catalog-runtime-hint-${runtime.runtimeId}`}
+                          >
+                            {t(statusHintKey(runtime.status) as MessageKey)}
+                          </span>
+                          {/* The adapter's own words, on screen instead of in a
+                              tooltip: "would not start" cannot tell a missing Node
+                              from a blocked directory, and that is the one thing
+                              the reader needs to fix it. */}
+                          {runtime.health.detail ? (
+                            <span
+                              className="cat-sub cat-detail mono"
+                              data-testid={`catalog-runtime-detail-${runtime.runtimeId}`}
+                            >
+                              {runtime.health.detail}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : runtime.health.detail ? (
+                        <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
+                      ) : null}
                     </>
-                  ) : runtime.health.detail ? (
-                    <span className="cat-sub" title={runtime.health.detail}>{runtime.health.detail}</span>
-                  ) : null}
+                  )}
                 </td>
-                <td className="mono">{runtime.version ?? '—'}</td>
-                <td className="cat-path mono" title={runtime.installPath}>
-                  {runtime.installPath || '—'}
+                <td className="mono">{bundled?.version ?? runtime.version ?? '—'}</td>
+                <td className="cat-path mono" title={bundled?.cliPath || runtime.installPath}>
+                  {bundled?.cliPath || runtime.installPath || '—'}
+                  {bundled?.dataDir ? (
+                    <span className="cat-sub mono" data-testid="catalog-runtime-data-dir-pi">
+                      {t('catalog.runtimes.dataRoot', { path: bundled.dataDir })}
+                    </span>
+                  ) : null}
                 </td>
                 <td>
                   <span className="cat-sub">
@@ -276,51 +357,66 @@ export function CatalogRuntimeTable({
                   </span>
                 </td>
                 <td>
-                  <div className="cat-row-actions" data-testid={`catalog-runtime-actions-${runtime.runtimeId}`}>
-                    {result?.updateAvailable && result.latest ? (
-                      <>
-                        <span className="cat-sub mono">{t('catalog.runtimes.latest', { version: result.latest })}</span>
+                  {damaged ? (
+                    <span className="cat-sub" data-testid="catalog-runtime-damaged-note-pi">
+                      {t('catalog.runtimes.damagedHint')}
+                    </span>
+                  ) : (
+                    <div className="cat-row-actions" data-testid={`catalog-runtime-actions-${runtime.runtimeId}`}>
+                      {result?.updateAvailable && result.latest ? (
+                        <>
+                          <span className="cat-sub mono">{t('catalog.runtimes.latest', { version: result.latest })}</span>
+                          <button
+                            type="button"
+                            className="cat-btn cat-btn-primary"
+                            data-testid={`catalog-runtime-update-${runtime.runtimeId}`}
+                            disabled={working}
+                            onClick={() =>
+                              void (isPi
+                                ? updateApp(result.latest ?? '')
+                                : update(runtime.runtimeId, result.latest ?? ''))
+                            }
+                          >
+                            {working
+                              ? t('catalog.runtimes.updating')
+                              : isPi
+                                ? t('catalog.runtimes.updateApp')
+                                : t('catalog.runtimes.update')}
+                          </button>
+                        </>
+                      ) : result?.error ? (
+                        <span className="cat-sub" title={result.error}>{t('catalog.runtimes.checkFailedShort')}</span>
+                      ) : result ? (
+                        <span className="cat-sub">{t('catalog.runtimes.upToDateShort')}</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="cat-btn"
+                        data-testid={`catalog-runtime-check-${runtime.runtimeId}`}
+                        disabled={working}
+                        onClick={() => void check(runtime.runtimeId)}
+                      >
+                        {working ? t('catalog.runtimes.checking') : t('catalog.runtimes.check')}
+                      </button>
+                      {/* A runtime that was found but will not start is almost
+                          always a broken launcher — a Node path that moved, or a
+                          shim written by an older install. Re-running the install
+                          rewrites the launcher and re-pins it to a working Node,
+                          which is the only action that fixes it. Pi has no
+                          launcher to rewrite: it is the copy in the installer. */}
+                      {runtime.status === 'probe_failed' && !isPi ? (
                         <button
                           type="button"
                           className="cat-btn cat-btn-primary"
-                          data-testid={`catalog-runtime-update-${runtime.runtimeId}`}
+                          data-testid={`catalog-runtime-reinstall-${runtime.runtimeId}`}
                           disabled={working}
-                          onClick={() => void update(runtime.runtimeId, result.latest ?? '')}
+                          onClick={() => void update(runtime.runtimeId, runtime.version ?? '')}
                         >
-                          {working ? t('catalog.runtimes.updating') : t('catalog.runtimes.update')}
+                          {working ? t('catalog.runtimes.updating') : t('catalog.runtimes.reinstall')}
                         </button>
-                      </>
-                    ) : result?.error ? (
-                      <span className="cat-sub" title={result.error}>{t('catalog.runtimes.checkFailedShort')}</span>
-                    ) : result ? (
-                      <span className="cat-sub">{t('catalog.runtimes.upToDateShort')}</span>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="cat-btn"
-                      data-testid={`catalog-runtime-check-${runtime.runtimeId}`}
-                      disabled={working}
-                      onClick={() => void check(runtime.runtimeId)}
-                    >
-                      {working ? t('catalog.runtimes.checking') : t('catalog.runtimes.check')}
-                    </button>
-                    {/* A runtime that was found but will not start is almost
-                        always a broken launcher — a Node path that moved, or a
-                        shim written by an older install. Re-running the install
-                        rewrites the launcher and re-pins it to a working Node,
-                        which is the only action that fixes it. */}
-                    {runtime.status === 'probe_failed' ? (
-                      <button
-                        type="button"
-                        className="cat-btn cat-btn-primary"
-                        data-testid={`catalog-runtime-reinstall-${runtime.runtimeId}`}
-                        disabled={working}
-                        onClick={() => void update(runtime.runtimeId, runtime.version ?? '')}
-                      >
-                        {working ? t('catalog.runtimes.updating') : t('catalog.runtimes.reinstall')}
-                      </button>
-                    ) : null}
-                  </div>
+                      ) : null}
+                    </div>
+                  )}
                 </td>
               </tr>
             )
@@ -1118,6 +1214,179 @@ export function CatalogMcpPanel({ view }: { view: CatalogView }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+/** What the import will do to a plan item, in the reader's language. */
+function importStateKey(state: PiImportItem['state']): MessageKey {
+  switch (state) {
+    case 'new':
+      return 'catalog.pibImport.state.new'
+    case 'exists':
+      return 'catalog.pibImport.state.exists'
+    default:
+      return 'catalog.pibImport.state.unsupported'
+  }
+}
+
+/**
+ * Offer to copy an old `~/.pi` install into the Anvil data root.
+ *
+ * Nothing is written until the user presses the button: the plan is read-only
+ * and names every entry. Credentials and sessions are not in it at all (the
+ * host's allowlist), and entries that already exist are kept, not overwritten —
+ * so a second run is a no-op rather than a second copy.
+ */
+export function PiLegacyImport({ onNotice }: { onNotice?: (message: string) => void }) {
+  const { t } = useI18n()
+  const [plan, setPlan] = useState<PiImportPlan | null>(null)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<PiImportReport | null>(null)
+  const [error, setError] = useState('')
+
+  const reload = useCallback(() => {
+    void piImportPlan()
+      .then(setPlan)
+      .catch(() => setPlan(null))
+  }, [])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
+
+  if (!plan?.available) return null
+  const fresh = plan.items.filter((item) => item.state === 'new')
+
+  const run = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await piImportRun()
+      setReport(result)
+      reload()
+      onNotice?.(
+        t('catalog.pibImport.done', { copied: result.copied, skipped: result.skipped }),
+      )
+    } catch (cause) {
+      setError(failureText(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="cat-import" data-testid="catalog-pi-import">
+      {fresh.length > 0 ? (
+        <button
+          type="button"
+          className="cat-btn"
+          data-testid="catalog-pi-import-open"
+          onClick={() => setOpen(true)}
+        >
+          {t('catalog.pibImport.button')}
+        </button>
+      ) : (
+        <span className="cat-sub" data-testid="catalog-pi-import-empty">
+          {report
+            ? t('catalog.pibImport.done', { copied: report.copied, skipped: report.skipped })
+            : t('catalog.pibImport.nothing')}
+        </span>
+      )}
+      {open ? (
+        <div
+          className="cat-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setOpen(false)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation()
+              setOpen(false)
+            }
+          }}
+        >
+          <div
+            className="cat-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('catalog.pibImport.title')}
+            data-testid="catalog-pi-import-dialog"
+          >
+            <div className="cat-dialog-head">
+              <div>
+                <h2>{t('catalog.pibImport.title')}</h2>
+                <p>
+                  {t('catalog.pibImport.sub', {
+                    source: plan.agentSource,
+                    target: plan.agentTarget,
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="cat-btn"
+                aria-label={t('catalog.pibImport.close')}
+                onClick={() => setOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="cat-dialog-body">
+              <ul className="cat-import-list">
+                {plan.items.map((item) => (
+                  <li key={item.relative} data-state={item.state}>
+                    <span className="mono">{item.relative}</span>
+                    <span className="cat-sub">{t(importStateKey(item.state))}</span>
+                    {item.detail ? <span className="cat-sub">{item.detail}</span> : null}
+                  </li>
+                ))}
+              </ul>
+              {report ? (
+                <p className="cat-sub" data-testid="catalog-pi-import-report">
+                  {t('catalog.pibImport.done', {
+                    copied: report.copied,
+                    skipped: report.skipped,
+                  })}
+                </p>
+              ) : null}
+              {report && report.failed.length > 0 ? (
+                <p className="cat-detail" data-testid="catalog-pi-import-failed">
+                  {t('catalog.pibImport.failed', {
+                    count: report.failed.length,
+                    items: report.failed.join('; '),
+                  })}
+                </p>
+              ) : null}
+              {error ? (
+                <p className="cat-detail" data-testid="catalog-pi-import-error">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+            <div className="cat-dialog-foot">
+              <button
+                type="button"
+                className="cat-btn cat-btn-primary"
+                data-testid="catalog-pi-import-run"
+                disabled={busy || fresh.length === 0}
+                onClick={() => void run()}
+              >
+                {busy ? t('catalog.pibImport.running') : t('catalog.pibImport.run')}
+              </button>
+              <button
+                type="button"
+                className="cat-btn"
+                data-testid="catalog-pi-import-close"
+                onClick={() => setOpen(false)}
+              >
+                {t('catalog.pibImport.close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

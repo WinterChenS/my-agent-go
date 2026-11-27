@@ -33,12 +33,23 @@ function catalog(runtimes: Array<Record<string, unknown>>, models: Array<Record<
   }
 }
 
-function installHost(snapshot = catalog([], []), runtimeResult: unknown = null) {
+function installHost(
+  snapshot = catalog([], []),
+  runtimeResult: unknown = null,
+  extra: Partial<Record<string, unknown | ((args?: Record<string, unknown>) => unknown)>> = {},
+) {
   const calls: Array<{ command: string; args: Record<string, unknown> | undefined }> = []
   let emitInstallLine: ((line: string) => void) | null = null
   const internals = {
     invoke: async (command: string, args: Record<string, unknown> | undefined) => {
       calls.push({ command, args })
+      if (Object.prototype.hasOwnProperty.call(extra, command)) {
+        const value = extra[command]
+        if (typeof value === 'function') {
+          return (value as (args?: Record<string, unknown>) => unknown)(args)
+        }
+        return value
+      }
       switch (command) {
         case 'catalog_snapshot':
         case 'catalog_refresh':
@@ -122,18 +133,19 @@ describe('first-run wizard', () => {
     expect(await screen.findByTestId('onboarding-step-1')).toBeInTheDocument()
   })
 
-  it('says so when nothing is installed, and can be dismissed', async () => {
+  it('says so when nothing is usable, and never offers to install Pi', async () => {
     const user = userEvent.setup()
-    installHost(catalog([
+    const calls = installHost(catalog([
       { runtimeId: 'pi', displayName: 'Pi Agent', status: 'not_installed', version: null },
     ], []))
     render(<App />)
 
     await user.click(await screen.findByTestId('onboarding-next'))
-    expect(await screen.findByText(/本机还没有可用的运行时/)).toBeInTheDocument()
-    // No runtime to install from an empty prefix either: it is a row with a
-    // button, and the finish button has nothing to enable.
-    expect(screen.getByTestId('onboarding-install-pi')).toBeEnabled()
+    expect(await screen.findByText(/本机没有可用的运行时/)).toBeInTheDocument()
+    // Pi ships inside the installer (ADR 0009). There is no npm button for it,
+    // even when a stale catalog row calls it missing.
+    expect(screen.queryByTestId('onboarding-install-pi')).not.toBeInTheDocument()
+    expect(calls.some((call) => call.command === 'runtime_install')).toBe(false)
     expect(screen.getByTestId('onboarding-finish')).toBeDisabled()
     expect(screen.getByTestId('onboarding-skip')).toBeEnabled()
   })
@@ -183,47 +195,72 @@ describe('first-run wizard', () => {
     await waitFor(() => expect(screen.queryByTestId('onboarding')).toBeNull())
   })
 
-  it('streams npm output and lets the user finish right after a successful install', async () => {
+  it('reports a damaged bundled runtime and never reaches for npm', async () => {
     const user = userEvent.setup()
-    let release!: (value: unknown) => void
-    let result!: unknown
-    const host = installHost(
-      catalog([{ runtimeId: 'pi', displayName: 'Pi Agent', status: 'not_installed' }], []),
-      new Promise((resolve) => {
-        release = resolve
+    const damaged = catalog([
+      {
+        runtimeId: 'pi',
+        displayName: 'Pi Agent',
+        status: 'adapter_failed',
+        version: null,
+        installPath: '',
+        health: { checkedAt: '2026-11-27T00:00:00Z', latencyMs: 0, detail: 'runtime/pi is missing; reinstall Anvil' },
+      },
+    ], [])
+    const calls = installHost(damaged, null, {
+      pi_runtime_status: () => ({
+        state: 'damaged',
+        version: null,
+        nodeVersion: null,
+        installRoot: 'D:\\Anvil\\runtime\\pi',
+        nodePath: '',
+        cliPath: '',
+        agentDir: 'D:\\data\\anvil',
+        skillRoot: 'D:\\data\\anvil\\skill',
+        dataDir: 'D:\\data\\anvil',
+        error: 'runtime/pi is missing; reinstall Anvil',
       }),
+    })
+    render(<App />)
+
+    await user.click(await screen.findByTestId('onboarding-next'))
+    expect(await screen.findByTestId('onboarding-pi-damaged')).toHaveTextContent('reinstall Anvil')
+    expect(screen.queryByTestId('onboarding-install-pi')).not.toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-detail-pi')).toHaveTextContent('reinstall Anvil')
+    expect(screen.getByTestId('onboarding-finish')).toBeDisabled()
+    expect(calls.some((call) => call.command === 'runtime_install')).toBe(false)
+  })
+
+  it('enables the bundled Pi and opens the model step without an install', async () => {
+    const user = userEvent.setup()
+    const calls = installHost(
+      catalog([{ runtimeId: 'pi', displayName: 'Pi Agent', status: 'available', version: '1.6.0' }], [PI_MODEL]),
+      null,
+      {
+        pi_runtime_status: () => ({
+          state: 'bundled',
+          version: '1.6.0',
+          nodeVersion: '24.16.0',
+          installRoot: 'D:\\Anvil\\runtime\\pi',
+          nodePath: 'D:\\Anvil\\runtime\\pi\\node\\node.exe',
+          cliPath: 'D:\\Anvil\\runtime\\pi\\cli.js',
+          agentDir: 'D:\\data\\anvil',
+          skillRoot: 'D:\\data\\anvil\\skill',
+          dataDir: 'D:\\data\\anvil',
+          error: null,
+        }),
+      },
     )
     render(<App />)
 
     await user.click(await screen.findByTestId('onboarding-next'))
-    await user.click(screen.getByTestId('onboarding-install-pi'))
-
-    const log = await screen.findByTestId('onboarding-install-log')
-    host.emit('added 1 package in 3s')
-    await waitFor(() => expect(log).toHaveTextContent('added 1 package in 3s'))
-
-    result = {
-      report: {
-        runtimeId: 'pi',
-        ok: true,
-        package: '@earendil-works/pi-coding-agent',
-        prefix: 'C:\\Users\\winte\\AppData\\Local\\pi-node\\current',
-        installedPath: 'C:\\Users\\winte\\AppData\\Local\\pi-node\\current\\pi.cmd',
-        version: '1.6.0',
-        output: 'added 1 package in 3s',
-        elapsedMs: 3000,
-      },
-      snapshot: catalog(
-        [{ runtimeId: 'pi', displayName: 'Pi Agent', status: 'available', version: '1.6.0' }],
-        [PI_MODEL],
-      ),
-    }
-    release(result)
-
-    await waitFor(() => expect(screen.getByTestId('onboarding-finish')).toBeEnabled())
-    expect(screen.getByTestId('onboarding-notice')).toHaveTextContent('v1.6.0')
+    const row = await screen.findByTestId('onboarding-runtime-pi')
+    expect(row).toHaveAttribute('data-installed', 'true')
+    expect(screen.getByTestId('onboarding-pick-pi')).toHaveTextContent('DeepSeek V4.1 Flash')
+    expect(screen.queryByTestId('onboarding-install-pi')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('onboarding-finish'))
     await waitFor(() => expect(screen.queryByTestId('onboarding')).toBeNull())
+    expect(calls.some((call) => call.command === 'runtime_install')).toBe(false)
   })
 
   it('still finishes when the leading model was never verified', async () => {
