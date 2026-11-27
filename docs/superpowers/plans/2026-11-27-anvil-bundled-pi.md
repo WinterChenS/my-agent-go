@@ -41,22 +41,24 @@
 
 **文件**　桌面入口查看 `src-tauri/src/desktop.rs`；运行时状态与安装查看 `src-tauri/src/catalog.rs`、`runtimes.rs`；会话查看 `src-tauri/src/session.rs` 及 `crates/anvil-session/src/adapters/{mod,pi}.rs`；登录查看 `src-tauri/src/pi_auth.rs` 和 `crates/anvil-catalog/src/providers.rs`；数据路径查看 `src-tauri/src/{skills,subagents}.rs`、`crates/anvil-session/src/extensions.rs`、`crates/anvil-catalog/src/runtime/adapters/pi.rs`。用 `src-tauri/src/schedules.rs` 核对定时任务调用链。
 
-- [ ] 先写失败回归测试。分别在有外部 `pi`/`node`、继承了外部 `PI_CODING_AGENT_DIR`、安装资源缺文件的情况下构造实际桌面调用所用的命令。前两者必须选包内路径和注入的数据根，第三种必须报包内资源错误。旧 catalog 缓存里的外部 Pi 条目不得提供可用执行入口。
-- [ ] 在桌面初始化时用 Tauri `resource_dir()` 定位并校验清单，构造一份共享配置。建议接口为 `BundledPi::load(resource_dir: &Path, data_dir: &Path) -> Result<BundledPi, String>` 与 `BundledPi::command(&self) -> std::process::Command`。类型放在已有共享依赖可引用的位置，或者注入等价路径参数。配置至少包含 `node`、`cli`、`pi_ai`、`subagent_source`、`agent_dir`、`skill_root`。调用顺序固定为 `Command::new(node).arg(cli)` 加现有参数，`cwd` 继续使用本次会话工作区。用子进程环境明确设置 `PI_CODING_AGENT_DIR`，按需重定向或清除外部 `PI_PACKAGE_DIR`、`NODE_PATH`、`NODE_OPTIONS` 等会改变包解析的值；保留现有工具和模型需要的环境。使用 `OsString` 路径和独立参数，覆盖含空格和 Unicode 的路径。
-- [ ] 将包内启动配置注入 catalog 的 Pi 探测、模型/MCP 同步、`PiAdapter`、OAuth helper 以及定时会话链路。正式桌面入口由该配置提供唯一可用 Pi，已有测试或开发注入继续使用显式依赖。探测应保留「未登录」与「启动失败」的区别。把旧外部安装记录按既有失效流程处理，保留 `runtime_id = "pi"`、Agent 引用和原生会话 ID。禁止旧安装按钮、自动 launcher 修复和 runtime 更新绕回 `npm install -g`。
-- [ ] 现有子代理状态和安装/更新行为使用包内 `examples/extensions/subagent` 资源，沿用现有扩展及 Agent 定义格式。Pi 1.6.0 自带示例的 `getPiInvocation` 优先用 `process.execPath` 和存在的 `process.argv[1]` 重启 Pi，因此直接用绝对 Node 路径运行绝对 CLI 路径时，原实现可继续复用。测试时让 PATH 中的外部 Pi 一旦被执行就留下标记，并检查实际子进程。如果用户原有的 Anvil 管理版扩展仍使用裸 `pi`，沿用已有更新流程以包内版本更新该副本，保留自定义 Agent 定义和配置。
-- [ ] 路径示例为 `agent_dir = data_dir`、`skill_root = data_dir.join("skill")`。在现有模型、认证、扩展和 Skill 管理链中使用它们。给 Pi 添加该 Skill 根，保留用户已有的资源设置、项目资源处理和每会话 `--skill` 挂载。应用增删及 catalog 扫描同一根目录。启动重复执行时，合并资源配置应保持幂等。检查已保存的 Agent-Skill 引用和 Pi 原生会话恢复；如目录迁移会导致 Skill 标识变化，只在导入成功后重新关联对应记录。
-- [ ] 兼容旧版用户。复用现有导入或启动迁移机制，对用户确认导入的旧配置和 Skill 从原位置复制到新根，跳过已有目标，记录冲突，支持重试。旧位置默认是 `~/.pi/agent` 和 `~/.pi/skills`，旧版实际使用过显式 agentDir 时，以用户确认的来源为准。既有聊天索引、会话文件及其恢复路径继续使用 Anvil 的现有目录。旧 OAuth/API Key 默认由用户在现有登录界面重新配置，凭证复制仅在用户明确选择且 ADR 覆盖时启用；测试和证据均不记录凭证值。在完全空白的安装上直接初始化新根。
-- [ ] 运行 `cargo test --locked -p anvil-catalog -p anvil-session -p anvil`，记录失败用例及修复后结果。至少验证包内 `--version`、探测和 RPC 都走同一入口，外部 Pi 标记未生成，并验证旧会话与 Skill 导入。提交 `PIB02`。
+- [x] 先写失败回归测试。分别在有外部 `pi`/`node`、继承了外部 `PI_CODING_AGENT_DIR`、安装资源缺文件的情况下构造实际桌面调用所用的命令。前两者必须选包内路径和注入的数据根，第三种必须报包内资源错误。旧 catalog 缓存里的外部 Pi 条目不得提供可用执行入口。
+- [x] 在桌面初始化时用 Tauri `resource_dir()` 定位并校验清单，构造一份共享配置。建议接口为 `BundledPi::load(resource_dir: &Path, data_dir: &Path) -> Result<BundledPi, String>` 与 `BundledPi::command(&self) -> std::process::Command`。类型放在已有共享依赖可引用的位置，或者注入等价路径参数。配置至少包含 `node`、`cli`、`pi_ai`、`subagent_source`、`agent_dir`、`skill_root`。调用顺序固定为 `Command::new(node).arg(cli)` 加现有参数，`cwd` 继续使用本次会话工作区。用子进程环境明确设置 `PI_CODING_AGENT_DIR`，按需重定向或清除外部 `PI_PACKAGE_DIR`、`NODE_PATH`、`NODE_OPTIONS` 等会改变包解析的值；保留现有工具和模型需要的环境。使用 `OsString` 路径和独立参数，覆盖含空格和 Unicode 的路径。
+- [x] 将包内启动配置注入 catalog 的 Pi 探测、模型/MCP 同步、`PiAdapter`、OAuth helper 以及定时会话链路。正式桌面入口由该配置提供唯一可用 Pi，已有测试或开发注入继续使用显式依赖。探测应保留「未登录」与「启动失败」的区别。把旧外部安装记录按既有失效流程处理，保留 `runtime_id = "pi"`、Agent 引用和原生会话 ID。禁止旧安装按钮、自动 launcher 修复和 runtime 更新绕回 `npm install -g`。
+- [x] 现有子代理状态和安装/更新行为使用包内 `examples/extensions/subagent` 资源，沿用现有扩展及 Agent 定义格式。Pi 1.6.0 自带示例的 `getPiInvocation` 优先用 `process.execPath` 和存在的 `process.argv[1]` 重启 Pi，因此直接用绝对 Node 路径运行绝对 CLI 路径时，原实现可继续复用。测试时让 PATH 中的外部 Pi 一旦被执行就留下标记，并检查实际子进程。如果用户原有的 Anvil 管理版扩展仍使用裸 `pi`，沿用已有更新流程以包内版本更新该副本，保留自定义 Agent 定义和配置。
+- [x] 路径示例为 `agent_dir = data_dir`、`skill_root = data_dir.join("skill")`。在现有模型、认证、扩展和 Skill 管理链中使用它们。给 Pi 添加该 Skill 根，保留用户已有的资源设置、项目资源处理和每会话 `--skill` 挂载。应用增删及 catalog 扫描同一根目录。启动重复执行时，合并资源配置应保持幂等。检查已保存的 Agent-Skill 引用和 Pi 原生会话恢复；如目录迁移会导致 Skill 标识变化，只在导入成功后重新关联对应记录。
+- [x] 兼容旧版用户。复用现有导入或启动迁移机制，对用户确认导入的旧配置和 Skill 从原位置复制到新根，跳过已有目标，记录冲突，支持重试。旧位置默认是 `~/.pi/agent` 和 `~/.pi/skills`，旧版实际使用过显式 agentDir 时，以用户确认的来源为准。既有聊天索引、会话文件及其恢复路径继续使用 Anvil 的现有目录。旧 OAuth/API Key 默认由用户在现有登录界面重新配置，凭证复制仅在用户明确选择且 ADR 覆盖时启用；测试和证据均不记录凭证值。在完全空白的安装上直接初始化新根。
+- [x] 运行 `cargo test --locked -p anvil-catalog -p anvil-session -p anvil`，记录失败用例及修复后结果。至少验证包内 `--version`、探测和 RPC 都走同一入口，外部 Pi 标记未生成，并验证旧会话与 Skill 导入。提交 `PIB02`。
 
 ## PIB03 · 接通界面状态并验收安装、升级、卸载
 
+> 证据：[`docs/evidence/pib03-bundled-pi.md`](../../evidence/pib03-bundled-pi.md)（win-x64；未执行项按 NOT_RUN / PARTIAL 记录）。
+
 **文件**　`frontend/src/onboarding/OnboardingDialog.tsx`、`frontend/src/catalog/{CatalogPanels.tsx,client.ts}`、现有对应前端测试及 `src-tauri/src/{catalog,updater}.rs`。检查 `frontend/src/pages/settings/SettingsPage.tsx` 是否还有静态运行时状态。发布验收使用 `docs/evidence/` 下本任务的独立收据。
 
-- [ ] 先写前端回归用例。正常包显示 Pi 已内置和当前版本，首次启动进入原有模型配置，Pi 页面没有触发 npm 安装的动作。损坏包显示可辨识的错误。更新按钮调用现有 Anvil 更新接口。维护现有中英文文案。
-- [ ] 最小改动接通上述状态。保留现有 Pi 头像、模型配置、子代理界面及既有插件动作，数据来源换成包内探测与包内资源。旧 `runtime_install` 如果为兼容仍保留，Pi 分支返回已内置状态或安装损坏错误，避免旧页面触发外部安装。
-- [ ] 运行 `cargo test --locked --workspace`、`npm --prefix frontend test`、`npm --prefix frontend run build`。Windows 按 `AGENTS.md` 先加载 `scripts/env-rs.ps1`，发布构建沿用 Tauri job。验收使用实际打包的 NSIS 和 MSI；Win x64 优先，其他现有发布目标按实际构建和真机结果记状态。
-- [ ] 执行下列独立安装用例并收集证据，最后提交 `PIB03`。安装器验证需检查实际落盘资源和进程，可用录屏或截图证明界面状态。版本文字本身不足以证明进程来源。
+- [x] 先写前端回归用例。正常包显示 Pi 已内置和当前版本，首次启动进入原有模型配置，Pi 页面没有触发 npm 安装的动作。损坏包显示可辨识的错误。更新按钮调用现有 Anvil 更新接口。维护现有中英文文案。
+- [x] 最小改动接通上述状态。保留现有 Pi 头像、模型配置、子代理界面及既有插件动作，数据来源换成包内探测与包内资源。旧 `runtime_install` 如果为兼容仍保留，Pi 分支返回已内置状态或安装损坏错误，避免旧页面触发外部安装。
+- [x] 运行 `cargo test --locked --workspace`、`npm --prefix frontend test`、`npm --prefix frontend run build`。Windows 按 `AGENTS.md` 先加载 `scripts/env-rs.ps1`，发布构建沿用 Tauri job。验收使用实际打包的 NSIS 和 MSI；Win x64 优先，其他现有发布目标按实际构建和真机结果记状态。
+- [x] 执行下列独立安装用例并收集证据，最后提交 `PIB03`。安装器验证需检查实际落盘资源和进程，可用录屏或截图证明界面状态。版本文字本身不足以证明进程来源。
 
 | 用例 | 实际操作与通过条件 |
 | --- | --- |
