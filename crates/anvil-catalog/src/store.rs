@@ -334,20 +334,22 @@ impl Store {
             // the data directory, a PATH shim — are not a second install to keep:
             // the page rendered two "Pi Agent" rows after an upgrade, one of them
             // "not installed" and still advising `pi login`.
-            let mut bundled: Vec<&str> = registrations
+            let bundled: Vec<(&str, &str)> = registrations
                 .iter()
                 .filter(|registration| matches!(registration.source, InstallSource::Bundled))
-                .map(|registration| registration.runtime_id.as_str())
+                .map(|registration| {
+                    (
+                        registration.runtime_id.as_str(),
+                        registration.id.as_str(),
+                    )
+                })
                 .collect();
-            bundled.sort_unstable();
-            bundled.dedup();
             if !bundled.is_empty() {
-                let mut drop_foreign = transaction.prepare(
-                    "DELETE FROM runtimes WHERE runtime_id = ?1 AND install_source <> ?2",
+                let mut drop_other = transaction.prepare(
+                    "DELETE FROM runtimes WHERE runtime_id = ?1 AND id <> ?2",
                 )?;
-                for runtime_id in bundled {
-                    drop_foreign
-                        .execute(params![runtime_id, InstallSource::Bundled.as_str()])?;
+                for (runtime_id, id) in bundled {
+                    drop_other.execute(params![runtime_id, id])?;
                 }
             }
         }
@@ -1882,5 +1884,20 @@ mod tests {
         assert_eq!(rows.len(), 1, "{rows:?}");
         assert_eq!(rows[0].install_source, "bundled");
         assert_eq!(rows[0].id, "pi:bundled");
+
+        // The same rule covers a bundle that stops loading: the healthy row is
+        // replaced by the unavailable one, not left beside it as "not installed".
+        let broken = registration(
+            "pi:unavailable",
+            InstallSource::Bundled,
+            RuntimeStatus::AdapterFailed,
+        );
+        store
+            .apply_scan(&[broken], &scanned, "2026-01-01T00:00:02Z")
+            .expect("third scan");
+        let rows = store.runtimes().expect("rows");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].id, "pi:unavailable");
+        assert_eq!(rows[0].status, "adapter_failed");
     }
 }
