@@ -788,7 +788,9 @@ fn stage_node(options: &Options, target: &Target, out: &Path) -> Result<(), Stri
     }
     std::fs::copy(&source, &destination)
         .map_err(|error| format!("copy {}: {error}", destination.display()))?;
-    let license = destination.parent().unwrap_or(out).join("LICENSE");
+    // The licence sits beside the staged `node/` root, not beside the binary:
+    // on Windows both are the same directory, on Unix the binary is in `bin/`.
+    let license = out.join(&layout.node_license);
     std::fs::copy(root.join("LICENSE"), &license)
         .map_err(|error| format!("copy Node LICENSE: {error}"))?;
     #[cfg(unix)]
