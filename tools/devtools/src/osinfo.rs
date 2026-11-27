@@ -6,7 +6,9 @@
 //! machine it was actually produced on (Windows 10 22H2 here, not the Windows 11
 //! 24H2 acceptance baseline).
 
+#[cfg(windows)]
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+#[cfg(windows)]
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_WOW64_64KEY, REG_DWORD, REG_SZ, RegCloseKey,
     RegOpenKeyExW, RegQueryValueExW,
@@ -14,9 +16,11 @@ use windows_sys::Win32::System::Registry::{
 
 use crate::evidence::OsInfo;
 
+#[cfg(windows)]
 const CURRENT_VERSION: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
 
 /// Read the OS identity recorded in evidence.
+#[cfg(windows)]
 #[must_use]
 pub fn current() -> OsInfo {
     let product = registry_string("ProductName").unwrap_or_default();
@@ -49,6 +53,37 @@ pub fn current() -> OsInfo {
     }
 }
 
+/// Read the OS identity recorded in evidence.
+///
+/// The Windows path above reads the registry because that is the only place
+/// the edition and UBR live. Elsewhere the distribution tells us: `/etc/os-release`
+/// names it, the kernel release is the build, and `uname` is not needed.
+#[cfg(not(windows))]
+#[must_use]
+pub fn current() -> OsInfo {
+    let mut name = std::env::consts::OS.to_string();
+    let mut version = String::new();
+    if let Ok(text) = std::fs::read_to_string("/etc/os-release") {
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("PRETTY_NAME=") {
+                name = value.trim_matches('"').trim().to_string();
+            }
+            if let Some(value) = line.strip_prefix("VERSION_ID=") {
+                version = value.trim_matches('"').trim().to_string();
+            }
+        }
+    }
+    let build = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|text| text.trim().to_string())
+        .unwrap_or_default();
+    OsInfo {
+        name,
+        version,
+        build,
+        arch: go_arch().to_string(),
+    }
+}
+
 /// Report the architecture with the names the Go evidence used, so old and new
 /// `result.json` files stay comparable.
 #[must_use]
@@ -61,6 +96,7 @@ pub fn go_arch() -> &'static str {
     }
 }
 
+#[cfg(windows)]
 fn registry_string(name: &str) -> Option<String> {
     let subkey = wide(CURRENT_VERSION);
     let mut key: HKEY = std::ptr::null_mut();
@@ -86,6 +122,7 @@ fn registry_string(name: &str) -> Option<String> {
     value
 }
 
+#[cfg(windows)]
 fn query_value(key: HKEY, name: &str) -> Option<String> {
     let name = wide(name);
     let mut kind: u32 = 0;
@@ -147,6 +184,7 @@ fn query_value(key: HKEY, name: &str) -> Option<String> {
 /// The terminator must be searched per code unit: an ASCII character in
 /// UTF-16LE has a zero high byte, so scanning for the first zero *byte* would
 /// stop after the first character and return an empty string.
+#[cfg(windows)]
 fn decode_utf16z(buffer: &[u8]) -> String {
     let units: Vec<u16> = buffer
         .chunks_exact(2)
@@ -159,6 +197,7 @@ fn decode_utf16z(buffer: &[u8]) -> String {
     String::from_utf16_lossy(&units[..end]).trim().to_string()
 }
 
+#[cfg(windows)]
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -167,6 +206,7 @@ fn wide(value: &str) -> Vec<u16> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
     #[test]
     fn registry_strings_are_decoded_per_code_unit() {
         // "Windows 10 Pro" in UTF-16LE with a NUL terminator. Every ASCII
