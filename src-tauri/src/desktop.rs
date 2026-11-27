@@ -94,6 +94,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::catalog::catalog_remove_mcp,
             crate::catalog::runtime_install,
             crate::catalog::runtime_update_check,
+            crate::bundled::pi_runtime_status,
+            crate::pi_import::pi_import_plan,
+            crate::pi_import::pi_import_run,
             crate::pi_auth::pi_providers,
             crate::pi_auth::pi_provider_set_key,
             crate::pi_auth::pi_provider_logout,
@@ -276,6 +279,12 @@ fn start_bundled_runtime(app: &tauri::App) {
     let data_dir = host.config.data_dir.clone();
     let result = crate::bundled::load(&handle, &data_dir);
     host.set_pi(&result);
+    // Tell the catalogue as well, in both outcomes. A loaded bundle is the only
+    // pi that may run; a failed load is a *reason*, and a registry that received
+    // neither would fall back to scanning `PATH` for the machine's copy — which
+    // is exactly the fallback ADR 0009 removes.
+    app.state::<CatalogState>().set_pi(&result);
+    app.state::<SessionState>().set_pi(&result);
     match &result {
         Ok(bundle) => {
             host.config.log.info(&format!(
@@ -289,8 +298,6 @@ fn start_bundled_runtime(app: &tauri::App) {
                 bundle.agent_dir.display(),
                 bundle.skill_root.display()
             ));
-            app.state::<CatalogState>().set_pi(bundle);
-            app.state::<SessionState>().set_pi(bundle);
             // Pi only loads skill directories its own settings list. Registering
             // ours here keeps "the skills page wrote a folder" and "pi loads that
             // folder" the same statement. Idempotent, so a second launch is a

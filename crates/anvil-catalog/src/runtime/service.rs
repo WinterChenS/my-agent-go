@@ -936,7 +936,10 @@ fn scan_adapter(
     };
     let mut registrations = Vec::new();
     if candidates.is_empty() {
-        registrations.push(not_installed(adapter, scanned_at));
+        registrations.push(match adapter.unavailable_reason() {
+            Some(reason) => unavailable(adapter, reason, scanned_at),
+            None => not_installed(adapter, scanned_at),
+        });
     } else {
         for candidate in dedupe(candidates) {
             registrations.push(register(adapter, &probe, &candidate, scanned_at));
@@ -1017,6 +1020,37 @@ fn not_installed(adapter: &Arc<dyn RuntimeAdapter>, scanned_at: &str) -> Runtime
             checked_at: scanned_at.to_string(),
             latency_ms: 0,
             detail: None,
+        },
+        last_seen: scanned_at.to_string(),
+    }
+}
+
+/// The row for an adapter that cannot offer an installation at all.
+///
+/// Not the `not_installed` placeholder: that one means "go and install this",
+/// and the runtime this row is about ships inside the app (ADR 0009). Empty
+/// install path for the same reason as the placeholder — there is nothing to
+/// start — and the adapter's own words go in the health detail, because
+/// "reinstall Anvil" is the only thing the reader can act on.
+fn unavailable(
+    adapter: &Arc<dyn RuntimeAdapter>,
+    reason: &str,
+    scanned_at: &str,
+) -> RuntimeRegistration {
+    RuntimeRegistration {
+        id: format!("{}:unavailable", adapter.id()),
+        runtime_id: adapter.id().to_string(),
+        display_name: adapter.display_name().to_string(),
+        version: None,
+        executable: PathBuf::new(),
+        source: crate::model::InstallSource::Bundled,
+        config_path: None,
+        status: RuntimeStatus::AdapterFailed,
+        capabilities: adapter.capabilities(),
+        health: RuntimeHealth {
+            checked_at: scanned_at.to_string(),
+            latency_ms: 0,
+            detail: Some(reason.to_string()),
         },
         last_seen: scanned_at.to_string(),
     }

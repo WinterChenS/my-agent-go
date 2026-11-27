@@ -416,6 +416,39 @@ mod tests {
         assert!(!target.join("blocked/models.json").exists());
     }
 
+    /// The allowlist is closed, and the three forbidden names are not in it: a
+    /// credential store, a transcript directory and the runtime's own logs can
+    /// all sit in the same folder as the files worth keeping.
+    #[test]
+    fn the_allowlist_is_closed_and_the_forbidden_names_are_outside_it() {
+        for never in NEVER_COPY {
+            assert!(
+                !AGENT_ENTRIES.contains(&never),
+                "{never} must never be an allowlisted agent entry"
+            );
+        }
+        let root = scratch("closed");
+        let (agent, skills) = legacy(&root);
+        write(&agent.join("logs/anvil.log"), "log\n");
+        let plan = plan(
+            &agent,
+            &skills,
+            &root.join("target"),
+            &root.join("target/skill"),
+        );
+        for never in NEVER_COPY {
+            assert!(
+                !plan.items.iter().any(|item| item.relative == never),
+                "{never} must not be imported: {:?}",
+                plan.items
+                    .iter()
+                    .map(|item| item.relative.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+        assert!(plan.items.iter().all(|item| item.state == "new"));
+    }
+
     #[test]
     fn an_empty_machine_has_nothing_to_offer() {
         let root = scratch("empty");

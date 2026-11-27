@@ -30,20 +30,27 @@ const MIN_VERSION: Version = Version {
 
 /// Pi adapter.
 ///
-/// Two shapes, and the difference matters (ADR 0009): a [`PiAdapter::system`]
+/// Three shapes, and the differences matter (ADR 0009): a [`PiAdapter::system`]
 /// discovers whatever `pi` the machine has, which is what tests and the
 /// development host use; a [`PiAdapter::with_bundle`] drives the runtime that
 /// ships inside the installer, and then there is exactly one install — the
-/// bundled one — with its agent directory pinned to the Anvil data directory.
+/// bundled one — with its agent directory pinned to the Anvil data directory;
+/// and a [`PiAdapter::unavailable`] reports that the bundled runtime could not
+/// be loaded, which offers *nothing*, not the machine's copy.
 pub struct PiAdapter {
     bundled: Option<std::sync::Arc<BundledPi>>,
+    /// Set when startup found a bundled runtime and could not use it.
+    blocked: Option<String>,
 }
 
 impl PiAdapter {
     /// Discover a pi installed on this machine (development and tests).
     #[must_use]
     pub fn system() -> Self {
-        Self { bundled: None }
+        Self {
+            bundled: None,
+            blocked: None,
+        }
     }
 
     /// Drive the runtime that ships with the app.
@@ -51,6 +58,23 @@ impl PiAdapter {
     pub fn with_bundle(bundle: std::sync::Arc<BundledPi>) -> Self {
         Self {
             bundled: Some(bundle),
+            blocked: None,
+        }
+    }
+
+    /// The bundled runtime is broken: offer no install at all.
+    ///
+    /// A damaged copy inside the install directory is **not** an invitation to
+    /// look for `pi` on `PATH`. Doing that is how the app used to end up running
+    /// the user's own copy while claiming to run the one it shipped (ADR 0009),
+    /// and it makes a broken install look like a working one. Discovery returns
+    /// nothing, the catalogue reports the reason, and the fix is reinstalling
+    /// Anvil — the same conclusion `BundledPi::load` states.
+    #[must_use]
+    pub fn unavailable(reason: String) -> Self {
+        Self {
+            bundled: None,
+            blocked: Some(reason),
         }
     }
 
@@ -284,6 +308,11 @@ impl RuntimeAdapter for PiAdapter {
     }
 
     fn discover(&self, _context: &DiscoveryContext) -> Result<Vec<RuntimeCandidate>> {
+        if self.blocked.is_some() {
+            // Nothing to offer, and nothing to fall back to: see
+            // [`PiAdapter::unavailable`].
+            return Ok(Vec::new());
+        }
         if let Some(bundle) = self.bundle() {
             // One install: the one this build carries. A machine that also has
             // pi on PATH gets no second row — this app has no way to run it.
@@ -302,6 +331,12 @@ impl RuntimeAdapter for PiAdapter {
     }
 
     fn probe(&self, context: &ProbeContext, candidate: &RuntimeCandidate) -> Result<ProbeReport> {
+        // Discovery offered no candidate for a blocked adapter, so this is only
+        // reachable through an explicit "probe this path" call. Say the same
+        // thing the registry says.
+        if let Some(reason) = &self.blocked {
+            return Err(crate::error::Error::Rejected(reason.clone()));
+        }
         // A bundled runtime is asked through the command a session would use:
         // `node <cli>` with the agent directory pinned. Probing the bundled CLI
         // by path would try to execute a JavaScript file.
@@ -380,6 +415,17 @@ impl RuntimeAdapter for PiAdapter {
         registration: &RuntimeRegistration,
         kind: InventoryKind,
     ) -> Option<Result<Inventory>> {
+        // A blocked adapter reads no files. Its own agent directory is unknown
+        // (the bundle never loaded), and falling back to the system location
+        // would import `~/.pi` into a catalog that cannot run it anyway.
+        if self.blocked.is_some() {
+            return Some(Ok(match kind {
+                InventoryKind::Models => Inventory::Models(Vec::new()),
+                InventoryKind::Skills => Inventory::Skills(Vec::new()),
+                InventoryKind::Tools => Inventory::Tools(Vec::new()),
+                InventoryKind::Mcp => Inventory::Mcp(Vec::new()),
+            }));
+        }
         let agent_dir = self.agent_dir(&context.home);
         match kind {
             InventoryKind::Models => Some(Self::read_models(&agent_dir).map(Inventory::Models)),
@@ -410,6 +456,10 @@ impl RuntimeAdapter for PiAdapter {
             credential,
             context.timeout,
         ))
+    }
+
+    fn unavailable_reason(&self) -> Option<&str> {
+        self.blocked.as_deref()
     }
 }
 

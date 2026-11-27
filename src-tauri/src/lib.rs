@@ -19,6 +19,8 @@
 //!   turn, stream it by polling the ledger, stop it, and manage history.
 //! * `extensions` — runtime extensions the chat path depends on: pi's
 //!   `subagent` extension status and one-click install.
+//! * `bundled` / `pi_import` — the Pi runtime this install carries (ADR 0009):
+//!   what it is, whether it loaded, and the one-time import of an old `~/.pi`.
 //!
 //! The crate is Windows-first like the rest of this migration phase, but all
 //! modules here are platform-neutral except `system_theme` (registry read).
@@ -39,6 +41,7 @@ pub mod log;
 pub mod memory;
 pub mod options;
 pub mod pi_auth;
+pub mod pi_import;
 pub mod prefs;
 pub mod runtimes;
 pub mod session;
@@ -79,6 +82,9 @@ pub const APP_COMMANDS: &[&str] = &[
     "catalog_remove_mcp",
     "runtime_install",
     "runtime_update_check",
+    "pi_runtime_status",
+    "pi_import_plan",
+    "pi_import_run",
     "pi_providers",
     "pi_provider_set_key",
     "pi_provider_logout",
@@ -87,6 +93,8 @@ pub const APP_COMMANDS: &[&str] = &[
     "pi_provider_login",
     "pi_provider_login_submit",
     "pi_provider_login_cancel",
+    "app_update_check",
+    "app_update_install",
     "session_list",
     "session_detail",
     "session_events",
@@ -130,9 +138,9 @@ pub const APP_COMMANDS: &[&str] = &[
     "workspace_pick_file",
     "workspace_pick_files",
     "pi_subagent_status",
+    "pi_extensions",
     "pi_subagent_install",
     "pi_subagent_update",
-    "pi_extensions",
     "schedule_overview",
     "schedule_save",
     "schedule_delete",
@@ -151,6 +159,4 @@ pub const APP_COMMANDS: &[&str] = &[
     "skill_create",
     "skill_import",
     "skill_remove",
-    "app_update_check",
-    "app_update_install",
 ];

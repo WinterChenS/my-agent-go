@@ -40,6 +40,9 @@ pub struct CatalogState {
     /// The Pi this install carries (ADR 0009). Set during desktop startup,
     /// before the first command, and read when the service is first created.
     pi: Mutex<Option<Arc<BundledPi>>>,
+    /// Why that runtime cannot be used. Either slot being filled means this
+    /// process ships its own pi: the registry then never looks at `PATH`.
+    pi_error: Mutex<Option<String>>,
     service: Mutex<Option<CatalogService>>,
     /// Discovery already ran, or was claimed by a background thread.
     scanned: AtomicBool,
@@ -58,6 +61,7 @@ impl CatalogState {
             database,
             home,
             pi: Mutex::new(None),
+            pi_error: Mutex::new(None),
             service: Mutex::new(None),
             scanned: AtomicBool::new(false),
             scanning: Arc::new(AtomicBool::new(false)),
@@ -71,13 +75,26 @@ impl CatalogState {
         &self.database
     }
 
-    /// Adopt the runtime this install carries.
+    /// Record what startup found: the runtime this install carries, or the
+    /// reason it cannot be used.
     ///
+    /// Both outcomes are recorded, because both mean "this build ships its own
+    /// pi". Only [`CatalogState::new`] without a call to this keeps the
+    /// development behaviour of discovering the machine's runtime.
     /// The registry is built on first use, so this has to run before any page
     /// asks for a snapshot — desktop startup does it inside `setup`.
-    pub fn set_pi(&self, bundle: &Arc<BundledPi>) {
-        if let Ok(mut slot) = self.pi.lock() {
-            *slot = Some(Arc::clone(bundle));
+    pub fn set_pi(&self, result: &Result<Arc<BundledPi>, String>) {
+        match result {
+            Ok(bundle) => {
+                if let Ok(mut slot) = self.pi.lock() {
+                    *slot = Some(Arc::clone(bundle));
+                }
+            }
+            Err(error) => {
+                if let Ok(mut slot) = self.pi_error.lock() {
+                    *slot = Some(error.clone());
+                }
+            }
         }
     }
 
@@ -86,17 +103,20 @@ impl CatalogState {
         self.pi.lock().ok().and_then(|slot| slot.clone())
     }
 
-    /// Registry for this process: the bundled pi, or discovery for a
-    /// development host that has no install resources.
+    /// Why the bundled runtime is unusable, when startup tried and failed.
+    pub fn pi_failure(&self) -> Option<String> {
+        self.pi_error.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Registry for this process.
+    ///
+    /// A loaded bundle is the only pi that may run; a failed load offers none (it
+    /// must not become an invitation to use the machine's copy); and a host that
+    /// never tried — development, tests — keeps discovering, which is the only
+    /// case where an external `pi` is still reachable.
     fn registry(&self) -> Result<Registry, String> {
-        match self.bundled_pi() {
-            Some(bundle) => Ok(adapters::default_registry_with_pi(Arc::new(
-                anvil_catalog::runtime::adapters::pi::PiAdapter::with_bundle(bundle),
-            ))
-            .map_err(|error| format!("catalog: registry: {error}"))?),
-            None => adapters::default_registry()
-                .map_err(|error| format!("catalog: registry: {error}")),
-        }
+        adapters::registry_for_pi(self.bundled_pi(), self.pi_failure().as_deref())
+            .map_err(|error| format!("catalog: registry: {error}"))
     }
 
     /// The home directory every adapter reads its runtime config from.
@@ -303,8 +323,10 @@ impl CatalogState {
     fn repair_launchers(&self) -> Vec<String> {
         // A bundled runtime has no launcher to repair: `node <cli>` is built
         // from the manifest, and rewriting a file inside the install directory
-        // would fight the installer (ADR 0009).
-        if self.bundled_pi().is_some() {
+        // would fight the installer (ADR 0009). A damaged bundle has nothing to
+        // repair either — there is no launcher, and the machine's own shims are
+        // not ours to touch.
+        if self.bundled_pi().is_some() || self.pi_failure().is_some() {
             return Vec::new();
         }
         let broken: Vec<(String, String)> = match self.snapshot_now() {
@@ -668,21 +690,24 @@ pub struct RuntimeInstallResult {
 ///
 /// Read-only: nothing is installed here, and the UI only offers the update
 /// button when the registry really has something newer.
+///
+/// Pi is the exception, and the reason is ADR 0009: it arrives with the Anvil
+/// installer, so its "latest version" is the newest Anvil release. Asking npm
+/// about `@earendil-works/pi-coding-agent` would name a version this build can
+/// never install over the one it ships.
 #[tauri::command]
 pub async fn runtime_update_check(
+    app: AppHandle,
     state: State<'_, CatalogState>,
     runtime_id: String,
 ) -> Result<crate::runtimes::UpdateCheck, String> {
-    let installed = state.with_service(|service| {
-        let rows = service
-            .store()
-            .runtimes()
-            .map_err(|error| error.to_wire())?;
-        Ok(rows
-            .into_iter()
-            .find(|row| row.runtime_id == runtime_id)
-            .and_then(|row| row.version))
-    })?;
+    let installed = match state.bundled_pi() {
+        Some(bundle) => Some(bundle.pi_version.clone()),
+        None => stored_version(&state, &runtime_id)?,
+    };
+    if runtime_id == "pi" {
+        return pi_update_check(app, installed).await;
+    }
     let target = runtime_id.clone();
     tauri::async_runtime::spawn_blocking(move || {
         crate::runtimes::check_update(&target, installed.as_deref())
@@ -691,18 +716,88 @@ pub async fn runtime_update_check(
     .map_err(|error| format!("update check task: {error}"))?
 }
 
+/// The version the last scan committed for one runtime.
+fn stored_version(state: &CatalogState, runtime_id: &str) -> Result<Option<String>, String> {
+    state.with_service(|service| {
+        let rows = service
+            .store()
+            .runtimes()
+            .map_err(|error| error.to_wire())?;
+        Ok(rows
+            .into_iter()
+            .find(|row| row.runtime_id == runtime_id)
+            .and_then(|row| row.version))
+    })
+}
+
+/// The Pi update is an Anvil update.
+///
+/// A failure to reach the release endpoint is reported as an error, not as "up to
+/// date": a page that claims the newest version while the check failed is a page
+/// that lies. The bundled version still travels with the answer, so a damaged
+/// bundle shows "no installed version" instead of a made-up one.
+async fn pi_update_check(
+    app: AppHandle,
+    installed: Option<String>,
+) -> Result<crate::runtimes::UpdateCheck, String> {
+    let report = crate::updater::app_update_check(app).await?;
+    let latest = report.available.as_ref().map(|info| info.version.clone());
+    Ok(crate::runtimes::bundled_update_check(
+        "pi",
+        installed.as_deref(),
+        latest.as_deref(),
+        report.available.is_some(),
+    ))
+}
+
+/// Why this build refuses to install pi through npm, if it does.
+///
+/// `bundle` is the runtime this install carries; `failure` is why it could not
+/// be loaded. Both mean the same thing for this question — pi is not something
+/// the user installs — and the two messages differ only in what the reader can
+/// do next. `(None, None)` is a host that never loaded an installer resource
+/// (development, tests), which keeps the old discover-and-install path.
+#[must_use]
+pub fn bundled_pi_install_refusal(
+    bundle: Option<&BundledPi>,
+    failure: Option<&str>,
+) -> Option<String> {
+    if let Some(bundle) = bundle {
+        return Some(format!(
+            "Pi 已内置在 Anvil 中（版本 {}），无需安装；如果包内运行时损坏，请重新安装 Anvil。",
+            bundle.pi_version
+        ));
+    }
+    failure.map(|reason| {
+        format!("包内 Pi 运行时不可用（{reason}），请重新安装 Anvil；不会通过 npm 安装 Pi。")
+    })
+}
+
 /// Install one runtime CLI (an npm package) into the shared prefix, then rescan.
 ///
 /// The npm run happens outside the catalog lock: a cold download can take
 /// minutes and must not freeze every other catalog command behind it. The rescan
 /// afterwards is what turns "installed on disk" into "available in the picker" —
 /// discovery reads the same prefix the installer writes to.
+///
+/// Pi never reaches npm here (ADR 0009). It ships inside Anvil, so an old page's
+/// 一键安装 means one of two things: the runtime is already there, or the copy the
+/// installer dropped is damaged and only reinstalling Anvil fixes it. Either way
+/// the answer is an error, and it is decided *before* anything is spawned.
 #[tauri::command]
 pub async fn runtime_install(
     app: AppHandle,
     state: State<'_, CatalogState>,
     runtime_id: String,
 ) -> Result<RuntimeInstallResult, String> {
+    if runtime_id == "pi"
+        && let Some(refusal) = bundled_pi_install_refusal(
+            state.bundled_pi().as_deref(),
+            state.pi_failure().as_deref(),
+        )
+    {
+        return Err(refusal);
+    }
     // Only a runtime this build registers is installable from here. A parked
     // adapter's CLI would download, never appear in the catalog, and turn the
     // button into a lie.
@@ -713,16 +808,6 @@ pub async fn runtime_install(
             Err(format!("{runtime_id} 未接入当前版本（本版本只接入 pi）"))
         }
     })?;
-    // Pi ships inside Anvil now (ADR 0009). An old page that still shows the
-    // one-click install must not run npm against the user's machine: the
-    // runtime is already here, and the only real fix for a damaged copy is
-    // reinstalling Anvil.
-    if let Some(bundle) = state.bundled_pi() {
-        return Err(format!(
-            "Pi 已内置在 Anvil 中（版本 {}），无需安装；如果包内运行时损坏，请重新安装 Anvil。",
-            bundle.pi_version
-        ));
-    }
 
     let target = runtime_id.clone();
     let report = tauri::async_runtime::spawn_blocking(move || {

@@ -109,16 +109,27 @@ impl HostState {
     /// the second one invites the user to go install pi themselves, which this
     /// build does not use.
     pub fn pi(&self) -> Result<Arc<BundledPi>, String> {
-        if let Some(bundle) = self.pi.lock().ok().and_then(|slot| slot.clone()) {
+        if let Some(bundle) = self.loaded_pi() {
             return Ok(bundle);
         }
         let reason = self
-            .pi_error
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone())
+            .pi_error()
             .unwrap_or_else(|| "the bundled Pi runtime was not loaded at startup".to_string());
         Err(reason)
+    }
+
+    /// The runtime startup loaded, when it loaded one.
+    pub fn loaded_pi(&self) -> Option<Arc<BundledPi>> {
+        self.pi.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Why the bundled runtime is unusable, in the loader's own words.
+    ///
+    /// `None` means startup never tried: a test or a host with no install
+    /// resources. That is a different statement from "it is broken", and the
+    /// pages are told which one they have.
+    pub fn pi_error(&self) -> Option<String> {
+        self.pi_error.lock().ok().and_then(|slot| slot.clone())
     }
 
     /// Current preferences plus resolved theme and system theme.

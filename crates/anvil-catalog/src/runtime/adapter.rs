@@ -147,4 +147,16 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Option<Result<McpProbe>> {
         None
     }
+
+    /// Why this adapter cannot offer any installation at all, if it cannot.
+    ///
+    /// `None` (the default) means "nothing found is nothing installed". The
+    /// distinction matters to the page: an empty discovery normally reads as
+    /// "install it", and for a runtime the app is *supposed* to have shipped
+    /// with, that is an invitation to install the wrong thing (ADR 0009). An
+    /// adapter that returns a reason here gets that reason reported instead of a
+    /// `not_installed` placeholder.
+    fn unavailable_reason(&self) -> Option<&str> {
+        None
+    }
 }

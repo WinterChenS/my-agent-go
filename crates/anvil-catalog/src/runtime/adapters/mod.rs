@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use crate::error::Result;
 use crate::runtime::adapter::RuntimeAdapter;
+use crate::runtime::bundled::BundledPi;
 use crate::runtime::registry::Registry;
 
 /// Runtimes whose adapter ships in this build but is not registered.
@@ -61,6 +62,32 @@ pub fn default_registry_with_pi(pi: Arc<dyn RuntimeAdapter>) -> Result<Registry>
     Ok(registry)
 }
 
+/// The registry for one process, given what startup found about the bundled
+/// runtime.
+///
+/// This is the single place that decides where pi comes from, and the middle
+/// arm is the one that used to be missing: when the installer's tree failed to
+/// load, the host handed nothing in and the registry fell through to
+/// `PiAdapter::system()`, i.e. to whatever `pi` was on the machine's `PATH`.
+/// That is the fallback ADR 0009 removes — a damaged bundle offers no runtime at
+/// all, and says why.
+///
+/// `(None, None)` is not a damaged install: it is a host with no install
+/// resources to check (a development run, a test), which keeps discovering the
+/// machine's runtime.
+pub fn registry_for_pi(
+    bundle: Option<Arc<BundledPi>>,
+    failure: Option<&str>,
+) -> Result<Registry> {
+    match (bundle, failure) {
+        (Some(bundle), _) => default_registry_with_pi(Arc::new(pi::PiAdapter::with_bundle(bundle))),
+        (None, Some(reason)) => {
+            default_registry_with_pi(Arc::new(pi::PiAdapter::unavailable(reason.to_string())))
+        }
+        (None, None) => default_registry(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +104,30 @@ mod tests {
         }
         let adapter = registry.get("pi").expect("pi adapter");
         assert!(!adapter.display_name().is_empty());
+        assert_eq!(
+            adapter.unavailable_reason(),
+            None,
+            "a system adapter is merely empty, not unavailable"
+        );
+    }
+
+    /// The middle arm of [`registry_for_pi`]: a failed load is a reason, not a
+    /// licence to go looking for the machine's pi.
+    #[test]
+    fn a_failed_load_registers_an_unavailable_pi() {
+        let registry = registry_for_pi(None, Some("the bundled Pi runtime is missing"))
+            .expect("registry");
+        let adapter = registry.get("pi").expect("pi is still registered");
+        assert_eq!(
+            adapter.unavailable_reason(),
+            Some("the bundled Pi runtime is missing")
+        );
+        let candidates = adapter
+            .discover(&crate::runtime::adapter::DiscoveryContext {
+                home: std::path::PathBuf::from("/nonexistent"),
+                timeout: std::time::Duration::from_secs(1),
+            })
+            .expect("discover");
+        assert!(candidates.is_empty(), "{candidates:?}");
     }
 }

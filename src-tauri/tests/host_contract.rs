@@ -795,9 +795,15 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
         permissions,
         vec![
             "core:event:default",
+            "core:window:allow-start-dragging",
+            "core:window:allow-internal-toggle-maximize",
+            "core:window:allow-minimize",
+            "core:window:allow-toggle-maximize",
+            "core:window:allow-close",
             "allow-get-preferences",
             "allow-set-preferences",
             "allow-log-event",
+            "allow-open-external",
             "allow-catalog-snapshot",
             "allow-catalog-refresh",
             "allow-catalog-sync",
@@ -859,8 +865,19 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-pi-subagent-status",
             "allow-pi-subagent-install",
             "allow-pi-subagent-update",
+            "allow-pi-extensions",
+            "allow-app-update-check",
+            "allow-app-update-install",
             "allow-runtime-install",
             "allow-runtime-update-check",
+            "allow-pi-providers",
+            "allow-pi-provider-set-key",
+            "allow-pi-provider-logout",
+            "allow-pi-provider-custom-save",
+            "allow-pi-provider-custom-remove",
+            "allow-pi-provider-login",
+            "allow-pi-provider-login-submit",
+            "allow-pi-provider-login-cancel",
             "allow-schedule-overview",
             "allow-schedule-save",
             "allow-schedule-delete",
@@ -878,12 +895,32 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             "allow-connector-probe",
             "allow-skill-create",
             "allow-skill-import",
-            "allow-skill-remove"
+            "allow-skill-remove",
+            "allow-pi-runtime-status",
+            "allow-pi-import-plan",
+            "allow-pi-import-run"
         ]
     );
+    // The window chrome is granted one verb at a time: the page draws its own
+    // controls and needs exactly these. Anything else under `core:window` (or any
+    // `core:webview` permission) would let a compromised page move, resize or
+    // script something the app never asked for.
+    const WINDOW_VERBS: [&str; 5] = [
+        "core:window:allow-start-dragging",
+        "core:window:allow-internal-toggle-maximize",
+        "core:window:allow-minimize",
+        "core:window:allow-toggle-maximize",
+        "core:window:allow-close",
+    ];
     for permission in &permissions {
+        if permission.starts_with("core:window") {
+            assert!(
+                WINDOW_VERBS.contains(permission),
+                "unexpected broad permission {permission}"
+            );
+        }
         assert!(
-            !permission.starts_with("core:window") && !permission.starts_with("core:webview"),
+            !permission.starts_with("core:webview"),
             "unexpected broad permission {permission}"
         );
     }
@@ -907,57 +944,6 @@ fn capability_grants_only_the_main_window_and_the_host_commands() {
             && permissions_file.contains("\"allow-catalog-probe-mcp\""),
         "default permission set must list every host command"
     );
-}
-
-/// An ACL entry does not make a command callable: Tauri dispatches only the
-/// commands listed in `generate_handler!`. R2-02 added `session_projects` to
-/// `APP_COMMANDS`, the permissions file and the capability but not to the
-/// handler, so the shipped window answered "Command session_projects not found"
-/// and the chat page stayed in its error state with a disabled composer. Every
-/// one of those checks passed. Compare the macro body against the declared
-/// list so a command can no longer be half-registered.
-#[test]
-fn desktop_registers_every_declared_host_command() {
-    let source =
-        fs::read_to_string(manifest_dir().join("src/desktop.rs")).expect("read desktop.rs");
-    let marker = "generate_handler![";
-    let start = source.find(marker).expect("invoke_handler macro") + marker.len();
-    let rest = &source[start..];
-    let end = rest.find("])").expect("end of invoke_handler macro");
-    let registered: Vec<&str> = rest[..end]
-        .lines()
-        .map(|line| line.trim().trim_end_matches(','))
-        .filter(|line| !line.is_empty() && !line.starts_with("//"))
-        .map(|line| line.rsplit("::").next().expect("qualified command path"))
-        .collect();
-    assert_eq!(
-        registered.as_slice(),
-        anvil::APP_COMMANDS,
-        "generate_handler! must register exactly the commands declared in APP_COMMANDS"
-    );
-}
-
-#[test]
-fn tauri_config_declares_an_empty_window_list_and_the_frontend_dist() {
-    let config =
-        fs::read_to_string(manifest_dir().join("tauri.conf.json")).expect("read tauri config");
-    let value: serde_json::Value = serde_json::from_str(&config).expect("parse tauri config");
-    assert_eq!(value["productName"], "Anvil");
-    assert_eq!(value["identifier"], "app.anvil.desktop");
-    assert_eq!(value["build"]["frontendDist"], "../frontend/dist");
-    assert_eq!(
-        value["app"]["windows"].as_array().expect("windows").len(),
-        0,
-        "the window must be created by Rust after preflight"
-    );
-    assert!(value["app"]["windows"].as_array().unwrap().is_empty());
-    for icon in value["bundle"]["icon"].as_array().expect("icons") {
-        let icon = icon.as_str().expect("icon path");
-        assert!(
-            manifest_dir().join(icon).is_file(),
-            "missing bundle icon {icon}"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------

@@ -485,3 +485,18 @@ commands.allow = ["app_update_check"]
 identifier = "allow-app-update-install"
 description = "Allows downloading, verifying and installing a newer build of Anvil, then restarting into it."
 commands.allow = ["app_update_install"]
+
+[[permission]]
+identifier = "allow-pi-runtime-status"
+description = "Allows reading the state of the Pi runtime this install carries (bundled, or damaged with the reason)."
+commands.allow = ["pi_runtime_status"]
+
+[[permission]]
+identifier = "allow-pi-import-plan"
+description = "Allows reading what importing an old ~/.pi install into the Anvil data root would copy."
+commands.allow = ["pi_import_plan"]
+
+[[permission]]
+identifier = "allow-pi-import-run"
+description = "Allows copying the new items of an old ~/.pi install into the Anvil data root."
+commands.allow = ["pi_import_run"]

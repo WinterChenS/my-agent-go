@@ -46,6 +46,9 @@ pub struct SessionState {
     /// The Pi this install carries (ADR 0009). Set during desktop startup; read
     /// when the service is first created, which is after `setup` has run.
     pi: Mutex<Option<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>>>,
+    /// Why that runtime cannot be used. Either slot being filled means this
+    /// process ships its own pi, so no turn may reach for the machine's copy.
+    pi_error: Mutex<Option<String>>,
     writer: Mutex<Option<SessionService>>,
     reader: Mutex<Option<Store>>,
     cancels: Mutex<Option<Cancels>>,
@@ -68,6 +71,7 @@ impl SessionState {
             state_dir,
             catalog_database,
             pi: Mutex::new(None),
+            pi_error: Mutex::new(None),
             writer: Mutex::new(None),
             reader: Mutex::new(None),
             cancels: Mutex::new(None),
@@ -80,9 +84,25 @@ impl SessionState {
     }
 
     /// Adopt the runtime this install carries (ADR 0009).
-    pub fn set_pi(&self, bundle: &std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>) {
-        if let Ok(mut slot) = self.pi.lock() {
-            *slot = Some(std::sync::Arc::clone(bundle));
+    ///
+    /// Both outcomes are recorded: a damaged bundle means this build still ships
+    /// its own pi, so a turn has to fail with the loader's reason instead of
+    /// starting whatever `pi` runs from `PATH`.
+    pub fn set_pi(
+        &self,
+        result: &Result<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>, String>,
+    ) {
+        match result {
+            Ok(bundle) => {
+                if let Ok(mut slot) = self.pi.lock() {
+                    *slot = Some(std::sync::Arc::clone(bundle));
+                }
+            }
+            Err(error) => {
+                if let Ok(mut slot) = self.pi_error.lock() {
+                    *slot = Some(error.clone());
+                }
+            }
         }
     }
 
@@ -91,6 +111,11 @@ impl SessionState {
         &self,
     ) -> Option<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>> {
         self.pi.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Why the bundled runtime is unusable, when startup tried and failed.
+    pub fn pi_failure(&self) -> Option<String> {
+        self.pi_error.lock().ok().and_then(|slot| slot.clone())
     }
 
     /// Path of the ledger (for the startup log line).
@@ -155,13 +180,17 @@ impl SessionState {
         let reader = Store::open(&self.database)
             .map_err(|error| self.fail(format!("session: open reader: {error}")))?;
         // The registry carries the runtime this build runs. For a bundled
-        // install that is `node <cli>` with the data root pinned; only a
-        // development host falls back to whatever `pi` PATH offers.
-        let registry = match self.bundled_pi() {
-            Some(bundle) => anvil_session::default_registry_with_pi(std::sync::Arc::new(
+        // install that is `node <cli>` with the data root pinned; for a damaged
+        // one it is an adapter that refuses every turn with the loader's reason;
+        // only a development host falls back to whatever `pi` PATH offers.
+        let registry = match (self.bundled_pi(), self.pi_failure()) {
+            (Some(bundle), _) => anvil_session::default_registry_with_pi(std::sync::Arc::new(
                 anvil_session::adapters::pi::PiAdapter::bundled((*bundle).clone()),
             )),
-            None => anvil_session::default_registry(),
+            (None, Some(reason)) => anvil_session::default_registry_with_pi(std::sync::Arc::new(
+                anvil_session::adapters::pi::PiAdapter::unavailable(reason),
+            )),
+            (None, None) => anvil_session::default_registry(),
         };
         let mut service = SessionService::new(
             store,

@@ -498,6 +498,31 @@ pub struct UpdateCheck {
     pub error: Option<String>,
 }
 
+/// The answer for a runtime that upgrades with the app instead of with npm.
+///
+/// Pi ships inside Anvil (ADR 0009), so "is there a newer pi" is really "is
+/// there a newer Anvil": the version the installer brings follows the bundled
+/// manifest, and there is no `npm install -g` that could change it. `package`
+/// says so on the page, because "@earendil-works/pi-coding-agent 1.7.0" would
+/// name a thing this build will never fetch.
+#[must_use]
+pub fn bundled_update_check(
+    runtime_id: &str,
+    installed: Option<&str>,
+    latest: Option<&str>,
+    update_available: bool,
+) -> UpdateCheck {
+    UpdateCheck {
+        runtime_id: runtime_id.to_string(),
+        package: "Anvil".to_string(),
+        installed: installed.map(str::to_string),
+        latest: latest.map(str::to_string),
+        update_available,
+        checked_at: anvil_catalog::clock::now_rfc3339(),
+        error: None,
+    }
+}
+
 /// `child_env` with the interpreter's own directory in front.
 ///
 /// npm runs package lifecycle scripts through a shell whose `PATH` is whatever
@@ -645,6 +670,21 @@ mod tests {
         let tail = output_tail(&text, 10);
         assert!(tail.ends_with(&"a".repeat(10)));
         assert!(tail.starts_with('…'));
+    }
+
+    #[test]
+    fn a_bundled_runtime_reports_the_app_as_its_package() {
+        let check = bundled_update_check("pi", Some("1.6.0"), Some("1.7.0"), true);
+        assert_eq!(check.runtime_id, "pi");
+        assert_eq!(
+            check.package, "Anvil",
+            "pi arrives with the Anvil installer, not from npm"
+        );
+        assert_eq!(check.installed.as_deref(), Some("1.6.0"));
+        assert_eq!(check.latest.as_deref(), Some("1.7.0"));
+        assert!(check.update_available);
+        assert!(check.error.is_none());
+        assert!(!check.checked_at.is_empty());
     }
 
     /// The launcher must outlive the Node it was pinned to.

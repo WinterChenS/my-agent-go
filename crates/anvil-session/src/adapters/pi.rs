@@ -128,6 +128,9 @@ fn tool_flags(tools: &[String]) -> Vec<String> {
 pub struct PiAdapter {
     executable: Option<PathBuf>,
     bundled: Option<anvil_catalog::runtime::bundled::BundledPi>,
+    /// Set when the bundled runtime could not be loaded. Opening a session then
+    /// fails with this text instead of falling back to `PATH`.
+    blocked: Option<String>,
     /// The pipe into each session's live RPC process, so a steer can reach the
     /// turn that is streaming right now. Keyed by the runtime's session id.
     live: Mutex<HashMap<String, LiveRun>>,
@@ -141,6 +144,7 @@ impl PiAdapter {
         Self {
             executable,
             bundled: None,
+            blocked: None,
             live: Mutex::new(HashMap::new()),
             uis: crate::ui::extension_uis(),
         }
@@ -156,6 +160,24 @@ impl PiAdapter {
         Self {
             executable: None,
             bundled: Some(bundle),
+            blocked: None,
+            live: Mutex::new(HashMap::new()),
+            uis: crate::ui::extension_uis(),
+        }
+    }
+
+    /// The bundled runtime is broken: every turn fails with the reason.
+    ///
+    /// The alternative — no adapter, or the system one — would either look like
+    /// "pi is not installed" or start the machine's own copy, and this build
+    /// runs only the one it shipped (ADR 0009). Nothing is spawned; the reason
+    /// the loader gave is what the page shows.
+    #[must_use]
+    pub fn unavailable(reason: String) -> Self {
+        Self {
+            executable: None,
+            bundled: None,
+            blocked: Some(reason),
             live: Mutex::new(HashMap::new()),
             uis: crate::ui::extension_uis(),
         }
@@ -168,6 +190,9 @@ impl PiAdapter {
     }
 
     fn executable(&self) -> Result<&PathBuf> {
+        if let Some(reason) = &self.blocked {
+            return Err(Error::NotFound(reason.clone()));
+        }
         if self.bundled.is_some() {
             // A bundled adapter never resolves a file to execute; `command`
             // builds the `node <cli>` pair instead.
@@ -184,6 +209,9 @@ impl PiAdapter {
     /// install reads as a bundled error at open time rather than at the first
     /// message.
     fn check_runnable(&self) -> Result<()> {
+        if let Some(reason) = &self.blocked {
+            return Err(Error::NotFound(reason.clone()));
+        }
         match &self.bundled {
             Some(bundle) => {
                 if !bundle.node.is_file() || !bundle.cli.is_file() {
@@ -2250,7 +2278,16 @@ mod tests {
     /// unit test over `Command`'s argv is the narrowest proof that it is not
     /// lost between the catalog and the child process.
     fn argv(persona: OpenedSession, allow_tools: bool, tools: &[String]) -> Vec<String> {
-        let dir = std::env::temp_dir().join(format!("anvil-pi-argv-{}", std::process::id()));
+        // One directory per call. The tests in this binary run in parallel and
+        // used to share `<temp>/anvil-pi-argv-<pid>`, so one test's cleanup made
+        // the next `create_dir_all` fail with "the file already exists" — a red
+        // suite roughly one run in three.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "anvil-pi-argv-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let adapter = PiAdapter::new(Some(PathBuf::from("D:/tools/pi/pi.exe")));
         let context = SessionContext {
             state_dir: dir.clone(),
@@ -2616,4 +2653,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A damaged bundle in the chat path is the same statement as in the
+    /// catalogue: the reason the loader gave, and no process started. The
+    /// alternative — the system adapter — would run whatever `pi` the machine
+    /// has while the page claims to show the bundled version (ADR 0009).
+    #[test]
+    fn an_unavailable_runtime_refuses_to_open_and_names_the_reason() {
+        let root = std::env::temp_dir().join(format!("anvil-pi-unavailable-{}", std::process::id()));
+        let reason = "the bundled Pi runtime is incomplete: cli.js is missing; reinstall Anvil";
+        let adapter = PiAdapter::unavailable(reason.to_string());
+        let context = SessionContext {
+            state_dir: root.join("state"),
+            run_timeout: None,
+        };
+        let error = adapter
+            .open(&context, &SessionSpec::default())
+            .expect_err("a damaged bundle must not open a session");
+        let text = error.to_string();
+        assert!(text.contains(reason), "{text}");
+        assert!(text.contains("reinstall Anvil"), "{text}");
+        assert!(
+            !text.contains("PATH"),
+            "must not suggest installing pi from PATH: {text}"
+        );
+        assert!(
+            !root.join("state").exists(),
+            "a refused open must not create session directories"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
