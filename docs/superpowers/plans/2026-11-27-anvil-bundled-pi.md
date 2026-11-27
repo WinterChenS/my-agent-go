@@ -31,11 +31,11 @@
 
 **文件**　新增 `docs/adr/0009-bundle-pi-with-anvil.md`，首个实现提交前检查 ADR 编号是否仍空闲。新增 `src-tauri/runtime-pi/package.json` 与 `package-lock.json` 作为依赖输入，产物放在受忽略的 `src-tauri/bundle-runtime/pi/`。修改 `src-tauri/tauri.conf.json`、`.github/workflows/release.yml` 和 `.gitignore`，在现有 `tools/devtools` 增加生成与检查产物的命令。
 
-- [ ] 写 ADR，记录由宿主安装切换为应用内置的决定。采用官方 npm 包和同版私有 Node；Anvil 更新器负责内置 Pi；安装器移除安装资源，数据根继续独立；新版真实验收以本次安装包的实际入口为准，原有验收证据作为历史记录。与 ADR 0007 及旧宿主 Pi 验收约定的冲突以本次决定为准。
-- [ ] 写失败用例，用错误架构的 Node、缺失的 Pi CLI、缺失的既有 subagent 示例资源分别触发打包准备检查失败。发布产物也要能通过文件清单验证。
-- [ ] 构建时按 **目标架构** 准备官方 Node，校验发行文件的固定 SHA-256；使用锁文件生成生产依赖，例如 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund`。当前 macOS Intel 交叉构建也按目标架构准备资源。若锁定依赖包含平台专用包，按目标生成并核验产物。保留 Pi `dist`、`pi-ai`、`examples/extensions/subagent` 及其引用文件、分发许可证和运行所需资源。检查 Node、CLI、OAuth 模块入口和插件示例的相对路径，生成 `manifest.json`，记录平台、架构、Node/Pi 版本与路径。安装或首启阶段无需执行 npm。
-- [ ] 在负责构建安装包的 Tauri 配置中通过 `bundle.resources` 将目录映射到 `runtime/pi/`，在现有 release job 执行准备与校验，继续使用当前签名更新发布链路。若直接在基础配置声明生成目录会让干净工作树的 Rust 测试失败，用构建安装包时加载的 Tauri 配置覆盖声明此映射。开发 `cargo test` 使用注入的测试路径，发布构建单独校验完整的包内资源。打包命令失败时停止该平台的发布，避免上传缺少 Pi 的安装包。[Tauri 资源打包](https://v2.tauri.app/develop/resources/)
-- [ ] 验证 Win x64 staging，使用其绝对 Node 路径执行包内 CLI `--version`，确认输出与清单一致。保留版本输出、SHA-256、产物清单和命令退出码，提交 `PIB01`。
+- [x] 写 ADR，记录由宿主安装切换为应用内置的决定。采用官方 npm 包和同版私有 Node；Anvil 更新器负责内置 Pi；安装器移除安装资源，数据根继续独立；新版真实验收以本次安装包的实际入口为准，原有验收证据作为历史记录。与 ADR 0007 及旧宿主 Pi 验收约定的冲突以本次决定为准。
+- [x] 写失败用例，用错误架构的 Node、缺失的 Pi CLI、缺失的既有 subagent 示例资源分别触发打包准备检查失败。发布产物也要能通过文件清单验证。
+- [x] 构建时按 **目标架构** 准备官方 Node，校验发行文件的固定 SHA-256；使用锁文件生成生产依赖，例如 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund`。当前 macOS Intel 交叉构建也按目标架构准备资源。若锁定依赖包含平台专用包，按目标生成并核验产物。保留 Pi `dist`、`pi-ai`、`examples/extensions/subagent` 及其引用文件、分发许可证和运行所需资源。检查 Node、CLI、OAuth 模块入口和插件示例的相对路径，生成 `manifest.json`，记录平台、架构、Node/Pi 版本与路径。安装或首启阶段无需执行 npm。
+- [x] 在负责构建安装包的 Tauri 配置中通过 `bundle.resources` 将目录映射到 `runtime/pi/`，在现有 release job 执行准备与校验，继续使用当前签名更新发布链路。若直接在基础配置声明生成目录会让干净工作树的 Rust 测试失败，用构建安装包时加载的 Tauri 配置覆盖声明此映射。开发 `cargo test` 使用注入的测试路径，发布构建单独校验完整的包内资源。打包命令失败时停止该平台的发布，避免上传缺少 Pi 的安装包。[Tauri 资源打包](https://v2.tauri.app/develop/resources/)
+- [x] 验证 Win x64 staging，使用其绝对 Node 路径执行包内 CLI `--version`，确认输出与清单一致。保留版本输出、SHA-256、产物清单和命令退出码，提交 `PIB01`。
 
 ## PIB02 · 统一运行入口和默认数据路径
 
