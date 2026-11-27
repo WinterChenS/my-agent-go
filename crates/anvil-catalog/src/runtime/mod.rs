@@ -6,7 +6,9 @@
 
 pub mod adapter;
 pub mod adapters;
+pub mod bundled;
 pub mod node_bootstrap;
+pub mod pi_import;
 pub mod process;
 pub mod registry;
 pub mod service;

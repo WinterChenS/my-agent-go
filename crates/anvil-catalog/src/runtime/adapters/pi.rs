@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::model::{
-    Capabilities, CapabilityState, InventoryKind, McpRecord, ModelRecord, RuntimeCandidate,
-    RuntimeRegistration, RuntimeStatus,
+    Capabilities, CapabilityState, InstallSource, InventoryKind, McpRecord, ModelRecord,
+    RuntimeCandidate, RuntimeRegistration, RuntimeStatus,
 };
+use crate::runtime::bundled::BundledPi;
 use crate::runtime::adapter::{
     DiscoveryContext, Inventory, ModelVerification, ProbeContext, ProbeReport, RuntimeAdapter,
 };
@@ -27,34 +28,64 @@ const MIN_VERSION: Version = Version {
     patch: 0,
 };
 
-pub struct PiAdapter;
+/// Pi adapter.
+///
+/// Two shapes, and the difference matters (ADR 0009): a [`PiAdapter::system`]
+/// discovers whatever `pi` the machine has, which is what tests and the
+/// development host use; a [`PiAdapter::with_bundle`] drives the runtime that
+/// ships inside the installer, and then there is exactly one install — the
+/// bundled one — with its agent directory pinned to the Anvil data directory.
+pub struct PiAdapter {
+    bundled: Option<std::sync::Arc<BundledPi>>,
+}
 
 impl PiAdapter {
-    fn config_dir(home: &Path) -> PathBuf {
-        // pi honours this variable for its whole agent directory; a user who
-        // isolated their config would otherwise get an empty catalog.
-        if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
-            if !dir.is_empty() {
-                return PathBuf::from(dir);
-            }
+    /// Discover a pi installed on this machine (development and tests).
+    #[must_use]
+    pub fn system() -> Self {
+        Self { bundled: None }
+    }
+
+    /// Drive the runtime that ships with the app.
+    #[must_use]
+    pub fn with_bundle(bundle: std::sync::Arc<BundledPi>) -> Self {
+        Self {
+            bundled: Some(bundle),
         }
-        home.join(".pi").join("agent")
     }
 
-    fn skills_root(home: &Path) -> PathBuf {
-        home.join(".pi").join("skills")
+    fn bundle(&self) -> Option<&BundledPi> {
+        self.bundled.as_deref()
     }
 
-    fn models_file(home: &Path) -> PathBuf {
-        Self::config_dir(home).join("models.json")
+    /// Pi's agent directory for this adapter.
+    ///
+    /// Bundled: the Anvil data directory. System: `PI_CODING_AGENT_DIR` or
+    /// `~/.pi/agent`, the same rule the providers module applies.
+    fn agent_dir(&self, home: &Path) -> PathBuf {
+        match self.bundle() {
+            Some(bundle) => bundle.agent_dir.clone(),
+            None => crate::providers::config_dir(home),
+        }
     }
 
-    fn mcp_file(home: &Path) -> PathBuf {
-        Self::config_dir(home).join("mcp.json")
+    fn skills_root_for(&self, home: &Path) -> PathBuf {
+        match self.bundle() {
+            Some(bundle) => bundle.skill_root.clone(),
+            None => home.join(".pi").join("skills"),
+        }
     }
 
-    fn settings_file(home: &Path) -> PathBuf {
-        Self::config_dir(home).join("settings.json")
+    fn models_file(agent_dir: &Path) -> PathBuf {
+        agent_dir.join("models.json")
+    }
+
+    fn mcp_file(agent_dir: &Path) -> PathBuf {
+        agent_dir.join("mcp.json")
+    }
+
+    fn settings_file(agent_dir: &Path) -> PathBuf {
+        agent_dir.join("settings.json")
     }
 
     /// The model pi itself would use for a new session.
@@ -62,8 +93,8 @@ impl PiAdapter {
     /// `settings.json` carries `defaultProvider` + `defaultModel`; that is the
     /// only statement of intent the runtime makes. Discovery reports it so the
     /// app can adopt it instead of presenting an empty, all-disabled picker.
-    fn configured_default(home: &Path) -> Option<(Option<String>, String)> {
-        let settings = common::read_json(&Self::settings_file(home), 1 << 20)?;
+    fn configured_default(agent_dir: &Path) -> Option<(Option<String>, String)> {
+        let settings = common::read_json(&Self::settings_file(agent_dir), 1 << 20)?;
         let model = settings
             .get("defaultModel")
             .and_then(|value| value.as_str())
@@ -83,8 +114,8 @@ impl PiAdapter {
     /// only the first reported a working setup as "未认证" and hid it from the
     /// pickers. The providers module owns both rules, so the models page and
     /// this probe cannot disagree about what "configured" means.
-    fn has_provider_credential(home: &Path) -> bool {
-        !crate::providers::signed_in(home).is_empty()
+    fn has_provider_credential(agent_dir: &Path) -> bool {
+        !crate::providers::signed_in_at(agent_dir).is_empty()
     }
 
     fn install_candidates() -> Vec<PathBuf> {
@@ -95,20 +126,20 @@ impl PiAdapter {
         paths
     }
 
-    fn read_models(home: &Path) -> Result<Vec<ModelRecord>> {
+    fn read_models(agent_dir: &Path) -> Result<Vec<ModelRecord>> {
         let now = crate::clock::now_rfc3339();
         let mut models: Vec<ModelRecord> = Vec::new();
         // Providers with a credential, from both stores pi accepts: `auth.json`
         // (a key or a sign-in) and an `apiKey` beside a custom provider. The
         // models page shows a row per provider, so a model worth offering has to
         // say whether the account behind it exists.
-        let signed = crate::providers::signed_in(home);
+        let signed = crate::providers::signed_in_at(agent_dir);
         // `models.json` only holds hand-written providers, and a pi signed in to
         // a built-in one may not have the file at all. Its absence is not "no
         // models": the runtime still knows which model it starts with, and that
         // answer is handled below.
-        let configured = Self::configured_default(home);
-        let providers = common::read_json(&Self::models_file(home), 8 << 20)
+        let configured = Self::configured_default(agent_dir);
+        let providers = common::read_json(&Self::models_file(agent_dir), 8 << 20)
             .and_then(|value| {
                 value
                     .get("providers")
@@ -224,8 +255,8 @@ impl PiAdapter {
         Ok(models)
     }
 
-    fn read_mcp(home: &Path) -> Result<Vec<McpRecord>> {
-        let Some(text) = common::read_text(&Self::mcp_file(home), 4 << 20) else {
+    fn read_mcp(agent_dir: &Path) -> Result<Vec<McpRecord>> {
+        let Some(text) = common::read_text(&Self::mcp_file(agent_dir), 4 << 20) else {
             return Ok(Vec::new());
         };
         mcp::from_pi_json("pi", &text, "~/.pi/agent/mcp.json")
@@ -253,6 +284,16 @@ impl RuntimeAdapter for PiAdapter {
     }
 
     fn discover(&self, _context: &DiscoveryContext) -> Result<Vec<RuntimeCandidate>> {
+        if let Some(bundle) = self.bundle() {
+            // One install: the one this build carries. A machine that also has
+            // pi on PATH gets no second row — this app has no way to run it.
+            return Ok(vec![RuntimeCandidate {
+                runtime_id: "pi".to_string(),
+                executable: bundle.cli.clone(),
+                source: InstallSource::Bundled,
+                instance: None,
+            }]);
+        }
         Ok(common::discover_installs(
             "pi",
             "pi",
@@ -261,12 +302,29 @@ impl RuntimeAdapter for PiAdapter {
     }
 
     fn probe(&self, context: &ProbeContext, candidate: &RuntimeCandidate) -> Result<ProbeReport> {
-        let probe = common::version_probe(&candidate.executable, context.timeout)?;
-        let config_dir = Self::config_dir(&context.home);
-        let config_path = if Self::models_file(&context.home).is_file() {
-            Some(Self::models_file(&context.home))
-        } else if config_dir.is_dir() {
-            Some(config_dir)
+        // A bundled runtime is asked through the command a session would use:
+        // `node <cli>` with the agent directory pinned. Probing the bundled CLI
+        // by path would try to execute a JavaScript file.
+        let (probe, label) = match self.bundle() {
+            Some(bundle) => {
+                let mut command = bundle.command();
+                command.arg("--version");
+                (
+                    common::version_probe_prepared(command, context.timeout)?,
+                    bundle.cli.clone(),
+                )
+            }
+            None => (
+                common::version_probe(&candidate.executable, context.timeout)?,
+                candidate.executable.clone(),
+            ),
+        };
+        let agent_dir = self.agent_dir(&context.home);
+        let models_file = Self::models_file(&agent_dir);
+        let config_path = if models_file.is_file() {
+            Some(models_file)
+        } else if agent_dir.is_dir() {
+            Some(agent_dir.clone())
         } else {
             None
         };
@@ -274,7 +332,7 @@ impl RuntimeAdapter for PiAdapter {
         // `auth.json`, or an `apiKey` written next to a custom provider in
         // `models.json`. Checking only the first reported a working setup as
         // "未认证" and hid it from the pickers.
-        let has_credential = Self::has_provider_credential(&context.home);
+        let has_credential = Self::has_provider_credential(&agent_dir);
         let status = match probe.version {
             None => RuntimeStatus::ProbeFailed,
             Some(version) if !version.at_least(MIN_VERSION) => RuntimeStatus::VersionUnsupported,
@@ -289,15 +347,22 @@ impl RuntimeAdapter for PiAdapter {
                 MIN_VERSION.minor,
                 MIN_VERSION.patch
             )),
-            RuntimeStatus::Unauthenticated => Some(
-                "no credential found: configure a provider key in ~/.pi/agent/models.json or run \
-                 `pi login`"
-                    .into(),
-            ),
+            RuntimeStatus::Unauthenticated => Some(format!(
+                "no credential found yet: sign in from 设置 → 模型, or add a provider key in {}",
+                Self::models_file(&agent_dir).display()
+            )),
             // Name the file, its exit status and what it printed. The generic
             // "would not start" hint cannot tell a missing Node from a blocked
             // directory, which is the one thing the reader has to know.
-            RuntimeStatus::ProbeFailed => Some(probe.failure_note(&candidate.executable, context.timeout)),
+            RuntimeStatus::ProbeFailed => {
+                let mut note = probe.failure_note(&label, context.timeout);
+                if self.bundle().is_some() {
+                    note.push_str(
+                        " — the bundled runtime did not start; reinstall Anvil if this repeats",
+                    );
+                }
+                Some(note)
+            }
             _ => None,
         };
         Ok(ProbeReport {
@@ -315,17 +380,18 @@ impl RuntimeAdapter for PiAdapter {
         registration: &RuntimeRegistration,
         kind: InventoryKind,
     ) -> Option<Result<Inventory>> {
+        let agent_dir = self.agent_dir(&context.home);
         match kind {
-            InventoryKind::Models => Some(Self::read_models(&context.home).map(Inventory::Models)),
+            InventoryKind::Models => Some(Self::read_models(&agent_dir).map(Inventory::Models)),
             InventoryKind::Skills => {
                 let roots = [skills::SkillRoot::new(
                     &registration.runtime_id,
                     "pi",
-                    Self::skills_root(&context.home),
+                    self.skills_root_for(&context.home),
                 )];
                 Some(skills::scan(&roots, &crate::clock::now_rfc3339()).map(Inventory::Skills))
             }
-            InventoryKind::Mcp => Some(Self::read_mcp(&context.home).map(Inventory::Mcp)),
+            InventoryKind::Mcp => Some(Self::read_mcp(&agent_dir).map(Inventory::Mcp)),
             InventoryKind::Tools => None,
         }
     }
@@ -347,9 +413,13 @@ impl RuntimeAdapter for PiAdapter {
     }
 }
 
-/// Skills root, exposed for tests.
+/// Skills root, exposed for tests and for the host's skills page.
+///
+/// The bundled runtime keeps user skills under `<data_dir>/skill`; a system
+/// install keeps pi's own default (`~/.pi/skills`). One function, so "where the
+/// app writes a skill" and "where the catalogue scans" cannot drift.
 pub fn skills_root(home: &Path) -> PathBuf {
-    PiAdapter::skills_root(home)
+    PiAdapter::system().skills_root_for(home)
 }
 
 #[cfg(test)]
@@ -358,6 +428,12 @@ mod tests {
     use crate::runtime::adapter::RuntimeAdapter;
     use std::fs;
     use std::path::PathBuf;
+
+    /// The tests run the system adapter, whose agent directory is
+    /// `<home>/.pi/agent`.
+    fn agent(home: &std::path::Path) -> PathBuf {
+        home.join(".pi").join("agent")
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -394,7 +470,7 @@ mod tests {
         )
         .expect("write");
 
-        let rows = PiAdapter::read_models(&home).expect("read models");
+        let rows = PiAdapter::read_models(&agent(&home)).expect("read models");
         assert_eq!(rows.len(), 2);
         for row in &rows {
             assert_eq!(
@@ -436,7 +512,7 @@ mod tests {
         )
         .expect("write settings");
 
-        let rows = PiAdapter::read_models(&home).expect("read models");
+        let rows = PiAdapter::read_models(&agent(&home)).expect("read models");
         let default = rows
             .iter()
             .find(|row| row.is_default)
@@ -464,7 +540,7 @@ mod tests {
             serde_json::to_vec(&models).expect("json"),
         )
         .expect("write");
-        let rows = PiAdapter::read_models(&home).expect("read models");
+        let rows = PiAdapter::read_models(&agent(&home)).expect("read models");
         assert_eq!(rows.iter().filter(|row| row.is_default).count(), 1);
         assert!(rows.iter().any(|row| row.enabled));
         let _ = fs::remove_dir_all(&home);
@@ -483,7 +559,7 @@ mod tests {
         )
         .expect("write settings");
 
-        let rows = PiAdapter::read_models(&home).expect("read models");
+        let rows = PiAdapter::read_models(&agent(&home)).expect("read models");
         assert_eq!(rows.len(), 1, "the runtime's own default has to be offered");
         assert_eq!(rows[0].model_id, "deepseek-v4-pro");
         assert!(rows[0].is_default);
@@ -511,7 +587,7 @@ mod tests {
             source: crate::model::InstallSource::KnownDir,
             instance: None,
         };
-        let report = PiAdapter
+        let report = PiAdapter::system()
             .probe(
                 &crate::runtime::adapter::ProbeContext {
                     home: home.clone(),

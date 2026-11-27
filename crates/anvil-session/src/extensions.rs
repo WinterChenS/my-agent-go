@@ -86,17 +86,16 @@ pub struct PiSubagentInstall {
     pub status: PiSubagentStatus,
 }
 
-/// `<agent-dir>`: `PI_CODING_AGENT_DIR` wins, otherwise `~/.pi/agent`.
+/// `<agent-dir>`: the bundled runtime's data root wins, then
+/// `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 ///
-/// Pi documents the same precedence; honouring the variable matters because a
-/// user who isolated pi's config would otherwise get an extension installed into
-/// a directory pi never reads.
+/// The order is ADR 0009's: this build always runs the Pi it ships, so an
+/// extension or an agent file has to land in *that* runtime's directory. The
+/// variable and the home fallback stay for development hosts and tests.
 #[must_use]
 pub fn agent_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR")
-        && !dir.is_empty()
-    {
-        return Some(PathBuf::from(dir));
+    if let Some(dir) = anvil_catalog::runtime::bundled::agent_dir() {
+        return Some(dir);
     }
     home_dir().map(|home| home.join(".pi").join("agent"))
 }

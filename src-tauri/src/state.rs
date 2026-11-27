@@ -13,6 +13,8 @@ use serde::Serialize;
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+use anvil_catalog::runtime::bundled::BundledPi;
+
 use crate::host::HostConfig;
 use crate::inject::{self, InitialState};
 use crate::options::{MIN_HEIGHT, MIN_WIDTH};
@@ -56,6 +58,11 @@ pub struct HostState {
     pub window: Mutex<Option<WebviewWindow>>,
     /// Cleared on `RunEvent::Exit` so the poller stops.
     pub running: Arc<AtomicBool>,
+    /// The Pi runtime this install carries (ADR 0009). `None` means startup
+    /// could not load it; [`HostState::pi_error`] says why.
+    pub pi: Mutex<Option<Arc<BundledPi>>>,
+    /// Why the bundled runtime is unusable, in the words the page shows.
+    pub pi_error: Mutex<Option<String>>,
     last_logged: Mutex<String>,
 }
 
@@ -73,8 +80,45 @@ impl HostState {
             injection,
             window: Mutex::new(None),
             running: Arc::new(AtomicBool::new(true)),
+            pi: Mutex::new(None),
+            pi_error: Mutex::new(None),
             last_logged: Mutex::new(String::new()),
         }
+    }
+
+    /// Record what startup found: the runtime, or the reason there is none.
+    pub fn set_pi(&self, result: &Result<Arc<BundledPi>, String>) {
+        match result {
+            Ok(bundle) => {
+                if let Ok(mut slot) = self.pi.lock() {
+                    *slot = Some(Arc::clone(bundle));
+                }
+            }
+            Err(error) => {
+                if let Ok(mut slot) = self.pi_error.lock() {
+                    *slot = Some(error.clone());
+                }
+            }
+        }
+    }
+
+    /// The bundled runtime, or the reason it cannot be used.
+    ///
+    /// Every caller that spawns pi goes through this: a broken install must read
+    /// as "the bundled runtime is damaged", never as "pi is not installed" —
+    /// the second one invites the user to go install pi themselves, which this
+    /// build does not use.
+    pub fn pi(&self) -> Result<Arc<BundledPi>, String> {
+        if let Some(bundle) = self.pi.lock().ok().and_then(|slot| slot.clone()) {
+            return Ok(bundle);
+        }
+        let reason = self
+            .pi_error
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .unwrap_or_else(|| "the bundled Pi runtime was not loaded at startup".to_string());
+        Err(reason)
     }
 
     /// Current preferences plus resolved theme and system theme.

@@ -18,6 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use anvil_catalog::model::{AdapterFailure, CatalogSnapshot};
 use anvil_catalog::runtime::adapter::{McpProbe, ModelVerification};
+use anvil_catalog::runtime::adapters;
+use anvil_catalog::runtime::bundled::BundledPi;
+use anvil_catalog::runtime::registry::Registry;
 use anvil_catalog::{CatalogService, Store};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -34,6 +37,9 @@ pub const RUNTIME_INSTALL_LOG_EVENT: &str = "anvil://runtime-install-log";
 pub struct CatalogState {
     database: PathBuf,
     home: PathBuf,
+    /// The Pi this install carries (ADR 0009). Set during desktop startup,
+    /// before the first command, and read when the service is first created.
+    pi: Mutex<Option<Arc<BundledPi>>>,
     service: Mutex<Option<CatalogService>>,
     /// Discovery already ran, or was claimed by a background thread.
     scanned: AtomicBool,
@@ -51,6 +57,7 @@ impl CatalogState {
         Self {
             database,
             home,
+            pi: Mutex::new(None),
             service: Mutex::new(None),
             scanned: AtomicBool::new(false),
             scanning: Arc::new(AtomicBool::new(false)),
@@ -62,6 +69,34 @@ impl CatalogState {
     /// Path of the catalogue database (for the log line at startup).
     pub fn database(&self) -> &std::path::Path {
         &self.database
+    }
+
+    /// Adopt the runtime this install carries.
+    ///
+    /// The registry is built on first use, so this has to run before any page
+    /// asks for a snapshot — desktop startup does it inside `setup`.
+    pub fn set_pi(&self, bundle: &Arc<BundledPi>) {
+        if let Ok(mut slot) = self.pi.lock() {
+            *slot = Some(Arc::clone(bundle));
+        }
+    }
+
+    /// The bundled runtime, when startup loaded one.
+    pub fn bundled_pi(&self) -> Option<Arc<BundledPi>> {
+        self.pi.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Registry for this process: the bundled pi, or discovery for a
+    /// development host that has no install resources.
+    fn registry(&self) -> Result<Registry, String> {
+        match self.bundled_pi() {
+            Some(bundle) => Ok(adapters::default_registry_with_pi(Arc::new(
+                anvil_catalog::runtime::adapters::pi::PiAdapter::with_bundle(bundle),
+            ))
+            .map_err(|error| format!("catalog: registry: {error}"))?),
+            None => adapters::default_registry()
+                .map_err(|error| format!("catalog: registry: {error}")),
+        }
     }
 
     /// The home directory every adapter reads its runtime config from.
@@ -94,8 +129,13 @@ impl CatalogState {
                     return Err(message);
                 }
             };
-            let mut service = CatalogService::new(store, self.home.clone())
-                .map_err(|error| format!("catalog: registry: {error}"))?;
+            let mut service = CatalogService::with_registry(
+                store,
+                self.home.clone(),
+                self.registry()?,
+                anvil_catalog::runtime::service::Timeouts::default(),
+            )
+            .map_err(|error| format!("catalog: registry: {error}"))?;
             service.set_scanning_flag(Arc::clone(&self.scanning));
             *guard = Some(service);
         }
@@ -261,6 +301,12 @@ impl CatalogState {
     /// afterwards so a repaired runtime is not reported as broken.
     #[cfg(windows)]
     fn repair_launchers(&self) -> Vec<String> {
+        // A bundled runtime has no launcher to repair: `node <cli>` is built
+        // from the manifest, and rewriting a file inside the install directory
+        // would fight the installer (ADR 0009).
+        if self.bundled_pi().is_some() {
+            return Vec::new();
+        }
         let broken: Vec<(String, String)> = match self.snapshot_now() {
             Ok(snapshot) => snapshot
                 .runtimes
@@ -667,6 +713,16 @@ pub async fn runtime_install(
             Err(format!("{runtime_id} 未接入当前版本（本版本只接入 pi）"))
         }
     })?;
+    // Pi ships inside Anvil now (ADR 0009). An old page that still shows the
+    // one-click install must not run npm against the user's machine: the
+    // runtime is already here, and the only real fix for a damaged copy is
+    // reinstalling Anvil.
+    if let Some(bundle) = state.bundled_pi() {
+        return Err(format!(
+            "Pi 已内置在 Anvil 中（版本 {}），无需安装；如果包内运行时损坏，请重新安装 Anvil。",
+            bundle.pi_version
+        ));
+    }
 
     let target = runtime_id.clone();
     let report = tauri::async_runtime::spawn_blocking(move || {

@@ -43,6 +43,9 @@ pub struct SessionState {
     /// runtime inventory, so this is a path the host opens only when a session
     /// is created, not a shared service object.
     catalog_database: PathBuf,
+    /// The Pi this install carries (ADR 0009). Set during desktop startup; read
+    /// when the service is first created, which is after `setup` has run.
+    pi: Mutex<Option<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>>>,
     writer: Mutex<Option<SessionService>>,
     reader: Mutex<Option<Store>>,
     cancels: Mutex<Option<Cancels>>,
@@ -64,6 +67,7 @@ impl SessionState {
             database,
             state_dir,
             catalog_database,
+            pi: Mutex::new(None),
             writer: Mutex::new(None),
             reader: Mutex::new(None),
             cancels: Mutex::new(None),
@@ -73,6 +77,20 @@ impl SessionState {
             ready: AtomicBool::new(false),
             init: Mutex::new(()),
         }
+    }
+
+    /// Adopt the runtime this install carries (ADR 0009).
+    pub fn set_pi(&self, bundle: &std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>) {
+        if let Ok(mut slot) = self.pi.lock() {
+            *slot = Some(std::sync::Arc::clone(bundle));
+        }
+    }
+
+    /// The bundled runtime, when startup loaded one.
+    pub fn bundled_pi(
+        &self,
+    ) -> Option<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>> {
+        self.pi.lock().ok().and_then(|slot| slot.clone())
     }
 
     /// Path of the ledger (for the startup log line).
@@ -136,9 +154,18 @@ impl SessionState {
         })?;
         let reader = Store::open(&self.database)
             .map_err(|error| self.fail(format!("session: open reader: {error}")))?;
+        // The registry carries the runtime this build runs. For a bundled
+        // install that is `node <cli>` with the data root pinned; only a
+        // development host falls back to whatever `pi` PATH offers.
+        let registry = match self.bundled_pi() {
+            Some(bundle) => anvil_session::default_registry_with_pi(std::sync::Arc::new(
+                anvil_session::adapters::pi::PiAdapter::bundled((*bundle).clone()),
+            )),
+            None => anvil_session::default_registry(),
+        };
         let mut service = SessionService::new(
             store,
-            anvil_session::default_registry(),
+            registry,
             SessionContext {
                 state_dir: self.state_dir.clone(),
                 // No deadline: a turn ends when the runtime finishes, fails,

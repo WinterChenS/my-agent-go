@@ -38,7 +38,7 @@ pub mod ui;
 pub mod workbench;
 
 pub use adapter::{CompactOutcome, ContextUsage, Registry, SessionAdapter};
-pub use adapters::default_registry;
+pub use adapters::{default_registry, default_registry_with_pi};
 pub use error::{Error, Result};
 pub use model::*;
 pub use service::{Approvals, Cancels, SendOutcome, SessionService, Steers};

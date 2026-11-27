@@ -29,6 +29,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::catalog::CatalogState;
+use crate::state::HostState;
 
 /// Streamed while a provider sign-in is running.
 pub const PI_LOGIN_EVENT: &str = "anvil://pi-login";
@@ -153,71 +154,17 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
-/// The pi shim this machine runs, from the catalogue's own discovery.
-fn pi_executable(state: &CatalogState) -> Result<PathBuf, String> {
-    state.with_service(|service| {
-        let snapshot = service.snapshot().map_err(|error| error.to_wire())?;
-        snapshot
-            .runtimes
-            .into_iter()
-            .find(|runtime| runtime.runtime_id == "pi" && runtime.status != "not_installed")
-            .map(|runtime| PathBuf::from(runtime.install_path))
-            .ok_or_else(|| "pi is not installed: install it from 设置 → 运行时 first".to_string())
-    })
-}
-
-/// Where `@earendil-works/pi-ai`'s provider bundle lives, given pi's shim.
+/// The pi this install runs.
 ///
-/// npm hoists as it likes, so both the nested and the flat layout are checked,
-/// from the shim's directory and from every parent (a `bin/pi` shim resolves to
-/// `<prefix>/lib/node_modules/...` only after the symlink is followed).
-fn locate_pi_ai(executable: &Path) -> Option<PathBuf> {
-    const TAIL: &str = "dist/providers/all.js";
-    let agents = "@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai";
-    let flat = "@earendil-works/pi-ai";
-
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Some(parent) = executable.parent() {
-        roots.push(parent.to_path_buf());
-    }
-    if let Ok(real) = std::fs::canonicalize(executable) {
-        if let Some(parent) = real.parent() {
-            roots.push(parent.to_path_buf());
-        }
-    }
-    // `parent` itself plus a few ancestors: `<prefix>/bin/pi` needs one hop,
-    // `<prefix>/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js`
-    // (the unix real path) needs four.
-    for root in roots.clone() {
-        let mut current = Some(root.as_path());
-        for _ in 0..6 {
-            let Some(dir) = current else { break };
-            for candidate in [
-                dir.join("node_modules").join(agents).join(TAIL),
-                dir.join("node_modules").join(flat).join(TAIL),
-                dir.join("node_modules").join("@earendil-works").join("pi-coding-agent/node_modules/@earendil-works/pi-ai").join(TAIL),
-            ] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-            current = dir.parent();
-        }
-    }
-    None
-}
-
-/// A Node able to run the helper, preferring one that ships with pi.
-fn node_executable(pi: &Path) -> Option<PathBuf> {
-    if let Some(dir) = pi.parent() {
-        for name in ["node.exe", "node"] {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    anvil_catalog::runtime::process::preferred_node().map(Path::to_path_buf)
+/// ADR 0009: the app carries its own runtime, so sign-in uses the bundled Node
+/// and pi-ai module. Reading the catalogue's row instead would let an external
+/// install on PATH become the sign-in path, and the credential would land in a
+/// directory the bundled runtime never reads.
+fn bundled_pi(
+    host: &HostState,
+) -> Result<std::sync::Arc<anvil_catalog::runtime::bundled::BundledPi>, String> {
+    host.pi()
+        .map_err(|error| format!("browser sign-in is unavailable because {error}"))
 }
 
 /// Write the helper next to the catalogue database and return its path.
@@ -400,6 +347,7 @@ pub async fn pi_provider_custom_remove(
 #[tauri::command]
 pub async fn pi_provider_login(
     app: AppHandle,
+    host: State<'_, HostState>,
     state: State<'_, CatalogState>,
     logins: State<'_, PiLoginState>,
     provider_id: String,
@@ -412,27 +360,33 @@ pub async fn pi_provider_login(
             spec.name
         ));
     }
-    let pi = pi_executable(&state)?;
-    let module = locate_pi_ai(&pi).ok_or_else(|| {
-        "cannot find pi's OAuth module on this machine: this install cannot sign in from the app, \
-         run `pi auth login` in a terminal instead"
-            .to_string()
-    })?;
-    let node = node_executable(&pi).ok_or_else(|| {
-        "no Node.js runtime found to drive the sign-in; install Node or run `pi auth login` in a \
-         terminal"
-            .to_string()
-    })?;
+    let bundle = bundled_pi(&host)?;
+    let module = bundle.pi_ai.clone();
+    if !module.is_file() {
+        return Err(format!(
+            "the bundled pi runtime is incomplete ({} is missing); reinstall Anvil",
+            module.display()
+        ));
+    }
+    let node = bundle.node.clone();
     let helper = helper_path(&state)?;
 
-    let mut child = Command::new(&node)
+    let mut command = Command::new(&node);
+    command
         .arg(&helper)
         .arg("--module")
         .arg(&module)
         .arg("--provider")
         .arg(&provider_id)
         .env("NO_COLOR", "1")
-        // A GUI process has no console; keep the helper from waiting on one.
+        // The helper writes nothing, but it imports pi-ai, which resolves its
+        // package from the module path it is given; `PI_CODING_AGENT_DIR` keeps
+        // any incidental pi read on the Anvil data root.
+        .env("PI_CODING_AGENT_DIR", &bundle.agent_dir)
+        .env_remove("NODE_PATH")
+        .env_remove("NODE_OPTIONS");
+    // A GUI process has no console; keep the helper from waiting on one.
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -742,39 +696,4 @@ mod tests {
         assert_eq!(event.options[1].description, None);
     }
 
-    #[test]
-    fn locating_pi_ai_finds_the_nested_module_beside_a_windows_shim() {
-        let root = std::env::temp_dir().join(format!(
-            "anvil-pi-ai-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        let nested = root.join(
-            "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers",
-        );
-        std::fs::create_dir_all(&nested).expect("dirs");
-        std::fs::write(nested.join("all.js"), "export function builtinProviders() {}").expect("file");
-        let shim = root.join("pi.cmd");
-        std::fs::write(&shim, "@ECHO off\n").expect("shim");
-
-        let found = locate_pi_ai(&shim).expect("module");
-        assert_eq!(found, nested.join("all.js"));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn locating_pi_ai_returns_nothing_for_an_install_without_the_module() {
-        let root = std::env::temp_dir().join(format!(
-            "anvil-pi-ai-missing-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("dirs");
-        let shim = root.join("pi");
-        std::fs::write(&shim, "#!/bin/sh\n").expect("shim");
-        assert!(locate_pi_ai(&shim).is_none());
-        let _ = std::fs::remove_dir_all(&root);
-    }
 }

@@ -119,8 +119,15 @@ fn tool_flags(tools: &[String]) -> Vec<String> {
 }
 
 /// Pi adapter.
+///
+/// Either a discovered executable ([`PiAdapter::new`], development and tests) or
+/// the runtime that ships inside the installer ([`PiAdapter::bundled`], ADR
+/// 0009). The bundled shape starts `node <cli>` with `PI_CODING_AGENT_DIR`
+/// pinned, which is what makes every turn read and write the Anvil data
+/// directory no matter what the user's shell or PATH says.
 pub struct PiAdapter {
     executable: Option<PathBuf>,
+    bundled: Option<anvil_catalog::runtime::bundled::BundledPi>,
     /// The pipe into each session's live RPC process, so a steer can reach the
     /// turn that is streaming right now. Keyed by the runtime's session id.
     live: Mutex<HashMap<String, LiveRun>>,
@@ -133,15 +140,63 @@ impl PiAdapter {
     pub fn new(executable: Option<PathBuf>) -> Self {
         Self {
             executable,
+            bundled: None,
             live: Mutex::new(HashMap::new()),
             uis: crate::ui::extension_uis(),
         }
     }
 
+    /// The adapter for the Pi this app carries.
+    ///
+    /// `executable` stays empty on purpose: the launch shape is `node <cli>`,
+    /// not one file, and a missing bundled runtime has to read as a bundled
+    /// error rather than as "pi was not found on PATH".
+    #[must_use]
+    pub fn bundled(bundle: anvil_catalog::runtime::bundled::BundledPi) -> Self {
+        Self {
+            executable: None,
+            bundled: Some(bundle),
+            live: Mutex::new(HashMap::new()),
+            uis: crate::ui::extension_uis(),
+        }
+    }
+
+    /// The bundled runtime, when this adapter drives one.
+    #[must_use]
+    pub fn bundle(&self) -> Option<&anvil_catalog::runtime::bundled::BundledPi> {
+        self.bundled.as_ref()
+    }
+
     fn executable(&self) -> Result<&PathBuf> {
+        if self.bundled.is_some() {
+            // A bundled adapter never resolves a file to execute; `command`
+            // builds the `node <cli>` pair instead.
+            return Err(Error::Failed(
+                "bug: the bundled pi has no single executable".into(),
+            ));
+        }
         self.executable.as_ref().ok_or_else(|| {
             Error::NotFound("pi executable not found on PATH (install pi or fix PATH)".into())
         })
+    }
+
+    /// Fail now if the bundled runtime cannot be started, so a misconfigured
+    /// install reads as a bundled error at open time rather than at the first
+    /// message.
+    fn check_runnable(&self) -> Result<()> {
+        match &self.bundled {
+            Some(bundle) => {
+                if !bundle.node.is_file() || !bundle.cli.is_file() {
+                    return Err(Error::NotFound(format!(
+                        "the bundled pi runtime is incomplete ({} or {} is missing); reinstall Anvil",
+                        bundle.node.display(),
+                        bundle.cli.display()
+                    )));
+                }
+                Ok(())
+            }
+            None => self.executable().map(|_| ()),
+        }
     }
 
     fn command(
@@ -151,7 +206,10 @@ impl PiAdapter {
         allow_tools: bool,
         tools: &[String],
     ) -> Result<Command> {
-        let executable = self.executable()?;
+        let mut command = match &self.bundled {
+            Some(bundle) => bundle.command(),
+            None => super::command_for(self.executable()?),
+        };
         // One directory per conversation. When the conversation is not bound to
         // a user project, its cwd already is `<state_dir>/<session-id>`, so the
         // pi transcript lives right there. A conversation bound to a real
@@ -164,7 +222,6 @@ impl PiAdapter {
         // `--session-dir` would land inside the user's project. Resolve it once.
         let session_dir = std::fs::canonicalize(&session_dir).unwrap_or(session_dir);
 
-        let mut command = super::command_for(executable);
         command
             .arg("--mode")
             .arg("rpc")
@@ -280,9 +337,9 @@ impl SessionAdapter for PiAdapter {
     }
 
     fn open(&self, context: &SessionContext, spec: &SessionSpec) -> Result<OpenedSession> {
-        // Resolve the executable now so a misconfigured host fails at open time,
-        // not at the first message.
-        self.executable()?;
+        // Resolve the launch shape now so a misconfigured host fails at open
+        // time, not at the first message.
+        self.check_runnable()?;
         let native_id = spec
             .native_id
             .clone()
@@ -2468,4 +2525,95 @@ mod tests {
         assert_eq!(outcome.estimated_tokens_after, Some(32000));
         assert!(outcome.usage.is_some());
     }
+    /// PIB02: the session runs the Pi this app carries.
+    ///
+    /// `node <cli>` with `PI_CODING_AGENT_DIR` pinned to the Anvil data root is
+    /// the whole contract; the rest of the argv is unchanged, which is what
+    /// keeps the RPC protocol and the tool flags working exactly as before.
+    #[test]
+    fn a_bundled_adapter_spawns_node_then_the_cli_with_the_data_root() {
+        let root = std::env::temp_dir().join(format!("anvil-pi-bundled-{}", std::process::id()));
+        let bundle = anvil_catalog::runtime::bundled::BundledPi {
+            root: root.clone(),
+            node: root.join("node/bin/node"),
+            cli: root.join("pi/dist/bundle/cli.js"),
+            pi_ai: root.join("pi/pi-ai/dist/providers/all.js"),
+            subagent_source: root.join("pi/examples/extensions/subagent"),
+            agent_dir: root.join("data"),
+            skill_root: root.join("data/skill"),
+            node_version: "24.16.0".to_string(),
+            pi_version: "1.6.0".to_string(),
+            target: "win-x64".to_string(),
+        };
+        let adapter = PiAdapter::bundled(bundle.clone());
+        let context = SessionContext {
+            state_dir: root.join("state"),
+            run_timeout: Some(Duration::from_secs(60)),
+        };
+        let command = adapter
+            .command(&context, &OpenedSession::default(), true, &[])
+            .expect("build command");
+
+        assert_eq!(command.get_program(), bundle.node.as_os_str());
+        let args: Vec<String> = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args[0], bundle.cli.to_string_lossy());
+        assert!(args.contains(&"--mode".to_string()));
+        assert!(args.contains(&"rpc".to_string()));
+
+        let agent_env = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("PI_CODING_AGENT_DIR"))
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+            .expect("PI_CODING_AGENT_DIR must be set for the child");
+        assert_eq!(std::path::Path::new(&agent_env), bundle.agent_dir);
+        for removed in ["NODE_PATH", "NODE_OPTIONS", "PI_PACKAGE_DIR"] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == std::ffi::OsStr::new(removed) && value.is_none()),
+                "{removed} must be cleared for the child"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A damaged install must read as a bundled error, not as "pi is missing on
+    /// PATH" — the second message sends the user to install something this build
+    /// will never run.
+    #[test]
+    fn opening_an_incomplete_bundle_names_the_bundled_files() {
+        let root = std::env::temp_dir().join(format!("anvil-pi-damaged-{}", std::process::id()));
+        let bundle = anvil_catalog::runtime::bundled::BundledPi {
+            root: root.clone(),
+            node: root.join("node/bin/node"),
+            cli: root.join("pi/dist/bundle/cli.js"),
+            pi_ai: root.join("pi/pi-ai/dist/providers/all.js"),
+            subagent_source: root.join("pi/examples/extensions/subagent"),
+            agent_dir: root.join("data"),
+            skill_root: root.join("data/skill"),
+            node_version: "24.16.0".to_string(),
+            pi_version: "1.6.0".to_string(),
+            target: "win-x64".to_string(),
+        };
+        let adapter = PiAdapter::bundled(bundle);
+        let context = SessionContext {
+            state_dir: root.join("state"),
+            run_timeout: None,
+        };
+        let error = adapter
+            .open(&context, &SessionSpec::default())
+            .expect_err("a bundle without files must not open");
+        let text = error.to_string();
+        assert!(text.contains("bundled pi runtime is incomplete"), "{text}");
+        assert!(text.contains("reinstall Anvil"), "{text}");
+        assert!(
+            !text.contains("PATH"),
+            "must not suggest installing pi from PATH: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
 }

@@ -118,6 +118,8 @@ pub enum InstallSource {
     Shim,
     /// Injected by a contract test, not a real installation.
     Injected,
+    /// Shipped inside this app's own install resources (ADR 0009).
+    Bundled,
 }
 
 impl InstallSource {
@@ -127,6 +129,7 @@ impl InstallSource {
             InstallSource::KnownDir => "known_dir",
             InstallSource::Shim => "shim",
             InstallSource::Injected => "injected",
+            InstallSource::Bundled => "bundled",
         }
     }
 
@@ -136,6 +139,7 @@ impl InstallSource {
             "known_dir" => InstallSource::KnownDir,
             "shim" => InstallSource::Shim,
             "injected" => InstallSource::Injected,
+            "bundled" => InstallSource::Bundled,
             _ => return None,
         })
     }

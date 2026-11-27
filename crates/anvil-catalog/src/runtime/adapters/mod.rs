@@ -28,6 +28,7 @@ pub mod pi;
 use std::sync::Arc;
 
 use crate::error::Result;
+use crate::runtime::adapter::RuntimeAdapter;
 use crate::runtime::registry::Registry;
 
 /// Runtimes whose adapter ships in this build but is not registered.
@@ -38,9 +39,22 @@ use crate::runtime::registry::Registry;
 pub const PARKED: [&str; 3] = ["codex", "claude", "opencode"];
 
 /// Registry with the adapters this build actually drives.
+///
+/// The pi adapter here discovers an installation on the machine. The desktop
+/// host uses [`default_registry_with_pi`] to hand in the bundled runtime
+/// instead (ADR 0009).
 pub fn default_registry() -> Result<Registry> {
+    default_registry_with_pi(Arc::new(pi::PiAdapter::system()))
+}
+
+/// Same registry, with the pi adapter supplied by the caller.
+///
+/// The host builds it around the runtime that ships in the installer; tests
+/// build it around a stub or a scratch bundle. Nothing else in the registry
+/// changes.
+pub fn default_registry_with_pi(pi: Arc<dyn RuntimeAdapter>) -> Result<Registry> {
     let mut registry = Registry::new();
-    registry.register(Arc::new(pi::PiAdapter))?;
+    registry.register(pi)?;
     // Parked on purpose (see the module docs). Re-enabling one is this line:
     //
     //     registry.register(Arc::new(codex::CodexAdapter))?;

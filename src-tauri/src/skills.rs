@@ -18,7 +18,15 @@ use tauri::State;
 use crate::catalog::CatalogState;
 
 /// The directory the pi runtime reads.
+///
+/// With the bundled runtime that is `<dataDir>/skill` (ADR 0009); a development
+/// host falls back to the adapter's own rule for an external install. The same
+/// function the catalogue scans with, so a created skill is discovered without
+/// any bookkeeping.
 fn skills_root() -> PathBuf {
+    if let Some(root) = anvil_catalog::runtime::bundled::skill_root() {
+        return root;
+    }
     let home = anvil_catalog::runtime::adapters::common::home();
     anvil_catalog::runtime::adapters::pi::skills_root(&home)
 }
@@ -59,8 +67,22 @@ fn unique_dir(root: &Path, base: &str) -> PathBuf {
     candidate
 }
 
+/// Make sure pi is told about the skill root before the page rescans.
+///
+/// A skill written into a directory pi does not load would show up in the
+/// catalogue and never reach a conversation. Startup registers the root too;
+/// this covers the case where the user removed the entry (or the file) since.
+fn register_root() {
+    if let Some(bundle) = anvil_catalog::runtime::bundled::active()
+        && let Err(error) = anvil_catalog::runtime::bundled::ensure_skill_root(&bundle)
+    {
+        eprintln!("[skills] could not register the skill root: {error}");
+    }
+}
+
 /// Rescan just the skill inventory so the page reflects the disk now.
 fn rescan(state: &State<'_, CatalogState>) -> Result<(), String> {
+    register_root();
     state.with_service(|service| {
         service
             .sync_inventory()

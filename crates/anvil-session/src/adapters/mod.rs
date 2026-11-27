@@ -20,8 +20,17 @@ use crate::adapter::Registry;
 /// installed" for a build that is simply misconfigured.
 #[must_use]
 pub fn default_registry() -> Registry {
+    default_registry_with_pi(std::sync::Arc::new(pi::PiAdapter::new(locate("pi"))))
+}
+
+/// Same registry, with the pi adapter supplied by the caller.
+///
+/// The desktop host builds it around the runtime that ships in the installer
+/// (ADR 0009); tests build it around a stub or a scratch bundle.
+#[must_use]
+pub fn default_registry_with_pi(pi: std::sync::Arc<dyn crate::adapter::SessionAdapter>) -> Registry {
     let mut registry = Registry::new();
-    let _ = registry.register(std::sync::Arc::new(pi::PiAdapter::new(locate("pi"))));
+    let _ = registry.register(pi);
     let _ = registry.register(std::sync::Arc::new(codex::CodexAdapter::new(locate(
         "codex",
     ))));

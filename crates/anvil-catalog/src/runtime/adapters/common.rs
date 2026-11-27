@@ -244,15 +244,31 @@ impl VersionProbe {
 /// Run `--version` and return what it said.
 pub fn version_probe(executable: &Path, timeout: Duration) -> Result<VersionProbe> {
     let output = process::run_with_env(executable, &["--version"], timeout, &node_env())?;
+    Ok(probe_from_output(output))
+}
+
+/// Same, for a command the caller already built.
+///
+/// The bundled runtime is `node <cli>`, not one executable, so its version probe
+/// has to use the same prepared command a session would (ADR 0009).
+pub fn version_probe_prepared(
+    command: std::process::Command,
+    timeout: Duration,
+) -> Result<VersionProbe> {
+    let output = process::run_prepared(command, "bundled pi --version", timeout, |_| {})?;
+    Ok(probe_from_output(output))
+}
+
+fn probe_from_output(output: process::CommandOutput) -> VersionProbe {
     let text = output.text();
     let first_line = text.lines().next().unwrap_or("").trim().to_string();
-    Ok(VersionProbe {
+    VersionProbe {
         version: Version::find(&text),
         first_line,
         elapsed_ms: output.elapsed_ms,
         exit: output.code,
         timed_out: output.timed_out,
-    })
+    }
 }
 
 /// Whether a JSON object at `path` has at least one key (an auth store).

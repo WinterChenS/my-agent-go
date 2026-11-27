@@ -28,6 +28,7 @@ pub mod catalog;
 pub mod commands;
 pub mod browser;
 pub mod bridge;
+pub mod bundled;
 pub mod connectors;
 pub mod desktop;
 pub mod extensions;

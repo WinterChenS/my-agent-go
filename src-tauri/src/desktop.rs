@@ -48,23 +48,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "catalog: database {}",
         catalog.database().display()
     ));
-    // A sub agent saved by an older build has a row and no file, so pi has never
-    // been able to delegate to it. Reconcile once at startup instead of waiting
-    // for the user to press 保存 again.
-    match catalog.with_service(|service| service.snapshot().map_err(|error| error.to_wire())) {
-        Ok(snapshot) => {
-            let report = crate::subagents::sync_agents(&snapshot.agents);
-            if !report.is_noop() {
-                config.log.info(&crate::subagents::summary(
-                    crate::subagents::agents_dir(),
-                    &report,
-                ));
-            }
-        }
-        Err(error) => config
-            .log
-            .info(&format!("subagents: not synced at startup: {error}")),
-    }
     let session = SessionState::new(
         config.data_dir.join("sessions.sqlite"),
         config.data_dir.join("workspace"),
@@ -188,6 +171,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .setup(|app| {
             create_main_window(app)?;
+            start_bundled_runtime(app);
             // A provider sign-in waits on a browser, not on the window. Closing
             // the window must not leave its Node process (and a session with no
             // page to answer it) behind.
@@ -274,4 +258,80 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     Ok(())
+}
+
+/// Load the Pi runtime this install carries and publish it (ADR 0009).
+///
+/// Runs before any page can ask for a snapshot, and before the sub-agent files
+/// are reconciled: both of those resolve pi's directories, and for a bundled
+/// install those are the Anvil data directory, not `~/.pi`.
+///
+/// A failure is reported, never fatal. An install whose resources are damaged
+/// still has to open far enough to say "reinstall Anvil" — and the surfaces
+/// that need pi (probe, chat, sign-in) get the same message from
+/// [`HostState::pi`].
+fn start_bundled_runtime(app: &tauri::App) {
+    let handle = app.handle().clone();
+    let host = app.state::<HostState>();
+    let data_dir = host.config.data_dir.clone();
+    let result = crate::bundled::load(&handle, &data_dir);
+    host.set_pi(&result);
+    match &result {
+        Ok(bundle) => {
+            host.config.log.info(&format!(
+                "pi: bundled {} (node {}) at {}",
+                bundle.pi_version,
+                bundle.node_version,
+                bundle.root.display()
+            ));
+            host.config.log.info(&format!(
+                "pi: agent_dir={} skill_root={}",
+                bundle.agent_dir.display(),
+                bundle.skill_root.display()
+            ));
+            app.state::<CatalogState>().set_pi(bundle);
+            app.state::<SessionState>().set_pi(bundle);
+            // Pi only loads skill directories its own settings list. Registering
+            // ours here keeps "the skills page wrote a folder" and "pi loads that
+            // folder" the same statement. Idempotent, so a second launch is a
+            // no-op; a settings file Anvil cannot parse is reported, not fixed.
+            match anvil_catalog::runtime::bundled::ensure_skill_root(bundle) {
+                Ok(true) => host.config.log.info(&format!(
+                    "pi: registered skill root {}",
+                    bundle.skill_root.display()
+                )),
+                Ok(false) => {}
+                Err(error) => host
+                    .config
+                    .log
+                    .info(&format!("pi: skill root not registered: {error}")),
+            }
+        }
+        Err(error) => {
+            host.config.log.info(&format!(
+                "pi: bundled runtime unavailable at {}: {error}",
+                crate::bundled::describe_location(&handle)
+            ));
+        }
+    }
+
+    // A sub agent saved by an older build has a row and no file, so pi has never
+    // been able to delegate to it. Reconcile once at startup instead of waiting
+    // for the user to press 保存 again.
+    let catalog = app.state::<CatalogState>();
+    match catalog.with_service(|service| service.snapshot().map_err(|error| error.to_wire())) {
+        Ok(snapshot) => {
+            let report = crate::subagents::sync_agents(&snapshot.agents);
+            if !report.is_noop() {
+                host.config.log.info(&crate::subagents::summary(
+                    crate::subagents::agents_dir(),
+                    &report,
+                ));
+            }
+        }
+        Err(error) => host
+            .config
+            .log
+            .info(&format!("subagents: not synced at startup: {error}")),
+    }
 }

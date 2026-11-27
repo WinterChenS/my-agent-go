@@ -620,12 +620,19 @@ pub struct ProviderSnapshot {
     pub warnings: Vec<String>,
 }
 
-/// Pi's agent directory, honouring `PI_CODING_AGENT_DIR`.
+/// Pi's agent directory.
+///
+/// Precedence is the one the host applies at startup: the bundled runtime wins
+/// (ADR 0009 — its `PI_CODING_AGENT_DIR` is the Anvil data directory), then an
+/// explicit `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 pub fn config_dir(home: &Path) -> PathBuf {
-    if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+    if let Some(bundle) = crate::runtime::bundled::active() {
+        return bundle.agent_dir.clone();
+    }
+    if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
     }
     home.join(".pi").join("agent")
 }
@@ -1057,8 +1064,18 @@ pub fn remove_custom_provider(home: &Path, provider_id: &str) -> Result<bool> {
 
 /// Which providers pi would report as signed in, for callers that only need
 /// the set of ids (the runtime status probe).
+///
+/// `home` is the *user* home; which agent directory that maps to is decided by
+/// [`config_dir`]. A caller that already knows the agent directory (the bundled
+/// runtime) uses [`signed_in_at`] so it cannot read a different store than the
+/// pi it is about to start.
 pub fn signed_in(home: &Path) -> Vec<String> {
-    let mut ids: Vec<String> = read_object(&auth_file(home), 1 << 20)
+    signed_in_at(&config_dir(home))
+}
+
+/// Same question, asked of one agent directory.
+pub fn signed_in_at(agent_dir: &Path) -> Vec<String> {
+    let mut ids: Vec<String> = read_object(&agent_dir.join("auth.json"), 1 << 20)
         .unwrap_or_default()
         .into_iter()
         .filter(|(_, value)| {
@@ -1069,7 +1086,7 @@ pub fn signed_in(home: &Path) -> Vec<String> {
         })
         .map(|(id, _)| id)
         .collect();
-    let configured = read_object(&models_file(home), 8 << 20).unwrap_or_default();
+    let configured = read_object(&agent_dir.join("models.json"), 8 << 20).unwrap_or_default();
     if let Some(providers) = configured.get("providers").and_then(Value::as_object) {
         for (id, entry) in providers {
             let has_key = entry

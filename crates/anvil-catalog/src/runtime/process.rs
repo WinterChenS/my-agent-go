@@ -134,7 +134,7 @@ pub fn run_streaming<F>(
     args: &[&str],
     timeout: Duration,
     env: &[(String, String)],
-    mut on_line: F,
+    on_line: F,
 ) -> Result<CommandOutput>
 where
     F: FnMut(&str),
@@ -146,20 +146,41 @@ where
         )));
     }
     let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.args(args);
     for (key, value) in env {
         command.env(key, value);
     }
+    run_prepared(command, &program.display().to_string(), timeout, on_line)
+}
+
+/// Run a `Command` that has already been built, killing it at `timeout`.
+///
+/// The pipes and the console suppression are set here rather than by the caller:
+/// a prepared command carries *what* to run (the bundled `node cli` and its
+/// environment), and this function owns *how* a runtime is watched.
+///
+/// Used for installs, where a silent ten-minute wait reads as a hang. The
+/// callback runs on the calling thread, so emitting a Tauri event from it is
+/// safe; the pipe readers only move lines through a channel.
+pub fn run_prepared<F>(
+    mut command: Command,
+    label: &str,
+    timeout: Duration,
+    mut on_line: F,
+) -> Result<CommandOutput>
+where
+    F: FnMut(&str),
+{
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     hide_console(&mut command);
 
     let started = Instant::now();
     let mut child = command
         .spawn()
-        .map_err(|error| Error::Io(format!("spawn {}: {error}", program.display())))?;
+        .map_err(|error| Error::Io(format!("spawn {label}: {error}")))?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -193,7 +214,7 @@ where
             Ok(None) => {}
             Err(error) => {
                 let _ = child.kill();
-                return Err(Error::Io(format!("wait {}: {error}", program.display())));
+                return Err(Error::Io(format!("wait {label}: {error}")));
             }
         }
         if started.elapsed() >= timeout {
