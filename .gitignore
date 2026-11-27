@@ -11,6 +11,10 @@ node_modules/
 frontend/dist/
 *.tsbuildinfo
 
+# 包内 Pi 运行时（PIB01）：由 `anvil-devtools bundle-pi` 按目标架构生成，不进版本库。
+# 依赖输入在 src-tauri/runtime-pi/（package.json + package-lock.json），产物由 CI 复现。
+/src-tauri/bundle-runtime/
+
 # Tauri build-generated ACL schemas (recreated by tauri-build on every build)
 /src-tauri/gen/
 

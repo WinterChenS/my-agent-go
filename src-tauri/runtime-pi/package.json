@@ -1,0 +1,13 @@
+{
+  "name": "anvil-runtime-pi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dependency input for the Pi runtime Anvil ships inside its installers",
+  "license": "MIT",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.6.0"
+  },
+  "engines": {
+    "node": "24.16.0"
+  }
+}

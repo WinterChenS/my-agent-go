@@ -8,6 +8,7 @@
 //! The binary is built by `scripts/devtools.ps1`, which passes the exit code
 //! through unchanged. Never wrap it in something that normalizes exit codes.
 
+pub mod bundle_pi;
 pub mod evidence;
 pub mod gate;
 pub mod hash;
@@ -38,6 +39,8 @@ const USAGE: &str = "usage:
   anvil-devtools absent --path=<file> --text=<needle>
   anvil-devtools registry --get | --set=<0|1>
   anvil-devtools key --title=<window title> --combo=alt+left
+  anvil-devtools bundle-pi --target=<win-x64|win-arm64|mac-x64|mac-arm64|linux-x64|linux-arm64>
+                           [--out=<dir>] [--cache=<dir>] [--node-archive=<file>] [--check-only]
 ";
 
 /// Parse `args` (without the program name) and return the process exit code.
@@ -55,6 +58,7 @@ pub fn run(args: &[String]) -> i32 {
         "absent" => run_absent(&args[1..]),
         "registry" => run_registry(&args[1..]),
         "key" => run_key(&args[1..]),
+        "bundle-pi" => bundle_pi::run(&args[1..]),
         "version" => {
             println!("anvil-devtools (Anvil rebuild, Rust)");
             gate::EXIT_PASS

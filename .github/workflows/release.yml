@@ -68,18 +68,22 @@ jobs:
         include:
           - name: windows-x64
             platform: windows-latest
+            pi_target: win-x64
             bundles: msi,nsis
             args: ""
           - name: macos-arm64
             platform: macos-latest
+            pi_target: mac-arm64
             bundles: dmg,app
             args: --target aarch64-apple-darwin
           - name: macos-x64
             platform: macos-latest
+            pi_target: mac-x64
             bundles: dmg,app
             args: --target x86_64-apple-darwin
           - name: linux-x64
             platform: ubuntu-22.04
+            pi_target: linux-x64
             bundles: deb,appimage,rpm
             args: ""
     steps:
@@ -118,6 +122,25 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      # ADR 0009: the installer carries Pi and the Node that runs it. Staging
+      # happens before the Tauri build because `bundle.resources` maps this
+      # directory into the install. A wrong-architecture Node, a missing CLI or
+      # a missing sub-agent example fails here, which stops this platform
+      # instead of publishing an installer that can be installed but never run.
+      - name: Build the bundling tool
+        run: cargo build --locked -p anvil-devtools
+
+      - name: Stage the bundled Pi runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=target/debug/anvil-devtools
+          if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
+          "$bin" bundle-pi --target=${{ matrix.pi_target }}
+          # Re-read what was just written: the release publishes this tree, and
+          # a tree that fails its own manifest check must not reach an installer.
+          "$bin" bundle-pi --target=${{ matrix.pi_target }} --check-only
+
       - name: Build platform installers
         uses: tauri-apps/tauri-action@v1
         env:
@@ -152,7 +175,9 @@ jobs:
           # file before merging, so a job that lost a race adds its platform to
           # the winner's list instead of replacing it.
           retryAttempts: 3
-          args: --bundles ${{ matrix.bundles }} ${{ matrix.args }}
+          # The Pi runtime mapping lives in an overlay config so a clean
+          # checkout can still run `cargo test` without the staged tree.
+          args: --config tauri.bundle.conf.json --bundles ${{ matrix.bundles }} ${{ matrix.args }}
           uploadUpdaterJson: true
           # NSIS (setup.exe) is the bundle the updater installs in place on
           # Windows; the WiX msi is still published for manual installs.
