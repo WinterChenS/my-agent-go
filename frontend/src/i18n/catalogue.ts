@@ -3716,7 +3716,7 @@ const catalogEn: Record<keyof typeof catalogZh, string> = {
   'catalog.status.versionUnsupported': 'Unsupported version',
   'catalog.status.unauthenticated': 'Not signed in',
   'catalog.status.unauthenticatedHint':
-    'This runtime is not signed in: sign in from 设置 → 模型, then press refresh; for a gateway of your own, put its key in a provider in models.json under the Anvil data root.',
+    'This runtime is not signed in: sign in from Settings → Models, then press refresh; for a gateway of your own, put its key in a provider in models.json under the Anvil data root.',
   'catalog.status.probeFailedHint': 'The runtime was found but would not start: usually Node missing from PATH, or a launcher pinned to a Node that no longer exists. Reinstall rewrites the launcher and, if needed, prepares Node first.',
   'catalog.status.probeFailed': 'Probe failed',
   'catalog.status.adapterFailed': 'Adapter failed',
